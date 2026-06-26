@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   TEEIN' IT UP — GLOBAL STYLES
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@layer base {
+  /* Smooth scroll for anchors */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Remove default tap highlight on mobile */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Better text rendering */
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer components {
+  /* Safe area padding for notched phones */
+  .safe-top    { padding-top:    env(safe-area-inset-top); }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  .safe-left   { padding-left:   env(safe-area-inset-left); }
+  .safe-right  { padding-right:  env(safe-area-inset-right); }
+}
