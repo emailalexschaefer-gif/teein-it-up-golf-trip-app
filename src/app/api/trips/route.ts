@@ -22,9 +22,6 @@ const CreateTripSchema = z.object({
   rounds:      z.array(RoundSchema).min(1).max(10),
 })
 
-// Explicit row type — prevents TypeScript inferring `never` through the async boundary.
-type CreatedTripRow = { id: string; invite_code: string }
-
 export async function POST(request: Request) {
   // ── Auth ──────────────────────────────────────────────────────────────────
   const supabase = await createClient()
@@ -54,7 +51,7 @@ export async function POST(request: Request) {
   const admin = createAdminClient()
 
   // 1. Create trip
-  const { data: trip, error: tripError } = await admin
+  const tripResult = await admin
     .from('trips')
     .insert({
       organiser_id: user.id,
@@ -67,12 +64,14 @@ export async function POST(request: Request) {
       status: 'draft',
     })
     .select('id, invite_code')
-    .single() as { data: CreatedTripRow | null; error: unknown }
+    .single()
 
-  if (tripError || !trip) {
-    console.error('[POST /api/trips] trip:', tripError)
+  if (tripResult.error || !tripResult.data) {
+    console.error('[POST /api/trips] trip:', tripResult.error)
     return NextResponse.json({ error: 'Failed to create trip' }, { status: 500 })
   }
+
+  const trip = tripResult.data
 
   // 2. Organiser membership
   const { error: memberError } = await admin
@@ -97,7 +96,7 @@ export async function POST(request: Request) {
         tee_time:       r.tee_time   || null,
         holes:          r.holes,
         scoring_format: r.scoring_format,
-        status:         'upcoming' as const,
+        status:         'upcoming',
       })))
 
     if (roundsError) {

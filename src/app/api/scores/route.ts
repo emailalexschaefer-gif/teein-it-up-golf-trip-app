@@ -11,12 +11,6 @@ const ScoreSchema = z.object({
   entered_at:   z.string().datetime().optional(),
 })
 
-// Explicit row types — prevents TypeScript inferring `never` through the async boundary.
-type ScorecardRow  = { id: string; player_id: string; status: string; round_id: string }
-type RoundRow      = { id: string; status: string; trip_id: string }
-type MembershipRow = { role: string }
-type HoleRow       = { id: string }
-
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -37,46 +31,58 @@ export async function POST(request: Request) {
   const { scorecard_id, hole_id, gross_score, is_no_return, client_id, entered_at } = parsed.data
 
   // Verify scorecard ownership
-  const { data: scorecard } = await supabase
+  const scorecardResult = await supabase
     .from('scorecards')
     .select('id, player_id, status, round_id')
     .eq('id', scorecard_id)
-    .single() as { data: ScorecardRow | null; error: unknown }
+    .single()
 
-  if (!scorecard) return NextResponse.json({ error: 'Scorecard not found' }, { status: 422 })
-  if (scorecard.player_id !== user.id) return NextResponse.json({ error: 'Not your scorecard' }, { status: 403 })
-  if (scorecard.status !== 'active') return NextResponse.json({ error: 'Scorecard not active' }, { status: 422 })
+  if (!scorecardResult.data) {
+    return NextResponse.json({ error: 'Scorecard not found' }, { status: 422 })
+  }
+  const scorecard = scorecardResult.data
+  if (scorecard.player_id !== user.id) {
+    return NextResponse.json({ error: 'Not your scorecard' }, { status: 403 })
+  }
+  if (scorecard.status !== 'active') {
+    return NextResponse.json({ error: 'Scorecard not active' }, { status: 422 })
+  }
 
   // Verify round is active
-  const { data: round } = await supabase
+  const roundResult = await supabase
     .from('rounds')
     .select('id, status, trip_id')
     .eq('id', scorecard.round_id)
-    .single() as { data: RoundRow | null; error: unknown }
+    .single()
 
-  if (!round || round.status !== 'active') {
+  if (!roundResult.data || roundResult.data.status !== 'active') {
     return NextResponse.json({ error: 'Round is not active' }, { status: 422 })
   }
+  const round = roundResult.data
 
   // Verify trip membership
-  const { data: membership } = await supabase
+  const memberResult = await supabase
     .from('trip_members')
     .select('role')
     .eq('trip_id', round.trip_id)
     .eq('profile_id', user.id)
-    .single() as { data: MembershipRow | null; error: unknown }
+    .maybeSingle()
 
-  if (!membership) return NextResponse.json({ error: 'Not a trip member' }, { status: 403 })
+  if (!memberResult.data) {
+    return NextResponse.json({ error: 'Not a trip member' }, { status: 403 })
+  }
 
   // Verify hole belongs to round
-  const { data: hole } = await supabase
+  const holeResult = await supabase
     .from('holes')
     .select('id')
     .eq('id', hole_id)
     .eq('round_id', scorecard.round_id)
-    .single() as { data: HoleRow | null; error: unknown }
+    .maybeSingle()
 
-  if (!hole) return NextResponse.json({ error: 'Hole not found in this round' }, { status: 422 })
+  if (!holeResult.data) {
+    return NextResponse.json({ error: 'Hole not found in this round' }, { status: 422 })
+  }
 
   // Upsert — idempotent on client_id
   const { data: entry, error: insertError } = await supabase
@@ -91,10 +97,10 @@ export async function POST(request: Request) {
       { onConflict: 'client_id' }
     )
     .select()
-    .single() as { data: Record<string, unknown> | null; error: { code?: string } | null }
+    .single()
 
   if (insertError) {
-    if (insertError.code === '23505') {
+    if ((insertError as { code?: string }).code === '23505') {
       return NextResponse.json({ message: 'Already recorded', conflict: true }, { status: 409 })
     }
     return NextResponse.json({ error: 'Failed to save score' }, { status: 500 })

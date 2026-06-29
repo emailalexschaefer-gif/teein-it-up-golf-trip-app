@@ -24,12 +24,12 @@ export default function JoinPage() {
       .from('trips')
       .select('name, status')
       .eq('invite_code', inviteCode)
-      .single()
-      .then(({ data, error: queryError }: { data: { name: string; status: string } | null; error: unknown }) => {
-        if (queryError || !data || data.status === 'archived') {
+      .maybeSingle()
+      .then((result) => {
+        if (!result.data || result.data.status === 'archived') {
           setStep('invalid')
         } else {
-          setTripName(data.name)
+          setTripName(result.data.name)
         }
       })
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -88,29 +88,19 @@ export default function JoinPage() {
       <form onSubmit={handleJoin} className="space-y-3">
         <div>
           <label className="block text-sm font-medium text-text mb-1">Your name<span className="text-red-500 ml-0.5">*</span></label>
-          <input
-            type="text" required autoComplete="name" value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="James Smith"
-            className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600"
-          />
+          <input type="text" required autoComplete="name" value={name}
+            onChange={(e) => setName(e.target.value)} placeholder="James Smith"
+            className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
         </div>
         <div>
           <label className="block text-sm font-medium text-text mb-1">Email<span className="text-red-500 ml-0.5">*</span></label>
-          <input
-            type="email" required autoComplete="email" value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600"
-          />
+          <input type="email" required autoComplete="email" value={email}
+            onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com"
+            className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
         </div>
-
         {error && <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
-
-        <button
-          type="submit" disabled={loading || !tripName}
-          className="w-full bg-brand-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-brand-700 transition-colors disabled:opacity-50"
-        >
+        <button type="submit" disabled={loading || !tripName}
+          className="w-full bg-brand-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-brand-700 transition-colors disabled:opacity-50">
           {loading ? 'Joining…' : 'Join trip'}
         </button>
       </form>

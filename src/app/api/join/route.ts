@@ -7,11 +7,6 @@ const JoinSchema = z.object({
   invite_code: z.string().min(1).max(20),
 })
 
-// Explicit row types for every query result — prevents TypeScript inferring `never`
-// when the Database generic is lost across the async function boundary.
-type TripRow     = { id: string; name: string; status: string }
-type ExistingRow = { id: string }
-
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -33,29 +28,31 @@ export async function POST(request: Request) {
   const admin = createAdminClient()
 
   // Look up trip by invite code
-  const { data: trip, error: tripError } = await admin
+  const tripResult = await admin
     .from('trips')
     .select('id, name, status')
     .eq('invite_code', invite_code.toUpperCase())
-    .single() as { data: TripRow | null; error: unknown }
+    .single()
 
-  if (tripError || !trip) {
+  if (tripResult.error || !tripResult.data) {
     return NextResponse.json({ error: 'Invite link not found' }, { status: 404 })
   }
+
+  const trip = tripResult.data
 
   if (trip.status === 'archived') {
     return NextResponse.json({ error: 'This trip is no longer accepting members' }, { status: 410 })
   }
 
   // Already a member — idempotent
-  const { data: existing } = await admin
+  const existingResult = await admin
     .from('trip_members')
     .select('id')
     .eq('trip_id', trip.id)
     .eq('profile_id', user.id)
-    .single() as { data: ExistingRow | null; error: unknown }
+    .maybeSingle()
 
-  if (existing) {
+  if (existingResult.data) {
     return NextResponse.json({ tripId: trip.id, tripName: trip.name, alreadyMember: true })
   }
 
