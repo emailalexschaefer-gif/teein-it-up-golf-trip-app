@@ -1,9 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// Supabase browser client
-// Use this in Client Components and hooks.
-// Creates a singleton to avoid multiple GoTrue instances.
-// ─────────────────────────────────────────────────────────────────────────────
-
 import { createBrowserClient } from '@supabase/ssr'
 import type { Database } from '@/types/database'
 

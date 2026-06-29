@@ -2,7 +2,7 @@
 
 import { useMyTrips } from '@/lib/queries/trips'
 import TripCard from './TripCard'
-import EmptyTrips from './EmptyTrips'
+import type { TripSummary } from '@/types/app'
 
 export default function TripList() {
   const { data: trips, isLoading, error } = useMyTrips()
@@ -11,7 +11,7 @@ export default function TripList() {
     return (
       <div className="space-y-3">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-28 rounded-2xl bg-surface-subtle animate-pulse" />
+          <div key={i} className="h-24 rounded-2xl bg-surface-subtle animate-pulse" />
         ))}
       </div>
     )
@@ -20,69 +20,55 @@ export default function TripList() {
   if (error) {
     return (
       <div className="rounded-2xl bg-red-50 border border-red-100 p-6 text-center">
-        <p className="text-sm text-red-600">
-          Couldn&apos;t load your trips. Check your connection and try again.
-        </p>
+        <p className="text-sm text-red-600">Couldn&apos;t load trips. Check your connection and try again.</p>
       </div>
     )
   }
 
   if (!trips || trips.length === 0) {
-    return <EmptyTrips />
+    return (
+      <div className="text-center py-16">
+        <p className="text-5xl mb-4">⛳</p>
+        <h2 className="text-lg font-bold text-text mb-2">No trips yet</h2>
+        <p className="text-text-muted text-sm mb-6 max-w-xs mx-auto">
+          Create your first golf trip and invite your group.
+        </p>
+        <a
+          href="/trips/new"
+          className="inline-block bg-brand-600 text-white text-sm font-semibold px-6 py-3 rounded-xl hover:bg-brand-700 transition-colors"
+        >
+          Create a trip
+        </a>
+      </div>
+    )
   }
 
-  // Group: Live first, then upcoming, then past
   const live      = trips.filter((t) => t.status === 'live')
-  const active    = trips.filter((t) => ['open', 'ready'].includes(t.status))
-  const draft     = trips.filter((t) => t.status === 'draft')
+  const upcoming  = trips.filter((t) => ['open', 'ready'].includes(t.status))
+  const drafts    = trips.filter((t) => t.status === 'draft')
   const completed = trips.filter((t) => t.status === 'completed')
 
   return (
     <div className="space-y-6">
-      {live.length > 0 && (
-        <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-status-live mb-3 flex items-center gap-1.5">
-            <span className="inline-block w-2 h-2 rounded-full bg-status-live animate-pulse" />
-            Live now
-          </h2>
-          <div className="space-y-3">
-            {live.map((trip) => <TripCard key={trip.id} trip={trip} />)}
-          </div>
-        </section>
-      )}
-
-      {active.length > 0 && (
-        <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
-            Upcoming
-          </h2>
-          <div className="space-y-3">
-            {active.map((trip) => <TripCard key={trip.id} trip={trip} />)}
-          </div>
-        </section>
-      )}
-
-      {draft.length > 0 && (
-        <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
-            Drafts
-          </h2>
-          <div className="space-y-3">
-            {draft.map((trip) => <TripCard key={trip.id} trip={trip} />)}
-          </div>
-        </section>
-      )}
-
-      {completed.length > 0 && (
-        <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
-            Completed
-          </h2>
-          <div className="space-y-3">
-            {completed.map((trip) => <TripCard key={trip.id} trip={trip} />)}
-          </div>
-        </section>
-      )}
+      <TripGroup label="Live now" trips={live} indicator />
+      <TripGroup label="Upcoming" trips={upcoming} />
+      <TripGroup label="Drafts"   trips={drafts} />
+      <TripGroup label="Completed" trips={completed} />
     </div>
+  )
+}
+
+function TripGroup({ label, trips, indicator }: { label: string; trips: TripSummary[]; indicator?: boolean }) {
+  if (trips.length === 0) return null
+  return (
+    <section>
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3 flex items-center gap-1.5">
+        {indicator && <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />}
+        {label}
+      </h2>
+      <div className="space-y-3">
+        {trips.map((trip) => <TripCard key={trip.id} trip={trip} />)}
+      </div>
+    </section>
   )
 }

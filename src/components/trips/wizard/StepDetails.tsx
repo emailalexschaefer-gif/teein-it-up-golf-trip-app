@@ -4,31 +4,19 @@ import { Field, Input, Select, Textarea } from '@/components/ui/FormFields'
 import Button from '@/components/ui/Button'
 import { EVENT_TYPE_OPTIONS, type WizardTripDetails } from '@/types/app'
 
-interface StepDetailsProps {
+interface Props {
   data: WizardTripDetails
   onChange: (data: WizardTripDetails) => void
   onNext: () => void
 }
 
-export default function StepDetails({ data, onChange, onNext }: StepDetailsProps) {
-  const errors: Partial<Record<keyof WizardTripDetails, string>> = {}
-
-  function set<K extends keyof WizardTripDetails>(key: K, value: WizardTripDetails[K]) {
-    onChange({ ...data, [key]: value })
+export default function StepDetails({ data, onChange, onNext }: Props) {
+  function set<K extends keyof WizardTripDetails>(k: K, v: WizardTripDetails[K]) {
+    onChange({ ...data, [k]: v })
   }
 
-  function validate(): boolean {
-    if (!data.name.trim()) return false
-    if (!data.start_date) return false
-    if (!data.end_date) return false
-    if (data.end_date < data.start_date) return false
-    return true
-  }
-
-  function handleNext() {
-    if (!validate()) return
-    onNext()
-  }
+  const dateError = data.start_date && data.end_date && data.end_date < data.start_date
+  const valid = !!data.name.trim() && !!data.start_date && !!data.end_date && !dateError
 
   return (
     <div className="space-y-4">
@@ -38,7 +26,6 @@ export default function StepDetails({ data, onChange, onNext }: StepDetailsProps
           onChange={(e) => set('name', e.target.value)}
           placeholder="The Lads' Annual Masters"
           maxLength={100}
-          error={!data.name.trim() && data.name !== ''}
         />
       </Field>
 
@@ -47,10 +34,8 @@ export default function StepDetails({ data, onChange, onNext }: StepDetailsProps
           value={data.event_type}
           onChange={(e) => set('event_type', e.target.value as WizardTripDetails['event_type'])}
         >
-          {EVENT_TYPE_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
+          {EVENT_TYPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </Select>
       </Field>
@@ -66,43 +51,25 @@ export default function StepDetails({ data, onChange, onNext }: StepDetailsProps
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Start date" required>
-          <Input
-            type="date"
-            value={data.start_date}
-            onChange={(e) => set('start_date', e.target.value)}
-            error={!!data.start_date && !!data.end_date && data.end_date < data.start_date}
-          />
+          <Input type="date" value={data.start_date} onChange={(e) => set('start_date', e.target.value)} error={!!dateError} />
         </Field>
         <Field label="End date" required>
-          <Input
-            type="date"
-            value={data.end_date}
-            min={data.start_date || undefined}
-            onChange={(e) => set('end_date', e.target.value)}
-            error={!!data.start_date && !!data.end_date && data.end_date < data.start_date}
-          />
+          <Input type="date" value={data.end_date} min={data.start_date || undefined} onChange={(e) => set('end_date', e.target.value)} error={!!dateError} />
         </Field>
       </div>
-      {data.start_date && data.end_date && data.end_date < data.start_date && (
-        <p className="text-xs text-red-500 -mt-2">End date must be after start date</p>
-      )}
+      {dateError && <p className="text-xs text-red-500 -mt-2">End date must be after start date</p>}
 
       <Field label="Description" hint="Optional — shown to all players">
         <Textarea
           value={data.description}
           onChange={(e) => set('description', e.target.value)}
-          placeholder="Annual trip to the west coast. 3 rounds, 2 nights."
+          placeholder="Annual west coast trip. 3 rounds, great craic."
           rows={3}
           maxLength={500}
         />
       </Field>
 
-      <Button
-        onClick={handleNext}
-        disabled={!validate()}
-        fullWidth
-        size="lg"
-      >
+      <Button onClick={onNext} disabled={!valid} fullWidth size="lg">
         Next — Add rounds →
       </Button>
     </div>

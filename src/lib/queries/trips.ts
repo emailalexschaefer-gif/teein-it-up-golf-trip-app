@@ -1,21 +1,16 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// TRIP QUERIES — React Query hooks for trip data
-// ─────────────────────────────────────────────────────────────────────────────
-
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { TripSummary } from '@/types/app'
 
-// ─── Query keys ───────────────────────────────────────────────────────────────
 export const tripKeys = {
   all:     ['trips'] as const,
   lists:   () => [...tripKeys.all, 'list'] as const,
   detail:  (id: string) => [...tripKeys.all, 'detail', id] as const,
-  members: (tripId: string) => [...tripKeys.all, tripId, 'members'] as const,
-  rounds:  (tripId: string) => [...tripKeys.all, tripId, 'rounds'] as const,
+  members: (id: string) => [...tripKeys.all, id, 'members'] as const,
+  rounds:  (id: string) => [...tripKeys.all, id, 'rounds'] as const,
 }
 
-// ─── My Trips — dashboard list ────────────────────────────────────────────────
+// ─── My Trips ─────────────────────────────────────────────────────────────────
 
 export function useMyTrips() {
   const supabase = createClient()
@@ -31,34 +26,34 @@ export function useMyTrips() {
         .select(`
           role,
           trips (
-            id, name, description, start_date, end_date,
-            status, logo_url, cover_image_url, invite_code,
+            id, name, description, event_type, location,
+            start_date, end_date, status, logo_url, invite_code,
             trip_members ( count ),
             rounds ( count )
           )
         `)
         .eq('profile_id', user.id)
-        .neq('trips.status', 'archived')
 
       if (error) throw error
 
       return (data ?? [])
-        .filter((m) => m.trips !== null)
+        .filter((m) => m.trips !== null && (m.trips as any).status !== 'archived')
         .map((m) => {
           const t = m.trips as any
           return {
-            id:              t.id,
-            name:            t.name,
-            description:     t.description,
-            start_date:      t.start_date,
-            end_date:        t.end_date,
-            status:          t.status,
-            logo_url:        t.logo_url,
-            cover_image_url: t.cover_image_url,
-            invite_code:     t.invite_code,
-            user_role:       m.role,
-            player_count:    t.trip_members?.[0]?.count ?? 0,
-            round_count:     t.rounds?.[0]?.count ?? 0,
+            id:           t.id,
+            name:         t.name,
+            description:  t.description,
+            event_type:   t.event_type,
+            location:     t.location,
+            start_date:   t.start_date,
+            end_date:     t.end_date,
+            status:       t.status,
+            logo_url:     t.logo_url,
+            invite_code:  t.invite_code,
+            user_role:    m.role,
+            player_count: Number(t.trip_members?.[0]?.count ?? 0),
+            round_count:  Number(t.rounds?.[0]?.count ?? 0),
           } satisfies TripSummary
         })
         .sort((a, b) => a.start_date.localeCompare(b.start_date))
@@ -67,75 +62,7 @@ export function useMyTrips() {
   })
 }
 
-// ─── Single trip detail ───────────────────────────────────────────────────────
-
-export function useTrip(tripId: string) {
-  const supabase = createClient()
-
-  return useQuery({
-    queryKey: tripKeys.detail(tripId),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('trips')
-        .select(`
-          *,
-          trip_members (
-            *,
-            profiles ( id, full_name, avatar_url, handicap )
-          ),
-          rounds ( * )
-        `)
-        .eq('id', tripId)
-        .single()
-      if (error) throw error
-      return data
-    },
-    enabled: !!tripId,
-    staleTime: 1000 * 60,
-  })
-}
-
-// ─── Trip members ─────────────────────────────────────────────────────────────
-
-export function useTripMembers(tripId: string) {
-  const supabase = createClient()
-
-  return useQuery({
-    queryKey: tripKeys.members(tripId),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('trip_members')
-        .select('*, profiles ( id, full_name, avatar_url, email, handicap )')
-        .eq('trip_id', tripId)
-        .order('joined_at', { ascending: true })
-      if (error) throw error
-      return data ?? []
-    },
-    enabled: !!tripId,
-  })
-}
-
-// ─── Rounds for a trip ────────────────────────────────────────────────────────
-
-export function useRounds(tripId: string) {
-  const supabase = createClient()
-
-  return useQuery({
-    queryKey: tripKeys.rounds(tripId),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('rounds')
-        .select('*')
-        .eq('trip_id', tripId)
-        .order('play_date', { ascending: true })
-      if (error) throw error
-      return data ?? []
-    },
-    enabled: !!tripId,
-  })
-}
-
-// ─── Mutations ────────────────────────────────────────────────────────────────
+// ─── Update status ────────────────────────────────────────────────────────────
 
 export function useUpdateTripStatus() {
   const supabase = createClient()
@@ -155,6 +82,8 @@ export function useUpdateTripStatus() {
     },
   })
 }
+
+// ─── Create trip ──────────────────────────────────────────────────────────────
 
 export function useCreateTrip() {
   const queryClient = useQueryClient()
@@ -184,6 +113,8 @@ export function useCreateTrip() {
     },
   })
 }
+
+// ─── Join trip ────────────────────────────────────────────────────────────────
 
 export function useJoinTrip() {
   const queryClient = useQueryClient()

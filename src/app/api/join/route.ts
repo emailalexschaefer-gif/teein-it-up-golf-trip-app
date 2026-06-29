@@ -1,9 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/join
-// Joins the authenticated user to a trip via invite code.
-// Called from the /join/[code]/welcome page after auth.
-// ─────────────────────────────────────────────────────────────────────────────
-
 import { NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { z } from 'zod'
@@ -13,7 +7,7 @@ const JoinSchema = z.object({
 })
 
 export async function POST(request: Request) {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -30,9 +24,9 @@ export async function POST(request: Request) {
   }
 
   const { invite_code } = parsed.data
-  const admin = createAdminClient()
+  const admin = await createAdminClient()
 
-  // Look up trip by invite code
+  // Look up trip
   const { data: trip, error: tripError } = await admin
     .from('trips')
     .select('id, name, status')
@@ -43,15 +37,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invite link not found' }, { status: 404 })
   }
 
-  // Archived trips cannot be joined
   if (trip.status === 'archived') {
     return NextResponse.json({ error: 'This trip is no longer accepting members' }, { status: 410 })
   }
 
-  // Check if already a member — if so, just return the trip (idempotent)
+  // Already a member — idempotent
   const { data: existing } = await admin
     .from('trip_members')
-    .select('id, role')
+    .select('id')
     .eq('trip_id', trip.id)
     .eq('profile_id', user.id)
     .single()
@@ -63,11 +56,7 @@ export async function POST(request: Request) {
   // Insert as player
   const { error: insertError } = await admin
     .from('trip_members')
-    .insert({
-      trip_id:    trip.id,
-      profile_id: user.id,
-      role:       'player',
-    })
+    .insert({ trip_id: trip.id, profile_id: user.id, role: 'player' })
 
   if (insertError) {
     console.error('[POST /api/join]', insertError)

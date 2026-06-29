@@ -1,15 +1,11 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import SyncInitializer from '@/components/layout/SyncInitializer'
 import AppNav from '@/components/layout/AppNav'
+import SyncInitializer from '@/components/layout/SyncInitializer'
 import { ToastProvider } from '@/components/ui/Toast'
 
-export default async function AppLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
-  const supabase = createClient()
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 

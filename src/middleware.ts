@@ -1,18 +1,8 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// Next.js Middleware
-// Runs on every request. Responsibilities:
-//   1. Refresh the Supabase auth session (keep JWT alive)
-//   2. Protect app routes — redirect unauthenticated users to /login
-//   3. Redirect authenticated users away from auth pages
-// ─────────────────────────────────────────────────────────────────────────────
-
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({
-    request,
-  })
+  let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -35,50 +25,38 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // IMPORTANT: Do not write any logic between createServerClient and
-  // supabase.auth.getUser(). A missing getUser() call causes auth bugs.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Required: do not add logic between createServerClient and getUser()
+  const { data: { user } } = await supabase.auth.getUser()
 
-  const pathname = request.nextUrl.pathname
+  const { pathname } = request.nextUrl
 
-  // Public routes — no auth required
-  const publicRoutes = ['/', '/login', '/join']
-  const isPublicRoute =
-    publicRoutes.some((route) => pathname === route) ||
+  // Routes that don't require auth
+  const isPublic =
+    pathname === '/' ||
+    pathname === '/login' ||
     pathname.startsWith('/join/') ||
     pathname.startsWith('/api/auth/') ||
     pathname.startsWith('/_next/') ||
     pathname.startsWith('/favicon')
 
-  // Unauthenticated user trying to access protected route
-  if (!user && !isPublicRoute) {
-    const loginUrl = request.nextUrl.clone()
-    loginUrl.pathname = '/login'
-    loginUrl.searchParams.set('redirectTo', pathname)
-    return NextResponse.redirect(loginUrl)
+  // Redirect unauthenticated users to login
+  if (!user && !isPublic) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    url.searchParams.set('redirectTo', pathname)
+    return NextResponse.redirect(url)
   }
 
-  // Authenticated user trying to access auth pages — redirect to dashboard
-  if (user && (pathname === '/login' || pathname === '/')) {
-    const dashboardUrl = request.nextUrl.clone()
-    dashboardUrl.pathname = '/dashboard'
-    return NextResponse.redirect(dashboardUrl)
+  // Redirect authenticated users away from auth pages
+  if (user && (pathname === '/' || pathname === '/login')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/dashboard'
+    return NextResponse.redirect(url)
   }
 
-  // IMPORTANT: return supabaseResponse to preserve cookie mutations
   return supabaseResponse
 }
 
 export const config = {
-  matcher: [
-    /*
-     * Match all request paths EXCEPT:
-     * - _next/static (static files)
-     * - _next/image (image optimisation)
-     * - favicon.ico, sitemap.xml, robots.txt
-     */
-    '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)',
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)'],
 }

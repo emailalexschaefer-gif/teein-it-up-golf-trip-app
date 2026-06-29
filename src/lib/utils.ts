@@ -1,15 +1,24 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// UTILITIES
-// ─────────────────────────────────────────────────────────────────────────────
-
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import { format, formatDistanceToNow, parseISO, isAfter, isBefore, isToday } from 'date-fns'
-
-// ─── className helper ─────────────────────────────────────────────────────────
+import { format, parseISO, formatDistanceToNow } from 'date-fns'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
+}
+
+// ─── App URL — NO env var required ───────────────────────────────────────────
+// Derive the app origin from the browser or Vercel's automatic env vars.
+// This avoids needing a NEXT_PUBLIC_APP_URL environment variable entirely.
+
+export function getAppUrl(): string {
+  if (typeof window !== 'undefined') {
+    return window.location.origin
+  }
+  // Vercel sets these automatically — no manual configuration needed
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`
+  }
+  return 'http://localhost:3000'
 }
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
@@ -20,8 +29,7 @@ export function formatTripDate(dateStr: string): string {
 
 export function formatTripDateRange(startStr: string, endStr: string): string {
   const start = parseISO(startStr)
-  const end = parseISO(endStr)
-
+  const end   = parseISO(endStr)
   if (start.getFullYear() === end.getFullYear()) {
     if (start.getMonth() === end.getMonth()) {
       return `${format(start, 'd')}–${format(end, 'd MMM yyyy')}`
@@ -35,61 +43,25 @@ export function formatRelativeTime(dateStr: string): string {
   return formatDistanceToNow(parseISO(dateStr), { addSuffix: true })
 }
 
-export function isTripActive(startDate: string, endDate: string): boolean {
-  const now = new Date()
-  const start = parseISO(startDate)
-  const end = parseISO(endDate)
-  return !isBefore(now, start) && !isAfter(now, end)
-}
-
-export function isTripUpcoming(startDate: string): boolean {
-  return isAfter(parseISO(startDate), new Date())
-}
-
-export function isTripPast(endDate: string): boolean {
-  return isBefore(parseISO(endDate), new Date())
-}
-
 // ─── String helpers ───────────────────────────────────────────────────────────
 
-export function generateInviteCode(): string {
-  // 6-character alphanumeric, uppercase
-  // Note: server-side generation is preferred (DB function).
-  // This is a client-side fallback for optimistic UI only.
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // exclude ambiguous chars
-  return Array.from({ length: 6 }, () =>
-    chars[Math.floor(Math.random() * chars.length)]
-  ).join('')
+export function initials(name: string): string {
+  return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
+}
+
+export function truncate(str: string, len: number): string {
+  return str.length <= len ? str : str.slice(0, len) + '…'
 }
 
 export function generateUUID(): string {
-  // Used for client_id on offline score entries
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID()
   }
-  // Fallback
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0
-    const v = c === 'x' ? r : (r & 0x3) | 0x8
-    return v.toString(16)
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16)
   })
 }
-
-export function truncate(str: string, length: number): string {
-  if (str.length <= length) return str
-  return str.slice(0, length) + '…'
-}
-
-export function initials(name: string): string {
-  return name
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2)
-}
-
-// ─── Number helpers ───────────────────────────────────────────────────────────
 
 export function formatHandicap(handicap: number | null): string {
   if (handicap === null) return '—'

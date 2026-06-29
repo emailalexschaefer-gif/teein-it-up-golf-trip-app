@@ -2,61 +2,46 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import type { Metadata } from 'next'
 import StepIndicator from '@/components/trips/wizard/StepIndicator'
-import StepDetails from '@/components/trips/wizard/StepDetails'
-import StepRounds from '@/components/trips/wizard/StepRounds'
-import StepReview from '@/components/trips/wizard/StepReview'
+import StepDetails   from '@/components/trips/wizard/StepDetails'
+import StepRounds    from '@/components/trips/wizard/StepRounds'
+import StepReview    from '@/components/trips/wizard/StepReview'
 import { useCreateTrip } from '@/lib/queries/trips'
 import { generateUUID } from '@/lib/utils'
-import type { WizardTripDetails, WizardRound, WizardState } from '@/types/app'
+import type { WizardTripDetails, WizardRound } from '@/types/app'
 
 const STEPS = ['Details', 'Rounds', 'Review']
 
-function defaultDetails(): WizardTripDetails {
-  return {
-    name:        '',
-    event_type:  'golf_trip',
-    location:    '',
-    start_date:  '',
-    end_date:    '',
-    description: '',
-  }
-}
+const defaultDetails = (): WizardTripDetails => ({
+  name: '', event_type: 'golf_trip', location: '',
+  start_date: '', end_date: '', description: '',
+})
 
-function defaultRound(startDate = ''): WizardRound {
-  return {
-    id:             generateUUID(),
-    name:           'Round 1',
-    course_name:    '',
-    play_date:      startDate,
-    tee_time:       '',
-    holes:          18,
-    scoring_format: 'stableford',
-  }
-}
+const defaultRound = (startDate = ''): WizardRound => ({
+  id: generateUUID(), name: 'Round 1', course_name: '',
+  play_date: startDate, tee_time: '', holes: 18, scoring_format: 'stableford',
+})
 
 export default function NewTripPage() {
-  const router = useRouter()
+  const router     = useRouter()
   const createTrip = useCreateTrip()
 
-  const [step, setStep] = useState<1 | 2 | 3>(1)
-  const [tripDetails, setTripDetails] = useState<WizardTripDetails>(defaultDetails())
-  const [rounds, setRounds] = useState<WizardRound[]>([defaultRound()])
-  const [error, setError] = useState<string | null>(null)
+  const [step, setStep]             = useState(1)
+  const [tripDetails, setDetails]   = useState<WizardTripDetails>(defaultDetails())
+  const [rounds, setRounds]         = useState<WizardRound[]>([defaultRound()])
+  const [error, setError]           = useState<string | null>(null)
 
-  // When start date is set, seed first round's date if empty
-  function handleDetailsChange(details: WizardTripDetails) {
-    setTripDetails(details)
-    if (details.start_date && rounds[0] && !rounds[0].play_date) {
-      setRounds(rounds.map((r, i) => i === 0 ? { ...r, play_date: details.start_date } : r))
+  function handleDetailsChange(d: WizardTripDetails) {
+    setDetails(d)
+    if (d.start_date && !rounds[0].play_date) {
+      setRounds(rounds.map((r, i) => i === 0 ? { ...r, play_date: d.start_date } : r))
     }
   }
 
   async function handleCreate() {
     setError(null)
     try {
-      const result = await createTrip.mutateAsync({
+      const { tripId } = await createTrip.mutateAsync({
         name:        tripDetails.name,
         event_type:  tripDetails.event_type,
         location:    tripDetails.location,
@@ -64,15 +49,11 @@ export default function NewTripPage() {
         end_date:    tripDetails.end_date,
         description: tripDetails.description,
         rounds: rounds.map((r) => ({
-          name:           r.name,
-          course_name:    r.course_name,
-          play_date:      r.play_date,
-          tee_time:       r.tee_time,
-          holes:          r.holes,
-          scoring_format: r.scoring_format,
+          name: r.name, course_name: r.course_name, play_date: r.play_date,
+          tee_time: r.tee_time, holes: r.holes, scoring_format: r.scoring_format,
         })),
       })
-      router.push(`/trips/${result.tripId}`)
+      router.push(`/trips/${tripId}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
     }
@@ -80,7 +61,6 @@ export default function NewTripPage() {
 
   return (
     <div>
-      {/* Header */}
       <div className="mb-6">
         <a href="/dashboard" className="inline-flex items-center text-sm text-text-muted hover:text-brand-600 transition-colors mb-2">
           ← My Trips
@@ -88,36 +68,22 @@ export default function NewTripPage() {
         <h1 className="text-2xl font-bold text-text">Create a trip</h1>
       </div>
 
-      {/* Step indicator */}
-      <StepIndicator currentStep={step} steps={STEPS} />
+      <StepIndicator current={step} steps={STEPS} />
 
-      {/* Steps */}
       {step === 1 && (
-        <StepDetails
-          data={tripDetails}
-          onChange={handleDetailsChange}
-          onNext={() => setStep(2)}
-        />
+        <StepDetails data={tripDetails} onChange={handleDetailsChange} onNext={() => setStep(2)} />
       )}
-
       {step === 2 && (
         <StepRounds
-          tripDetails={tripDetails}
-          rounds={rounds}
-          onChange={setRounds}
-          onNext={() => setStep(3)}
-          onBack={() => setStep(1)}
+          tripDetails={tripDetails} rounds={rounds} onChange={setRounds}
+          onNext={() => setStep(3)} onBack={() => setStep(1)}
         />
       )}
-
       {step === 3 && (
         <StepReview
-          tripDetails={tripDetails}
-          rounds={rounds}
-          onBack={() => setStep(2)}
-          onCreate={handleCreate}
-          loading={createTrip.isPending}
-          error={error}
+          tripDetails={tripDetails} rounds={rounds}
+          onBack={() => setStep(2)} onCreate={handleCreate}
+          loading={createTrip.isPending} error={error}
         />
       )}
     </div>
