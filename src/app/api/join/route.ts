@@ -7,6 +7,11 @@ const JoinSchema = z.object({
   invite_code: z.string().min(1).max(20),
 })
 
+// Explicit row types for every query result — prevents TypeScript inferring `never`
+// when the Database generic is lost across the async function boundary.
+type TripRow     = { id: string; name: string; status: string }
+type ExistingRow = { id: string }
+
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -27,12 +32,12 @@ export async function POST(request: Request) {
   const { invite_code } = parsed.data
   const admin = createAdminClient()
 
-  // Look up trip
+  // Look up trip by invite code
   const { data: trip, error: tripError } = await admin
     .from('trips')
     .select('id, name, status')
     .eq('invite_code', invite_code.toUpperCase())
-    .single()
+    .single() as { data: TripRow | null; error: unknown }
 
   if (tripError || !trip) {
     return NextResponse.json({ error: 'Invite link not found' }, { status: 404 })
@@ -48,7 +53,7 @@ export async function POST(request: Request) {
     .select('id')
     .eq('trip_id', trip.id)
     .eq('profile_id', user.id)
-    .single()
+    .single() as { data: ExistingRow | null; error: unknown }
 
   if (existing) {
     return NextResponse.json({ tripId: trip.id, tripName: trip.name, alreadyMember: true })

@@ -11,6 +11,12 @@ const ScoreSchema = z.object({
   entered_at:   z.string().datetime().optional(),
 })
 
+// Explicit row types — prevents TypeScript inferring `never` through the async boundary.
+type ScorecardRow  = { id: string; player_id: string; status: string; round_id: string }
+type RoundRow      = { id: string; status: string; trip_id: string }
+type MembershipRow = { role: string }
+type HoleRow       = { id: string }
+
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -35,7 +41,7 @@ export async function POST(request: Request) {
     .from('scorecards')
     .select('id, player_id, status, round_id')
     .eq('id', scorecard_id)
-    .single()
+    .single() as { data: ScorecardRow | null; error: unknown }
 
   if (!scorecard) return NextResponse.json({ error: 'Scorecard not found' }, { status: 422 })
   if (scorecard.player_id !== user.id) return NextResponse.json({ error: 'Not your scorecard' }, { status: 403 })
@@ -46,7 +52,7 @@ export async function POST(request: Request) {
     .from('rounds')
     .select('id, status, trip_id')
     .eq('id', scorecard.round_id)
-    .single()
+    .single() as { data: RoundRow | null; error: unknown }
 
   if (!round || round.status !== 'active') {
     return NextResponse.json({ error: 'Round is not active' }, { status: 422 })
@@ -58,7 +64,7 @@ export async function POST(request: Request) {
     .select('role')
     .eq('trip_id', round.trip_id)
     .eq('profile_id', user.id)
-    .single()
+    .single() as { data: MembershipRow | null; error: unknown }
 
   if (!membership) return NextResponse.json({ error: 'Not a trip member' }, { status: 403 })
 
@@ -68,7 +74,7 @@ export async function POST(request: Request) {
     .select('id')
     .eq('id', hole_id)
     .eq('round_id', scorecard.round_id)
-    .single()
+    .single() as { data: HoleRow | null; error: unknown }
 
   if (!hole) return NextResponse.json({ error: 'Hole not found in this round' }, { status: 422 })
 
@@ -85,7 +91,7 @@ export async function POST(request: Request) {
       { onConflict: 'client_id' }
     )
     .select()
-    .single()
+    .single() as { data: Record<string, unknown> | null; error: { code?: string } | null }
 
   if (insertError) {
     if (insertError.code === '23505') {

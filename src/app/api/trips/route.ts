@@ -22,6 +22,9 @@ const CreateTripSchema = z.object({
   rounds:      z.array(RoundSchema).min(1).max(10),
 })
 
+// Explicit row type — prevents TypeScript inferring `never` through the async boundary.
+type CreatedTripRow = { id: string; invite_code: string }
+
 export async function POST(request: Request) {
   // ── Auth ──────────────────────────────────────────────────────────────────
   const supabase = await createClient()
@@ -63,8 +66,8 @@ export async function POST(request: Request) {
       end_date,
       status: 'draft',
     })
-    .select()
-    .single()
+    .select('id, invite_code')
+    .single() as { data: CreatedTripRow | null; error: unknown }
 
   if (tripError || !trip) {
     console.error('[POST /api/trips] trip:', tripError)
