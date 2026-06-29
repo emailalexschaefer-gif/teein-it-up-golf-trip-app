@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { z } from 'zod'
 
 const RoundSchema = z.object({
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
   }
 
   // ── Write ─────────────────────────────────────────────────────────────────
-  const admin = await createAdminClient()
+  const admin = createAdminClient()
 
   // 1. Create trip
   const { data: trip, error: tripError } = await admin

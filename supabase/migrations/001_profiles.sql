@@ -1,6 +1,10 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 001: Profiles
 -- Run first. Requires Supabase Auth to be enabled on the project.
+--
+-- NOTE: The RLS policy "Trip members can view each other" is intentionally
+-- NOT here. It references public.trip_members which doesn't exist until
+-- migration 002. That policy is applied at the end of 002_trips.sql.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -47,17 +51,11 @@ CREATE TRIGGER on_auth_user_created
 -- RLS
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
+-- Users can read and update their own profile
 CREATE POLICY "Own profile: full access"
   ON public.profiles FOR ALL
   USING (auth.uid() = id)
   WITH CHECK (auth.uid() = id);
 
-CREATE POLICY "Trip members can view each other"
-  ON public.profiles FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.trip_members a
-      JOIN public.trip_members b ON a.trip_id = b.trip_id
-      WHERE a.profile_id = auth.uid() AND b.profile_id = profiles.id
-    )
-  );
+-- Cross-table policy added in 002_trips.sql after trip_members is created:
+--   "Trip members can view each other"

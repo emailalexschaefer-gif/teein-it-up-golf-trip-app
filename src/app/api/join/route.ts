@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { z } from 'zod'
 
 const JoinSchema = z.object({
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
   }
 
   const { invite_code } = parsed.data
-  const admin = await createAdminClient()
+  const admin = createAdminClient()
 
   // Look up trip
   const { data: trip, error: tripError } = await admin

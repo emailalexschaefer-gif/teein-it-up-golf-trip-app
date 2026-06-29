@@ -1,5 +1,6 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 002: Trips & Trip Members
+-- Also applies the cross-table profiles RLS policy that requires trip_members.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- Invite code generator (6-char alphanumeric, no ambiguous chars)
@@ -58,7 +59,8 @@ CREATE TABLE public.trip_members (
 CREATE INDEX trip_members_profile_id_idx ON public.trip_members(profile_id);
 CREATE INDEX trip_members_trip_id_idx    ON public.trip_members(trip_id);
 
--- RLS helpers
+-- ─── RLS helper functions ─────────────────────────────────────────────────────
+
 CREATE OR REPLACE FUNCTION public.is_trip_member(trip_uuid UUID)
 RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
@@ -79,7 +81,8 @@ BEGIN
 END;
 $$;
 
--- RLS — trips
+-- ─── RLS — trips ──────────────────────────────────────────────────────────────
+
 ALTER TABLE public.trips ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Organisers: full access"
@@ -91,12 +94,13 @@ CREATE POLICY "Members: read their trips"
   ON public.trips FOR SELECT
   USING (public.is_trip_member(id));
 
--- Anyone can read name/status for invite lookup (join page)
+-- Anyone can read name/status to show trip name on the join page
 CREATE POLICY "Anyone: read by invite code"
   ON public.trips FOR SELECT
   USING (true);
 
--- RLS — trip_members
+-- ─── RLS — trip_members ───────────────────────────────────────────────────────
+
 ALTER TABLE public.trip_members ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Members: view members of shared trips"
@@ -116,3 +120,16 @@ CREATE POLICY "Organisers: manage members"
 CREATE POLICY "Users: join trips"
   ON public.trip_members FOR INSERT
   WITH CHECK (profile_id = auth.uid());
+
+-- ─── Cross-table profiles policy (requires trip_members to exist) ─────────────
+-- This was intentionally deferred from 001_profiles.sql.
+
+CREATE POLICY "Trip members can view each other"
+  ON public.profiles FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.trip_members a
+      JOIN public.trip_members b ON a.trip_id = b.trip_id
+      WHERE a.profile_id = auth.uid() AND b.profile_id = profiles.id
+    )
+  );

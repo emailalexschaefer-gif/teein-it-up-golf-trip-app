@@ -9,12 +9,12 @@ export default function JoinPage() {
   const params     = useParams()
   const inviteCode = (params.code as string)?.toUpperCase()
 
-  const [name, setName]       = useState('')
-  const [email, setEmail]     = useState('')
-  const [loading, setLoading] = useState(false)
+  const [name, setName]         = useState('')
+  const [email, setEmail]       = useState('')
+  const [loading, setLoading]   = useState(false)
   const [tripName, setTripName] = useState<string | null>(null)
-  const [step, setStep]       = useState<'form' | 'check_email' | 'invalid'>('form')
-  const [error, setError]     = useState<string | null>(null)
+  const [step, setStep]         = useState<'form' | 'check_email' | 'invalid'>('form')
+  const [error, setError]       = useState<string | null>(null)
 
   const supabase = createClient()
 
@@ -25,8 +25,8 @@ export default function JoinPage() {
       .select('name, status')
       .eq('invite_code', inviteCode)
       .single()
-      .then(({ data, error }) => {
-        if (error || !data || data.status === 'archived') {
+      .then(({ data, error: queryError }: { data: { name: string; status: string } | null; error: unknown }) => {
+        if (queryError || !data || data.status === 'archived') {
           setStep('invalid')
         } else {
           setTripName(data.name)
