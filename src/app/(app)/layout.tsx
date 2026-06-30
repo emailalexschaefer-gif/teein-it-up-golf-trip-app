@@ -4,18 +4,25 @@ import AppNav from '@/components/layout/AppNav'
 import SyncInitializer from '@/components/layout/SyncInitializer'
 import { ToastProvider } from '@/components/ui/Toast'
 
+interface ProfileData {
+  full_name: string
+  avatar_url: string | null
+}
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const profileResult = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabaseAny: any = supabase
+  const profileResult = await supabaseAny
     .from('profiles')
     .select('full_name, avatar_url')
     .eq('id', user.id)
     .maybeSingle()
 
-  const profile = profileResult.data
+  const profile: ProfileData | null = profileResult?.data ?? null
 
   return (
     <ToastProvider>

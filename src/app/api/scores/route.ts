@@ -13,6 +13,9 @@ const ScoreSchema = z.object({
 
 export async function POST(request: Request) {
   const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db: any = supabase
+
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -30,62 +33,47 @@ export async function POST(request: Request) {
 
   const { scorecard_id, hole_id, gross_score, is_no_return, client_id, entered_at } = parsed.data
 
-  // Verify scorecard ownership
-  const scorecardResult = await supabase
+  const scorecardResult = await db
     .from('scorecards')
     .select('id, player_id, status, round_id')
     .eq('id', scorecard_id)
     .single()
 
-  if (!scorecardResult.data) {
-    return NextResponse.json({ error: 'Scorecard not found' }, { status: 422 })
-  }
-  const scorecard = scorecardResult.data
-  if (scorecard.player_id !== user.id) {
-    return NextResponse.json({ error: 'Not your scorecard' }, { status: 403 })
-  }
-  if (scorecard.status !== 'active') {
-    return NextResponse.json({ error: 'Scorecard not active' }, { status: 422 })
-  }
+  const scorecard = scorecardResult?.data ?? null
+  if (!scorecard) return NextResponse.json({ error: 'Scorecard not found' }, { status: 422 })
+  if (scorecard.player_id !== user.id) return NextResponse.json({ error: 'Not your scorecard' }, { status: 403 })
+  if (scorecard.status !== 'active') return NextResponse.json({ error: 'Scorecard not active' }, { status: 422 })
 
-  // Verify round is active
-  const roundResult = await supabase
+  const roundResult = await db
     .from('rounds')
     .select('id, status, trip_id')
     .eq('id', scorecard.round_id)
     .single()
 
-  if (!roundResult.data || roundResult.data.status !== 'active') {
+  const round = roundResult?.data ?? null
+  if (!round || round.status !== 'active') {
     return NextResponse.json({ error: 'Round is not active' }, { status: 422 })
   }
-  const round = roundResult.data
 
-  // Verify trip membership
-  const memberResult = await supabase
+  const memberResult = await db
     .from('trip_members')
     .select('role')
     .eq('trip_id', round.trip_id)
     .eq('profile_id', user.id)
     .maybeSingle()
 
-  if (!memberResult.data) {
-    return NextResponse.json({ error: 'Not a trip member' }, { status: 403 })
-  }
+  if (!memberResult?.data) return NextResponse.json({ error: 'Not a trip member' }, { status: 403 })
 
-  // Verify hole belongs to round
-  const holeResult = await supabase
+  const holeResult = await db
     .from('holes')
     .select('id')
     .eq('id', hole_id)
     .eq('round_id', scorecard.round_id)
     .maybeSingle()
 
-  if (!holeResult.data) {
-    return NextResponse.json({ error: 'Hole not found in this round' }, { status: 422 })
-  }
+  if (!holeResult?.data) return NextResponse.json({ error: 'Hole not found in this round' }, { status: 422 })
 
-  // Upsert — idempotent on client_id
-  const { data: entry, error: insertError } = await supabase
+  const { data: entry, error: insertError } = await db
     .from('score_entries')
     .upsert(
       {
@@ -100,7 +88,7 @@ export async function POST(request: Request) {
     .single()
 
   if (insertError) {
-    if ((insertError as { code?: string }).code === '23505') {
+    if (insertError.code === '23505') {
       return NextResponse.json({ message: 'Already recorded', conflict: true }, { status: 409 })
     }
     return NextResponse.json({ error: 'Failed to save score' }, { status: 500 })

@@ -7,30 +7,33 @@ interface Props { params: Promise<{ tripId: string }> }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { tripId } = await params
-  const supabase   = await createClient()
-  const result     = await supabase.from('trips').select('name').eq('id', tripId).maybeSingle()
-  return { title: result.data?.name ?? 'Trip' }
+  const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db: any = supabase
+  const result = await db.from('trips').select('name').eq('id', tripId).maybeSingle()
+  return { title: result?.data?.name ?? 'Trip' }
 }
 
 export default async function TripDetailPage({ params }: Props) {
   const { tripId } = await params
-  const supabase   = await createClient()
+  const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db: any = supabase
 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return notFound()
 
-  // Membership gate
-  const membershipResult = await supabase
+  const membershipResult = await db
     .from('trip_members')
     .select('role')
     .eq('trip_id', tripId)
     .eq('profile_id', user.id)
     .maybeSingle()
 
-  if (!membershipResult.data) return notFound()
-  const membership = membershipResult.data
+  const membership = membershipResult?.data ?? null
+  if (!membership) return notFound()
 
-  const tripResult = await supabase
+  const tripResult = await db
     .from('trips')
     .select(`
       id, name, description, event_type, location,
@@ -46,21 +49,22 @@ export default async function TripDetailPage({ params }: Props) {
     .eq('id', tripId)
     .single()
 
-  if (!tripResult.data) return notFound()
+  const rawTrip = tripResult?.data ?? null
+  if (!rawTrip) return notFound()
 
-  const rawTrip = tripResult.data
   const sortedTrip = {
     ...rawTrip,
-    rounds: [...(rawTrip.rounds ?? [])].sort((a, b) =>
-      (a.play_date ?? '').localeCompare(b.play_date ?? '')
+    rounds: [...(rawTrip.rounds ?? [])].sort(
+      (a: { play_date?: string }, b: { play_date?: string }) =>
+        (a.play_date ?? '').localeCompare(b.play_date ?? '')
     ),
   }
 
   return (
     <TripDetailClient
-      trip={sortedTrip as any}
+      trip={sortedTrip}
       currentUserId={user.id}
-      userRole={membership.role as 'organiser' | 'player'}
+      userRole={membership.role}
     />
   )
 }

@@ -25,26 +25,24 @@ export async function POST(request: Request) {
   }
 
   const { invite_code } = parsed.data
-  const admin = createAdminClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin: any = createAdminClient()
 
-  // Look up trip by invite code
   const tripResult = await admin
     .from('trips')
     .select('id, name, status')
     .eq('invite_code', invite_code.toUpperCase())
     .single()
 
-  if (tripResult.error || !tripResult.data) {
+  const trip = tripResult?.data ?? null
+  if (tripResult?.error || !trip) {
     return NextResponse.json({ error: 'Invite link not found' }, { status: 404 })
   }
-
-  const trip = tripResult.data
 
   if (trip.status === 'archived') {
     return NextResponse.json({ error: 'This trip is no longer accepting members' }, { status: 410 })
   }
 
-  // Already a member — idempotent
   const existingResult = await admin
     .from('trip_members')
     .select('id')
@@ -52,11 +50,10 @@ export async function POST(request: Request) {
     .eq('profile_id', user.id)
     .maybeSingle()
 
-  if (existingResult.data) {
+  if (existingResult?.data) {
     return NextResponse.json({ tripId: trip.id, tripName: trip.name, alreadyMember: true })
   }
 
-  // Insert as player
   const { error: insertError } = await admin
     .from('trip_members')
     .insert({ trip_id: trip.id, profile_id: user.id, role: 'player' })

@@ -20,12 +20,14 @@ export default function JoinPage() {
 
   useEffect(() => {
     if (!inviteCode) return
-    supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db: any = supabase
+    db
       .from('trips')
       .select('name, status')
       .eq('invite_code', inviteCode)
       .maybeSingle()
-      .then((result) => {
+      .then((result: { data: { name: string; status: string } | null }) => {
         if (!result.data || result.data.status === 'archived') {
           setStep('invalid')
         } else {

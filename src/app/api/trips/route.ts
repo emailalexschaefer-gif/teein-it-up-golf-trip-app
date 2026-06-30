@@ -23,14 +23,12 @@ const CreateTripSchema = z.object({
 })
 
 export async function POST(request: Request) {
-  // ── Auth ──────────────────────────────────────────────────────────────────
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
 
-  // ── Parse ─────────────────────────────────────────────────────────────────
   let body: unknown
   try { body = await request.json() } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
@@ -47,10 +45,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'End date must be on or after start date' }, { status: 400 })
   }
 
-  // ── Write ─────────────────────────────────────────────────────────────────
-  const admin = createAdminClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin: any = createAdminClient()
 
-  // 1. Create trip
   const tripResult = await admin
     .from('trips')
     .insert({
@@ -66,14 +63,12 @@ export async function POST(request: Request) {
     .select('id, invite_code')
     .single()
 
-  if (tripResult.error || !tripResult.data) {
-    console.error('[POST /api/trips] trip:', tripResult.error)
+  const trip = tripResult?.data ?? null
+  if (tripResult?.error || !trip) {
+    console.error('[POST /api/trips] trip:', tripResult?.error)
     return NextResponse.json({ error: 'Failed to create trip' }, { status: 500 })
   }
 
-  const trip = tripResult.data
-
-  // 2. Organiser membership
   const { error: memberError } = await admin
     .from('trip_members')
     .insert({ trip_id: trip.id, profile_id: user.id, role: 'organiser' })
@@ -84,7 +79,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Failed to set up membership' }, { status: 500 })
   }
 
-  // 3. Rounds
   if (rounds.length > 0) {
     const { error: roundsError } = await admin
       .from('rounds')
@@ -93,7 +87,7 @@ export async function POST(request: Request) {
         name:           r.name,
         course_name:    r.course_name || null,
         play_date:      r.play_date,
-        tee_time:       r.tee_time   || null,
+        tee_time:       r.tee_time || null,
         holes:          r.holes,
         scoring_format: r.scoring_format,
         status:         'upcoming',
