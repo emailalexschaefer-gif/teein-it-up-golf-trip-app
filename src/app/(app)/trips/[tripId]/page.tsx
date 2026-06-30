@@ -62,9 +62,10 @@ export default async function TripDetailPage({ params }: Props) {
 
   return (
     <TripDetailClient
-      trip={sortedTrip}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      trip={sortedTrip as any}
       currentUserId={user.id}
-      userRole={membership.role}
+      userRole={membership.role as 'organiser' | 'player'}
     />
   )
 }
