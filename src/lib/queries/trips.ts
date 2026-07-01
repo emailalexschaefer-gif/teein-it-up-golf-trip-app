@@ -1,6 +1,14 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+} from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { TripSummary } from '@/types/app'
+
+// ─── Query keys ───────────────────────────────────────────────────────────────
 
 export const tripKeys = {
   all:     ['trips'] as const,
@@ -10,35 +18,69 @@ export const tripKeys = {
   rounds:  (id: string) => [...tripKeys.all, id, 'rounds'] as const,
 }
 
-// ─── My Trips ─────────────────────────────────────────────────────────────────
+// ─── Variable types — explicit, not inferred ──────────────────────────────────
 
-export function useMyTrips() {
-  return useQuery({
+interface UpdateStatusVars {
+  tripId: string
+  status: string
+}
+
+interface CreateTripVars {
+  name: string
+  event_type: string
+  location: string
+  start_date: string
+  end_date: string
+  description: string
+  rounds: Array<{
+    name: string
+    course_name: string
+    play_date: string
+    tee_time: string
+    holes: 9 | 18
+    scoring_format: 'stableford'
+  }>
+}
+
+interface CreateTripResult {
+  tripId: string
+  inviteCode: string
+}
+
+interface JoinTripResult {
+  tripId: string
+  tripName: string
+  alreadyMember: boolean
+}
+
+// ─── useMyTrips ───────────────────────────────────────────────────────────────
+
+export function useMyTrips(): UseQueryResult<TripSummary[], Error> {
+  return useQuery<TripSummary[], Error>({
     queryKey: tripKeys.lists(),
     queryFn: async (): Promise<TripSummary[]> => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db: any = createClient()
 
       const authResult = await db.auth.getUser()
-      const user = authResult?.data?.user
+      const user: { id: string } | null = authResult?.data?.user ?? null
       if (!user) throw new Error('Not authenticated')
 
       const queryResult = await db
         .from('trip_members')
         .select(
-          `role, trips ( id, name, description, event_type, location, start_date, end_date, status, logo_url, invite_code, trip_members ( count ), rounds ( count ) )`
+          'role, trips ( id, name, description, event_type, location, start_date, end_date, status, logo_url, invite_code, trip_members ( count ), rounds ( count ) )'
         )
         .eq('profile_id', user.id)
 
-      const queryError: unknown = queryResult ? queryResult.error : undefined
-      if (queryError) throw queryError
+      if (queryResult?.error) throw queryResult.error
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rows: any[] = (queryResult && queryResult.data) || []
-
+      const rows: any[] = queryResult?.data ?? []
       const summaries: TripSummary[] = []
+
       for (const row of rows) {
-        const t = row ? row.trips : null
+        const t = row?.trips ?? null
         if (!t) continue
         if (t.status === 'archived') continue
 
@@ -54,8 +96,8 @@ export function useMyTrips() {
           logo_url:     t.logo_url,
           invite_code:  t.invite_code,
           user_role:    row.role,
-          player_count: Number((t.trip_members && t.trip_members[0] && t.trip_members[0].count) || 0),
-          round_count:  Number((t.rounds && t.rounds[0] && t.rounds[0].count) || 0),
+          player_count: Number(t.trip_members?.[0]?.count ?? 0),
+          round_count:  Number(t.rounds?.[0]?.count ?? 0),
         })
       }
 
@@ -66,84 +108,72 @@ export function useMyTrips() {
   })
 }
 
-// ─── Update status ────────────────────────────────────────────────────────────
+// ─── useUpdateTripStatus ──────────────────────────────────────────────────────
 
-export function useUpdateTripStatus() {
+export function useUpdateTripStatus(): UseMutationResult<void, Error, UpdateStatusVars> {
   const queryClient = useQueryClient()
 
-  return useMutation({
-    mutationFn: async ({ tripId, status }: { tripId: string; status: string }) => {
+  return useMutation<void, Error, UpdateStatusVars>({
+    mutationFn: async ({ tripId, status }: UpdateStatusVars): Promise<void> => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db: any = createClient()
-
       const result = await db
         .from('trips')
         .update({ status, updated_at: new Date().toISOString() })
         .eq('id', tripId)
-
-      const updateError: unknown = result ? result.error : undefined
-      if (updateError) throw updateError
+      if (result?.error) throw result.error
     },
-    onSuccess: (_data: unknown, variables: { tripId: string }) => {
-      queryClient.invalidateQueries({ queryKey: tripKeys.detail(variables.tripId) })
-      queryClient.invalidateQueries({ queryKey: tripKeys.lists() })
+    onSuccess: (_data: void, variables: UpdateStatusVars): void => {
+      void queryClient.invalidateQueries({ queryKey: tripKeys.detail(variables.tripId) })
+      void queryClient.invalidateQueries({ queryKey: tripKeys.lists() })
     },
   })
 }
 
-// ─── Create trip ──────────────────────────────────────────────────────────────
+// ─── useCreateTrip ────────────────────────────────────────────────────────────
 
-export function useCreateTrip() {
+export function useCreateTrip(): UseMutationResult<CreateTripResult, Error, CreateTripVars> {
   const queryClient = useQueryClient()
 
-  return useMutation({
-    mutationFn: async (payload: {
-      name: string; event_type: string; location: string
-      start_date: string; end_date: string; description: string
-      rounds: Array<{
-        name: string; course_name: string; play_date: string
-        tee_time: string; holes: 9 | 18; scoring_format: 'stableford'
-      }>
-    }): Promise<{ tripId: string; inviteCode: string }> => {
+  return useMutation<CreateTripResult, Error, CreateTripVars>({
+    mutationFn: async (payload: CreateTripVars): Promise<CreateTripResult> => {
       const res = await fetch('/api/trips', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
       if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}))
-        throw new Error(errBody.error || 'Failed to create trip')
+        const errBody: { error?: string } = await res.json().catch(() => ({}))
+        throw new Error(errBody.error ?? 'Failed to create trip')
       }
-      return res.json()
+      return res.json() as Promise<CreateTripResult>
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: tripKeys.lists() })
+    onSuccess: (): void => {
+      void queryClient.invalidateQueries({ queryKey: tripKeys.lists() })
     },
   })
 }
 
-// ─── Join trip ────────────────────────────────────────────────────────────────
+// ─── useJoinTrip ─────────────────────────────────────────────────────────────
 
-export function useJoinTrip() {
+export function useJoinTrip(): UseMutationResult<JoinTripResult, Error, string> {
   const queryClient = useQueryClient()
 
-  return useMutation({
-    mutationFn: async (
-      inviteCode: string
-    ): Promise<{ tripId: string; tripName: string; alreadyMember: boolean }> => {
+  return useMutation<JoinTripResult, Error, string>({
+    mutationFn: async (inviteCode: string): Promise<JoinTripResult> => {
       const res = await fetch('/api/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invite_code: inviteCode }),
       })
       if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}))
-        throw new Error(errBody.error || 'Failed to join trip')
+        const errBody: { error?: string } = await res.json().catch(() => ({}))
+        throw new Error(errBody.error ?? 'Failed to join trip')
       }
-      return res.json()
+      return res.json() as Promise<JoinTripResult>
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: tripKeys.lists() })
+    onSuccess: (): void => {
+      void queryClient.invalidateQueries({ queryKey: tripKeys.lists() })
     },
   })
 }
