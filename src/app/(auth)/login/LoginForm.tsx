@@ -23,12 +23,11 @@ export default function LoginForm() {
     e.preventDefault()
     setLoading(true); setMsg(null)
 
-    // Point to /auth/callback (client page) not /api/auth/callback (server route).
-    // Magic links send tokens in the URL hash fragment which only client-side
-    // code can read. The server-side route handler never sees hash fragments.
-    const callbackUrl = `${window.location.origin}/auth/callback?redirectTo=${encodeURIComponent(redirectTo)}`
-
-    console.log('[LoginForm] Sending magic link', { email, callbackUrl })
+    // Use the server-side PKCE callback route.
+    // Supabase will append ?code=xxx to this URL after verifying the OTP.
+    // Keep the URL clean — no extra query params that Supabase might strip.
+    // After auth, the server route always redirects to /dashboard.
+    const callbackUrl = `${window.location.origin}/api/auth/callback`
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
@@ -36,12 +35,9 @@ export default function LoginForm() {
     })
 
     setLoading(false)
-
     if (error) {
-      console.error('[LoginForm] signInWithOtp error:', error.message)
       setMsg({ type: 'err', text: error.message })
     } else {
-      console.log('[LoginForm] Magic link sent to:', email)
       setMsg({ type: 'ok', text: `Check your email — we sent a link to ${email}` })
     }
   }
@@ -50,14 +46,12 @@ export default function LoginForm() {
     e.preventDefault()
     setLoading(true); setMsg(null)
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
     setLoading(false)
 
     if (error) {
-      console.error('[LoginForm] signInWithPassword error:', error.message)
       setMsg({ type: 'err', text: error.message })
     } else {
-      console.log('[LoginForm] Password sign-in success', { userId: data.user?.id })
       router.push(redirectTo)
       router.refresh()
     }

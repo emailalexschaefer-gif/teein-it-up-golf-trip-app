@@ -1,51 +1,48 @@
-// AUTH CALLBACK — exchanges the code for a session and sets cookies on the response.
+// PKCE Auth Callback — server-side session exchange for magic links and OAuth.
 //
-// IMPORTANT: This route must NOT use createClient() from lib/supabase/server.ts.
-// That function writes cookies via next/headers, which is read-only in Route Handlers.
-// Instead we create a Supabase client inline that writes cookies onto the response object.
+// Flow:
+// 1. User calls signInWithOtp() on the client → @supabase/ssr stores code_verifier in a cookie
+// 2. Supabase verifies the OTP and redirects here with ?code=xxx appended
+// 3. This route reads the ?code and the code_verifier cookie, exchanges for a session
+// 4. Session cookies are written onto the response, browser is redirected to the app
+//
+// The Supabase client is created INLINE here (not via lib/supabase/server.ts)
+// so that cookies are written directly onto the response object, not via next/headers.
 
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
-  const code       = searchParams.get('code')
-  const redirectTo = searchParams.get('redirectTo') ?? '/dashboard'
-  const safePath   = redirectTo.startsWith('/') ? redirectTo : '/dashboard'
+  const code = searchParams.get('code')
 
-  console.log('[auth/callback] GET called', {
-    hasCode:    !!code,
-    redirectTo: safePath,
+  console.log('[api/auth/callback] GET', {
+    hasCode: !!code,
     origin,
+    allParams: Object.fromEntries(searchParams),
   })
 
   if (!code) {
-    console.log('[auth/callback] No code present — redirecting to login with error')
-    return NextResponse.redirect(`${origin}/login?error=no_code`)
+    // No code — Supabase may have used implicit flow; send to client handler
+    console.log('[api/auth/callback] No code — redirecting to /auth/callback for implicit handling')
+    return NextResponse.redirect(`${origin}/auth/callback${request.nextUrl.search}`)
   }
 
-  // Build the redirect response FIRST so we can attach cookies to it.
-  const response = NextResponse.redirect(`${origin}${safePath}`)
+  const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-  const supabaseUrl    = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  // Build the redirect response first so we can write cookies onto it
+  const response = NextResponse.redirect(`${origin}/dashboard`)
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    console.error('[auth/callback] Missing Supabase env vars')
-    return NextResponse.redirect(`${origin}/login?error=config`)
-  }
-
-  // Create a Supabase client that reads cookies from the request
-  // and writes cookies directly onto the response object.
-  // This is the correct pattern for Next.js App Router Route Handlers.
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       getAll() {
+        // Read cookies from the incoming request (includes the code_verifier)
         return request.cookies.getAll()
       },
       setAll(cookiesToSet) {
-        console.log('[auth/callback] setAll called with', cookiesToSet.length, 'cookies:',
-          cookiesToSet.map(c => c.name))
+        // Write session cookies onto the response the browser will receive
+        console.log('[api/auth/callback] Writing', cookiesToSet.length, 'cookies to response')
         cookiesToSet.forEach(({ name, value, options }) => {
           response.cookies.set(name, value, options)
         })
@@ -53,24 +50,21 @@ export async function GET(request: NextRequest) {
     },
   })
 
-  console.log('[auth/callback] Calling exchangeCodeForSession...')
   const { data, error } = await supabase.auth.exchangeCodeForSession(code)
 
   if (error) {
-    console.error('[auth/callback] exchangeCodeForSession ERROR:', {
+    console.error('[api/auth/callback] exchangeCodeForSession failed:', {
       message: error.message,
       status:  error.status,
     })
-    return NextResponse.redirect(`${origin}/login?error=exchange_failed`)
+    return NextResponse.redirect(`${origin}/login?error=auth_failed`)
   }
 
-  console.log('[auth/callback] exchangeCodeForSession SUCCESS', {
+  console.log('[api/auth/callback] Session established', {
     userId: data.user?.id,
     email:  data.user?.email,
-    // Log which cookies were set on the response
-    responseCookies: response.cookies.getAll().map(c => c.name),
   })
 
-  // Return the response — it now carries the session cookies.
+  // Return the response — it carries the session cookies
   return response
 }

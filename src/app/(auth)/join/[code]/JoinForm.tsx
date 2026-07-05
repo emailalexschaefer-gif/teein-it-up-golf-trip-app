@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-
 export default function JoinForm() {
   const params     = useParams()
   const inviteCode = (params.code as string)?.toUpperCase()
@@ -41,11 +40,16 @@ export default function JoinForm() {
     e.preventDefault()
     setLoading(true); setError(null)
 
+    // Clean callback URL — Supabase will append ?code= to this
+    // The server route handles the exchange and redirects to /dashboard
+    // From there the user can navigate to their join welcome page
+    const callbackUrl = `${window.location.origin}/api/auth/callback`
+
     const { error: authError } = await supabase.auth.signInWithOtp({
       email,
       options: {
         data: { full_name: name },
-        emailRedirectTo: `${window.location.origin}/auth/callback?redirectTo=${encodeURIComponent(`/join/${inviteCode}/welcome`)}`,
+        emailRedirectTo: callbackUrl,
       },
     })
 
