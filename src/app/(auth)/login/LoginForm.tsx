@@ -24,30 +24,46 @@ export default function LoginForm() {
     e.preventDefault()
     setLoading(true); setMsg(null)
 
+    const appUrl       = getAppUrl()
+    const callbackUrl  = `${appUrl}/api/auth/callback?redirectTo=${encodeURIComponent(redirectTo)}`
+
+    console.log('[LoginForm] Sending magic link', {
+      email,
+      appUrl,
+      callbackUrl,
+      redirectTo,
+    })
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: {
-        emailRedirectTo: `${getAppUrl()}/api/auth/callback?redirectTo=${encodeURIComponent(redirectTo)}`,
-      },
+      options: { emailRedirectTo: callbackUrl },
     })
 
     setLoading(false)
-    setMsg(error
-      ? { type: 'err', text: error.message }
-      : { type: 'ok',  text: `Check your email — we sent a link to ${email}` }
-    )
+
+    if (error) {
+      console.error('[LoginForm] signInWithOtp error:', error.message)
+      setMsg({ type: 'err', text: error.message })
+    } else {
+      console.log('[LoginForm] Magic link sent — check Supabase logs to confirm emailRedirectTo was accepted')
+      setMsg({ type: 'ok', text: `Check your email — we sent a link to ${email}` })
+    }
   }
 
   async function handlePassword(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true); setMsg(null)
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    console.log('[LoginForm] Attempting password sign-in', { email })
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     setLoading(false)
 
     if (error) {
+      console.error('[LoginForm] signInWithPassword error:', error.message)
       setMsg({ type: 'err', text: error.message })
     } else {
+      console.log('[LoginForm] Password sign-in success', { userId: data.user?.id })
       router.push(redirectTo)
       router.refresh()
     }

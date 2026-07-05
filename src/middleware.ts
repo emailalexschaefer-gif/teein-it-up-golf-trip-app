@@ -2,12 +2,17 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const { pathname }    = request.nextUrl
+
+  // Log every request so we can trace the redirect chain
+  console.log('[middleware]', request.method, pathname, {
+    cookies: request.cookies.getAll().map(c => c.name),
+  })
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    // Can't do auth without these — let the request through and let the
-    // page-level auth check handle it
+    console.warn('[middleware] Missing Supabase env vars — passing request through')
     return NextResponse.next({ request })
   }
 
@@ -30,10 +35,18 @@ export async function middleware(request: NextRequest) {
     },
   })
 
-  // Required: do not add logic between createServerClient and getUser()
-  const { data: { user } } = await supabase.auth.getUser()
+  // Do not add any logic between createServerClient and getUser()
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
 
-  const { pathname } = request.nextUrl
+  console.log('[middleware] getUser result', {
+    pathname,
+    userId:  user?.id ?? null,
+    error:   userError?.message ?? null,
+    // Show auth-related cookies specifically
+    hasAuthCookie: request.cookies.getAll().some(c =>
+      c.name.includes('auth') || c.name.includes('sb-')
+    ),
+  })
 
   const isPublic =
     pathname === '/' ||
@@ -44,6 +57,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/favicon')
 
   if (!user && !isPublic) {
+    console.log('[middleware] No user, protected route — redirecting to /login')
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     url.searchParams.set('redirectTo', pathname)
@@ -51,6 +65,7 @@ export async function middleware(request: NextRequest) {
   }
 
   if (user && (pathname === '/' || pathname === '/login')) {
+    console.log('[middleware] User authenticated, on auth page — redirecting to /dashboard')
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)
