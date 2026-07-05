@@ -6,13 +6,12 @@ export async function middleware(request: NextRequest) {
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   const { pathname }    = request.nextUrl
 
-  // Log every request so we can trace the redirect chain
   console.log('[middleware]', request.method, pathname, {
     cookies: request.cookies.getAll().map(c => c.name),
   })
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    console.warn('[middleware] Missing Supabase env vars — passing request through')
+    console.warn('[middleware] Missing Supabase env vars — passing through')
     return NextResponse.next({ request })
   }
 
@@ -35,29 +34,29 @@ export async function middleware(request: NextRequest) {
     },
   })
 
-  // Do not add any logic between createServerClient and getUser()
   const { data: { user }, error: userError } = await supabase.auth.getUser()
 
-  console.log('[middleware] getUser result', {
+  console.log('[middleware] getUser', {
     pathname,
-    userId:  user?.id ?? null,
-    error:   userError?.message ?? null,
-    // Show auth-related cookies specifically
+    userId:       user?.id ?? null,
+    error:        userError?.message ?? null,
     hasAuthCookie: request.cookies.getAll().some(c =>
-      c.name.includes('auth') || c.name.includes('sb-')
+      c.name.includes('auth') || c.name.startsWith('sb-')
     ),
   })
 
+  // Routes that do not require authentication
   const isPublic =
     pathname === '/' ||
     pathname === '/login' ||
+    pathname.startsWith('/auth/') ||     // /auth/callback (client-side handler)
     pathname.startsWith('/join/') ||
-    pathname.startsWith('/api/auth/') ||
+    pathname.startsWith('/api/auth/') || // /api/auth/callback (PKCE server handler)
     pathname.startsWith('/_next/') ||
     pathname.startsWith('/favicon')
 
   if (!user && !isPublic) {
-    console.log('[middleware] No user, protected route — redirecting to /login')
+    console.log('[middleware] No user on protected route — redirecting to /login')
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     url.searchParams.set('redirectTo', pathname)
@@ -65,7 +64,7 @@ export async function middleware(request: NextRequest) {
   }
 
   if (user && (pathname === '/' || pathname === '/login')) {
-    console.log('[middleware] User authenticated, on auth page — redirecting to /dashboard')
+    console.log('[middleware] Authenticated user on auth page — redirecting to /dashboard')
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)

@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { getAppUrl } from '@/lib/utils'
 
 type Mode = 'magic' | 'password'
 
@@ -24,15 +23,12 @@ export default function LoginForm() {
     e.preventDefault()
     setLoading(true); setMsg(null)
 
-    const appUrl       = getAppUrl()
-    const callbackUrl  = `${appUrl}/api/auth/callback?redirectTo=${encodeURIComponent(redirectTo)}`
+    // Point to /auth/callback (client page) not /api/auth/callback (server route).
+    // Magic links send tokens in the URL hash fragment which only client-side
+    // code can read. The server-side route handler never sees hash fragments.
+    const callbackUrl = `${window.location.origin}/auth/callback?redirectTo=${encodeURIComponent(redirectTo)}`
 
-    console.log('[LoginForm] Sending magic link', {
-      email,
-      appUrl,
-      callbackUrl,
-      redirectTo,
-    })
+    console.log('[LoginForm] Sending magic link', { email, callbackUrl })
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
@@ -45,7 +41,7 @@ export default function LoginForm() {
       console.error('[LoginForm] signInWithOtp error:', error.message)
       setMsg({ type: 'err', text: error.message })
     } else {
-      console.log('[LoginForm] Magic link sent — check Supabase logs to confirm emailRedirectTo was accepted')
+      console.log('[LoginForm] Magic link sent to:', email)
       setMsg({ type: 'ok', text: `Check your email — we sent a link to ${email}` })
     }
   }
@@ -53,8 +49,6 @@ export default function LoginForm() {
   async function handlePassword(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true); setMsg(null)
-
-    console.log('[LoginForm] Attempting password sign-in', { email })
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     setLoading(false)
@@ -73,7 +67,9 @@ export default function LoginForm() {
     <>
       <h1 className="text-xl font-bold text-text mb-1">Sign in</h1>
       <p className="text-text-muted text-sm mb-6">
-        {mode === 'magic' ? "We'll send you a sign-in link — no password needed." : 'Sign in with your email and password.'}
+        {mode === 'magic'
+          ? "We'll send you a sign-in link — no password needed."
+          : 'Sign in with your email and password.'}
       </p>
 
       <form onSubmit={mode === 'magic' ? handleMagic : handlePassword} className="space-y-3">
@@ -104,7 +100,9 @@ export default function LoginForm() {
         )}
 
         {msg && (
-          <div className={`rounded-xl px-4 py-3 text-sm ${msg.type === 'ok' ? 'bg-brand-50 text-brand-600' : 'bg-red-50 text-red-600'}`}>
+          <div className={`rounded-xl px-4 py-3 text-sm ${
+            msg.type === 'ok' ? 'bg-brand-50 text-brand-600' : 'bg-red-50 text-red-600'
+          }`}>
             {msg.text}
           </div>
         )}

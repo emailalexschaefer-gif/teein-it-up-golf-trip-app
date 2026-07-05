@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { getAppUrl } from '@/lib/utils'
+
 
 export default function JoinForm() {
   const params     = useParams()
@@ -45,7 +45,7 @@ export default function JoinForm() {
       email,
       options: {
         data: { full_name: name },
-        emailRedirectTo: `${getAppUrl()}/api/auth/callback?redirectTo=${encodeURIComponent(`/join/${inviteCode}/welcome`)}`,
+        emailRedirectTo: `${window.location.origin}/auth/callback?redirectTo=${encodeURIComponent(`/join/${inviteCode}/welcome`)}`,
       },
     })
 
