@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { TripSummary } from '@/types/app'
+import type { TripRole } from '@/types/database'
 
 export const tripKeys = {
   all:     ['trips'] as const,
@@ -53,11 +54,11 @@ export function useMyTrips(): UseQueryResult<TripSummary[], Error> {
         throw new Error(`trip_members query failed: ${memberResult.error.message}`)
       }
 
-      const memberships: Array<{ trip_id: string; role: string }> = memberResult.data ?? []
+      const memberships: Array<{ trip_id: string; role: TripRole }> = memberResult.data ?? []
 
       if (memberships.length === 0) return []
 
-      const tripIds = memberships.map((m: { trip_id: string }) => m.trip_id)
+      const tripIds = memberships.map((m) => m.trip_id)
 
       // Step 2: Get the trips by ID (avoids PostgREST relationship join issues)
       const tripsResult = await db
@@ -72,14 +73,14 @@ export function useMyTrips(): UseQueryResult<TripSummary[], Error> {
       const tripsData: any[] = tripsResult.data ?? []
 
       // Build a role lookup
-      const roleByTripId: Record<string, string> = {}
+      const roleByTripId: Record<string, TripRole> = {}
       for (const m of memberships) {
         roleByTripId[m.trip_id] = m.role
       }
 
       const summaries: TripSummary[] = tripsData
         .filter((t: any) => t.status !== 'archived')
-        .map((t: any) => ({
+        .map((t: any): TripSummary => ({
           id:           t.id,
           name:         t.name,
           description:  t.description,
@@ -90,7 +91,7 @@ export function useMyTrips(): UseQueryResult<TripSummary[], Error> {
           status:       t.status,
           logo_url:     t.logo_url,
           invite_code:  t.invite_code,
-          user_role:    roleByTripId[t.id] ?? 'player',
+          user_role:    roleByTripId[t.id] ?? 'player' as TripRole,
           player_count: 0,
           round_count:  0,
         }))
