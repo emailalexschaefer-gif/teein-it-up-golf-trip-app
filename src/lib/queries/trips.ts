@@ -8,8 +8,6 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import type { TripSummary } from '@/types/app'
 
-// ─── Query keys ───────────────────────────────────────────────────────────────
-
 export const tripKeys = {
   all:     ['trips'] as const,
   lists:   () => [...tripKeys.all, 'list'] as const,
@@ -18,40 +16,19 @@ export const tripKeys = {
   rounds:  (id: string) => [...tripKeys.all, id, 'rounds'] as const,
 }
 
-// ─── Variable types — explicit, not inferred ──────────────────────────────────
-
-interface UpdateStatusVars {
-  tripId: string
-  status: string
-}
+interface UpdateStatusVars { tripId: string; status: string }
 
 interface CreateTripVars {
-  name: string
-  event_type: string
-  location: string
-  start_date: string
-  end_date: string
-  description: string
+  name: string; event_type: string; location: string
+  start_date: string; end_date: string; description: string
   rounds: Array<{
-    name: string
-    course_name: string
-    play_date: string
-    tee_time: string
-    holes: 9 | 18
-    scoring_format: 'stableford'
+    name: string; course_name: string; play_date: string
+    tee_time: string; holes: 9 | 18; scoring_format: 'stableford'
   }>
 }
 
-interface CreateTripResult {
-  tripId: string
-  inviteCode: string
-}
-
-interface JoinTripResult {
-  tripId: string
-  tripName: string
-  alreadyMember: boolean
-}
+interface CreateTripResult { tripId: string; inviteCode: string }
+interface JoinTripResult   { tripId: string; tripName: string; alreadyMember: boolean }
 
 // ─── useMyTrips ───────────────────────────────────────────────────────────────
 
@@ -66,25 +43,43 @@ export function useMyTrips(): UseQueryResult<TripSummary[], Error> {
       const user: { id: string } | null = authResult?.data?.user ?? null
       if (!user) throw new Error('Not authenticated')
 
-      const queryResult = await db
+      // Step 1: Get the trip IDs and roles this user belongs to
+      const memberResult = await db
         .from('trip_members')
-        .select(
-          'role, trips ( id, name, description, event_type, location, start_date, end_date, status, logo_url, invite_code, trip_members ( count ), rounds ( count ) )'
-        )
+        .select('trip_id, role')
         .eq('profile_id', user.id)
 
-      if (queryResult?.error) throw queryResult.error
+      if (memberResult.error) {
+        throw new Error(`trip_members query failed: ${memberResult.error.message}`)
+      }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rows: any[] = queryResult?.data ?? []
-      const summaries: TripSummary[] = []
+      const memberships: Array<{ trip_id: string; role: string }> = memberResult.data ?? []
 
-      for (const row of rows) {
-        const t = row?.trips ?? null
-        if (!t) continue
-        if (t.status === 'archived') continue
+      if (memberships.length === 0) return []
 
-        summaries.push({
+      const tripIds = memberships.map((m: { trip_id: string }) => m.trip_id)
+
+      // Step 2: Get the trips by ID (avoids PostgREST relationship join issues)
+      const tripsResult = await db
+        .from('trips')
+        .select('id, name, description, event_type, location, start_date, end_date, status, logo_url, invite_code')
+        .in('id', tripIds)
+
+      if (tripsResult.error) {
+        throw new Error(`trips query failed: ${tripsResult.error.message}`)
+      }
+
+      const tripsData: any[] = tripsResult.data ?? []
+
+      // Build a role lookup
+      const roleByTripId: Record<string, string> = {}
+      for (const m of memberships) {
+        roleByTripId[m.trip_id] = m.role
+      }
+
+      const summaries: TripSummary[] = tripsData
+        .filter((t: any) => t.status !== 'archived')
+        .map((t: any) => ({
           id:           t.id,
           name:         t.name,
           description:  t.description,
@@ -95,16 +90,16 @@ export function useMyTrips(): UseQueryResult<TripSummary[], Error> {
           status:       t.status,
           logo_url:     t.logo_url,
           invite_code:  t.invite_code,
-          user_role:    row.role,
-          player_count: Number(t.trip_members?.[0]?.count ?? 0),
-          round_count:  Number(t.rounds?.[0]?.count ?? 0),
-        })
-      }
+          user_role:    roleByTripId[t.id] ?? 'player',
+          player_count: 0,
+          round_count:  0,
+        }))
 
       summaries.sort((a, b) => a.start_date.localeCompare(b.start_date))
       return summaries
     },
     staleTime: 1000 * 60 * 2,
+    retry: 1,
   })
 }
 
@@ -121,7 +116,7 @@ export function useUpdateTripStatus(): UseMutationResult<void, Error, UpdateStat
         .from('trips')
         .update({ status, updated_at: new Date().toISOString() })
         .eq('id', tripId)
-      if (result?.error) throw result.error
+      if (result?.error) throw new Error(result.error.message)
     },
     onSuccess: (_data: void, variables: UpdateStatusVars): void => {
       void queryClient.invalidateQueries({ queryKey: tripKeys.detail(variables.tripId) })
@@ -144,7 +139,7 @@ export function useCreateTrip(): UseMutationResult<CreateTripResult, Error, Crea
       })
       if (!res.ok) {
         const errBody: { error?: string } = await res.json().catch(() => ({}))
-        throw new Error(errBody.error ?? 'Failed to create trip')
+        throw new Error(errBody.error ?? `HTTP ${res.status}`)
       }
       return res.json() as Promise<CreateTripResult>
     },
@@ -168,7 +163,7 @@ export function useJoinTrip(): UseMutationResult<JoinTripResult, Error, string> 
       })
       if (!res.ok) {
         const errBody: { error?: string } = await res.json().catch(() => ({}))
-        throw new Error(errBody.error ?? 'Failed to join trip')
+        throw new Error(errBody.error ?? `HTTP ${res.status}`)
       }
       return res.json() as Promise<JoinTripResult>
     },

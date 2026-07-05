@@ -539,3 +539,15 @@ GROUP BY r.id, r.trip_id, sc.player_id, p.full_name, sc.playing_handicap;
 --   supabase storage create trip-assets --public
 --   supabase storage create trip-photos --public
 
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- BEGIN: 008_fix_trip_members_rls.sql
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Drop the problematic self-referential policy
+DROP POLICY IF EXISTS "Members: view members of shared trips" ON public.trip_members;
+
+-- Replace with a policy using the SECURITY DEFINER helper (no recursion)
+CREATE POLICY "Members: view members of shared trips"
+  ON public.trip_members FOR SELECT
+  USING (public.is_trip_member(trip_id));
