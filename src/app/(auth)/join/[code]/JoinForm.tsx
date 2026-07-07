@@ -1,70 +1,142 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-type Step = 'form' | 'check_email' | 'rate_limited' | 'invalid'
-type AuthMode = 'magic' | 'password'
+type Step = 'checking' | 'form' | 'check_email' | 'rate_limited' | 'invalid'
+type AuthMode = 'password' | 'magic'
 
 export default function JoinForm() {
   const params     = useParams()
+  const router     = useRouter()
   const inviteCode = (params.code as string)?.toUpperCase()
 
   const [name, setName]         = useState('')
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
-  const [authMode, setAuthMode] = useState<AuthMode>('magic')
+  const [authMode, setAuthMode] = useState<AuthMode>('password')
   const [loading, setLoading]   = useState(false)
   const [tripName, setTripName] = useState<string | null>(null)
-  const [step, setStep]         = useState<Step>('form')
+  const [step, setStep]         = useState<Step>('checking')
   const [error, setError]       = useState<string | null>(null)
 
   const supabase = createClient()
 
   useEffect(() => {
-    if (!inviteCode) return
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db: any = supabase
-    db
-      .from('trips')
-      .select('name, status')
-      .eq('invite_code', inviteCode)
-      .maybeSingle()
-      .then((result: { data: { name: string; status: string } | null }) => {
-        if (!result.data || result.data.status === 'archived') {
-          setStep('invalid')
-        } else {
-          setTripName(result.data.name)
-          // Store invite code so we can rejoin the trip after auth redirect
-          sessionStorage.setItem('pendingInviteCode', inviteCode)
+    if (!inviteCode) { setStep('invalid'); return }
+
+    // Check if the user is already logged in — if so, join immediately
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (user) {
+        // Already authenticated — call join API directly, no email needed
+        const res  = await fetch('/api/join', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ invite_code: inviteCode }),
+        })
+        const data = await res.json()
+        if (res.ok) {
+          router.replace(`/trips/${data.tripId}`)
+          return
         }
-      })
+      }
+
+      // Not logged in — look up trip name for display
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = supabase
+      const result = await db
+        .from('trips')
+        .select('name, status')
+        .eq('invite_code', inviteCode)
+        .maybeSingle()
+
+      if (!result.data || result.data.status === 'archived') {
+        setStep('invalid')
+      } else {
+        setTripName(result.data.name)
+        setStep('form')
+      }
+    })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inviteCode])
 
   function isRateLimitError(msg: string): boolean {
-    const lower = msg.toLowerCase()
-    return (
-      lower.includes('rate limit') ||
-      lower.includes('too many') ||
-      lower.includes('email rate') ||
-      lower.includes('over the limit') ||
-      lower.includes('429')
-    )
+    const l = msg.toLowerCase()
+    return l.includes('rate limit') || l.includes('too many') ||
+           l.includes('email rate') || l.includes('over the limit') || l.includes('429')
+  }
+
+  // The invite code travels inside the callback URL so it survives across browser contexts.
+  // Supabase appends ?code=xxx — the callback reads both inviteCode and code,
+  // exchanges the session, then redirects to /api/auth/do-join?inviteCode=XXX
+  // which joins the trip server-side before sending the user to the trip page.
+  function buildCallbackUrl(): string {
+    return `${window.location.origin}/api/auth/callback?inviteCode=${encodeURIComponent(inviteCode)}`
+  }
+
+  async function handlePassword(e: React.FormEvent) {
+    e.preventDefault()
+    setLoading(true); setError(null)
+
+    // Try sign-in first (returning user)
+    const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
+
+    if (!signInErr) {
+      // Signed in — join trip immediately then redirect
+      const res  = await fetch('/api/join', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ invite_code: inviteCode }),
+      })
+      const data = await res.json()
+      setLoading(false)
+      if (res.ok) {
+        router.push(`/trips/${data.tripId}`)
+      } else {
+        setError(data.error ?? 'Joined account but could not add to trip.')
+        router.push('/dashboard')
+      }
+      return
+    }
+
+    // Sign-in failed — try sign-up (new user)
+    const { error: signUpErr } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: name } },
+    })
+
+    if (signUpErr) {
+      setLoading(false)
+      setError(signUpErr.message)
+      return
+    }
+
+    // Signed up successfully — join trip and redirect
+    const res  = await fetch('/api/join', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ invite_code: inviteCode }),
+    })
+    const data = await res.json()
+    setLoading(false)
+    if (res.ok) {
+      router.push(`/trips/${data.tripId}`)
+    } else {
+      router.push('/dashboard')
+    }
   }
 
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true); setError(null)
 
-    const callbackUrl = `${window.location.origin}/api/auth/callback`
-
     const { error: authError } = await supabase.auth.signInWithOtp({
       email,
       options: {
         data: { full_name: name },
-        emailRedirectTo: callbackUrl,
+        emailRedirectTo: buildCallbackUrl(),
       },
     })
 
@@ -81,42 +153,15 @@ export default function JoinForm() {
     }
   }
 
-  async function handlePassword(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true); setError(null)
-
-    // Try signing in first (existing user)
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
-
-    if (!signInError) {
-      // Signed in — redirect to dashboard (invite code stored in sessionStorage,
-      // the dashboard or a post-auth hook picks it up)
-      window.location.href = `${window.location.origin}/dashboard`
-      return
-    }
-
-    // If sign-in failed because user doesn't exist, sign them up
-    if (signInError.message.toLowerCase().includes('invalid login') ||
-        signInError.message.toLowerCase().includes('no user')) {
-      const { error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { full_name: name } },
-      })
-      setLoading(false)
-      if (signUpError) {
-        setError(signUpError.message)
-      } else {
-        // Signed up and auto-signed in (email confirmation may be required)
-        window.location.href = `${window.location.origin}/dashboard`
-      }
-    } else {
-      setLoading(false)
-      setError(signInError.message)
-    }
-  }
-
   // ── Render states ──────────────────────────────────────────────────────────
+
+  if (step === 'checking') {
+    return (
+      <div className="flex justify-center py-8">
+        <div className="w-8 h-8 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   if (step === 'invalid') {
     return (
@@ -139,6 +184,9 @@ export default function JoinForm() {
           We sent a sign-in link to <strong>{email}</strong>.
           Tap it to join <strong>{tripName}</strong>.
         </p>
+        <p className="text-xs text-text-subtle text-center mt-3">
+          The link will add you to the trip automatically.
+        </p>
       </>
     )
   }
@@ -149,8 +197,7 @@ export default function JoinForm() {
         <p className="text-3xl text-center mb-3">⏱️</p>
         <h1 className="text-lg font-bold text-text text-center mb-2">Too many emails sent</h1>
         <p className="text-text-muted text-sm text-center mb-4">
-          Too many sign-in emails have been sent recently. Please wait a few
-          minutes and try again — or set a password to join instantly.
+          Please wait a few minutes and try again, or set a password to join instantly.
         </p>
         <div className="space-y-2">
           <button
@@ -184,7 +231,7 @@ export default function JoinForm() {
         )}
       </div>
 
-      <form onSubmit={authMode === 'magic' ? handleMagicLink : handlePassword} className="space-y-3">
+      <form onSubmit={authMode === 'password' ? handlePassword : handleMagicLink} className="space-y-3">
         <div>
           <label className="block text-sm font-medium text-text mb-1">
             Your name<span className="text-red-500 ml-0.5">*</span>
@@ -214,11 +261,10 @@ export default function JoinForm() {
             </label>
             <input
               type="password" required autoComplete="new-password" value={password}
-              onChange={(e) => setPassword(e.target.value)} placeholder="Choose a password"
+              onChange={(e) => setPassword(e.target.value)} placeholder="Choose a password (min. 8 characters)"
               minLength={8}
               className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600"
             />
-            <p className="text-xs text-text-subtle mt-1">Minimum 8 characters</p>
           </div>
         )}
 
@@ -230,26 +276,19 @@ export default function JoinForm() {
           type="submit" disabled={loading || !tripName}
           className="w-full bg-brand-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-brand-700 transition-colors disabled:opacity-50"
         >
-          {loading
-            ? 'Joining…'
-            : authMode === 'magic'
-            ? 'Send sign-in link'
-            : 'Join trip'}
+          {loading ? 'Joining…' : authMode === 'password' ? 'Join trip' : 'Send sign-in link'}
         </button>
       </form>
 
       <div className="mt-4 text-center">
         <button
           type="button"
-          onClick={() => {
-            setAuthMode(authMode === 'magic' ? 'password' : 'magic')
-            setError(null)
-          }}
+          onClick={() => { setAuthMode(authMode === 'password' ? 'magic' : 'password'); setError(null) }}
           className="text-sm text-text-muted hover:text-brand-600 transition-colors"
         >
-          {authMode === 'magic'
-            ? 'Set a password instead (no email needed)'
-            : 'Send a magic link instead'}
+          {authMode === 'password'
+            ? 'Sign in with a magic link instead'
+            : 'Set a password instead (no email needed)'}
         </button>
       </div>
     </>
