@@ -1,11 +1,16 @@
 import type { Metadata } from 'next'
 import TripList from '@/components/trips/TripList'
+import PendingJoinHandler from '@/components/trips/PendingJoinHandler'
+import JoinByCode from '@/components/trips/JoinByCode'
 
 export const metadata: Metadata = { title: 'My Trips' }
 
 export default function DashboardPage() {
   return (
     <div>
+      {/* Auto-joins trip if pendingInviteCode is in sessionStorage */}
+      <PendingJoinHandler />
+
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-text">My Trips</h1>
@@ -18,7 +23,11 @@ export default function DashboardPage() {
           + New trip
         </a>
       </div>
-      <TripList />
+
+      <div className="space-y-4">
+        <TripList />
+        <JoinByCode />
+      </div>
     </div>
   )
 }
