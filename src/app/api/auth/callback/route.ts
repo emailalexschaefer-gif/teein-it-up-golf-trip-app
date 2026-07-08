@@ -16,10 +16,12 @@ export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
   const code       = searchParams.get('code')
   const inviteCode = searchParams.get('inviteCode')?.toUpperCase() ?? null
+  const next       = searchParams.get('next') ?? null   // e.g. /reset-password
 
   console.log('[api/auth/callback] GET', {
     hasCode:    !!code,
     inviteCode,
+    next,
     origin,
   })
 
@@ -31,10 +33,12 @@ export async function GET(request: NextRequest) {
   const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-  // We build the final redirect destination before the session exchange
-  // so we can write cookies onto that response object.
+  // Determine where to send the user after session is established.
+  // Priority: inviteCode (join flow) > next param > dashboard
   const destination = inviteCode
     ? `${origin}/api/auth/do-join?inviteCode=${inviteCode}`
+    : next
+    ? `${origin}${next.startsWith('/') ? next : '/dashboard'}`
     : `${origin}/dashboard`
 
   const response = NextResponse.redirect(destination)

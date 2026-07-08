@@ -23,10 +23,6 @@ export default function LoginForm() {
     e.preventDefault()
     setLoading(true); setMsg(null)
 
-    // Use the server-side PKCE callback route.
-    // Supabase will append ?code=xxx to this URL after verifying the OTP.
-    // Keep the URL clean — no extra query params that Supabase might strip.
-    // After auth, the server route always redirects to /dashboard.
     const callbackUrl = `${window.location.origin}/api/auth/callback`
 
     const { error } = await supabase.auth.signInWithOtp({
@@ -50,7 +46,18 @@ export default function LoginForm() {
     setLoading(false)
 
     if (error) {
-      setMsg({ type: 'err', text: error.message })
+      // "Invalid login credentials" can mean wrong password OR no password set (magic-link account).
+      // Give a clearer message with a reset option.
+      const isCredentialError =
+        error.message.toLowerCase().includes('invalid login') ||
+        error.message.toLowerCase().includes('invalid credentials')
+
+      setMsg({
+        type: 'err',
+        text: isCredentialError
+          ? 'Wrong password, or this account was created with a magic link. Use magic link or set a password.'
+          : error.message,
+      })
     } else {
       router.push(redirectTo)
       router.refresh()
@@ -98,6 +105,16 @@ export default function LoginForm() {
             msg.type === 'ok' ? 'bg-brand-50 text-brand-600' : 'bg-red-50 text-red-600'
           }`}>
             {msg.text}
+            {msg.type === 'err' && mode === 'password' && (
+              <div className="mt-2">
+                <a
+                  href="/reset-password"
+                  className="underline font-medium hover:opacity-80"
+                >
+                  Set or reset your password →
+                </a>
+              </div>
+            )}
           </div>
         )}
 
@@ -105,18 +122,30 @@ export default function LoginForm() {
           type="submit" disabled={loading}
           className="w-full bg-brand-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-brand-700 transition-colors disabled:opacity-50"
         >
-          {loading ? 'Sending…' : mode === 'magic' ? 'Send sign-in link' : 'Sign in'}
+          {loading ? 'Signing in…' : mode === 'magic' ? 'Send sign-in link' : 'Sign in'}
         </button>
       </form>
 
-      <div className="mt-4 text-center">
-        <button
-          type="button"
-          onClick={() => { setMode(mode === 'magic' ? 'password' : 'magic'); setMsg(null) }}
-          className="text-sm text-text-muted hover:text-brand-600 transition-colors"
-        >
-          {mode === 'magic' ? 'Sign in with password instead' : 'Sign in with a magic link instead'}
-        </button>
+      <div className="mt-4 space-y-2 text-center">
+        <div>
+          <button
+            type="button"
+            onClick={() => { setMode(mode === 'magic' ? 'password' : 'magic'); setMsg(null) }}
+            className="text-sm text-text-muted hover:text-brand-600 transition-colors"
+          >
+            {mode === 'magic' ? 'Sign in with password instead' : 'Sign in with a magic link instead'}
+          </button>
+        </div>
+        {mode === 'password' && (
+          <div>
+            <a
+              href="/reset-password"
+              className="text-sm text-text-muted hover:text-brand-600 transition-colors"
+            >
+              Forgot password / set a password
+            </a>
+          </div>
+        )}
       </div>
     </>
   )

@@ -50,6 +50,7 @@ export async function middleware(request: NextRequest) {
     pathname === '/' ||
     pathname === '/login' ||
     pathname.startsWith('/auth/') ||     // /auth/callback (client-side handler)
+    pathname === '/reset-password' ||
     pathname.startsWith('/join/') ||
     pathname.startsWith('/api/auth/') || // /api/auth/callback (PKCE server handler)
     pathname.startsWith('/_next/') ||
