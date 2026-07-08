@@ -13,14 +13,18 @@ const RoundSchema = z.object({
 })
 
 const CreateTripSchema = z.object({
-  name:        z.string().min(1, 'Trip name is required').max(100),
-  event_type:  z.string().default('golf_trip'),
-  location:    z.string().max(200).default(''),
-  start_date:  z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  end_date:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  description: z.string().max(1000).default(''),
-  rounds:      z.array(RoundSchema).min(1).max(10),
+  name:              z.string().min(1, 'Trip name is required').max(100),
+  event_type:        z.string().default('golf_trip'),
+  location:          z.string().max(200).default(''),
+  start_date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  end_date:          z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  description:       z.string().max(1000).default(''),
+  expected_players:  z.number().int().min(0).max(500).default(0),
+  players_per_group: z.number().int().min(2).max(8).default(4),
+  rounds:            z.array(RoundSchema).min(1).max(10),
 })
+
+type CreatedTripShape = { id: string; invite_code: string }
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -39,7 +43,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Validation failed', issues: parsed.error.issues }, { status: 400 })
   }
 
-  const { name, event_type, location, start_date, end_date, description, rounds } = parsed.data
+  const { name, event_type, location, start_date, end_date, description,
+          expected_players, players_per_group, rounds } = parsed.data
 
   if (end_date < start_date) {
     return NextResponse.json({ error: 'End date must be on or after start date' }, { status: 400 })
@@ -51,19 +56,21 @@ export async function POST(request: Request) {
   const tripResult = await admin
     .from('trips')
     .insert({
-      organiser_id: user.id,
+      organiser_id:      user.id,
       name,
-      event_type:  event_type  || null,
-      location:    location    || null,
-      description: description || null,
+      event_type:        event_type  || null,
+      location:          location    || null,
+      description:       description || null,
       start_date,
       end_date,
-      status: 'draft',
+      status:            'draft',
+      expected_players,
+      players_per_group,
     })
     .select('id, invite_code')
     .single()
 
-  const trip = tripResult?.data ?? null
+  const trip = tripResult?.data as CreatedTripShape | null
   if (tripResult?.error || !trip) {
     console.error('[POST /api/trips] trip:', tripResult?.error)
     return NextResponse.json({ error: 'Failed to create trip' }, { status: 500 })
@@ -75,7 +82,6 @@ export async function POST(request: Request) {
 
   if (memberError) {
     await admin.from('trips').delete().eq('id', trip.id)
-    console.error('[POST /api/trips] member:', memberError)
     return NextResponse.json({ error: 'Failed to set up membership' }, { status: 500 })
   }
 
@@ -95,7 +101,6 @@ export async function POST(request: Request) {
 
     if (roundsError) {
       await admin.from('trips').delete().eq('id', trip.id)
-      console.error('[POST /api/trips] rounds:', roundsError)
       return NextResponse.json({ error: 'Failed to create rounds' }, { status: 500 })
     }
   }

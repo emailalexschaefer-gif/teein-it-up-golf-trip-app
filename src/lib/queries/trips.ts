@@ -22,6 +22,7 @@ interface UpdateStatusVars { tripId: string; status: string }
 interface CreateTripVars {
   name: string; event_type: string; location: string
   start_date: string; end_date: string; description: string
+  expected_players: number; players_per_group: number
   rounds: Array<{
     name: string; course_name: string; play_date: string
     tee_time: string; holes: 9 | 18; scoring_format: 'stableford'
@@ -63,7 +64,7 @@ export function useMyTrips(): UseQueryResult<TripSummary[], Error> {
       // Step 2: Get the trips by ID (avoids PostgREST relationship join issues)
       const tripsResult = await db
         .from('trips')
-        .select('id, name, description, event_type, location, start_date, end_date, status, logo_url, invite_code')
+        .select('id, name, description, event_type, location, start_date, end_date, status, logo_url, invite_code, expected_players, players_per_group')
         .in('id', tripIds)
 
       if (tripsResult.error) {
@@ -91,9 +92,11 @@ export function useMyTrips(): UseQueryResult<TripSummary[], Error> {
           status:       t.status,
           logo_url:     t.logo_url,
           invite_code:  t.invite_code,
-          user_role:    roleByTripId[t.id] ?? 'player' as TripRole,
-          player_count: 0,
-          round_count:  0,
+          user_role:         roleByTripId[t.id] ?? 'player' as TripRole,
+          player_count:      0,
+          round_count:       0,
+          expected_players:  t.expected_players  ?? 0,
+          players_per_group: t.players_per_group ?? 4,
         }))
 
       summaries.sort((a, b) => a.start_date.localeCompare(b.start_date))

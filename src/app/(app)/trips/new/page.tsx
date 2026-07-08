@@ -15,6 +15,7 @@ const STEPS = ['Details', 'Rounds', 'Review']
 const defaultDetails = (): WizardTripDetails => ({
   name: '', event_type: 'golf_trip', location: '',
   start_date: '', end_date: '', description: '',
+  expected_players: 0, players_per_group: 4,
 })
 
 const defaultRound = (startDate = ''): WizardRound => ({
@@ -26,10 +27,10 @@ export default function NewTripPage() {
   const router     = useRouter()
   const createTrip = useCreateTrip()
 
-  const [step, setStep]             = useState(1)
-  const [tripDetails, setDetails]   = useState<WizardTripDetails>(defaultDetails())
-  const [rounds, setRounds]         = useState<WizardRound[]>([defaultRound()])
-  const [error, setError]           = useState<string | null>(null)
+  const [step, setStep]           = useState(1)
+  const [tripDetails, setDetails] = useState<WizardTripDetails>(defaultDetails())
+  const [rounds, setRounds]       = useState<WizardRound[]>([defaultRound()])
+  const [error, setError]         = useState<string | null>(null)
 
   function handleDetailsChange(d: WizardTripDetails) {
     setDetails(d)
@@ -42,12 +43,14 @@ export default function NewTripPage() {
     setError(null)
     try {
       const { tripId } = await createTrip.mutateAsync({
-        name:        tripDetails.name,
-        event_type:  tripDetails.event_type,
-        location:    tripDetails.location,
-        start_date:  tripDetails.start_date,
-        end_date:    tripDetails.end_date,
-        description: tripDetails.description,
+        name:              tripDetails.name,
+        event_type:        tripDetails.event_type,
+        location:          tripDetails.location,
+        start_date:        tripDetails.start_date,
+        end_date:          tripDetails.end_date,
+        description:       tripDetails.description,
+        expected_players:  tripDetails.expected_players,
+        players_per_group: tripDetails.players_per_group,
         rounds: rounds.map((r) => ({
           name: r.name, course_name: r.course_name, play_date: r.play_date,
           tee_time: r.tee_time, holes: r.holes, scoring_format: r.scoring_format,

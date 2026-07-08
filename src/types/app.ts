@@ -5,35 +5,39 @@ type Tables = Database['public']['Tables']
 export type Profile    = Tables['profiles']['Row']
 export type Trip       = Tables['trips']['Row']
 export type TripMember = Tables['trip_members']['Row']
+export type TripGroup  = Tables['trip_groups']['Row']
 export type Round      = Tables['rounds']['Row']
 
-// ─── Trip status helpers ──────────────────────────────────────────────────────
+// ─── Trip status ──────────────────────────────────────────────────────────────
 
 export const TRIP_STATUS_LABELS: Record<TripStatus, string> = {
-  draft:     'Draft',
-  open:      'Open for Invitations',
-  ready:     'Ready',
-  live:      'Live',
-  completed: 'Completed',
-  archived:  'Archived',
+  draft:        'Draft',
+  open:         'Open for Invitations',
+  groups_ready: 'Groups Ready',
+  ready:        'Ready to Start',
+  live:         'Live Event',
+  completed:    'Completed',
+  archived:     'Archived',
 }
 
 export const TRIP_STATUS_COLORS: Record<TripStatus, string> = {
-  draft:     'text-slate-500     bg-slate-100',
-  open:      'text-blue-600      bg-blue-50',
-  ready:     'text-violet-600    bg-violet-50',
-  live:      'text-green-600     bg-green-50',
-  completed: 'text-brand-600     bg-brand-50',
-  archived:  'text-gray-500      bg-gray-100',
+  draft:        'text-slate-500  bg-slate-100',
+  open:         'text-blue-600   bg-blue-50',
+  groups_ready: 'text-violet-600 bg-violet-50',
+  ready:        'text-amber-600  bg-amber-50',
+  live:         'text-green-600  bg-green-50',
+  completed:    'text-brand-600  bg-brand-50',
+  archived:     'text-gray-500   bg-gray-100',
 }
 
 export const TRIP_STATUS_TRANSITIONS: Record<TripStatus, TripStatus[]> = {
-  draft:     ['open', 'archived'],
-  open:      ['ready', 'draft', 'archived'],
-  ready:     ['live', 'open', 'archived'],
-  live:      ['completed'],
-  completed: ['archived'],
-  archived:  [],
+  draft:        ['open', 'archived'],
+  open:         ['groups_ready', 'draft', 'archived'],
+  groups_ready: ['ready', 'open', 'archived'],
+  ready:        ['live', 'groups_ready', 'archived'],
+  live:         ['completed'],
+  completed:    ['archived'],
+  archived:     [],
 }
 
 // ─── Event types ──────────────────────────────────────────────────────────────
@@ -65,22 +69,25 @@ export interface TripSummary {
   user_role: TripRole
   player_count: number
   round_count: number
+  expected_players: number
+  players_per_group: number
 }
 
 // ─── Trip detail (server-fetched) ─────────────────────────────────────────────
 
-export interface TripMemberWithProfile extends TripMember {
-  profiles: {
-    id: string
-    full_name: string
-    avatar_url: string | null
-    email?: string
-  } | null
+export interface MemberProfile {
+  id: string
+  full_name: string
+  avatar_url: string | null
+  email?: string
 }
 
-export interface TripDetail extends Trip {
-  trip_members: TripMemberWithProfile[]
-  rounds: Round[]
+export interface TripMemberWithProfile extends TripMember {
+  profiles: MemberProfile | null
+}
+
+export interface TripGroupWithMembers extends TripGroup {
+  members: TripMemberWithProfile[]
 }
 
 // ─── Wizard types ─────────────────────────────────────────────────────────────
@@ -92,6 +99,8 @@ export interface WizardTripDetails {
   start_date: string
   end_date: string
   description: string
+  expected_players: number
+  players_per_group: number
 }
 
 export interface WizardRound {
@@ -134,6 +143,13 @@ export const ROUND_STATUS_LABELS: Record<RoundStatus, string> = {
   upcoming:  'Upcoming',
   active:    'Live',
   completed: 'Completed',
+}
+
+// ─── Groups ───────────────────────────────────────────────────────────────────
+
+export function groupsRequired(expectedPlayers: number, playersPerGroup: number): number {
+  if (!expectedPlayers || !playersPerGroup || playersPerGroup === 0) return 0
+  return Math.ceil(expectedPlayers / playersPerGroup)
 }
 
 export type { TripStatus, TripRole, ScoringFormat, RoundStatus }

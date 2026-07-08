@@ -340,6 +340,7 @@ export type Database = {
           role: string
           nickname: string | null
           team: string | null
+          group_id: string | null
           joined_at: string
         }
         Insert: {
@@ -349,12 +350,14 @@ export type Database = {
           role?: string
           nickname?: string | null
           team?: string | null
+          group_id?: string | null
           joined_at?: string
         }
         Update: {
           role?: string
           nickname?: string | null
           team?: string | null
+          group_id?: string | null
         }
         Relationships: []
       }
@@ -386,7 +389,31 @@ export type Database = {
         }
         Relationships: []
       }
-      trips: {
+      trip_groups: {
+        Row: {
+          id: string
+          trip_id: string
+          name: string
+          tee_time: string | null
+          sort_order: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          trip_id: string
+          name: string
+          tee_time?: string | null
+          sort_order?: number
+          created_at?: string
+        }
+        Update: {
+          name?: string
+          tee_time?: string | null
+          sort_order?: number
+        }
+        Relationships: []
+      }
+            trips: {
         Row: {
           id: string
           organiser_id: string
@@ -400,6 +427,8 @@ export type Database = {
           logo_url: string | null
           cover_image_url: string | null
           invite_code: string
+          expected_players: number
+          players_per_group: number
           created_at: string
           updated_at: string
         }
@@ -416,6 +445,8 @@ export type Database = {
           logo_url?: string | null
           cover_image_url?: string | null
           invite_code?: string
+          expected_players?: number
+          players_per_group?: number
           created_at?: string
           updated_at?: string
         }
@@ -429,6 +460,8 @@ export type Database = {
           status?: string
           logo_url?: string | null
           cover_image_url?: string | null
+          expected_players?: number
+          players_per_group?: number
           updated_at?: string
         }
         Relationships: []
@@ -472,7 +505,7 @@ export type TablesUpdate<T extends keyof Database['public']['Tables']> =
   Database['public']['Tables'][T]['Update']
 
 // Keep named types for backwards compatibility with app.ts
-export type TripStatus     = 'draft' | 'open' | 'ready' | 'live' | 'completed' | 'archived'
+export type TripStatus     = 'draft' | 'open' | 'groups_ready' | 'ready' | 'live' | 'completed' | 'archived'
 export type TripRole       = 'organiser' | 'player'
 export type ScoringFormat  = 'stableford' | 'stroke' | 'match_play' | 'ambrose' | 'four_ball_better_ball'
 export type RoundStatus    = 'upcoming' | 'active' | 'completed'
