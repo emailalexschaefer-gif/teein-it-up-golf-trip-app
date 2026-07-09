@@ -219,10 +219,10 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
                 fontSize: 11, fontWeight: 700,
                 letterSpacing: 0.8, textTransform: 'uppercase',
                 paddingBottom: 10, paddingTop: 4,
+                border: 'none',
                 borderBottom: `2px solid ${tab === t.id ? '#c9a84c' : 'transparent'}`,
                 color: tab === t.id ? '#e8c96a' : 'rgba(245,230,184,0.4)',
-                background: 'transparent', border: 'none',
-                borderBottom: `2px solid ${tab === t.id ? '#c9a84c' : 'transparent'}`,
+                background: 'transparent',
                 cursor: 'pointer', transition: 'color 0.15s',
               } as React.CSSProperties}
             >
