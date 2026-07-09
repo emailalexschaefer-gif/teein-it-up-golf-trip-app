@@ -22,7 +22,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
   const [editTime, setEditTime] = useState('')
 
   const players   = trip.trip_members.filter((m) => m.role === 'player')
-  const numGroups = groupsRequired(trip.expected_players ?? 0, trip.players_per_group ?? 4)
+  const numGroups = groupsRequired(trip.expected_players, trip.players_per_group)
 
   useEffect(() => {
     fetchGroups()

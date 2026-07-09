@@ -49,7 +49,7 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
 
   const players      = trip.trip_members.filter((m) => m.role !== 'organiser' || trip.trip_members.length === 1)
   const playerCount  = trip.trip_members.filter(m => m.role === 'player').length
-  const numGroups    = groupsRequired(trip.expected_players, trip.players_per_group)
+  const numGroups = groupsRequired(trip.expected_players, trip.players_per_group)
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'overview', label: 'Overview' },

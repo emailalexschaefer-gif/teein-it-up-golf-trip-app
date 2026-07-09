@@ -22,8 +22,9 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
   const eventLabel = EVENT_TYPE_OPTIONS.find((o) => o.value === trip.event_type)?.label ?? 'Golf Trip'
   const nextStatuses = TRIP_STATUS_TRANSITIONS[trip.status]
 
-  const registrationPct = trip.expected_players > 0
-    ? Math.min(100, Math.round((playerCount / trip.expected_players) * 100))
+  const expectedPlayers = expectedPlayers ?? 0
+  const registrationPct = expectedPlayers > 0
+    ? Math.min(100, Math.round((playerCount / expectedPlayers) * 100))
     : 0
 
   async function copyInvite() {
@@ -39,11 +40,11 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
     <div className="space-y-5">
 
       {/* ── Registration progress ────────────────────────────────────────── */}
-      {trip.expected_players > 0 && (
+      {expectedPlayers > 0 && (
         <div className="rounded-2xl bg-white border border-surface-subtle p-4">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-semibold text-text">Registration</p>
-            <p className="text-sm font-bold text-brand-600">{playerCount} / {trip.expected_players}</p>
+            <p className="text-sm font-bold text-brand-600">{playerCount} / {expectedPlayers}</p>
           </div>
           <div className="h-2 rounded-full bg-surface-subtle overflow-hidden">
             <div
@@ -53,14 +54,14 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
           </div>
           <div className="flex justify-between mt-2 text-xs text-text-muted">
             <span>{playerCount} joined</span>
-            <span>{Math.max(0, trip.expected_players - playerCount)} spots remaining</span>
+            <span>{Math.max(0, expectedPlayers - playerCount)} spots remaining</span>
           </div>
         </div>
       )}
 
       {/* ── At a glance ─────────────────────────────────────────────────── */}
       <div className="grid grid-cols-3 gap-3">
-        <StatCard label="Players" value={String(playerCount)} sub={trip.expected_players > 0 ? `of ${trip.expected_players}` : undefined} />
+        <StatCard label="Players" value={String(playerCount)} sub={expectedPlayers > 0 ? `of ${expectedPlayers}` : undefined} />
         <StatCard label="Groups" value={numGroups > 0 ? String(numGroups) : '—'} sub={numGroups > 0 ? `${trip.players_per_group ?? 4} per group` : 'not set'} />
         <StatCard label="Rounds" value={String(trip.rounds.length)} />
       </div>

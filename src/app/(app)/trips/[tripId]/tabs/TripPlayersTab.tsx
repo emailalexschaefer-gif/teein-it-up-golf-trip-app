@@ -17,7 +17,7 @@ export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRef
   const organiser = trip.trip_members.find((m) => m.role === 'organiser')
   const players   = trip.trip_members.filter((m) => m.role === 'player')
 
-  const expectedPlayers  = trip.expected_players
+  const expectedPlayers  = trip.expected_players ?? 0
   const joined           = players.length
   const remaining        = expectedPlayers > 0 ? Math.max(0, expectedPlayers - joined) : null
 

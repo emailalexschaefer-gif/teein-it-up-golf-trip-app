@@ -147,9 +147,11 @@ export const ROUND_STATUS_LABELS: Record<RoundStatus, string> = {
 
 // ─── Groups ───────────────────────────────────────────────────────────────────
 
-export function groupsRequired(expectedPlayers: number, playersPerGroup: number): number {
-  if (!expectedPlayers || !playersPerGroup || playersPerGroup === 0) return 0
-  return Math.ceil(expectedPlayers / playersPerGroup)
+export function groupsRequired(expectedPlayers: number | undefined, playersPerGroup: number | undefined): number {
+  const ep = expectedPlayers  ?? 0
+  const ppg = playersPerGroup ?? 4
+  if (!ep || !ppg || ppg === 0) return 0
+  return Math.ceil(ep / ppg)
 }
 
 export type { TripStatus, TripRole, ScoringFormat, RoundStatus }
