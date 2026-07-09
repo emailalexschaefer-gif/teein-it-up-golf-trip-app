@@ -22,7 +22,7 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
   const eventLabel = EVENT_TYPE_OPTIONS.find((o) => o.value === trip.event_type)?.label ?? 'Golf Trip'
   const nextStatuses = TRIP_STATUS_TRANSITIONS[trip.status]
 
-  const expectedPlayers = expectedPlayers ?? 0
+  const expectedPlayers: number = trip.expected_players ?? 0
   const registrationPct = expectedPlayers > 0
     ? Math.min(100, Math.round((playerCount / expectedPlayers) * 100))
     : 0
