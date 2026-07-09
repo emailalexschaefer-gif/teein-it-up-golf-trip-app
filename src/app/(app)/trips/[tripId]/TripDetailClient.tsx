@@ -107,6 +107,7 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
           updateStatus={updateStatus}
           toast={toast}
           router={router}
+          onTabChange={(t) => setTab(t)}
         />
       )}
       {tab === 'players' && (
