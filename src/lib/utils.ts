@@ -73,3 +73,27 @@ export function ordinal(n: number): string {
   const v = n % 100
   return n + (s[(v - 20) % 10] || s[v] || s[0])
 }
+
+// ─── Avatar color ─────────────────────────────────────────────────────────────
+// Deterministic color from a string — matches the demo's colored player circles
+
+const AVATAR_COLORS = [
+  '#1C6B38', // forest green
+  '#C0392B', // red
+  '#7D3C98', // purple  
+  '#2471A3', // blue
+  '#B7770D', // amber
+  '#0E6655', // teal
+  '#884EA0', // violet
+  '#1A5276', // navy
+  '#B03A2E', // dark red
+  '#196F3D', // dark green
+]
+
+export function avatarColor(seed: string): string {
+  let hash = 0
+  for (let i = 0; i < seed.length; i++) {
+    hash = seed.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+}

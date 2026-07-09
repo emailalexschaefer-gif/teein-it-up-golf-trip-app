@@ -7,27 +7,26 @@ export const metadata: Metadata = { title: 'My Trips' }
 
 export default function DashboardPage() {
   return (
-    <div>
-      {/* Auto-joins trip if pendingInviteCode is in sessionStorage */}
+    <div className="space-y-6">
       <PendingJoinHandler />
 
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-text">My Trips</h1>
-          <p className="text-text-muted text-sm mt-0.5">Your golf trips, all in one place.</p>
+      {/* Demo-style page header */}
+      <div className="pt-2">
+        <p className="section-label mb-1">Dashboard</p>
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-black text-text tracking-tight">My Trips</h1>
+          <a
+            href="/trips/new"
+            className="bg-brand-600 text-white text-sm font-bold px-5 py-3 rounded-2xl hover:bg-brand-700 transition-colors shadow-card"
+          >
+            + New Trip
+          </a>
         </div>
-        <a
-          href="/trips/new"
-          className="bg-brand-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:bg-brand-700 transition-colors"
-        >
-          + New trip
-        </a>
       </div>
 
-      <div className="space-y-4">
-        <TripList />
-        <JoinByCode />
-      </div>
+      <TripList />
+
+      <JoinByCode />
     </div>
   )
 }

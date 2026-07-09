@@ -21,13 +21,13 @@ export const TRIP_STATUS_LABELS: Record<TripStatus, string> = {
 }
 
 export const TRIP_STATUS_COLORS: Record<TripStatus, string> = {
-  draft:        'text-slate-500  bg-slate-100',
-  open:         'text-blue-600   bg-blue-50',
-  groups_ready: 'text-violet-600 bg-violet-50',
-  ready:        'text-amber-600  bg-amber-50',
-  live:         'text-green-600  bg-green-50',
-  completed:    'text-brand-600  bg-brand-50',
-  archived:     'text-gray-500   bg-gray-100',
+  draft:        'text-text-muted   bg-cream-200 border-cream-300',
+  open:         'text-blue-700     bg-blue-50   border-blue-200',
+  groups_ready: 'text-violet-700   bg-violet-50 border-violet-200',
+  ready:        'text-amber-700    bg-amber-50  border-amber-200',
+  live:         'text-green-700    bg-green-50  border-green-200',
+  completed:    'text-brand-700    bg-brand-50  border-brand-200',
+  archived:     'text-text-subtle  bg-cream-200 border-cream-300',
 }
 
 export const TRIP_STATUS_TRANSITIONS: Record<TripStatus, TripStatus[]> = {
@@ -101,6 +101,7 @@ export interface WizardTripDetails {
   description: string
   expected_players: number
   players_per_group: number
+  organiser_is_playing: boolean
 }
 
 export interface WizardRound {

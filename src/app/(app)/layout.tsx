@@ -4,10 +4,7 @@ import AppNav from '@/components/layout/AppNav'
 import SyncInitializer from '@/components/layout/SyncInitializer'
 import { ToastProvider } from '@/components/ui/Toast'
 
-interface ProfileData {
-  full_name: string
-  avatar_url: string | null
-}
+interface ProfileData { full_name: string; avatar_url: string | null }
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -17,21 +14,20 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabaseAny: any = supabase
   const profileResult = await supabaseAny
-    .from('profiles')
-    .select('full_name, avatar_url')
-    .eq('id', user.id)
-    .maybeSingle()
+    .from('profiles').select('full_name, avatar_url')
+    .eq('id', user.id).maybeSingle()
 
   const profile: ProfileData | null = profileResult?.data ?? null
 
   return (
     <ToastProvider>
-      <div className="min-h-screen bg-surface-muted flex flex-col">
+      {/* Demo: cream background for the whole app body */}
+      <div className="min-h-screen flex flex-col" style={{ background: '#faf6ed' }}>
         <AppNav
           userName={profile?.full_name || user.email || ''}
           avatarUrl={profile?.avatar_url ?? null}
         />
-        <main className="flex-1 w-full max-w-2xl mx-auto px-4 py-6 pb-24">
+        <main className="flex-1 w-full max-w-2xl mx-auto px-4 py-5 pb-24">
           {children}
         </main>
         <SyncInitializer />

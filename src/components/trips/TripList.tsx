@@ -11,7 +11,7 @@ export default function TripList() {
     return (
       <div className="space-y-3">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-24 rounded-2xl bg-surface-subtle animate-pulse" />
+          <div key={i} className="h-24 rounded-2xl bg-parchment animate-pulse" />
         ))}
       </div>
     )

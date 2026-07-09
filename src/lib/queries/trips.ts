@@ -22,7 +22,7 @@ interface UpdateStatusVars { tripId: string; status: string }
 interface CreateTripVars {
   name: string; event_type: string; location: string
   start_date: string; end_date: string; description: string
-  expected_players: number; players_per_group: number
+  expected_players: number; players_per_group: number; organiser_is_playing: boolean
   rounds: Array<{
     name: string; course_name: string; play_date: string
     tee_time: string; holes: 9 | 18; scoring_format: 'stableford'

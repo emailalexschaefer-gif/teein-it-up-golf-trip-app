@@ -67,7 +67,7 @@ export default async function TripDetailPage({ params }: Props) {
       .select(`
         id, name, description, event_type, location,
         start_date, end_date, status, invite_code,
-        expected_players, players_per_group,
+        expected_players, players_per_group, organiser_is_playing,
         trip_members (
           id, role, profile_id, group_id,
           profiles ( id, full_name, avatar_url )
@@ -76,7 +76,7 @@ export default async function TripDetailPage({ params }: Props) {
           id, name, course_name, play_date, tee_time, holes, scoring_format, status
         )
       `)
-      .eq('id', tripId).single()
+      .eq('id', tripId).maybeSingle()
 
     if (result?.error) tripError = result.error.message
     else rawTrip = result?.data ?? null

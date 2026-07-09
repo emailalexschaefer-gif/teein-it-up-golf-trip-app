@@ -2,6 +2,7 @@
 
 import { Field, Input, Select, Textarea } from '@/components/ui/FormFields'
 import Button from '@/components/ui/Button'
+import { cn } from '@/lib/utils'
 import { EVENT_TYPE_OPTIONS, groupsRequired, type WizardTripDetails } from '@/types/app'
 
 interface Props {
@@ -99,6 +100,32 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
             </div>
           </div>
         )}
+      </div>
+
+      {/* ── Organiser playing? ──────────────────────────────────────── */}
+      <div className="rounded-2xl border border-surface-subtle bg-surface-subtle/40 p-4 space-y-2">
+        <p className="text-sm font-semibold text-text">Will you also be playing?</p>
+        <p className="text-xs text-text-muted">Many organisers manage the event without playing themselves.</p>
+        <div className="flex gap-3 pt-1">
+          {[
+            { value: true,  label: 'Yes, I'm playing' },
+            { value: false, label: 'No, organising only' },
+          ].map(({ value, label }) => (
+            <button
+              key={String(value)}
+              type="button"
+              onClick={() => set('organiser_is_playing', value)}
+              className={cn(
+                'flex-1 py-2.5 rounded-xl text-sm font-medium border transition-colors',
+                data.organiser_is_playing === value
+                  ? 'bg-brand-600 text-white border-brand-600'
+                  : 'bg-white text-text border-surface-subtle hover:border-brand-300'
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <Field label="Description" hint="Optional — shown to all players">

@@ -20,7 +20,8 @@ const CreateTripSchema = z.object({
   end_date:          z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   description:       z.string().max(1000).default(''),
   expected_players:  z.number().int().min(0).max(500).default(0),
-  players_per_group: z.number().int().min(2).max(8).default(4),
+  players_per_group:    z.number().int().min(2).max(8).default(4),
+  organiser_is_playing: z.boolean().default(false),
   rounds:            z.array(RoundSchema).min(1).max(10),
 })
 
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
   }
 
   const { name, event_type, location, start_date, end_date, description,
-          expected_players, players_per_group, rounds } = parsed.data
+          expected_players, players_per_group, organiser_is_playing, rounds } = parsed.data
 
   if (end_date < start_date) {
     return NextResponse.json({ error: 'End date must be on or after start date' }, { status: 400 })
@@ -68,9 +69,10 @@ export async function POST(request: Request) {
       description:       description || null,
       start_date,
       end_date,
-      status:            'draft',
+      status:               'draft',
       expected_players,
       players_per_group,
+      organiser_is_playing,
     })
     .select('id, invite_code')
     .single()

@@ -1,30 +1,29 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { initials, cn } from '@/lib/utils'
+import { initials, avatarColor, cn } from '@/lib/utils'
 import { groupsRequired } from '@/types/app'
 import type { TripData, TripMemberRow } from '../TripDetailClient'
 
 interface TripGroup { id: string; name: string; tee_time: string | null; sort_order: number }
-
-interface Props {
-  trip:        TripData
-  isOrganiser: boolean
-  onRefresh:   () => void
-}
+interface Props { trip: TripData; isOrganiser: boolean; onRefresh: () => void }
 
 export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
-  const [groups, setGroups]     = useState<TripGroup[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [generating, setGen]    = useState(false)
+  const [groups, setGroups]       = useState<TripGroup[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [generating, setGen]      = useState(false)
   const [assigning, setAssigning] = useState(false)
-  const [editingId, setEditing] = useState<string | null>(null)
-  const [editName, setEditName] = useState('')
-  const [editTime, setEditTime] = useState('')
+  const [editingId, setEditing]   = useState<string | null>(null)
+  const [editName, setEditName]   = useState('')
+  const [editTime, setEditTime]   = useState('')
+  // For "Add Player" picker — which group is open
+  const [addingTo, setAddingTo]   = useState<string | null>(null)
 
-  const players  = trip.trip_members.filter((m) => m.role === 'player')
+  const players  = trip.trip_members.filter(m =>
+    m.role === 'player' || (m.role === 'organiser' && trip.organiser_is_playing)
+  )
+  const ppg       = trip.players_per_group ?? 4
   const numGroups = groupsRequired(trip.expected_players, trip.players_per_group)
-  const ppg = trip.players_per_group ?? 4
 
   useEffect(() => { fetchGroups() }, [trip.id]) // eslint-disable-line
 
@@ -38,25 +37,20 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
   async function generateGroups() {
     setGen(true)
     const res = await fetch(`/api/trips/${trip.id}/groups/generate`, { method: 'POST' })
-    if (res.ok) await fetchGroups()
+    if (res.ok) { await fetchGroups(); onRefresh() }
     else { const d = await res.json(); alert(d.error) }
     setGen(false)
-    onRefresh()
   }
 
   async function autoAssign(groupList: TripGroup[]) {
     setAssigning(true)
-    // Shuffle players then assign in order
     const shuffled = [...players].sort(() => Math.random() - 0.5)
-    const updates = shuffled.map((p, i) => {
-      const group = groupList[i % groupList.length]
-      return fetch(`/api/trips/${trip.id}/members/${p.id}`, {
-        method:  'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ group_id: group.id }),
+    await Promise.all(shuffled.map((p, i) =>
+      fetch(`/api/trips/${trip.id}/members/${p.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ group_id: groupList[i % groupList.length].id }),
       })
-    })
-    await Promise.all(updates)
+    ))
     setAssigning(false)
     onRefresh()
   }
@@ -66,190 +60,284 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: editName, tee_time: editTime || null }),
     })
-    if (res.ok) {
-      const updated = await res.json()
-      setGroups((gs) => gs.map((g) => g.id === groupId ? updated : g))
-    }
+    if (res.ok) setGroups(gs => gs.map(g =>
+      g.id === groupId ? { ...g, name: editName, tee_time: editTime || null } : g
+    ))
     setEditing(null)
   }
 
-  async function deleteGroup(groupId: string) {
+  async function deleteGroup(groupId: string, name: string) {
+    if (!confirm(`Delete "${name}"? Players will be unassigned.`)) return
     const res = await fetch(`/api/trips/${trip.id}/groups/${groupId}`, { method: 'DELETE' })
-    if (res.ok) {
-      setGroups((gs) => gs.filter((g) => g.id !== groupId))
-      onRefresh()
-    }
+    if (res.ok) { setGroups(gs => gs.filter(g => g.id !== groupId)); onRefresh() }
   }
 
   async function addGroup() {
     const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    const name = groups.length < 26
-      ? `Group ${letters[groups.length]}`
-      : `Group ${groups.length + 1}`
+    const name = groups.length < 26 ? `Group ${letters[groups.length]}` : `Group ${groups.length + 1}`
     const res = await fetch(`/api/trips/${trip.id}/groups`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     })
-    if (res.ok) {
-      const newGroup = await res.json()
-      setGroups((gs) => [...gs, newGroup])
-    }
+    if (res.ok) { const g = await res.json(); setGroups(gs => [...gs, g]) }
   }
 
-  async function assignMember(memberId: string, groupId: string | null) {
+  async function assign(memberId: string, groupId: string | null) {
     await fetch(`/api/trips/${trip.id}/members/${memberId}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ group_id: groupId }),
     })
+    setAddingTo(null)
     onRefresh()
   }
 
-  const membersByGroup = (groupId: string) =>
-    players.filter((m) => (m.group_id ?? null) === groupId)
-
-  const unassigned = players.filter(
-    (m) => !m.group_id || !groups.find((g) => g.id === m.group_id)
-  )
-
-  const assignedCount = players.length - unassigned.length
-  const allAssigned   = players.length > 0 && unassigned.length === 0
-  const groupsWithTime = groups.filter((g) => g.tee_time).length
-  const allHaveTimes  = groups.length > 0 && groupsWithTime === groups.length
+  const membersByGroup = (gid: string) => players.filter(m => (m.group_id ?? null) === gid)
+  const unassigned = players.filter(m => !m.group_id || !groups.find(g => g.id === m.group_id))
 
   const sortedGroups = [...groups].sort((a, b) => {
     if (!a.tee_time && !b.tee_time) return a.sort_order - b.sort_order
-    if (!a.tee_time) return 1
-    if (!b.tee_time) return -1
+    if (!a.tee_time) return 1; if (!b.tee_time) return -1
     return a.tee_time.localeCompare(b.tee_time)
   })
 
-  if (loading) {
-    return (
-      <div className="py-12 flex flex-col items-center gap-3">
-        <div className="w-8 h-8 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
-        <p className="text-sm text-text-muted">Loading groups…</p>
-      </div>
-    )
-  }
+  const allAssigned  = players.length > 0 && unassigned.length === 0
+  const allHaveTimes = groups.length > 0 && groups.every(g => g.tee_time)
+
+  if (loading) return (
+    <div className="py-16 flex flex-col items-center gap-3">
+      <div className="w-10 h-10 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
+      <p className="text-sm text-text-muted">Loading groups…</p>
+    </div>
+  )
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
 
-      {/* ── Progress summary (once groups exist) ──────────────────────── */}
-      {groups.length > 0 && (
-        <div className="grid grid-cols-3 gap-2">
-          <SummaryCard
-            value={`${groups.filter(g => membersByGroup(g.id).length > 0).length}/${groups.length}`}
-            label="Groups filled"
-            done={allAssigned}
-          />
-          <SummaryCard
-            value={`${assignedCount}/${players.length}`}
-            label="Players assigned"
-            done={allAssigned}
-          />
-          <SummaryCard
-            value={`${unassigned.length}`}
-            label="Unassigned"
-            done={unassigned.length === 0}
-            warn={unassigned.length > 0}
-          />
-        </div>
-      )}
-
-      {/* ── No groups yet: guided prompt ──────────────────────────────── */}
+      {/* ── No groups: guided setup card ──────────────────────────────── */}
       {groups.length === 0 && isOrganiser && (
-        <div className="rounded-2xl border-2 border-dashed border-brand-200 bg-brand-50/40 p-6 text-center space-y-4">
-          <div>
-            <p className="text-2xl mb-1">⛳</p>
-            <p className="font-semibold text-text">Ready to create groups?</p>
+        <div className="bg-brand-950 rounded-3xl p-6 space-y-4">
+          <div className="text-center">
+            <p className="text-4xl mb-3">⛳</p>
+            <p className="text-white font-black text-xl">Create Playing Groups</p>
             {numGroups > 0 ? (
-              <p className="text-sm text-text-muted mt-1">
-                {trip.expected_players} players ÷ {ppg} per group = <strong className="text-brand-600">{numGroups} groups</strong>
+              <p className="text-white/60 text-sm mt-1.5">
+                {trip.expected_players} players ÷ {ppg} per group
+                {' = '}<span className="text-gold-400 font-bold">{numGroups} groups</span>
               </p>
             ) : (
-              <p className="text-sm text-text-muted mt-1">
-                Set expected players on the Overview tab to calculate group size automatically.
+              <p className="text-white/60 text-sm mt-1.5">
+                Set player capacity in Overview to auto-calculate group size.
               </p>
             )}
           </div>
           {numGroups > 0 && (
             <button
               onClick={generateGroups} disabled={generating}
-              className="w-full bg-brand-600 text-white font-semibold py-3 rounded-xl hover:bg-brand-700 transition-colors disabled:opacity-50"
+              className="w-full bg-gold-500 hover:bg-gold-400 text-brand-950 font-black py-4 rounded-2xl text-base transition-colors disabled:opacity-50"
             >
-              {generating ? 'Creating groups…' : `Generate ${numGroups} groups`}
+              {generating ? 'Generating…' : `Generate ${numGroups} Groups →`}
             </button>
           )}
-          <button
-            onClick={addGroup}
-            className="w-full bg-white border border-brand-200 text-brand-600 font-medium py-2.5 rounded-xl hover:bg-brand-50 transition-colors text-sm"
-          >
+          <button onClick={addGroup}
+            className="w-full bg-white/10 hover:bg-white/20 text-white font-semibold py-3 rounded-2xl text-sm transition-colors">
             + Add group manually
           </button>
         </div>
       )}
 
-      {/* ── Groups exist: action bar ───────────────────────────────────── */}
+      {/* ── Progress summary ─────────────────────────────────────────── */}
+      {groups.length > 0 && (
+        <div className="bg-ivory rounded-2xl shadow-card border border-surface-subtle p-4">
+          <div className="flex divide-x divide-surface-subtle text-center">
+            <SummaryCell value={`${players.length - unassigned.length}/${players.length}`} label="Players Assigned" ok={allAssigned} warn={!allAssigned && players.length > 0} />
+            <SummaryCell value={`${groups.filter(g => membersByGroup(g.id).length > 0).length}/${groups.length}`} label="Groups Filled" ok={allAssigned} />
+            <SummaryCell value={`${groups.filter(g => g.tee_time).length}/${groups.length}`} label="Tee Times" ok={allHaveTimes} warn={!allHaveTimes} />
+          </div>
+        </div>
+      )}
+
+      {/* ── Action bar ───────────────────────────────────────────────── */}
       {groups.length > 0 && isOrganiser && (
         <div className="flex gap-2 flex-wrap">
           {unassigned.length > 0 && (
-            <button
-              onClick={() => autoAssign(groups)} disabled={assigning}
-              className="flex-1 bg-brand-600 text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-brand-700 transition-colors disabled:opacity-50"
-            >
-              {assigning ? 'Assigning…' : `Auto-assign ${unassigned.length} player${unassigned.length !== 1 ? 's' : ''}`}
+            <button onClick={() => autoAssign(groups)} disabled={assigning}
+              className="flex-1 bg-brand-600 text-white font-bold py-3 rounded-xl text-sm hover:bg-brand-700 transition-colors disabled:opacity-50">
+              {assigning ? 'Assigning…' : `Auto-assign ${unassigned.length} player${unassigned.length !== 1 ? 's' : ''} →`}
             </button>
           )}
-          {allAssigned && !allHaveTimes && (
-            <div className="flex-1 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 text-sm text-amber-700 text-center font-medium">
-              Next: set tee times for each group ↓
-            </div>
-          )}
-          {allAssigned && allHaveTimes && (
-            <div className="flex-1 bg-green-50 border border-green-200 rounded-xl px-3 py-2.5 text-sm text-green-700 text-center font-medium">
-              ✓ All players assigned · All tee times set
-            </div>
-          )}
-          <button
-            onClick={addGroup}
-            className="bg-surface-subtle text-text text-sm font-medium px-3 py-2.5 rounded-xl hover:bg-surface transition-colors"
-          >
+          <button onClick={addGroup}
+            className="bg-ivory border border-surface-subtle text-text font-semibold px-4 py-3 rounded-xl text-sm hover:bg-cream-100 transition-colors">
             + Group
           </button>
           {numGroups > 0 && (
-            <button
-              onClick={generateGroups} disabled={generating}
-              className="bg-surface-subtle text-text-muted text-sm px-3 py-2.5 rounded-xl hover:bg-surface transition-colors disabled:opacity-50"
-            >
-              {generating ? '…' : 'Regenerate'}
+            <button onClick={generateGroups} disabled={generating}
+              className="bg-ivory border border-surface-subtle text-text-muted px-4 py-3 rounded-xl text-sm hover:bg-cream-100 transition-colors disabled:opacity-50">
+              Regenerate
             </button>
           )}
         </div>
       )}
 
-      {/* ── Unassigned player pool ─────────────────────────────────────── */}
+      {/* ── All done banner ──────────────────────────────────────────── */}
+      {allAssigned && allHaveTimes && (
+        <div className="bg-brand-600 rounded-2xl p-4 text-center">
+          <p className="text-white font-black text-lg">All groups ready ✓</p>
+          <p className="text-white/70 text-sm mt-0.5">Mark as "Groups Ready" from the Overview tab</p>
+        </div>
+      )}
+
+      {/* ── PLAYING GROUPS — demo layout ─────────────────────────────── */}
+      {sortedGroups.length > 0 && (
+        <section>
+          {/* Demo: "PLAYING GROUPS" as a section label */}
+          <p className="s-label" style={{marginBottom:14}}>Playing Groups</p>
+
+          <div className="space-y-5">
+            {sortedGroups.map((group) => {
+              const members = membersByGroup(group.id)
+              const isEdit  = editingId === group.id
+              const isFull  = members.length >= ppg
+              const isAdding = addingTo === group.id
+
+              return (
+                <div key={group.id}>
+                  {/* Demo: group label OUTSIDE the card */}
+                  <div className="flex items-center justify-between mb-2">
+                    {isEdit ? (
+                      <div className="flex items-center gap-2 flex-1">
+                        <input
+                          value={editName} onChange={e => setEditName(e.target.value)}
+                          className="text-xs font-bold uppercase tracking-wider bg-transparent border-b border-brand-400 text-text-muted focus:outline-none w-28"
+                        />
+                        <input type="time" value={editTime} onChange={e => setEditTime(e.target.value)}
+                          className="text-xs bg-white border border-surface-subtle rounded-lg px-2 py-0.5 focus:outline-none text-gold-600" />
+                        <button onClick={() => saveEdit(group.id)} className="text-xs font-bold text-brand-600 ml-1">Save</button>
+                        <button onClick={() => setEditing(null)} className="text-xs text-text-muted">✕</button>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="s-label">{group.name}</p>
+                        <div className="flex items-center gap-3">
+                          {group.tee_time && (
+                            <span className="text-xs font-bold text-gold-600">
+                              ⏱ {group.tee_time}
+                            </span>
+                          )}
+                          {isOrganiser && (
+                            <>
+                              <button
+                                onClick={() => { setEditing(group.id); setEditName(group.name); setEditTime(group.tee_time ?? '') }}
+                                className="text-xs text-text-subtle hover:text-brand-600 transition-colors"
+                              >
+                                {group.tee_time ? 'Edit' : 'Set tee time'}
+                              </button>
+                              <button onClick={() => deleteGroup(group.id, group.name)}
+                                className="text-xs text-red-400 hover:text-red-600 transition-colors">
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Demo: bordered card containing player rows */}
+                  <div className="bg-ivory rounded-2xl shadow-card border border-surface-subtle overflow-hidden">
+                    {members.map((m, i) => (
+                      <div key={m.id}
+                        className={cn('flex items-center gap-3 px-4 py-3', i > 0 && 'border-t border-surface-subtle')}>
+                        <PlayerAvatar member={m} />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-text text-sm">{m.profiles?.full_name ?? 'Player'}</p>
+                          <p className="text-xs text-text-subtle">HCP —</p>
+                        </div>
+                        {isOrganiser ? (
+                          <button
+                            onClick={() => assign(m.id, null)}
+                            className="text-xs text-red-400 hover:text-red-600 transition-colors flex-shrink-0"
+                            title="Remove from group"
+                          >
+                            Remove
+                          </button>
+                        ) : (
+                          <span className="text-xs font-semibold text-green-600 bg-green-50 border border-green-200 px-2.5 py-1 rounded-full flex-shrink-0">
+                            ✓ Added
+                          </span>
+                        )}
+                      </div>
+                    ))}
+
+                    {members.length === 0 && (
+                      <div className="px-4 py-4 text-center">
+                        <p className="text-sm text-text-subtle italic">No players assigned yet</p>
+                      </div>
+                    )}
+
+                    {/* Add Player button — inside the card at the bottom */}
+                    {isOrganiser && !isFull && (
+                      <div className={cn('border-t border-surface-subtle', members.length === 0 && 'border-t-0')}>
+                        {isAdding ? (
+                          /* Player picker — shown inline when "Add Player" is pressed */
+                          <div className="p-3 space-y-1">
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Select a player</p>
+                              <button onClick={() => setAddingTo(null)} className="text-xs text-text-subtle hover:text-text">✕ Cancel</button>
+                            </div>
+                            {unassigned.length === 0 ? (
+                              <p className="text-xs text-text-subtle text-center py-2">No unassigned players</p>
+                            ) : (
+                              unassigned.map(m => (
+                                <button
+                                  key={m.id}
+                                  onClick={() => assign(m.id, group.id)}
+                                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-brand-50 transition-colors text-left"
+                                >
+                                  <PlayerAvatar member={m} small />
+                                  <span className="text-sm font-medium text-text">{m.profiles?.full_name ?? 'Player'}</span>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setAddingTo(group.id)}
+                            className="w-full flex items-center justify-center gap-2 py-3 text-brand-600 font-semibold text-sm hover:bg-brand-50 transition-colors"
+                          >
+                            + Add Player
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* ── Unassigned pool — shown below groups ─────────────────────── */}
       {unassigned.length > 0 && groups.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-amber-600 mb-2">
-            Unassigned players ({unassigned.length})
+        <section>
+          <p className="s-label" style={{color:"#b45309"}}>
+            Unassigned Players ({unassigned.length})
           </p>
-          <div className="rounded-2xl bg-white border border-amber-200 divide-y divide-surface-subtle">
-            {unassigned.map((m) => (
-              <div key={m.id} className="px-4 py-3 flex items-center gap-3">
-                <MiniAvatar member={m} />
-                <span className="text-sm text-text flex-1">{m.profiles?.full_name ?? 'Player'}</span>
+          <div className="bg-ivory rounded-2xl shadow-card border border-amber-200 overflow-hidden">
+            {unassigned.map((m, i) => (
+              <div key={m.id}
+                className={cn('flex items-center gap-3 px-4 py-3', i > 0 && 'border-t border-surface-subtle')}>
+                <PlayerAvatar member={m} />
+                <span className="text-sm font-semibold text-text flex-1">{m.profiles?.full_name ?? 'Player'}</span>
                 {isOrganiser && (
                   <select
-                    className="text-sm bg-white border border-brand-200 text-brand-600 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-600"
-                    value=""
-                    onChange={(e) => { if (e.target.value) assignMember(m.id, e.target.value) }}
+                    className="text-sm border border-brand-200 text-brand-600 bg-white rounded-xl px-3 py-1.5 focus:outline-none font-medium"
+                    value="" onChange={e => { if (e.target.value) assign(m.id, e.target.value) }}
                   >
-                    <option value="">Assign to group…</option>
-                    {sortedGroups.map((g) => (
+                    <option value="">Assign →</option>
+                    {sortedGroups.map(g => (
                       <option key={g.id} value={g.id}>
-                        {g.name}{g.tee_time ? ` · ${g.tee_time}` : ''}
-                        {' '}({membersByGroup(g.id).length}/{ppg})
+                        {g.name} ({membersByGroup(g.id).length}/{ppg})
                       </option>
                     ))}
                   </select>
@@ -257,160 +345,34 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* ── Groups ────────────────────────────────────────────────────── */}
-      {sortedGroups.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-            Groups ({groups.length})
-          </p>
-          {sortedGroups.map((group) => {
-            const members   = membersByGroup(group.id)
-            const isEditing = editingId === group.id
-            const isFull    = members.length >= ppg
-
-            return (
-              <div key={group.id} className={cn(
-                'rounded-2xl bg-white border overflow-hidden',
-                isFull ? 'border-green-200' : 'border-surface-subtle'
-              )}>
-                {/* Group header */}
-                <div className={cn(
-                  'px-4 py-3 flex items-center gap-2',
-                  isFull ? 'bg-green-50' : 'bg-surface-muted'
-                )}>
-                  {isEditing ? (
-                    <>
-                      <input
-                        value={editName} onChange={(e) => setEditName(e.target.value)}
-                        className="flex-1 text-sm font-semibold bg-white border border-surface-subtle rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-600"
-                      />
-                      <input
-                        type="time" value={editTime} onChange={(e) => setEditTime(e.target.value)}
-                        className="w-28 text-sm bg-white border border-surface-subtle rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-600"
-                      />
-                      <button onClick={() => saveEdit(group.id)} className="text-xs font-semibold text-brand-600">Save</button>
-                      <button onClick={() => setEditing(null)} className="text-xs text-text-muted">Cancel</button>
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm text-text">{group.name}</p>
-                        <p className="text-xs text-text-muted">{members.length}/{ppg} players</p>
-                      </div>
-                      {group.tee_time ? (
-                        <span className="text-xs font-mono font-semibold text-brand-600 bg-brand-50 px-2 py-1 rounded-lg">
-                          {group.tee_time}
-                        </span>
-                      ) : isOrganiser ? (
-                        <button
-                          onClick={() => { setEditing(group.id); setEditName(group.name); setEditTime('') }}
-                          className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-lg hover:bg-amber-100 transition-colors"
-                        >
-                          Set tee time
-                        </button>
-                      ) : null}
-                      {isOrganiser && (
-                        <div className="flex gap-2 ml-1">
-                          <button
-                            onClick={() => { setEditing(group.id); setEditName(group.name); setEditTime(group.tee_time ?? '') }}
-                            className="text-xs text-text-muted hover:text-brand-600 transition-colors"
-                          >Edit</button>
-                          <button
-                            onClick={() => deleteGroup(group.id)}
-                            className="text-xs text-red-400 hover:text-red-600 transition-colors"
-                          >✕</button>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-
-                {/* Members */}
-                <div className="divide-y divide-surface-subtle">
-                  {members.map((m) => (
-                    <div key={m.id} className="px-4 py-2.5 flex items-center gap-3">
-                      <MiniAvatar member={m} />
-                      <span className="text-sm text-text flex-1 truncate">{m.profiles?.full_name ?? 'Player'}</span>
-                      {isOrganiser && (
-                        <button
-                          onClick={() => assignMember(m.id, null)}
-                          className="text-xs text-text-subtle hover:text-red-500 transition-colors flex-shrink-0"
-                          title="Remove from group"
-                        >✕</button>
-                      )}
-                    </div>
-                  ))}
-                  {members.length === 0 && (
-                    <p className="px-4 py-3 text-xs text-text-subtle italic">No players yet</p>
-                  )}
-                </div>
-
-                {/* Add player dropdown — only shown if not full and there are unassigned */}
-                {isOrganiser && !isFull && unassigned.length > 0 && (
-                  <div className="px-4 py-2.5 border-t border-surface-subtle bg-surface-muted/40">
-                    <select
-                      className="w-full text-sm bg-white border border-surface-subtle rounded-xl px-3 py-2 text-text-muted focus:outline-none focus:ring-1 focus:ring-brand-600"
-                      value=""
-                      onChange={(e) => { if (e.target.value) assignMember(e.target.value, group.id) }}
-                    >
-                      <option value="">+ Add player to this group…</option>
-                      {unassigned.map((m) => (
-                        <option key={m.id} value={m.id}>{m.profiles?.full_name ?? 'Player'}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Full indicator */}
-                {isFull && (
-                  <div className="px-4 py-2 bg-green-50 border-t border-green-100">
-                    <p className="text-xs text-green-600 font-medium text-center">✓ Group full</p>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* ── Completion prompt ──────────────────────────────────────────── */}
-      {allAssigned && allHaveTimes && isOrganiser && (
-        <div className="rounded-2xl bg-brand-600 text-white p-5 text-center space-y-2">
-          <p className="font-bold text-lg">All groups ready 🎉</p>
-          <p className="text-brand-100 text-sm">
-            {players.length} players across {groups.length} groups · Tee times set
-          </p>
-          <p className="text-brand-200 text-xs mt-1">
-            Mark the trip as "Groups Ready" from the Overview tab when you're happy.
-          </p>
-        </div>
+        </section>
       )}
     </div>
   )
 }
 
-function SummaryCard({ value, label, done, warn }: { value: string; label: string; done?: boolean; warn?: boolean }) {
-  return (
-    <div className={cn(
-      'rounded-2xl border p-3 text-center',
-      done ? 'bg-green-50 border-green-200' : warn ? 'bg-amber-50 border-amber-200' : 'bg-white border-surface-subtle'
-    )}>
-      <p className={cn('text-xl font-bold', done ? 'text-green-600' : warn ? 'text-amber-600' : 'text-text')}>{value}</p>
-      <p className="text-xs text-text-muted mt-0.5">{label}</p>
-    </div>
-  )
-}
-
-function MiniAvatar({ member }: { member: TripMemberRow }) {
-  const name = member.profiles?.full_name || '?'
+function PlayerAvatar({ member, small }: { member: TripMemberRow; small?: boolean }) {
+  const name  = member.profiles?.full_name || '?'
+  const color = avatarColor(member.profile_id)
+  const size  = small ? 'w-8 h-8 text-xs' : 'w-10 h-10 text-sm'
   return member.profiles?.avatar_url ? (
-    <img src={member.profiles.avatar_url} alt={name} className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+    <img src={member.profiles.avatar_url} alt={name}
+      className={cn('rounded-full object-cover flex-shrink-0 ring-2 ring-white', size)} />
   ) : (
-    <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0">
-      <span className="text-[10px] font-bold text-brand-600">{initials(name)}</span>
+    <div
+      className={cn('rounded-full flex items-center justify-center flex-shrink-0 ring-2 ring-white font-bold text-white', size)}
+      style={{ backgroundColor: color }}
+    >
+      {initials(name)}
+    </div>
+  )
+}
+
+function SummaryCell({ value, label, ok, warn }: { value: string; label: string; ok?: boolean; warn?: boolean }) {
+  return (
+    <div className="flex-1 text-center px-3">
+      <p className={cn('text-2xl font-black', ok ? 'text-green-600' : warn ? 'text-amber-500' : 'text-text')}>{value}</p>
+      <p className="text-xs text-text-muted mt-0.5">{label}</p>
     </div>
   )
 }

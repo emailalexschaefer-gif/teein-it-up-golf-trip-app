@@ -11,10 +11,11 @@ interface Props {
   onBack: () => void
   onCreate: () => void
   loading: boolean
+  isEditing?: boolean
   error: string | null
 }
 
-export default function StepReview({ tripDetails, rounds, onBack, onCreate, loading, error }: Props) {
+export default function StepReview({ tripDetails, rounds, onBack, onCreate, loading, error, isEditing }: Props) {
   const eventLabel = EVENT_TYPE_OPTIONS.find((o) => o.value === tripDetails.event_type)?.label ?? 'Golf Trip'
 
   return (
@@ -53,7 +54,7 @@ export default function StepReview({ tripDetails, rounds, onBack, onCreate, load
 
       <div className="flex gap-3 pt-2">
         <Button variant="secondary" onClick={onBack} size="lg" className="flex-1" disabled={loading}>← Back</Button>
-        <Button onClick={onCreate} loading={loading} size="lg" className="flex-1">Create trip ⛳</Button>
+        <Button onClick={onCreate} loading={loading} size="lg" className="flex-1">{isEditing ? 'Save changes ✓' : 'Create trip ⛳'}</Button>
       </div>
     </div>
   )
