@@ -80,7 +80,10 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ name }),
     })
-    if (res.ok) setGroups((gs) => [...gs, await res.json()])
+    if (res.ok) {
+      const newGroup = await res.json()
+      setGroups((gs) => [...gs, newGroup])
+    }
   }
 
   const membersByGroup = (groupId: string) =>
