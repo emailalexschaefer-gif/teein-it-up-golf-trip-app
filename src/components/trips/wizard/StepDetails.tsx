@@ -108,7 +108,7 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
         <p className="text-xs text-text-muted">Many organisers manage the event without playing themselves.</p>
         <div className="flex gap-3 pt-1">
           {[
-            { value: true,  label: 'Yes, I'm playing' },
+            { value: true,  label: "Yes, I'm playing" },
             { value: false, label: 'No, organising only' },
           ].map(({ value, label }) => (
             <button
