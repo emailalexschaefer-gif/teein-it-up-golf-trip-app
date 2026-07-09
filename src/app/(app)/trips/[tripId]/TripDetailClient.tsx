@@ -30,7 +30,7 @@ export interface TripData {
   id: string; name: string; description: string | null; event_type: string | null
   location: string | null; start_date: string; end_date: string
   status: TripStatus; invite_code: string
-  expected_players: number; players_per_group: number
+  expected_players?: number; players_per_group?: number
   trip_members: TripMemberRow[]; rounds: RoundRow[]
 }
 

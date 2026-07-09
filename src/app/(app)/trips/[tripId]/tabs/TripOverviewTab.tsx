@@ -61,7 +61,7 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
       {/* ── At a glance ─────────────────────────────────────────────────── */}
       <div className="grid grid-cols-3 gap-3">
         <StatCard label="Players" value={String(playerCount)} sub={trip.expected_players > 0 ? `of ${trip.expected_players}` : undefined} />
-        <StatCard label="Groups" value={numGroups > 0 ? String(numGroups) : '—'} sub={numGroups > 0 ? `${trip.players_per_group} per group` : 'not set'} />
+        <StatCard label="Groups" value={numGroups > 0 ? String(numGroups) : '—'} sub={numGroups > 0 ? `${trip.players_per_group ?? 4} per group` : 'not set'} />
         <StatCard label="Rounds" value={String(trip.rounds.length)} />
       </div>
 
