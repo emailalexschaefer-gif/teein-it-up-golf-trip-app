@@ -67,9 +67,8 @@ export default async function TripDetailPage({ params }: Props) {
       .select(`
         id, name, description, event_type, location,
         start_date, end_date, status, invite_code,
-        expected_players, players_per_group,
         trip_members (
-          id, role, profile_id, group_id,
+          id, role, profile_id,
           profiles ( id, full_name, avatar_url )
         ),
         rounds (

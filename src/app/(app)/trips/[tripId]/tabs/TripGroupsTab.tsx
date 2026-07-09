@@ -87,9 +87,9 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
   }
 
   const membersByGroup = (groupId: string) =>
-    players.filter((m) => m.group_id === groupId)
+    players.filter((m) => (m.group_id ?? null) === groupId)
 
-  const unassigned = players.filter((m) => !m.group_id || !groups.find((g) => g.id === m.group_id))
+  const unassigned = players.filter((m) => !(m.group_id) || !groups.find((g) => g.id === m.group_id))
 
   // Sort groups by tee time
   const sortedGroups = [...groups].sort((a, b) => {
