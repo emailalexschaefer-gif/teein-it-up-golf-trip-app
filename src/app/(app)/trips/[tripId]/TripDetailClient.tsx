@@ -157,20 +157,19 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
           <div style={{
             background: 'rgba(0,0,0,0.2)',
             border: '1px dashed rgba(201,168,76,0.45)',
-            borderRadius: 8, padding: '10px 14px',
-            display: 'flex', flexDirection: 'column',
-            gap: 8, marginBottom: 10,
+            borderRadius: 10, padding: '12px 14px',
+            marginBottom: 10,
           }}>
-            {/* Row 1: Code + copy code button */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            {/* Code row */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
               <div>
                 <div style={{
-                  fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.6)',
-                  fontSize: 10.5, letterSpacing: 0.7, marginBottom: 2, textTransform: 'uppercase',
+                  fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.55)',
+                  fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 3,
                 }}>Trip Join Code</div>
                 <div style={{
                   fontFamily: 'var(--font-display)', color: '#e8c96a',
-                  fontSize: 21, fontWeight: 700, letterSpacing: 3.5,
+                  fontSize: 24, fontWeight: 700, letterSpacing: 4,
                 }}>{trip.invite_code}</div>
               </div>
               <button
@@ -180,9 +179,9 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
                   catch { toast('Could not copy', 'error') }
                 }}
                 style={{
-                  padding: '6px 12px',
-                  background: 'rgba(201,168,76,0.18)',
-                  border: '1px solid rgba(201,168,76,0.4)',
+                  padding: '7px 14px',
+                  background: 'rgba(201,168,76,0.15)',
+                  border: '1px solid rgba(201,168,76,0.35)',
                   borderRadius: 9,
                   fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700,
                   color: '#e8c96a', cursor: 'pointer', flexShrink: 0,
@@ -190,16 +189,16 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
                 Copy code
               </button>
             </div>
-            {/* Row 2: Full invite link + copy link button */}
+            {/* Full invite link row */}
             <div style={{
-              background: 'rgba(0,0,0,0.15)', borderRadius: 7, padding: '7px 10px',
               display: 'flex', alignItems: 'center', gap: 8,
+              background: 'rgba(0,0,0,0.2)', borderRadius: 8, padding: '8px 10px',
             }}>
               <div style={{
-                fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.45)',
+                fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.4)',
                 fontSize: 11, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>
-                {typeof window !== 'undefined' ? `${window.location.origin}/join/${trip.invite_code}` : `/join/${trip.invite_code}`}
+                {`${typeof window !== 'undefined' ? window.location.origin : ''}/join/${trip.invite_code}`}
               </div>
               <button
                 className="btn-press"
@@ -209,8 +208,8 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
                   catch { toast('Could not copy', 'error') }
                 }}
                 style={{
-                  padding: '6px 13px',
-                  background: 'rgba(201,168,76,0.28)',
+                  padding: '7px 14px',
+                  background: 'rgba(201,168,76,0.22)',
                   border: '1px solid rgba(201,168,76,0.5)',
                   borderRadius: 9,
                   fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700,
