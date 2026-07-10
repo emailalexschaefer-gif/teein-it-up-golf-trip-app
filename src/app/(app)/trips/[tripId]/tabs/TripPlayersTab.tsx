@@ -4,24 +4,27 @@ import { useState } from 'react'
 import { initials, avatarColor, cn } from '@/lib/utils'
 import type { TripData, TripMemberRow } from '../TripDetailClient'
 
-interface Props { trip: TripData; currentUserId: string; isOrganiser: boolean; onRefresh: () => void }
+type Tab = 'overview' | 'players' | 'groups' | 'rounds'
+interface Props {
+  trip: TripData; currentUserId: string; isOrganiser: boolean
+  onRefresh: () => void; onTabChange: (t: Tab) => void
+}
 
-export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRefresh }: Props) {
+export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRefresh, onTabChange }: Props) {
   const [removing, setRemoving] = useState<string | null>(null)
 
-  const organiserMember = trip.trip_members.find(m => m.role === 'organiser')
-  const players         = trip.trip_members.filter(m => m.role === 'player')
-
-  // If organiser is also playing, include them in the player count and player list
+  const organiserMember    = trip.trip_members.find(m => m.role === 'organiser')
+  const players            = trip.trip_members.filter(m => m.role === 'player')
   const organiserIsPlaying = trip.organiser_is_playing ?? false
-  const displayPlayers = organiserIsPlaying && organiserMember
+
+  // When organiser is playing, include them in the player list
+  const displayPlayers: TripMemberRow[] = organiserIsPlaying && organiserMember
     ? [organiserMember, ...players]
     : players
 
-  const expected  = trip.expected_players ?? 0
-  // Player count includes the organiser if they're playing
+  const expected    = trip.expected_players ?? 0
   const playerCount = organiserIsPlaying ? players.length + 1 : players.length
-  const remaining = expected > 0 ? Math.max(0, expected - playerCount) : null
+  const remaining   = expected > 0 ? Math.max(0, expected - playerCount) : null
 
   async function removePlayer(member: TripMemberRow) {
     if (!confirm(`Remove ${member.profiles?.full_name ?? 'this player'}?`)) return
@@ -29,84 +32,96 @@ export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRef
     try {
       const res = await fetch(`/api/trips/${trip.id}/members/${member.id}`, { method: 'DELETE' })
       if (res.ok) onRefresh()
-      else { const d = await res.json(); alert(d.error ?? 'Failed') }
+      else { const d = await res.json().catch(() => ({})); alert(d.error ?? 'Failed') }
     } finally { setRemoving(null) }
   }
 
   return (
     <div className="space-y-4">
 
-      {/* ── Registration stat strip ───────────────────────────────── */}
-      <div className="bg-ivory rounded-2xl shadow-card border border-surface-subtle p-4">
-        <div className="flex divide-x divide-surface-subtle text-center">
+      {/* ── Stat strip ───────────────────────────────────────────────── */}
+      <div className="card p-4">
+        <div className={cn('flex text-center', expected > 0 ? 'divide-x' : '')} style={{ borderColor: '#ede0c4' }}>
           <div className="flex-1 px-3">
-            <p className="text-3xl font-black" style={{ color: '#1a4731' }}>{playerCount}</p>
-            <p className="text-xs text-text-muted mt-0.5">Joined</p>
+            <p style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, color: '#1a4731' }}>{playerCount}</p>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260' }}>Joined</p>
           </div>
           {expected > 0 && (
             <>
               <div className="flex-1 px-3">
-                <p className="text-3xl font-black text-text">{expected}</p>
-                <p className="text-xs text-text-muted mt-0.5">Expected</p>
+                <p style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, color: '#1a1a16' }}>{expected}</p>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260' }}>Expected</p>
               </div>
               <div className="flex-1 px-3">
-                <p className={cn('text-3xl font-black', (remaining ?? 0) > 0 ? 'text-amber-500' : 'text-green-600')}>{remaining}</p>
-                <p className="text-xs text-text-muted mt-0.5">Remaining</p>
+                <p style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, color: (remaining ?? 0) > 0 ? '#d97706' : '#1a4731' }}>
+                  {remaining}
+                </p>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260' }}>Remaining</p>
               </div>
             </>
           )}
         </div>
       </div>
 
-      {/* ── Organiser ────────────────────────────────────────────── */}
+      {/* ── Guidance if no players yet ───────────────────────────────── */}
+      {playerCount === 0 && isOrganiser && (
+        <div style={{
+          background: '#fffbeb', border: '1.5px solid #fcd34d',
+          borderRadius: 12, padding: '12px 14px',
+          fontFamily: 'var(--font-body)', fontSize: 12, color: '#92400e',
+        }}>
+          No players have joined yet. You can still create groups now or return later.
+        </div>
+      )}
+
+      {/* ── Organiser ────────────────────────────────────────────────── */}
       {organiserMember && (
         <section>
-          <p className="s-label">
-            Organiser
-            {organiserIsPlaying && (
-              <span style={{ color: '#2d7a52', marginLeft: 6, textTransform: 'none', letterSpacing: 0, fontSize: 10 }}>
-                ✓ also playing
-              </span>
-            )}
+          <p className="s-label" style={{ marginBottom: 8 }}>
+            Organiser{organiserIsPlaying ? ' · also playing' : ''}
           </p>
-          <div className="bg-ivory rounded-2xl shadow-card border border-surface-subtle p-4">
-            <PlayerRow member={organiserMember} currentUserId={currentUserId} roleOverride={organiserIsPlaying ? 'Organiser · Player' : undefined} />
+          <div className="card">
+            <PlayerRow
+              member={organiserMember} currentUserId={currentUserId}
+              roleLabel={organiserIsPlaying ? 'Organiser · Player' : 'Organiser'}
+            />
           </div>
         </section>
       )}
 
-      {/* ── Players ──────────────────────────────────────────────── */}
+      {/* ── Players ──────────────────────────────────────────────────── */}
       <section>
-        <p className="s-label">
-          Players ({playerCount})
-          {organiserIsPlaying && organiserMember && (
-            <span style={{ color: '#7a7260', marginLeft: 6, textTransform: 'none', letterSpacing: 0, fontSize: 10, fontWeight: 400 }}>
-              incl. organiser
-            </span>
-          )}
+        <p className="s-label" style={{ marginBottom: 8 }}>
+          Players ({playerCount}){organiserIsPlaying ? ' · incl. organiser' : ''}
         </p>
         {displayPlayers.length === 0 ? (
-          <div className="bg-ivory rounded-2xl shadow-card border border-surface-subtle p-8 text-center">
-            <p className="text-4xl mb-3">👥</p>
-            <p className="font-semibold text-text mb-1">No players yet</p>
-            <p className="text-sm text-text-muted">Share your invite code to get started.</p>
+          <div className="card p-8 text-center">
+            <p style={{ fontSize: 32, marginBottom: 8 }}>👥</p>
+            <p style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: '#1a1a16', marginBottom: 4 }}>No players yet</p>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260' }}>Share the invite link from the trip header.</p>
           </div>
         ) : (
-          <div className="bg-ivory rounded-2xl shadow-card border border-surface-subtle divide-y divide-surface-subtle overflow-hidden">
-            {displayPlayers.map(member => (
-              <div key={member.id} className="px-4 py-3 flex items-center gap-3">
+          <div className="card overflow-hidden">
+            {displayPlayers.map((member, i) => (
+              <div
+                key={member.id}
+                className="flex items-center gap-3 px-4 py-3"
+                style={{ borderTop: i > 0 ? '1px solid #ede0c4' : 'none' }}
+              >
                 <PlayerRow
-                  member={member}
-                  currentUserId={currentUserId}
+                  member={member} currentUserId={currentUserId}
+                  roleLabel={member.role === 'organiser' ? 'Organiser · Player' : undefined}
                   flex
-                  roleOverride={member.role === 'organiser' ? 'Organiser · Player' : undefined}
                 />
-                {/* Only show remove for actual player rows, not the organiser-as-player */}
                 {isOrganiser && member.role === 'player' && member.profile_id !== currentUserId && (
                   <button
                     disabled={removing === member.id}
                     onClick={() => removePlayer(member)}
-                    className="flex-shrink-0 text-xs text-red-400 hover:text-red-600 transition-colors disabled:opacity-40 ml-auto"
+                    style={{
+                      fontFamily: 'var(--font-body)', fontSize: 11, color: '#ef4444',
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      flexShrink: 0, marginLeft: 'auto', opacity: removing === member.id ? 0.4 : 1,
+                    }}
                   >
                     {removing === member.id ? '…' : 'Remove'}
                   </button>
@@ -116,39 +131,53 @@ export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRef
           </div>
         )}
       </section>
+
+      {/* ── Back/Next nav ────────────────────────────────────────────── */}
+      <div className="flex gap-3 pt-2">
+        <button onClick={() => onTabChange('overview')} style={{
+          flex: 1, padding: '12px 16px', borderRadius: 12,
+          background: '#f8f4eb', border: '1.5px solid #d9c9a3',
+          fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#7a7260',
+          cursor: 'pointer',
+        }}>← Overview</button>
+        <button onClick={() => onTabChange('groups')} style={{
+          flex: 2, padding: '12px 16px', borderRadius: 12,
+          background: 'linear-gradient(135deg, #2d7a52, #1a4731)',
+          border: 'none',
+          fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#ffffff',
+          cursor: 'pointer', boxShadow: '0 3px 12px rgba(26,71,49,0.35)',
+        }}>Create Groups →</button>
+      </div>
     </div>
   )
 }
 
 function PlayerRow({
-  member, currentUserId, flex, roleOverride,
+  member, currentUserId, flex, roleLabel,
 }: {
-  member: TripMemberRow; currentUserId: string; flex?: boolean; roleOverride?: string
+  member: TripMemberRow; currentUserId: string; flex?: boolean; roleLabel?: string
 }) {
   const name  = member.profiles?.full_name || 'Player'
   const isYou = member.profile_id === currentUserId
   const color = avatarColor(member.profile_id)
-
   return (
     <div className={cn('flex items-center gap-3', flex && 'flex-1 min-w-0')}>
       {member.profiles?.avatar_url ? (
         <img src={member.profiles.avatar_url} alt={name}
           className="w-10 h-10 rounded-full object-cover flex-shrink-0"
-          style={{ border: '2px solid rgba(255,255,255,0.22)', boxShadow: '0 2px 8px rgba(0,0,0,0.22)' }} />
+          style={{ border: '2px solid rgba(255,255,255,0.3)', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }} />
       ) : (
-        <div
-          className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-white text-sm"
-          style={{ backgroundColor: color, border: '2px solid rgba(255,255,255,0.22)', boxShadow: '0 2px 8px rgba(0,0,0,0.22)' }}
-        >
+        <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-white text-sm"
+          style={{ backgroundColor: color, border: '2px solid rgba(255,255,255,0.3)', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
           {initials(name)}
         </div>
       )}
       <div className={cn(flex && 'min-w-0')}>
-        <p className="font-semibold text-text truncate" style={{ fontFamily: 'var(--font-body)' }}>
-          {name}{isYou && <span className="text-text-muted text-xs ml-1">(you)</span>}
+        <p style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: '#1a1a16', fontSize: 13 }} className="truncate">
+          {name}{isYou && <span style={{ color: '#7a7260', fontSize: 11, marginLeft: 4 }}>(you)</span>}
         </p>
-        <p className="text-xs text-text-muted" style={{ fontFamily: 'var(--font-body)' }}>
-          {roleOverride ?? (member.role === 'organiser' ? 'Organiser' : 'Player')}
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260' }}>
+          {roleLabel ?? (member.role === 'organiser' ? 'Organiser' : 'Player')}
         </p>
       </div>
     </div>

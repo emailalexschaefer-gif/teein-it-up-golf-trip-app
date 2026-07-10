@@ -6,71 +6,50 @@ import { groupsRequired } from '@/types/app'
 import type { TripData, TripMemberRow } from '../TripDetailClient'
 
 interface TripGroup { id: string; name: string; tee_time: string | null; sort_order: number }
-interface Props { trip: TripData; isOrganiser: boolean; onRefresh: () => void }
+type Tab = 'overview' | 'players' | 'groups' | 'rounds'
+interface Props { trip: TripData; isOrganiser: boolean; onRefresh: () => void; onTabChange: (t: Tab) => void }
 
-export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
-  const [groups, setGroups]       = useState<TripGroup[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [generating, setGen]      = useState(false)
-  const [assigning, setAssigning] = useState(false)
-  const [editingId, setEditing]   = useState<string | null>(null)
-  const [editName, setEditName]   = useState('')
-  const [editTime, setEditTime]   = useState('')
-  // For "Add Player" picker — which group is open
-  const [addingTo, setAddingTo]   = useState<string | null>(null)
-  const [apiError, setApiError]   = useState<string | null>(null)
+export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChange }: Props) {
+  const [groups, setGroups]     = useState<TripGroup[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [generating, setGen]    = useState(false)
+  const [assigning, setAssign]  = useState(false)
+  const [editingId, setEditing] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editTime, setEditTime] = useState('')
+  const [addingTo, setAddingTo] = useState<string | null>(null)
+  const [apiError, setApiError] = useState<string | null>(null)
 
-  const players  = trip.trip_members.filter(m =>
-    m.role === 'player' || (m.role === 'organiser' && trip.organiser_is_playing)
+  // Players eligible for group assignment (players + organiser if playing)
+  const players = trip.trip_members.filter(m =>
+    m.role === 'player' || (m.role === 'organiser' && (trip.organiser_is_playing ?? false))
   )
   const ppg       = trip.players_per_group ?? 4
   const numGroups = groupsRequired(trip.expected_players, trip.players_per_group)
 
-  useEffect(() => { fetchGroups() }, [trip.id]) // eslint-disable-line
+  useEffect(() => { loadGroups() }, [trip.id]) // eslint-disable-line
 
-  async function fetchGroups() {
+  async function loadGroups() {
     setLoading(true)
     const res = await fetch(`/api/trips/${trip.id}/groups`)
-    if (res.ok) setGroups(await res.json())
+    if (res.ok) {
+      setGroups(await res.json())
+    } else {
+      const d = await res.json().catch(() => ({}))
+      const msg: string = d.error ?? ''
+      if (msg.includes('trip_groups') || msg.includes('does not exist') || msg.includes('relation')) {
+        setApiError('Database not ready. Run migration 012 in Supabase SQL Editor, then refresh.')
+      }
+    }
     setLoading(false)
   }
 
   async function generateGroups() {
-    setGen(true)
+    setApiError(null); setGen(true)
     const res = await fetch(`/api/trips/${trip.id}/groups/generate`, { method: 'POST' })
-    if (res.ok) { await fetchGroups(); onRefresh() }
+    if (res.ok) { await loadGroups(); onRefresh() }
     else { const d = await res.json().catch(() => ({})); setApiError(d.error ?? 'Failed to generate groups') }
     setGen(false)
-  }
-
-  async function autoAssign(groupList: TripGroup[]) {
-    setAssigning(true)
-    const shuffled = [...players].sort(() => Math.random() - 0.5)
-    await Promise.all(shuffled.map((p, i) =>
-      fetch(`/api/trips/${trip.id}/members/${p.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ group_id: groupList[i % groupList.length].id }),
-      })
-    ))
-    setAssigning(false)
-    onRefresh()
-  }
-
-  async function saveEdit(groupId: string) {
-    const res = await fetch(`/api/trips/${trip.id}/groups/${groupId}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: editName, tee_time: editTime || null }),
-    })
-    if (res.ok) setGroups(gs => gs.map(g =>
-      g.id === groupId ? { ...g, name: editName, tee_time: editTime || null } : g
-    ))
-    setEditing(null)
-  }
-
-  async function deleteGroup(groupId: string, name: string) {
-    if (!window.confirm(`Delete "${name}"? Players will be unassigned.`)) return
-    const res = await fetch(`/api/trips/${trip.id}/groups/${groupId}`, { method: 'DELETE' })
-    if (res.ok) { setGroups(gs => gs.filter(g => g.id !== groupId)); onRefresh() }
   }
 
   async function addGroup() {
@@ -84,19 +63,46 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
       })
       if (res.ok) {
         const g = await res.json()
-        setGroups(gs => [...gs, g])
+        setGroups((gs: TripGroup[]) => [...gs, g])
       } else {
         const d = await res.json().catch(() => ({}))
         const msg: string = d.error ?? `HTTP ${res.status}`
         if (msg.includes('trip_groups') || msg.includes('relation') || msg.includes('does not exist')) {
-          setApiError('Groups table not set up yet. Run migration 011 in Supabase SQL Editor, then refresh.')
+          setApiError('Database not ready. Run migration 012 in Supabase SQL Editor, then refresh.')
         } else {
           setApiError(`Could not create group: ${msg}`)
         }
       }
     } catch (err) {
-      setApiError(`Network error: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      setApiError(`Network error: ${err instanceof Error ? err.message : 'Unknown'}`)
     }
+  }
+
+  async function saveEdit(groupId: string) {
+    const res = await fetch(`/api/trips/${trip.id}/groups/${groupId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: editName, tee_time: editTime || null }),
+    })
+    if (res.ok) setGroups((gs: TripGroup[]) => gs.map((g: TripGroup) => g.id === groupId ? { ...g, name: editName, tee_time: editTime || null } : g))
+    setEditing(null)
+  }
+
+  async function deleteGroup(groupId: string, name: string) {
+    if (!window.confirm(`Delete "${name}"? Players will return to the unassigned pool.`)) return
+    const res = await fetch(`/api/trips/${trip.id}/groups/${groupId}`, { method: 'DELETE' })
+    if (res.ok) { setGroups((gs: TripGroup[]) => gs.filter((g: TripGroup) => g.id !== groupId)); onRefresh() }
+  }
+
+  async function autoAssign(groupList: TripGroup[]) {
+    setAssign(true)
+    const shuffled = [...players].sort(() => Math.random() - 0.5)
+    await Promise.all(shuffled.map((p, i) =>
+      fetch(`/api/trips/${trip.id}/members/${p.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ group_id: groupList[i % groupList.length].id }),
+      })
+    ))
+    setAssign(false); onRefresh()
   }
 
   async function assign(memberId: string, groupId: string | null) {
@@ -104,148 +110,189 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ group_id: groupId }),
     })
-    setAddingTo(null)
-    onRefresh()
+    setAddingTo(null); onRefresh()
   }
 
   const membersByGroup = (gid: string) => players.filter(m => (m.group_id ?? null) === gid)
-  const unassigned = players.filter(m => !m.group_id || !groups.find(g => g.id === m.group_id))
-
+  const unassigned = players.filter(m => !m.group_id || !groups.find((g: TripGroup) => g.id === m.group_id))
   const sortedGroups = [...groups].sort((a, b) => {
     if (!a.tee_time && !b.tee_time) return a.sort_order - b.sort_order
     if (!a.tee_time) return 1; if (!b.tee_time) return -1
     return a.tee_time.localeCompare(b.tee_time)
   })
-
   const allAssigned  = players.length > 0 && unassigned.length === 0
-  const allHaveTimes = groups.length > 0 && groups.every(g => g.tee_time)
+  const allHaveTimes = groups.length > 0 && groups.every((g: TripGroup) => g.tee_time)
 
   if (loading) return (
     <div className="py-16 flex flex-col items-center gap-3">
-      <div className="w-10 h-10 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
-      <p className="text-sm text-text-muted">Loading groups…</p>
+      <div style={{ width: 36, height: 36, borderRadius: '50%', border: '3px solid #d9c9a3', borderTopColor: '#1a4731', animation: 'spin 0.8s linear infinite' }} />
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#7a7260' }}>Loading groups…</p>
     </div>
   )
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
 
-      {/* API error display */}
+      {/* Error */}
       {apiError && (
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
-          <p className="text-sm font-semibold text-red-700 mb-1">Something went wrong</p>
-          <p className="text-xs text-red-600">{apiError}</p>
-          <button onClick={() => setApiError(null)} className="text-xs text-red-500 underline mt-2">Dismiss</button>
+        <div style={{ background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 12, padding: '12px 14px' }}>
+          <p style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: '#b91c1c', fontSize: 13, marginBottom: 4 }}>Something went wrong</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#dc2626' }}>{apiError}</p>
+          <button onClick={() => setApiError(null)} style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', marginTop: 6, textDecoration: 'underline' }}>Dismiss</button>
         </div>
       )}
 
-      {/* ── No groups: guided setup card ──────────────────────────────── */}
+      {/* ── No groups yet: guided setup ──────────────────────────────── */}
       {groups.length === 0 && isOrganiser && (
-        <div className="bg-brand-950 rounded-3xl p-6 space-y-4">
-          <div className="text-center">
-            <p className="text-4xl mb-3">⛳</p>
-            <p className="text-white font-black text-xl">Create Playing Groups</p>
-            {numGroups > 0 ? (
-              <p className="text-white/60 text-sm mt-1.5">
-                {trip.expected_players} players ÷ {ppg} per group
-                {' = '}<span className="text-gold-400 font-bold">{numGroups} groups</span>
-              </p>
-            ) : (
-              <p className="text-white/60 text-sm mt-1.5">
-                Set player capacity in Overview to auto-calculate group size.
-              </p>
-            )}
-          </div>
+        <div style={{
+          background: 'linear-gradient(135deg, #0f2d1c 0%, #1a4731 100%)',
+          borderRadius: 18, padding: '24px 20px', textAlign: 'center',
+          border: '2px solid rgba(201,168,76,0.3)',
+        }}>
+          <p style={{ fontSize: 36, marginBottom: 10 }}>⛳</p>
+          <p style={{ fontFamily: 'var(--font-display)', color: '#ffffff', fontSize: 19, fontWeight: 700, marginBottom: 6 }}>
+            Create Playing Groups
+          </p>
+          {numGroups > 0 ? (
+            <p style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.6)', fontSize: 13, marginBottom: 20 }}>
+              {trip.expected_players} players ÷ {ppg} per group = <span style={{ color: '#e8c96a', fontWeight: 700 }}>{numGroups} groups</span>
+            </p>
+          ) : (
+            <p style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.5)', fontSize: 12, marginBottom: 20 }}>
+              You can create groups now and add players later.
+            </p>
+          )}
           {numGroups > 0 && (
-            <button
-              onClick={generateGroups} disabled={generating}
-              className="w-full bg-gold-500 hover:bg-gold-400 text-brand-950 font-black py-4 rounded-2xl text-base transition-colors disabled:opacity-50"
-            >
+            <button onClick={generateGroups} disabled={generating} style={{
+              display: 'block', width: '100%', marginBottom: 10,
+              padding: '14px 20px', borderRadius: 12, border: 'none', cursor: 'pointer',
+              background: 'linear-gradient(135deg, #c9a84c, #e8c96a)',
+              fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 800, color: '#0f2d1c',
+              boxShadow: '0 4px 16px rgba(201,168,76,0.5)',
+              opacity: generating ? 0.5 : 1,
+            }}>
               {generating ? 'Generating…' : `Generate ${numGroups} Groups →`}
             </button>
           )}
-          <button onClick={addGroup}
-            className="w-full bg-white/10 hover:bg-white/20 text-white font-semibold py-3 rounded-2xl text-sm transition-colors">
-            + Add group manually
+          <button onClick={addGroup} style={{
+            display: 'block', width: '100%',
+            padding: '12px 20px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)', cursor: 'pointer',
+            background: 'rgba(255,255,255,0.08)',
+            fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)',
+          }}>
+            + Create group manually
           </button>
         </div>
       )}
 
-      {/* ── Progress summary ─────────────────────────────────────────── */}
+      {/* ── Progress summary (when groups exist) ─────────────────────── */}
       {groups.length > 0 && (
-        <div className="bg-ivory rounded-2xl shadow-card border border-surface-subtle p-4">
-          <div className="flex divide-x divide-surface-subtle text-center">
-            <SummaryCell value={`${players.length - unassigned.length}/${players.length}`} label="Players Assigned" ok={allAssigned} warn={!allAssigned && players.length > 0} />
-            <SummaryCell value={`${groups.filter(g => membersByGroup(g.id).length > 0).length}/${groups.length}`} label="Groups Filled" ok={allAssigned} />
-            <SummaryCell value={`${groups.filter(g => g.tee_time).length}/${groups.length}`} label="Tee Times" ok={allHaveTimes} warn={!allHaveTimes} />
+        <div className="card p-4">
+          <div className="flex text-center" style={{ gap: 0 }}>
+            <SummaryCell value={`${players.length - unassigned.length}/${players.length}`} label="Assigned" ok={allAssigned} warn={!allAssigned && players.length > 0} />
+            <div style={{ width: 1, background: '#ede0c4' }} />
+            <SummaryCell value={`${groups.filter((g: TripGroup) => membersByGroup(g.id).length > 0).length}/${groups.length}`} label="Groups filled" ok={allAssigned} />
+            <div style={{ width: 1, background: '#ede0c4' }} />
+            <SummaryCell value={`${groups.filter((g: TripGroup) => g.tee_time).length}/${groups.length}`} label="Tee times" ok={allHaveTimes} warn={!allHaveTimes} />
           </div>
         </div>
       )}
 
-      {/* ── Action bar ───────────────────────────────────────────────── */}
+      {/* ── Validation hints ─────────────────────────────────────────── */}
+      {groups.length > 0 && unassigned.length > 0 && (
+        <div style={{ background: '#fffbeb', border: '1.5px solid #fcd34d', borderRadius: 10, padding: '10px 14px' }}>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#92400e' }}>
+            ⚠ {unassigned.length} player{unassigned.length !== 1 ? 's' : ''} unassigned. Add to a group or auto-assign below.
+          </p>
+        </div>
+      )}
+      {groups.length > 0 && !allHaveTimes && (
+        <div style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 10, padding: '10px 14px' }}>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#166534' }}>
+            Add tee times to each group before marking as Groups Ready.
+          </p>
+        </div>
+      )}
+
+      {/* ── Action buttons ───────────────────────────────────────────── */}
       {groups.length > 0 && isOrganiser && (
         <div className="flex gap-2 flex-wrap">
           {unassigned.length > 0 && (
-            <button onClick={() => autoAssign(groups)} disabled={assigning}
-              className="flex-1 bg-brand-600 text-white font-bold py-3 rounded-xl text-sm hover:bg-brand-700 transition-colors disabled:opacity-50">
-              {assigning ? 'Assigning…' : `Auto-assign ${unassigned.length} player${unassigned.length !== 1 ? 's' : ''} →`}
+            <button onClick={() => autoAssign(groups)} disabled={assigning} style={{
+              flex: 2, padding: '11px 14px', borderRadius: 10,
+              background: 'linear-gradient(135deg, #2d7a52, #1a4731)', border: 'none',
+              fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#ffffff',
+              cursor: 'pointer', opacity: assigning ? 0.5 : 1,
+            }}>
+              {assigning ? 'Assigning…' : `Auto-assign ${unassigned.length}`}
             </button>
           )}
-          <button onClick={addGroup}
-            className="bg-ivory border border-surface-subtle text-text font-semibold px-4 py-3 rounded-xl text-sm hover:bg-cream-100 transition-colors">
-            + Group
-          </button>
+          <button onClick={addGroup} style={{
+            flex: 1, padding: '11px 14px', borderRadius: 10,
+            background: '#f8f4eb', border: '1.5px solid #d9c9a3',
+            fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600, color: '#1a1a16',
+            cursor: 'pointer',
+          }}>+ Group</button>
           {numGroups > 0 && (
-            <button onClick={generateGroups} disabled={generating}
-              className="bg-ivory border border-surface-subtle text-text-muted px-4 py-3 rounded-xl text-sm hover:bg-cream-100 transition-colors disabled:opacity-50">
-              Regenerate
-            </button>
+            <button onClick={generateGroups} disabled={generating} style={{
+              padding: '11px 14px', borderRadius: 10,
+              background: '#f8f4eb', border: '1.5px solid #d9c9a3',
+              fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260',
+              cursor: 'pointer', opacity: generating ? 0.5 : 1,
+            }}>Regen</button>
           )}
         </div>
       )}
 
-      {/* ── All done banner ──────────────────────────────────────────── */}
+      {/* ── All done ─────────────────────────────────────────────────── */}
       {allAssigned && allHaveTimes && (
-        <div className="bg-brand-600 rounded-2xl p-4 text-center">
-          <p className="text-white font-black text-lg">All groups ready ✓</p>
-          <p className="text-white/70 text-sm mt-0.5">Mark as "Groups Ready" from the Overview tab</p>
+        <div style={{
+          background: 'linear-gradient(135deg, #1a4731, #2d7a52)', borderRadius: 14, padding: '14px 18px', textAlign: 'center',
+        }}>
+          <p style={{ fontFamily: 'var(--font-display)', color: '#e8c96a', fontSize: 17, fontWeight: 700 }}>All groups ready ✓</p>
+          <p style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.65)', fontSize: 12, marginTop: 3 }}>Mark as Groups Ready from the Overview tab</p>
         </div>
       )}
 
-      {/* ── PLAYING GROUPS — demo layout ─────────────────────────────── */}
+      {/* ── PLAYING GROUPS ───────────────────────────────────────────── */}
       {sortedGroups.length > 0 && (
         <section>
-          {/* Demo: "PLAYING GROUPS" as a section label */}
-          <p className="s-label" style={{marginBottom:14}}>Playing Groups</p>
-
+          <p className="s-label" style={{ marginBottom: 14 }}>Playing Groups</p>
           <div className="space-y-5">
             {sortedGroups.map((group) => {
-              const members = membersByGroup(group.id)
-              const isEdit  = editingId === group.id
-              const isFull  = members.length >= ppg
+              const members  = membersByGroup(group.id)
+              const isEdit   = editingId === group.id
               const isAdding = addingTo === group.id
 
               return (
                 <div key={group.id}>
-                  {/* Demo: group label OUTSIDE the card */}
+                  {/* Group header — label outside card */}
                   <div className="flex items-center justify-between mb-2">
                     {isEdit ? (
-                      <div className="flex items-center gap-2 flex-1">
-                        <input
-                          value={editName} onChange={e => setEditName(e.target.value)}
-                          className="text-xs font-bold uppercase tracking-wider bg-transparent border-b border-brand-400 text-text-muted focus:outline-none w-28"
-                        />
-                        <input type="time" value={editTime} onChange={e => setEditTime(e.target.value)}
-                          className="text-xs bg-white border border-surface-subtle rounded-lg px-2 py-0.5 focus:outline-none text-gold-600" />
-                        <button onClick={() => saveEdit(group.id)} className="text-xs font-bold text-brand-600 ml-1">Save</button>
-                        <button onClick={() => setEditing(null)} className="text-xs text-text-muted">✕</button>
+                      <div className="flex items-center gap-2 flex-1 flex-wrap">
+                        <input value={editName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditName(e.target.value)}
+                          style={{
+                            fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700,
+                            textTransform: 'uppercase', letterSpacing: 0.8,
+                            background: 'transparent', border: 'none',
+                            borderBottom: '1.5px solid #c9a84c', color: '#1a1a16',
+                            outline: 'none', width: 100,
+                          }} />
+                        <input type="time" value={editTime} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditTime(e.target.value)}
+                          style={{
+                            fontFamily: 'var(--font-body)', fontSize: 11, background: '#ffffff',
+                            border: '1px solid #d9c9a3', borderRadius: 7, padding: '2px 7px',
+                            color: '#c9a84c', outline: 'none',
+                          }} />
+                        <button onClick={() => saveEdit(group.id)} style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#1a4731', background: 'none', border: 'none', cursor: 'pointer' }}>Save</button>
+                        <button onClick={() => setEditing(null)} style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
                       </div>
                     ) : (
                       <>
-                        <p className="s-label">{group.name}</p>
+                        <p className="s-label" style={{ margin: 0 }}>{group.name}</p>
                         <div className="flex items-center gap-3">
                           {group.tee_time && (
-                            <span className="text-xs font-bold text-gold-600">
+                            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#8b6914' }}>
                               ⏱ {group.tee_time}
                             </span>
                           )}
@@ -253,12 +300,11 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
                             <>
                               <button
                                 onClick={() => { setEditing(group.id); setEditName(group.name); setEditTime(group.tee_time ?? '') }}
-                                className="text-xs text-text-subtle hover:text-brand-600 transition-colors"
-                              >
+                                style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260', background: 'none', border: 'none', cursor: 'pointer' }}>
                                 {group.tee_time ? 'Edit' : 'Set tee time'}
                               </button>
                               <button onClick={() => deleteGroup(group.id, group.name)}
-                                className="text-xs text-red-400 hover:text-red-600 transition-colors">
+                                style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}>
                                 Delete
                               </button>
                             </>
@@ -268,67 +314,72 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
                     )}
                   </div>
 
-                  {/* Demo: bordered card containing player rows */}
-                  <div className="bg-ivory rounded-2xl shadow-card border border-surface-subtle overflow-hidden">
+                  {/* Group card */}
+                  <div className="card overflow-hidden">
                     {members.map((m, i) => (
-                      <div key={m.id}
-                        className={cn('flex items-center gap-3 px-4 py-3', i > 0 && 'border-t border-surface-subtle')}>
+                      <div key={m.id} className="flex items-center gap-3 px-4 py-3"
+                        style={{ borderTop: i > 0 ? '1px solid #ede0c4' : 'none' }}>
                         <PlayerAvatar member={m} />
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-text text-sm">{m.profiles?.full_name ?? 'Player'}</p>
-                          <p className="text-xs text-text-subtle">HCP —</p>
+                          <p style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: '#1a1a16', fontSize: 13 }}>{m.profiles?.full_name ?? 'Player'}</p>
+                          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a89e88' }}>
+                            {m.role === 'organiser' ? 'Organiser · Player' : 'Player'}
+                          </p>
                         </div>
                         {isOrganiser ? (
-                          <button
-                            onClick={() => assign(m.id, null)}
-                            className="text-xs text-red-400 hover:text-red-600 transition-colors flex-shrink-0"
-                            title="Remove from group"
-                          >
+                          <button onClick={() => assign(m.id, null)}
+                            style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
                             Remove
                           </button>
                         ) : (
-                          <span className="text-xs font-semibold text-green-600 bg-green-50 border border-green-200 px-2.5 py-1 rounded-full flex-shrink-0">
-                            ✓ Added
-                          </span>
+                          <span style={{
+                            fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 600, color: '#15803d',
+                            background: '#f0faf4', border: '1px solid #86efac', borderRadius: 20, padding: '3px 10px', flexShrink: 0,
+                          }}>✓ Added</span>
                         )}
                       </div>
                     ))}
 
                     {members.length === 0 && (
                       <div className="px-4 py-4 text-center">
-                        <p className="text-sm text-text-subtle italic">No players assigned yet</p>
+                        <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#a89e88', fontStyle: 'italic' }}>No players assigned yet</p>
                       </div>
                     )}
 
-                    {/* Add Player button — inside the card at the bottom */}
-                    {isOrganiser && !isFull && (
-                      <div className={cn('border-t border-surface-subtle', members.length === 0 && 'border-t-0')}>
+                    {/* Add Player */}
+                    {isOrganiser && (
+                      <div style={{ borderTop: '1px solid #ede0c4' }}>
                         {isAdding ? (
-                          /* Player picker — shown inline when "Add Player" is pressed */
                           <div className="p-3 space-y-1">
                             <div className="flex items-center justify-between mb-2">
-                              <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Select a player</p>
-                              <button onClick={() => setAddingTo(null)} className="text-xs text-text-subtle hover:text-text">✕ Cancel</button>
+                              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#7a7260', textTransform: 'uppercase', letterSpacing: 0.8 }}>Select a player</p>
+                              <button onClick={() => setAddingTo(null)} style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a89e88', background: 'none', border: 'none', cursor: 'pointer' }}>✕ Cancel</button>
                             </div>
                             {unassigned.length === 0 ? (
-                              <p className="text-xs text-text-subtle text-center py-2">No unassigned players</p>
+                              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#a89e88', textAlign: 'center', padding: '8px 0' }}>No unassigned players available</p>
                             ) : (
                               unassigned.map(m => (
-                                <button
-                                  key={m.id}
-                                  onClick={() => assign(m.id, group.id)}
-                                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-brand-50 transition-colors text-left"
+                                <button key={m.id} onClick={() => assign(m.id, group.id)}
+                                  className="w-full flex items-center gap-3 text-left"
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px 10px', borderRadius: 10 }}
+                                  onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = '#f0fdf4')}
+                                  onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = 'none')}
                                 >
                                   <PlayerAvatar member={m} small />
-                                  <span className="text-sm font-medium text-text">{m.profiles?.full_name ?? 'Player'}</span>
+                                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#1a1a16' }}>{m.profiles?.full_name ?? 'Player'}</span>
                                 </button>
                               ))
                             )}
                           </div>
                         ) : (
-                          <button
-                            onClick={() => setAddingTo(group.id)}
-                            className="w-full flex items-center justify-center gap-2 py-3 text-brand-600 font-semibold text-sm hover:bg-brand-50 transition-colors"
+                          <button onClick={() => setAddingTo(group.id)}
+                            className="w-full flex items-center justify-center gap-2"
+                            style={{
+                              padding: '11px 16px', background: 'none', border: 'none', cursor: 'pointer',
+                              fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#1a4731',
+                            }}
+                            onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = '#f0fdf4')}
+                            onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = 'none')}
                           >
                             + Add Player
                           </button>
@@ -343,28 +394,26 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
         </section>
       )}
 
-      {/* ── Unassigned pool — shown below groups ─────────────────────── */}
+      {/* ── Unassigned player pool ───────────────────────────────────── */}
       {unassigned.length > 0 && groups.length > 0 && (
         <section>
-          <p className="s-label" style={{color:"#b45309"}}>
-            Unassigned Players ({unassigned.length})
-          </p>
-          <div className="bg-ivory rounded-2xl shadow-card border border-amber-200 overflow-hidden">
+          <p className="s-label" style={{ color: '#b45309', marginBottom: 8 }}>Unassigned Players ({unassigned.length})</p>
+          <div className="card overflow-hidden" style={{ borderColor: '#fcd34d' }}>
             {unassigned.map((m, i) => (
-              <div key={m.id}
-                className={cn('flex items-center gap-3 px-4 py-3', i > 0 && 'border-t border-surface-subtle')}>
+              <div key={m.id} className="flex items-center gap-3 px-4 py-3"
+                style={{ borderTop: i > 0 ? '1px solid #ede0c4' : 'none' }}>
                 <PlayerAvatar member={m} />
-                <span className="text-sm font-semibold text-text flex-1">{m.profiles?.full_name ?? 'Player'}</span>
+                <span style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: '#1a1a16', fontSize: 13, flex: 1 }}>{m.profiles?.full_name ?? 'Player'}</span>
                 {isOrganiser && (
-                  <select
-                    className="text-sm border border-brand-200 text-brand-600 bg-white rounded-xl px-3 py-1.5 focus:outline-none font-medium"
-                    value="" onChange={e => { if (e.target.value) assign(m.id, e.target.value) }}
-                  >
+                  <select value="" onChange={(e: React.ChangeEvent<HTMLSelectElement>) => { if (e.target.value) assign(m.id, e.target.value) }}
+                    style={{
+                      fontFamily: 'var(--font-body)', fontSize: 12, color: '#1a4731',
+                      background: '#ffffff', border: '1.5px solid #c9a84c', borderRadius: 8, padding: '5px 10px',
+                      outline: 'none', cursor: 'pointer',
+                    }}>
                     <option value="">Assign →</option>
                     {sortedGroups.map(g => (
-                      <option key={g.id} value={g.id}>
-                        {g.name} ({membersByGroup(g.id).length}/{ppg})
-                      </option>
+                      <option key={g.id} value={g.id}>{g.name} ({membersByGroup(g.id).length}/{ppg})</option>
                     ))}
                   </select>
                 )}
@@ -373,6 +422,22 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
           </div>
         </section>
       )}
+
+      {/* ── Back/Next nav ────────────────────────────────────────────── */}
+      <div className="flex gap-3 pt-2">
+        <button onClick={() => onTabChange('players')} style={{
+          flex: 1, padding: '12px 16px', borderRadius: 12,
+          background: '#f8f4eb', border: '1.5px solid #d9c9a3',
+          fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#7a7260',
+          cursor: 'pointer',
+        }}>← Players</button>
+        <button onClick={() => onTabChange('rounds')} style={{
+          flex: 2, padding: '12px 16px', borderRadius: 12,
+          background: 'linear-gradient(135deg, #2d7a52, #1a4731)', border: 'none',
+          fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#ffffff',
+          cursor: 'pointer', boxShadow: '0 3px 12px rgba(26,71,49,0.35)',
+        }}>Review Rounds →</button>
+      </div>
     </div>
   )
 }
@@ -380,25 +445,29 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
 function PlayerAvatar({ member, small }: { member: TripMemberRow; small?: boolean }) {
   const name  = member.profiles?.full_name || '?'
   const color = avatarColor(member.profile_id)
-  const size  = small ? 'w-8 h-8 text-xs' : 'w-10 h-10 text-sm'
+  const size  = small ? 32 : 38
   return member.profiles?.avatar_url ? (
     <img src={member.profiles.avatar_url} alt={name}
-      className={cn('rounded-full object-cover flex-shrink-0 ring-2 ring-white', size)} />
+      style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '2px solid rgba(255,255,255,0.3)' }} />
   ) : (
-    <div
-      className={cn('rounded-full flex items-center justify-center flex-shrink-0 ring-2 ring-white font-bold text-white', size)}
-      style={{ backgroundColor: color }}
-    >
+    <div style={{
+      width: size, height: size, borderRadius: '50%', flexShrink: 0,
+      background: color, border: '2px solid rgba(255,255,255,0.3)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      color: '#ffffff', fontWeight: 700, fontSize: small ? 11 : 13,
+      fontFamily: 'var(--font-body)',
+    }}>
       {initials(name)}
     </div>
   )
 }
 
 function SummaryCell({ value, label, ok, warn }: { value: string; label: string; ok?: boolean; warn?: boolean }) {
+  const color = ok ? '#1a4731' : warn ? '#d97706' : '#1a1a16'
   return (
-    <div className="flex-1 text-center px-3">
-      <p className={cn('text-2xl font-black', ok ? 'text-green-600' : warn ? 'text-amber-500' : 'text-text')}>{value}</p>
-      <p className="text-xs text-text-muted mt-0.5">{label}</p>
+    <div style={{ flex: 1, textAlign: 'center', padding: '0 12px' }}>
+      <p style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, color }}>{value}</p>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#7a7260', marginTop: 2 }}>{label}</p>
     </div>
   )
 }
