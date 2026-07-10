@@ -82,11 +82,12 @@ export async function POST(request: Request) {
     const errMsg: string = tripResult.error.message ?? ''
     const isMissingColumn = errMsg.includes('column') && (
       errMsg.includes('expected_players') ||
-      errMsg.includes('players_per_group')
+      errMsg.includes('players_per_group') ||
+      errMsg.includes('organiser_is_playing')
     )
 
     if (isMissingColumn) {
-      console.warn('[POST /api/trips] Sprint 3 columns missing — retrying without them. Run migration 009.')
+      console.warn('[POST /api/trips] Sprint 3 columns missing — retrying without them. Run migration 011.')
       tripResult = await admin
         .from('trips')
         .insert({

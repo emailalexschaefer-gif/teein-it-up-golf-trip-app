@@ -62,7 +62,8 @@ export default async function TripDetailPage({ params }: Props) {
   let rawTrip: any = null
   let tripError: string | null = null
   try {
-    const result = await db
+    // Try full Sprint 3 query first
+    let result = await db
       .from('trips')
       .select(`
         id, name, description, event_type, location,
@@ -77,6 +78,32 @@ export default async function TripDetailPage({ params }: Props) {
         )
       `)
       .eq('id', tripId).maybeSingle()
+
+    // If Sprint 3 columns are missing (migration not yet applied), retry without them
+    if (result?.error) {
+      const msg: string = result.error.message ?? ''
+      const isMissingCol = msg.includes('does not exist') && (
+        msg.includes('group_id') || msg.includes('expected_players') ||
+        msg.includes('players_per_group') || msg.includes('organiser_is_playing')
+      )
+      if (isMissingCol) {
+        console.warn('[trip page] Sprint 3 columns missing — run migration 011 in Supabase SQL Editor')
+        result = await db
+          .from('trips')
+          .select(`
+            id, name, description, event_type, location,
+            start_date, end_date, status, invite_code,
+            trip_members (
+              id, role, profile_id,
+              profiles ( id, full_name, avatar_url )
+            ),
+            rounds (
+              id, name, course_name, play_date, tee_time, holes, scoring_format, status
+            )
+          `)
+          .eq('id', tripId).maybeSingle()
+      }
+    }
 
     if (result?.error) tripError = result.error.message
     else rawTrip = result?.data ?? null
