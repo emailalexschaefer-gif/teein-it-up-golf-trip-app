@@ -18,6 +18,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
   const [editTime, setEditTime]   = useState('')
   // For "Add Player" picker — which group is open
   const [addingTo, setAddingTo]   = useState<string | null>(null)
+  const [apiError, setApiError]   = useState<string | null>(null)
 
   const players  = trip.trip_members.filter(m =>
     m.role === 'player' || (m.role === 'organiser' && trip.organiser_is_playing)
@@ -38,7 +39,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
     setGen(true)
     const res = await fetch(`/api/trips/${trip.id}/groups/generate`, { method: 'POST' })
     if (res.ok) { await fetchGroups(); onRefresh() }
-    else { const d = await res.json(); alert(d.error) }
+    else { const d = await res.json().catch(() => ({})); setApiError(d.error ?? 'Failed to generate groups') }
     setGen(false)
   }
 
@@ -67,19 +68,35 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
   }
 
   async function deleteGroup(groupId: string, name: string) {
-    if (!confirm(`Delete "${name}"? Players will be unassigned.`)) return
+    if (!window.confirm(`Delete "${name}"? Players will be unassigned.`)) return
     const res = await fetch(`/api/trips/${trip.id}/groups/${groupId}`, { method: 'DELETE' })
     if (res.ok) { setGroups(gs => gs.filter(g => g.id !== groupId)); onRefresh() }
   }
 
   async function addGroup() {
+    setApiError(null)
     const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
     const name = groups.length < 26 ? `Group ${letters[groups.length]}` : `Group ${groups.length + 1}`
-    const res = await fetch(`/api/trips/${trip.id}/groups`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
-    })
-    if (res.ok) { const g = await res.json(); setGroups(gs => [...gs, g]) }
+    try {
+      const res = await fetch(`/api/trips/${trip.id}/groups`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (res.ok) {
+        const g = await res.json()
+        setGroups(gs => [...gs, g])
+      } else {
+        const d = await res.json().catch(() => ({}))
+        const msg: string = d.error ?? `HTTP ${res.status}`
+        if (msg.includes('trip_groups') || msg.includes('relation') || msg.includes('does not exist')) {
+          setApiError('Groups table not set up yet. Run migration 011 in Supabase SQL Editor, then refresh.')
+        } else {
+          setApiError(`Could not create group: ${msg}`)
+        }
+      }
+    } catch (err) {
+      setApiError(`Network error: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    }
   }
 
   async function assign(memberId: string, groupId: string | null) {
@@ -112,6 +129,15 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh }: Props) {
 
   return (
     <div className="space-y-5">
+
+      {/* API error display */}
+      {apiError && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+          <p className="text-sm font-semibold text-red-700 mb-1">Something went wrong</p>
+          <p className="text-xs text-red-600">{apiError}</p>
+          <button onClick={() => setApiError(null)} className="text-xs text-red-500 underline mt-2">Dismiss</button>
+        </div>
+      )}
 
       {/* ── No groups: guided setup card ──────────────────────────────── */}
       {groups.length === 0 && isOrganiser && (
