@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { initials, avatarColor, cn } from '@/lib/utils'
 import type { TripData, TripMemberRow } from '../TripDetailClient'
+import { WizardNav } from './TripOverviewTab'
 
 type Tab = 'overview' | 'players' | 'groups' | 'rounds'
 interface Props {
@@ -132,22 +133,7 @@ export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRef
         )}
       </section>
 
-      {/* ── Back/Next nav ────────────────────────────────────────────── */}
-      <div className="flex gap-3 pt-2">
-        <button onClick={() => onTabChange('overview')} style={{
-          flex: 1, padding: '12px 16px', borderRadius: 12,
-          background: '#f8f4eb', border: '1.5px solid #d9c9a3',
-          fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#7a7260',
-          cursor: 'pointer',
-        }}>← Overview</button>
-        <button onClick={() => onTabChange('groups')} style={{
-          flex: 2, padding: '12px 16px', borderRadius: 12,
-          background: 'linear-gradient(135deg, #2d7a52, #1a4731)',
-          border: 'none',
-          fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#ffffff',
-          cursor: 'pointer', boxShadow: '0 3px 12px rgba(26,71,49,0.35)',
-        }}>Create Groups →</button>
-      </div>
+      <WizardNav onBack={() => onTabChange('overview')} backLabel="← Overview" onNext={() => onTabChange('groups')} nextLabel="Create Playing Groups →" />
     </div>
   )
 }

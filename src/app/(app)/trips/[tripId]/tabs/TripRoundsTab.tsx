@@ -1,6 +1,7 @@
 'use client'
 
 import type { TripData, RoundRow } from '../TripDetailClient'
+import { WizardNav } from './TripOverviewTab'
 
 type Tab = 'overview' | 'players' | 'groups' | 'rounds'
 interface Props { trip: TripData; onTabChange: (t: Tab) => void }
@@ -24,21 +25,11 @@ export default function TripRoundsTab({ trip, onTabChange }: Props) {
         </div>
       )}
 
-      {/* ── Back/Next nav ────────────────────────────────────────────── */}
-      <div className="flex gap-3 pt-2">
-        <button onClick={() => onTabChange('groups')} style={{
-          flex: 1, padding: '12px 16px', borderRadius: 12,
-          background: '#f8f4eb', border: '1.5px solid #d9c9a3',
-          fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#7a7260',
-          cursor: 'pointer',
-        }}>← Groups</button>
-        {trip.status === 'groups_ready' && (
-          <div style={{ flex: 2, padding: '12px 16px', borderRadius: 12, background: 'linear-gradient(135deg, #c9a84c, #e8c96a)', textAlign: 'center' }}>
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#0f2d1c' }}>Ready to start</p>
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: 'rgba(15,45,28,0.65)', marginTop: 1 }}>Mark Ready from Overview</p>
-          </div>
-        )}
-      </div>
+      <WizardNav
+        onBack={() => onTabChange('groups')} backLabel="← Groups"
+        nextLabel={trip.status === 'live' || trip.status === 'ready' ? 'Start Round →' : 'Ready to Start →'}
+        onNext={() => onTabChange('overview')}
+      />
     </div>
   )
 }

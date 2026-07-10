@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { initials, avatarColor, cn } from '@/lib/utils'
 import { groupsRequired } from '@/types/app'
 import type { TripData, TripMemberRow } from '../TripDetailClient'
+import { WizardNav } from './TripOverviewTab'
 
 interface TripGroup { id: string; name: string; tee_time: string | null; sort_order: number }
 type Tab = 'overview' | 'players' | 'groups' | 'rounds'
@@ -54,8 +55,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
 
   async function addGroup() {
     setApiError(null)
-    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    const name = groups.length < 26 ? `Group ${letters[groups.length]}` : `Group ${groups.length + 1}`
+    const name = `Playing Group ${groups.length + 1}`
     try {
       const res = await fetch(`/api/trips/${trip.id}/groups`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -171,7 +171,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
               boxShadow: '0 4px 16px rgba(201,168,76,0.5)',
               opacity: generating ? 0.5 : 1,
             }}>
-              {generating ? 'Generating…' : `Generate ${numGroups} Groups →`}
+              {generating ? 'Generating…' : `Generate ${numGroups} Playing Groups →`}
             </button>
           )}
           <button onClick={addGroup} style={{
@@ -180,7 +180,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
             background: 'rgba(255,255,255,0.08)',
             fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)',
           }}>
-            + Create group manually
+            + Create Playing Group
           </button>
         </div>
       )}
@@ -423,21 +423,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
         </section>
       )}
 
-      {/* ── Back/Next nav ────────────────────────────────────────────── */}
-      <div className="flex gap-3 pt-2">
-        <button onClick={() => onTabChange('players')} style={{
-          flex: 1, padding: '12px 16px', borderRadius: 12,
-          background: '#f8f4eb', border: '1.5px solid #d9c9a3',
-          fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#7a7260',
-          cursor: 'pointer',
-        }}>← Players</button>
-        <button onClick={() => onTabChange('rounds')} style={{
-          flex: 2, padding: '12px 16px', borderRadius: 12,
-          background: 'linear-gradient(135deg, #2d7a52, #1a4731)', border: 'none',
-          fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#ffffff',
-          cursor: 'pointer', boxShadow: '0 3px 12px rgba(26,71,49,0.35)',
-        }}>Review Rounds →</button>
-      </div>
+      <WizardNav onBack={() => onTabChange('players')} backLabel="← Players" onNext={() => onTabChange('rounds')} nextLabel="Review Rounds →" />
     </div>
   )
 }
