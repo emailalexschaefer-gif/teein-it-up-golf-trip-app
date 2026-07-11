@@ -1,7 +1,6 @@
-import React from 'react'
 'use client'
 
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import React, { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 type ToastType = 'success' | 'error' | 'info'
