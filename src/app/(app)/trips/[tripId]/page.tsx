@@ -70,8 +70,8 @@ export default async function TripDetailPage({ params }: Props) {
         start_date, end_date, status, invite_code,
         expected_players, players_per_group, organiser_is_playing,
         trip_members (
-          id, role, profile_id, group_id,
-          profiles ( id, full_name, avatar_url )
+          id, role, profile_id, group_id, playing_handicap,
+          profiles ( id, full_name, avatar_url, handicap )
         ),
         rounds (
           id, name, course_name, play_date, tee_time, holes, scoring_format, status
@@ -87,7 +87,7 @@ export default async function TripDetailPage({ params }: Props) {
         msg.includes('players_per_group') || msg.includes('organiser_is_playing')
       )
       if (isMissingCol) {
-        console.warn('[trip page] Sprint 3 columns missing — run migration 011 in Supabase SQL Editor')
+        console.warn('[trip page] Sprint 3 columns missing — run 012_sprint3_schema.sql in Supabase SQL Editor')
         result = await db
           .from('trips')
           .select(`
@@ -95,7 +95,7 @@ export default async function TripDetailPage({ params }: Props) {
             start_date, end_date, status, invite_code,
             trip_members (
               id, role, profile_id,
-              profiles ( id, full_name, avatar_url )
+              profiles ( id, full_name, avatar_url, handicap )
             ),
             rounds (
               id, name, course_name, play_date, tee_time, holes, scoring_format, status

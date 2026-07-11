@@ -12,9 +12,10 @@ import TripPlayersTab  from './tabs/TripPlayersTab'
 import TripGroupsTab   from './tabs/TripGroupsTab'
 import TripRoundsTab   from './tabs/TripRoundsTab'
 
-export interface MemberProfile { id: string; full_name: string; avatar_url: string | null }
+export interface MemberProfile { id: string; full_name: string; avatar_url: string | null; handicap?: number | null }
 export interface TripMemberRow {
   id: string; role: string; profile_id: string; group_id?: string | null
+  playing_handicap?: number | null
   profiles: MemberProfile | null
 }
 export interface RoundRow {

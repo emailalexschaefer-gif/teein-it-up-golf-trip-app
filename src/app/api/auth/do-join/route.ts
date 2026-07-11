@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
 
   console.log('[do-join] ── START ──', {
     inviteCode,
-    cookies: request.cookies.getAll().map(c => c.name),
+    cookies: request.cookies.getAll().map((c: { name: string }) => c.name),
   })
 
   if (!inviteCode) {
@@ -84,10 +84,29 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/trips/${trip.id}`)
   }
 
-  // Insert membership
+  // Read handicap from query params (passed through from join form)
+  const hcpRaw  = searchParams.get('handicap')
+  const hcpNull = searchParams.get('noHandicap') === '1'
+  let playing_handicap: number | null = null
+
+  if (!hcpNull && hcpRaw !== null && hcpRaw !== '') {
+    const parsed = parseFloat(hcpRaw)
+    if (!isNaN(parsed)) playing_handicap = parsed
+  }
+
+  // Insert membership with playing_handicap
   const { error: insertError } = await admin
     .from('trip_members')
-    .insert({ trip_id: trip.id, profile_id: user.id, role: 'player' })
+    .insert({ trip_id: trip.id, profile_id: user.id, role: 'player', playing_handicap })
+
+  // Update profiles.handicap if player provided one and it differs (best-effort)
+  if (playing_handicap !== null) {
+    await admin
+      .from('profiles')
+      .update({ handicap: playing_handicap })
+      .eq('id', user.id)
+      .then(() => {}) // non-fatal
+  }
 
   console.log('[do-join] Insert result', {
     success: !insertError,

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { initials, avatarColor, cn } from '@/lib/utils'
+import React, { useState, useEffect } from 'react'
+import { initials, avatarColor, formatHandicap, cn } from '@/lib/utils'
 import { groupsRequired } from '@/types/app'
 import type { TripData, TripMemberRow } from '../TripDetailClient'
 import { WizardNav } from './TripOverviewTab'
@@ -9,6 +9,28 @@ import { WizardNav } from './TripOverviewTab'
 interface TripGroup { id: string; name: string; tee_time: string | null; sort_order: number }
 type Tab = 'overview' | 'players' | 'groups' | 'rounds'
 interface Props { trip: TripData; isOrganiser: boolean; onRefresh: () => void; onTabChange: (t: Tab) => void }
+
+// Resolve effective handicap: trip-specific first, then profile fallback
+function effectiveHcp(m: TripMemberRow): number | null {
+  if (m.playing_handicap !== null && m.playing_handicap !== undefined) return m.playing_handicap
+  if (m.profiles?.handicap !== null && m.profiles?.handicap !== undefined) return m.profiles.handicap
+  return null
+}
+
+function hcpLabel(m: TripMemberRow): string {
+  return formatHandicap(m.playing_handicap, m.profiles?.handicap)
+}
+
+function hcpColor(m: TripMemberRow): string {
+  const hcp = effectiveHcp(m)
+  if (hcp === null) return '#a89e88'   // not provided — muted
+  if (m.playing_handicap !== null && m.playing_handicap !== undefined) return '#1a4731'  // trip-specific — green
+  return '#7a7260'  // profile fallback — grey-green
+}
+
+function roleLabel(m: TripMemberRow): string {
+  return m.role === 'organiser' ? 'Organiser · Player' : 'Player'
+}
 
 export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChange }: Props) {
   const [groups, setGroups]     = useState<TripGroup[]>([])
@@ -21,7 +43,6 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
   const [addingTo, setAddingTo] = useState<string | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
 
-  // Players eligible for group assignment (players + organiser if playing)
   const players = trip.trip_members.filter(m =>
     m.role === 'player' || (m.role === 'organiser' && (trip.organiser_is_playing ?? false))
   )
@@ -38,9 +59,8 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
     } else {
       const d = await res.json().catch(() => ({}))
       const msg: string = d.error ?? ''
-      if (msg.includes('trip_groups') || msg.includes('does not exist') || msg.includes('relation')) {
-        setApiError('Database not ready. Run migration 012 in Supabase SQL Editor, then refresh.')
-      }
+      console.error('[TripGroupsTab] loadGroups error:', msg)
+      setApiError('Couldn\'t load groups. Please refresh the page or try again.')
     }
     setLoading(false)
   }
@@ -68,7 +88,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
         const d = await res.json().catch(() => ({}))
         const msg: string = d.error ?? `HTTP ${res.status}`
         if (msg.includes('trip_groups') || msg.includes('relation') || msg.includes('does not exist')) {
-          setApiError('Database not ready. Run migration 012 in Supabase SQL Editor, then refresh.')
+          setApiError('Couldn\'t load groups. Please refresh the page or contact support.')
         } else {
           setApiError(`Could not create group: ${msg}`)
         }
@@ -83,7 +103,9 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: editName, tee_time: editTime || null }),
     })
-    if (res.ok) setGroups((gs: TripGroup[]) => gs.map((g: TripGroup) => g.id === groupId ? { ...g, name: editName, tee_time: editTime || null } : g))
+    if (res.ok) setGroups((gs: TripGroup[]) => gs.map((g: TripGroup) =>
+      g.id === groupId ? { ...g, name: editName, tee_time: editTime || null } : g
+    ))
     setEditing(null)
   }
 
@@ -133,7 +155,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
   return (
     <div className="space-y-4">
 
-      {/* Error */}
+      {/* Error banner */}
       {apiError && (
         <div style={{ background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 12, padding: '12px 14px' }}>
           <p style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: '#b91c1c', fontSize: 13, marginBottom: 4 }}>Something went wrong</p>
@@ -142,7 +164,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
         </div>
       )}
 
-      {/* ── No groups yet: guided setup ──────────────────────────────── */}
+      {/* ── No groups: guided setup ──────────────────────────────────── */}
       {groups.length === 0 && isOrganiser && (
         <div style={{
           background: 'linear-gradient(135deg, #0f2d1c 0%, #1a4731 100%)',
@@ -155,7 +177,8 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
           </p>
           {numGroups > 0 ? (
             <p style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.6)', fontSize: 13, marginBottom: 20 }}>
-              {trip.expected_players} players ÷ {ppg} per group = <span style={{ color: '#e8c96a', fontWeight: 700 }}>{numGroups} groups</span>
+              {trip.expected_players} players ÷ {ppg} per group
+              {' = '}<span style={{ color: '#e8c96a', fontWeight: 700 }}>{numGroups} groups</span>
             </p>
           ) : (
             <p style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.5)', fontSize: 12, marginBottom: 20 }}>
@@ -168,8 +191,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
               padding: '14px 20px', borderRadius: 12, border: 'none', cursor: 'pointer',
               background: 'linear-gradient(135deg, #c9a84c, #e8c96a)',
               fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 800, color: '#0f2d1c',
-              boxShadow: '0 4px 16px rgba(201,168,76,0.5)',
-              opacity: generating ? 0.5 : 1,
+              boxShadow: '0 4px 16px rgba(201,168,76,0.5)', opacity: generating ? 0.5 : 1,
             }}>
               {generating ? 'Generating…' : `Generate ${numGroups} Playing Groups →`}
             </button>
@@ -185,24 +207,33 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
         </div>
       )}
 
-      {/* ── Progress summary (when groups exist) ─────────────────────── */}
+      {/* ── Summary strip ────────────────────────────────────────────── */}
       {groups.length > 0 && (
         <div className="card p-4">
           <div className="flex text-center" style={{ gap: 0 }}>
-            <SummaryCell value={`${players.length - unassigned.length}/${players.length}`} label="Assigned" ok={allAssigned} warn={!allAssigned && players.length > 0} />
+            <SummaryCell
+              value={`${players.length - unassigned.length}/${players.length}`}
+              label="Assigned" ok={allAssigned} warn={!allAssigned && players.length > 0}
+            />
             <div style={{ width: 1, background: '#ede0c4' }} />
-            <SummaryCell value={`${groups.filter((g: TripGroup) => membersByGroup(g.id).length > 0).length}/${groups.length}`} label="Groups filled" ok={allAssigned} />
+            <SummaryCell
+              value={`${groups.filter((g: TripGroup) => membersByGroup(g.id).length > 0).length}/${groups.length}`}
+              label="Groups filled" ok={allAssigned}
+            />
             <div style={{ width: 1, background: '#ede0c4' }} />
-            <SummaryCell value={`${groups.filter((g: TripGroup) => g.tee_time).length}/${groups.length}`} label="Tee times" ok={allHaveTimes} warn={!allHaveTimes} />
+            <SummaryCell
+              value={`${groups.filter((g: TripGroup) => g.tee_time).length}/${groups.length}`}
+              label="Tee times" ok={allHaveTimes} warn={!allHaveTimes}
+            />
           </div>
         </div>
       )}
 
-      {/* ── Validation hints ─────────────────────────────────────────── */}
+      {/* ── Hints ────────────────────────────────────────────────────── */}
       {groups.length > 0 && unassigned.length > 0 && (
         <div style={{ background: '#fffbeb', border: '1.5px solid #fcd34d', borderRadius: 10, padding: '10px 14px' }}>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#92400e' }}>
-            ⚠ {unassigned.length} player{unassigned.length !== 1 ? 's' : ''} unassigned. Add to a group or auto-assign below.
+            ⚠ {unassigned.length} player{unassigned.length !== 1 ? 's' : ''} unassigned.
           </p>
         </div>
       )}
@@ -214,7 +245,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
         </div>
       )}
 
-      {/* ── Action buttons ───────────────────────────────────────────── */}
+      {/* ── Action bar ───────────────────────────────────────────────── */}
       {groups.length > 0 && isOrganiser && (
         <div className="flex gap-2 flex-wrap">
           {unassigned.length > 0 && (
@@ -224,7 +255,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
               fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#ffffff',
               cursor: 'pointer', opacity: assigning ? 0.5 : 1,
             }}>
-              {assigning ? 'Assigning…' : `Auto-assign ${unassigned.length}`}
+              {assigning ? 'Assigning…' : `Auto-assign ${unassigned.length} player${unassigned.length !== 1 ? 's' : ''}`}
             </button>
           )}
           <button onClick={addGroup} style={{
@@ -244,11 +275,9 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
         </div>
       )}
 
-      {/* ── All done ─────────────────────────────────────────────────── */}
+      {/* All done banner */}
       {allAssigned && allHaveTimes && (
-        <div style={{
-          background: 'linear-gradient(135deg, #1a4731, #2d7a52)', borderRadius: 14, padding: '14px 18px', textAlign: 'center',
-        }}>
+        <div style={{ background: 'linear-gradient(135deg, #1a4731, #2d7a52)', borderRadius: 14, padding: '14px 18px', textAlign: 'center' }}>
           <p style={{ fontFamily: 'var(--font-display)', color: '#e8c96a', fontSize: 17, fontWeight: 700 }}>All groups ready ✓</p>
           <p style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.65)', fontSize: 12, marginTop: 3 }}>Mark as Groups Ready from the Overview tab</p>
         </div>
@@ -260,25 +289,32 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
           <p className="s-label" style={{ marginBottom: 14 }}>Playing Groups</p>
           <div className="space-y-5">
             {sortedGroups.map((group) => {
-              const members  = membersByGroup(group.id)
-              const isEdit   = editingId === group.id
-              const isAdding = addingTo === group.id
+              const members    = membersByGroup(group.id)
+              const isEdit     = editingId === group.id
+              const isAdding   = addingTo === group.id
+              // Group handicap stats for Ambrose planning
+              const validHcps  = members.map(effectiveHcp).filter((h): h is number => h !== null)
+              const avgHcp     = validHcps.length > 0
+                ? Math.round((validHcps.reduce((a, b) => a + b, 0) / validHcps.length) * 10) / 10
+                : null
 
               return (
                 <div key={group.id}>
-                  {/* Group header — label outside card */}
+                  {/* Group label row */}
                   <div className="flex items-center justify-between mb-2">
                     {isEdit ? (
                       <div className="flex items-center gap-2 flex-1 flex-wrap">
-                        <input value={editName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditName(e.target.value)}
+                        <input value={editName}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditName(e.target.value)}
                           style={{
                             fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700,
                             textTransform: 'uppercase', letterSpacing: 0.8,
                             background: 'transparent', border: 'none',
                             borderBottom: '1.5px solid #c9a84c', color: '#1a1a16',
-                            outline: 'none', width: 100,
+                            outline: 'none', width: 120,
                           }} />
-                        <input type="time" value={editTime} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditTime(e.target.value)}
+                        <input type="time" value={editTime}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditTime(e.target.value)}
                           style={{
                             fontFamily: 'var(--font-body)', fontSize: 11, background: '#ffffff',
                             border: '1px solid #d9c9a3', borderRadius: 7, padding: '2px 7px',
@@ -289,7 +325,15 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
                       </div>
                     ) : (
                       <>
-                        <p className="s-label" style={{ margin: 0 }}>{group.name}</p>
+                        <div>
+                          <p className="s-label" style={{ margin: 0 }}>{group.name}</p>
+                          {/* Avg handicap for Ambrose planning */}
+                          {avgHcp !== null && members.length > 1 && (
+                            <p style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#a89e88', marginTop: 1 }}>
+                              Avg HCP {avgHcp}
+                            </p>
+                          )}
+                        </div>
                         <div className="flex items-center gap-3">
                           {group.tee_time && (
                             <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#8b6914' }}>
@@ -321,9 +365,17 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
                         style={{ borderTop: i > 0 ? '1px solid #ede0c4' : 'none' }}>
                         <PlayerAvatar member={m} />
                         <div className="flex-1 min-w-0">
-                          <p style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: '#1a1a16', fontSize: 13 }}>{m.profiles?.full_name ?? 'Player'}</p>
+                          {/* Name + HCP on same line */}
+                          <div className="flex items-baseline gap-2 flex-wrap">
+                            <p style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: '#1a1a16', fontSize: 13 }}>
+                              {m.profiles?.full_name ?? 'Player'}
+                            </p>
+                            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 600, color: hcpColor(m) }}>
+                              {hcpLabel(m)}
+                            </span>
+                          </div>
                           <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a89e88' }}>
-                            {m.role === 'organiser' ? 'Organiser · Player' : 'Player'}
+                            {roleLabel(m)}
                           </p>
                         </div>
                         {isOrganiser ? (
@@ -346,29 +398,53 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
                       </div>
                     )}
 
-                    {/* Add Player */}
+                    {/* Add Player section */}
                     {isOrganiser && (
                       <div style={{ borderTop: '1px solid #ede0c4' }}>
                         {isAdding ? (
-                          <div className="p-3 space-y-1">
-                            <div className="flex items-center justify-between mb-2">
-                              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#7a7260', textTransform: 'uppercase', letterSpacing: 0.8 }}>Select a player</p>
-                              <button onClick={() => setAddingTo(null)} style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a89e88', background: 'none', border: 'none', cursor: 'pointer' }}>✕ Cancel</button>
+                          <div className="p-3">
+                            <div className="flex items-center justify-between mb-3">
+                              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#7a7260', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                                Select a player
+                              </p>
+                              <button onClick={() => setAddingTo(null)}
+                                style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a89e88', background: 'none', border: 'none', cursor: 'pointer' }}>
+                                ✕ Cancel
+                              </button>
                             </div>
                             {unassigned.length === 0 ? (
-                              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#a89e88', textAlign: 'center', padding: '8px 0' }}>No unassigned players available</p>
+                              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#a89e88', textAlign: 'center', padding: '8px 0' }}>
+                                No unassigned players available
+                              </p>
                             ) : (
-                              unassigned.map(m => (
-                                <button key={m.id} onClick={() => assign(m.id, group.id)}
-                                  className="w-full flex items-center gap-3 text-left"
-                                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px 10px', borderRadius: 10 }}
-                                  onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = '#f0fdf4')}
-                                  onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = 'none')}
-                                >
-                                  <PlayerAvatar member={m} small />
-                                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#1a1a16' }}>{m.profiles?.full_name ?? 'Player'}</span>
-                                </button>
-                              ))
+                              <div className="space-y-1">
+                                {unassigned.map(m => (
+                                  <button key={m.id} onClick={() => assign(m.id, group.id)}
+                                    className="w-full flex items-center gap-3 text-left"
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px 10px', borderRadius: 10 }}
+                                    onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = '#f0fdf4')}
+                                    onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = 'none')}
+                                  >
+                                    <PlayerAvatar member={m} small />
+                                    <div className="flex-1 min-w-0">
+                                      <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#1a1a16' }}>
+                                        {m.profiles?.full_name ?? 'Player'}
+                                      </p>
+                                      <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260' }}>
+                                        {roleLabel(m)}
+                                      </p>
+                                    </div>
+                                    {/* HCP shown prominently for comparison */}
+                                    <span style={{
+                                      fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700,
+                                      color: hcpColor(m), flexShrink: 0,
+                                      background: '#f8f4eb', borderRadius: 8, padding: '3px 8px',
+                                    }}>
+                                      {hcpLabel(m)}
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
                             )}
                           </div>
                         ) : (
@@ -397,15 +473,30 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
       {/* ── Unassigned player pool ───────────────────────────────────── */}
       {unassigned.length > 0 && groups.length > 0 && (
         <section>
-          <p className="s-label" style={{ color: '#b45309', marginBottom: 8 }}>Unassigned Players ({unassigned.length})</p>
+          <p className="s-label" style={{ color: '#b45309', marginBottom: 8 }}>
+            Unassigned Players ({unassigned.length})
+          </p>
           <div className="card overflow-hidden" style={{ borderColor: '#fcd34d' }}>
             {unassigned.map((m, i) => (
               <div key={m.id} className="flex items-center gap-3 px-4 py-3"
                 style={{ borderTop: i > 0 ? '1px solid #ede0c4' : 'none' }}>
                 <PlayerAvatar member={m} />
-                <span style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: '#1a1a16', fontSize: 13, flex: 1 }}>{m.profiles?.full_name ?? 'Player'}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline gap-2 flex-wrap">
+                    <span style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: '#1a1a16', fontSize: 13 }}>
+                      {m.profiles?.full_name ?? 'Player'}
+                    </span>
+                    <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 600, color: hcpColor(m) }}>
+                      {hcpLabel(m)}
+                    </span>
+                  </div>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a89e88' }}>
+                    {roleLabel(m)}
+                  </p>
+                </div>
                 {isOrganiser && (
-                  <select value="" onChange={(e: React.ChangeEvent<HTMLSelectElement>) => { if (e.target.value) assign(m.id, e.target.value) }}
+                  <select value=""
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => { if (e.target.value) assign(m.id, e.target.value) }}
                     style={{
                       fontFamily: 'var(--font-body)', fontSize: 12, color: '#1a4731',
                       background: '#ffffff', border: '1.5px solid #c9a84c', borderRadius: 8, padding: '5px 10px',
@@ -423,7 +514,10 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
         </section>
       )}
 
-      <WizardNav onBack={() => onTabChange('players')} backLabel="← Players" onNext={() => onTabChange('rounds')} nextLabel="Review Rounds →" />
+      <WizardNav
+        onBack={() => onTabChange('players')} backLabel="← Players"
+        onNext={() => onTabChange('rounds')} nextLabel="Review Rounds →"
+      />
     </div>
   )
 }

@@ -11,7 +11,7 @@ interface Props { userName: string; avatarUrl: string | null }
 export default function AppNav({ userName, avatarUrl }: Props) {
   const router   = useRouter()
   const supabase = createClient()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState<boolean>(false)
 
   async function handleSignOut() {
     setOpen(false)
@@ -76,7 +76,7 @@ export default function AppNav({ userName, avatarUrl }: Props) {
 
             {/* Demo: GoldAvatar for current user, then PASS badge */}
             <button
-              onClick={() => setOpen(o => !o)}
+              onClick={() => setOpen((o: boolean) => !o)}
               className="flex items-center gap-2 hover:opacity-80 transition-opacity"
               aria-label="Menu"
             >
@@ -129,8 +129,9 @@ export default function AppNav({ userName, avatarUrl }: Props) {
               </p>
             </div>
             <nav className="py-1">
-              <MenuItem href="/dashboard" label="🏌️  My Trips" onClose={() => setOpen(false)} />
-              <MenuItem href="/trips/new"  label="＋  New Trip"  onClose={() => setOpen(false)} />
+              <MenuItem href="/dashboard"  label="🏌️  My Trips"   onClose={() => setOpen(false)} />
+              <MenuItem href="/trips/new"  label="＋  New Trip"   onClose={() => setOpen(false)} />
+              <MenuItem href="/profile"    label="👤  My Profile"  onClose={() => setOpen(false)} />
             </nav>
             <div style={{ borderTop: '1px solid rgba(201,168,76,0.12)' }} className="py-1">
               <button

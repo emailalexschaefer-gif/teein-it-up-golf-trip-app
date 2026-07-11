@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     )
 
     if (isMissingColumn) {
-      console.warn('[POST /api/trips] Sprint 3 columns missing — retrying without them. Run migration 011.')
+      console.warn('[POST /api/trips] Sprint 3 columns missing — retrying without them. Run 012_sprint3_schema.sql.')
       tripResult = await admin
         .from('trips')
         .insert({
@@ -134,7 +134,7 @@ export async function POST(request: Request) {
   if (rounds.length > 0) {
     const { error: roundsError } = await admin
       .from('rounds')
-      .insert(rounds.map((r) => ({
+      .insert(rounds.map((r: { name: string; course_name: string | null; play_date: string; tee_time: string | null; holes: number; scoring_format: string }) => ({
         trip_id:        trip.id,
         name:           r.name,
         course_name:    r.course_name || null,

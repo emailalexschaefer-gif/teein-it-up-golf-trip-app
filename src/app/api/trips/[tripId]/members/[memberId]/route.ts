@@ -23,6 +23,7 @@ export async function PATCH(req: NextRequest, { params }: Props) {
   const body = await req.json().catch(() => ({}))
   const update: Record<string, unknown> = {}
   if ('group_id' in body) update.group_id = body.group_id || null
+  if ('playing_handicap' in body) update.playing_handicap = body.playing_handicap ?? null
 
   const result = await admin.from('trip_members').update(update).eq('id', memberId).eq('trip_id', tripId).select().single()
   if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 })

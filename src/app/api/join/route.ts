@@ -4,7 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { z } from 'zod'
 
 const JoinSchema = z.object({
-  invite_code: z.string().min(1).max(20),
+  invite_code:    z.string().min(1).max(20),
+  playing_handicap: z.number().nullable().optional(),
 })
 
 export async function POST(request: Request) {
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid invite code' }, { status: 400 })
   }
 
-  const { invite_code } = parsed.data
+  const { invite_code, playing_handicap = null } = parsed.data
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin: any = createAdminClient()
 
@@ -56,7 +57,12 @@ export async function POST(request: Request) {
 
   const { error: insertError } = await admin
     .from('trip_members')
-    .insert({ trip_id: trip.id, profile_id: user.id, role: 'player' })
+    .insert({ trip_id: trip.id, profile_id: user.id, role: 'player', playing_handicap: playing_handicap ?? null })
+
+  // Update permanent profile handicap if one was provided
+  if (playing_handicap !== null && playing_handicap !== undefined) {
+    await admin.from('profiles').update({ handicap: playing_handicap }).eq('id', user.id).then(() => {})
+  }
 
   if (insertError) {
     console.error('[POST /api/join]', insertError)

@@ -14,8 +14,10 @@ export default function JoinForm() {
 
   const [name, setName]         = useState('')
   const [email, setEmail]       = useState('')
-  const [password, setPassword] = useState('')
-  const [authMode, setAuthMode] = useState<AuthMode>('password')
+  const [password, setPassword]           = useState('')
+  const [handicap, setHandicap]           = useState('')
+  const [noHandicap, setNoHandicap]       = useState(false)
+  const [authMode, setAuthMode]           = useState<AuthMode>('password')
   const [step, setStep]         = useState<Step>('checking')
   const [tripName, setTripName] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string>('')
@@ -39,12 +41,12 @@ export default function JoinForm() {
   useEffect(() => {
     if (!inviteCode) { setStep('invalid'); return }
 
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
+    supabase.auth.getUser().then(async ({ data: { user } }: { data: { user: { id: string } | null } }) => {
       if (user) {
         // Already logged in — redirect to do-join server route which handles the insert
         setStep('joining')
         startJoinTimeout('Join timed out. Please try again or use the invite code on your dashboard.')
-        window.location.href = `/api/auth/do-join?inviteCode=${encodeURIComponent(inviteCode)}`
+        window.location.href = buildDoJoinUrl()
         return
       }
 
@@ -77,6 +79,13 @@ export default function JoinForm() {
     return `${window.location.origin}/api/auth/callback?inviteCode=${encodeURIComponent(inviteCode)}`
   }
 
+  function buildDoJoinUrl() {
+    const base = `/api/auth/do-join?inviteCode=${encodeURIComponent(inviteCode)}`
+    if (noHandicap) return `${base}&noHandicap=1`
+    if (handicap)   return `${base}&handicap=${encodeURIComponent(handicap)}`
+    return base
+  }
+
   async function handlePassword(e: React.FormEvent) {
     e.preventDefault()
     setStep('joining')
@@ -88,7 +97,7 @@ export default function JoinForm() {
     if (!signInErr) {
       // Session established — hard redirect so do-join receives the cookies.
       clearJoinTimeout()
-      window.location.href = `/api/auth/do-join?inviteCode=${encodeURIComponent(inviteCode)}`
+      window.location.href = buildDoJoinUrl()
       return
     }
 
@@ -137,7 +146,7 @@ export default function JoinForm() {
 
     // Session confirmed — hard redirect to do-join.
     clearJoinTimeout()
-    window.location.href = `/api/auth/do-join?inviteCode=${encodeURIComponent(inviteCode)}`
+    window.location.href = buildDoJoinUrl()
   }
 
   async function handleMagicLink(e: React.FormEvent) {
@@ -277,7 +286,7 @@ export default function JoinForm() {
             Your name<span className="text-red-500 ml-0.5">*</span>
           </label>
           <input type="text" required autoComplete="name" value={name}
-            onChange={(e) => setName(e.target.value)} placeholder="James Smith"
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} placeholder="James Smith"
             className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
         </div>
 
@@ -286,7 +295,7 @@ export default function JoinForm() {
             Email<span className="text-red-500 ml-0.5">*</span>
           </label>
           <input type="email" required autoComplete="email" value={email}
-            onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com"
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} placeholder="you@example.com"
             className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
         </div>
 
@@ -296,11 +305,40 @@ export default function JoinForm() {
               Password<span className="text-red-500 ml-0.5">*</span>
             </label>
             <input type="password" required autoComplete="new-password" value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
               placeholder="Choose a password (min. 8 characters)" minLength={8}
               className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
           </div>
         )}
+
+        {/* Handicap field */}
+        <div>
+          <label className="block text-sm font-medium text-text mb-1">
+            Your golf handicap<span className="text-red-500 ml-0.5">*</span>
+          </label>
+          <p className="text-xs text-text-muted mb-2">
+            We&apos;ll use this for scoring and group setup. You can update it later.
+          </p>
+          {!noHandicap && (
+            <input
+              type="number" min="0" max="54" step="0.1"
+              value={handicap}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setHandicap(e.target.value)}
+              placeholder="e.g. 14 or 14.5"
+              disabled={noHandicap}
+              className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 mb-2"
+            />
+          )}
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={noHandicap}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setNoHandicap(e.target.checked); if (e.target.checked) setHandicap('') }}
+              className="rounded"
+            />
+            <span className="text-sm text-text-muted">No official handicap</span>
+          </label>
+        </div>
 
         <button type="submit"
           className="w-full bg-brand-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-brand-700 transition-colors">

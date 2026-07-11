@@ -63,10 +63,7 @@ export function generateUUID(): string {
   })
 }
 
-export function formatHandicap(handicap: number | null): string {
-  if (handicap === null) return '—'
-  return handicap >= 0 ? `+${handicap}` : `${handicap}`
-}
+// formatHandicap moved below — see new version with HCP prefix
 
 export function ordinal(n: number): string {
   const s = ['th', 'st', 'nd', 'rd']
@@ -96,4 +93,25 @@ export function avatarColor(seed: string): string {
     hash = seed.charCodeAt(i) + ((hash << 5) - hash)
   }
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+}
+
+// ─── Handicap display ─────────────────────────────────────────────────────────
+// Resolves: trip playing_handicap first, then profile handicap, then "not provided"
+export function formatHandicap(
+  playingHandicap: number | null | undefined,
+  profileHandicap?: number | null | undefined,
+): string {
+  const hcp = playingHandicap ?? profileHandicap ?? null
+  if (hcp === null || hcp === undefined) return 'HCP not provided'
+  // Show whole numbers without decimal, e.g. 18 not 18.0
+  return `HCP ${hcp % 1 === 0 ? hcp.toFixed(0) : hcp.toFixed(1)}`
+}
+
+// True if handicap came from profile fallback (not trip-specific)
+export function isProfileHandicap(
+  playingHandicap: number | null | undefined,
+  profileHandicap: number | null | undefined,
+): boolean {
+  return (playingHandicap === null || playingHandicap === undefined) &&
+         profileHandicap !== null && profileHandicap !== undefined
 }

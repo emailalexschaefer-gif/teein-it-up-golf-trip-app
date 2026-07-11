@@ -65,7 +65,7 @@ export async function PATCH(request: NextRequest, { params }: Props) {
           return NextResponse.json({ error: `Failed to update trip: ${fallbackError.message}` }, { status: 500 })
         }
         // Return partial success — client knows to show the result
-        return NextResponse.json({ tripId, ok: true, warning: 'Sprint 3 fields not saved — run migration 011' })
+        return NextResponse.json({ tripId, ok: true, warning: 'Some fields could not be saved — database migration may be needed' })
       }
 
       return NextResponse.json({ error: `Failed to update trip: ${updateError.message}` }, { status: 500 })
