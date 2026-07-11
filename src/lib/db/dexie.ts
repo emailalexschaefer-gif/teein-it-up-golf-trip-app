@@ -6,7 +6,8 @@ class TeeInItUpDB extends Dexie {
 
   constructor() {
     super('teeinitup_v1')
-    this.version(1).stores({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ;(this as any).version(1).stores({
       scoreQueue: 'clientId, syncStatus, scorecardId, enteredAt',
     })
   }

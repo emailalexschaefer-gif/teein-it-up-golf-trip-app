@@ -1,5 +1,6 @@
 'use client'
 
+import React from 'react'
 // Manual "Join a trip" widget on the dashboard.
 // Lets a player enter a 6-character invite code directly (e.g. ATATZ8)
 // without needing to receive the invite link by email.
@@ -59,7 +60,7 @@ export default function JoinByCode() {
         <input
           type="text"
           value={code}
-          onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
           placeholder="e.g. ATATZ8"
           maxLength={8}
           autoCapitalize="characters"

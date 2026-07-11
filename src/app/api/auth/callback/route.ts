@@ -48,9 +48,9 @@ export async function GET(request: NextRequest) {
       getAll() {
         return request.cookies.getAll()
       },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }>) {
         console.log('[api/auth/callback] Writing', cookiesToSet.length, 'cookies')
-        cookiesToSet.forEach(({ name, value, options }) => {
+        cookiesToSet.forEach(({ name, value, options }: { name: string; value: string; options?: unknown }) => {
           response.cookies.set(name, value, options)
         })
       },

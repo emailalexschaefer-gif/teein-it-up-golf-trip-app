@@ -1,5 +1,6 @@
 'use client'
 
+import React from 'react'
 import { useMyTrips } from '@/lib/queries/trips'
 import TripCard from './TripCard'
 import type { TripSummary } from '@/types/app'
@@ -47,10 +48,10 @@ export default function TripList() {
     )
   }
 
-  const live      = trips.filter((t) => t.status === 'live')
-  const upcoming  = trips.filter((t) => ['open', 'ready'].includes(t.status))
-  const drafts    = trips.filter((t) => t.status === 'draft')
-  const completed = trips.filter((t) => t.status === 'completed')
+  const live      = trips.filter((t: import('@/types/app').TripSummary) => t.status === 'live')
+  const upcoming  = trips.filter((t: import('@/types/app').TripSummary) => ['open', 'ready'].includes(t.status))
+  const drafts    = trips.filter((t: import('@/types/app').TripSummary) => t.status === 'draft')
+  const completed = trips.filter((t: import('@/types/app').TripSummary) => t.status === 'completed')
 
   return (
     <div className="space-y-6">

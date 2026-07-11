@@ -1,5 +1,6 @@
 'use client'
 
+import React from 'react'
 import { Field, Input, Select } from '@/components/ui/FormFields'
 import Button from '@/components/ui/Button'
 import { generateUUID } from '@/lib/utils'
@@ -22,7 +23,7 @@ function newRound(tripDetails: WizardTripDetails, n: number): WizardRound {
 }
 
 function RoundCard({ round, index, total, onUpdate, onRemove }: {
-  round: WizardRound; index: number; total: number
+  round: WizardRound; index: number; total: number; key?: string
   onUpdate: (r: WizardRound) => void; onRemove: () => void
 }) {
   function set<K extends keyof WizardRound>(k: K, v: WizardRound[K]) {
@@ -39,22 +40,22 @@ function RoundCard({ round, index, total, onUpdate, onRemove }: {
         )}
       </div>
       <Field label="Round name" required>
-        <Input value={round.name} onChange={(e) => set('name', e.target.value)} placeholder="Day 1 — Royal County Down" maxLength={100} />
+        <Input value={round.name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('name', e.target.value)} placeholder="Day 1 — Royal County Down" maxLength={100} />
       </Field>
       <Field label="Course">
-        <Input value={round.course_name} onChange={(e) => set('course_name', e.target.value)} placeholder="Royal County Down" maxLength={100} />
+        <Input value={round.course_name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('course_name', e.target.value)} placeholder="Royal County Down" maxLength={100} />
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Date" required>
-          <Input type="date" value={round.play_date} onChange={(e) => set('play_date', e.target.value)} />
+          <Input type="date" value={round.play_date} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('play_date', e.target.value)} />
         </Field>
         <Field label="Tee time">
-          <Input type="time" value={round.tee_time} onChange={(e) => set('tee_time', e.target.value)} />
+          <Input type="time" value={round.tee_time} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('tee_time', e.target.value)} />
         </Field>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Holes">
-          <Select value={round.holes} onChange={(e) => set('holes', Number(e.target.value) as 9 | 18)}>
+          <Select value={round.holes} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => set('holes', Number(e.target.value) as 9 | 18)}>
             <option value={18}>18 holes</option>
             <option value={9}>9 holes</option>
           </Select>

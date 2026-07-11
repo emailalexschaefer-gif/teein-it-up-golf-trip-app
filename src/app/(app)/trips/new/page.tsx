@@ -45,7 +45,7 @@ function NewTripForm() {
   function handleDetailsChange(d: WizardTripDetails) {
     setDet(d)
     if (d.start_date && rounds[0].play_date === '' && !isEditing) {
-      setRounds(rounds.map((r: import('@/types/app').WizardRound, i: number) => i === 0 ? { ...r, play_date: d.start_date } : r))
+      setRounds(rounds.map((r: WizardRound, i: number) => i === 0 ? { ...r, play_date: d.start_date } : r))
     }
   }
 
@@ -59,7 +59,7 @@ function NewTripForm() {
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({
             ...details,
-            rounds: rounds.map((r: { name: string; course_name: string; play_date: string; tee_time: string; holes: number; scoring_format: string }) => ({
+            rounds: rounds.map((r: WizardRound) => ({
               name: r.name, course_name: r.course_name, play_date: r.play_date,
               tee_time: r.tee_time, holes: r.holes, scoring_format: r.scoring_format,
             })),
@@ -83,7 +83,7 @@ function NewTripForm() {
         expected_players:     details.expected_players,
         players_per_group:    details.players_per_group,
         organiser_is_playing: details.organiser_is_playing,
-        rounds: rounds.map((r: { name: string; course_name: string; play_date: string; tee_time: string; holes: number; scoring_format: string }) => ({
+        rounds: rounds.map((r: WizardRound) => ({
           name: r.name, course_name: r.course_name, play_date: r.play_date,
           tee_time: r.tee_time, holes: r.holes, scoring_format: r.scoring_format,
         })),

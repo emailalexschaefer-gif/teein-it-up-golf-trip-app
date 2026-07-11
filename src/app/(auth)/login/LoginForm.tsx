@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -80,7 +80,7 @@ export default function LoginForm() {
           </label>
           <input
             type="email" required autoComplete="email" value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
             placeholder="you@example.com"
             className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600"
           />
@@ -93,7 +93,7 @@ export default function LoginForm() {
             </label>
             <input
               type="password" required autoComplete="current-password" value={password}
-              onChange={(e) => setPass(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPass(e.target.value)}
               placeholder="••••••••"
               className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600"
             />

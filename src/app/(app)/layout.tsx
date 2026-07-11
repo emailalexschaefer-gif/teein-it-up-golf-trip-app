@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import AppNav from '@/components/layout/AppNav'
 import SyncInitializer from '@/components/layout/SyncInitializer'
+import React from 'react'
 import { ToastProvider } from '@/components/ui/Toast'
 
 interface ProfileData { full_name: string; avatar_url: string | null }

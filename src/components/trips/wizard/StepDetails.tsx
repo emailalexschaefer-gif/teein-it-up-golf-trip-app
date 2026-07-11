@@ -1,5 +1,6 @@
 'use client'
 
+import React from 'react'
 import { Field, Input, Select, Textarea } from '@/components/ui/FormFields'
 import Button from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
@@ -26,7 +27,7 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
       <Field label="Trip name" required>
         <Input
           value={data.name}
-          onChange={(e) => set('name', e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('name', e.target.value)}
           placeholder="The Lads' Annual Masters"
           maxLength={100}
         />
@@ -35,7 +36,7 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
       <Field label="Event type" required>
         <Select
           value={data.event_type}
-          onChange={(e) => set('event_type', e.target.value as WizardTripDetails['event_type'])}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('event_type', e.target.value as WizardTripDetails['event_type'])}
         >
           {EVENT_TYPE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
@@ -46,7 +47,7 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
       <Field label="Location" hint="City, country or venue">
         <Input
           value={data.location}
-          onChange={(e) => set('location', e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('location', e.target.value)}
           placeholder="Portmarnock, Ireland"
           maxLength={200}
         />
@@ -54,10 +55,10 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Start date" required>
-          <Input type="date" value={data.start_date} onChange={(e) => set('start_date', e.target.value)} error={!!dateError} />
+          <Input type="date" value={data.start_date} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('start_date', e.target.value)} error={!!dateError} />
         </Field>
         <Field label="End date" required>
-          <Input type="date" value={data.end_date} min={data.start_date || undefined} onChange={(e) => set('end_date', e.target.value)} error={!!dateError} />
+          <Input type="date" value={data.end_date} min={data.start_date || undefined} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('end_date', e.target.value)} error={!!dateError} />
         </Field>
       </div>
       {dateError && <p className="text-xs text-red-500 -mt-2">End date must be after start date</p>}
@@ -71,14 +72,14 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
             <Input
               type="number" min={1} max={200} step={1}
               value={data.expected_players || ''}
-              onChange={(e) => set('expected_players', parseInt(e.target.value) || 0)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('expected_players', parseInt(e.target.value) || 0)}
               placeholder="24"
             />
           </Field>
           <Field label="Players per group">
             <Select
               value={String(data.players_per_group)}
-              onChange={(e) => set('players_per_group', parseInt(e.target.value))}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('players_per_group', parseInt(e.target.value))}
             >
               <option value="2">2</option>
               <option value="3">3</option>
@@ -131,7 +132,7 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
       <Field label="Description" hint="Optional — shown to all players">
         <Textarea
           value={data.description}
-          onChange={(e) => set('description', e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('description', e.target.value)}
           placeholder="Annual west coast trip. 3 rounds, great craic."
           rows={3}
           maxLength={500}

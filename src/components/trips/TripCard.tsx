@@ -13,7 +13,7 @@ const STATUS_PILL: Record<string, string> = {
   archived:     'bg-cream-200 text-text-subtle border-cream-300',
 }
 
-export default function TripCard({ trip }: { trip: TripSummary }) {
+export default function TripCard({ trip }: { trip: TripSummary; key?: string }) {
   const isLive   = trip.status === 'live'
   const pill     = STATUS_PILL[trip.status] ?? STATUS_PILL.draft
 

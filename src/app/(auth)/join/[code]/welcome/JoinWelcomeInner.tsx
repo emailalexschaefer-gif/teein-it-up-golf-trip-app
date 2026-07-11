@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useJoinTrip } from '@/lib/queries/trips'
 
@@ -17,11 +17,11 @@ export default function JoinWelcomeInner() {
     if (!inviteCode) return
 
     joinTrip.mutate(inviteCode, {
-      onSuccess: (data) => {
+      onSuccess: (data: { tripName: string; tripId: string }) => {
         setTripName(data.tripName)
         setTimeout(() => router.push(`/trips/${data.tripId}`), 2000)
       },
-      onError: (err) => {
+      onError: (err: Error) => {
         setError(err instanceof Error ? err.message : 'Something went wrong')
       },
     })

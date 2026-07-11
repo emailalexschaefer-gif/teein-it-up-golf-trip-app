@@ -15,18 +15,20 @@ interface SyncStoreState {
   clearError: () => void
 }
 
+type SetFn = (partial: Partial<SyncStoreState>) => void
+
 export const useSyncStore = create<SyncStoreState>()(
   devtools(
-    (set) => ({
-      syncState:    'idle',
+    (set: SetFn) => ({
+      syncState:    'idle' as SyncState,
       pendingCount: 0,
       lastSyncAt:   null,
       errorMessage: null,
-      setSyncing:      (v)   => set({ syncState: v ? 'syncing' : 'idle', errorMessage: null }),
-      setSyncComplete: ()    => set({ syncState: 'synced', pendingCount: 0, lastSyncAt: new Date().toISOString() }),
-      setSyncError:    (msg) => set({ syncState: 'error', errorMessage: msg }),
-      setPendingCount: (n)   => set({ pendingCount: n }),
-      clearError:      ()    => set({ errorMessage: null, syncState: 'idle' }),
+      setSyncing:      (v: boolean) => set({ syncState: v ? 'syncing' : 'idle', errorMessage: null }),
+      setSyncComplete: ()           => set({ syncState: 'synced', pendingCount: 0, lastSyncAt: new Date().toISOString() }),
+      setSyncError:    (msg: string)=> set({ syncState: 'error', errorMessage: msg }),
+      setPendingCount: (n: number)  => set({ pendingCount: n }),
+      clearError:      ()           => set({ errorMessage: null, syncState: 'idle' }),
     }),
     { name: 'SyncStore' }
   )

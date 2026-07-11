@@ -11,15 +11,17 @@ interface TripState {
   clearActiveTrip: () => void
 }
 
+type SetFn = (partial: Partial<TripState>) => void
+
 export const useTripStore = create<TripState>()(
   devtools(
-    (set) => ({
+    (set: SetFn) => ({
       activeTripId:  null,
       activeRoundId: null,
       userRole:      null,
-      setActiveTrip:  (tripId, role) => set({ activeTripId: tripId, userRole: role, activeRoundId: null }),
-      setActiveRound: (roundId)      => set({ activeRoundId: roundId }),
-      clearActiveTrip: ()            => set({ activeTripId: null, activeRoundId: null, userRole: null }),
+      setActiveTrip:   (tripId: string, role: TripRole) => set({ activeTripId: tripId, userRole: role, activeRoundId: null }),
+      setActiveRound:  (roundId: string)                => set({ activeRoundId: roundId }),
+      clearActiveTrip: ()                               => set({ activeTripId: null, activeRoundId: null, userRole: null }),
     }),
     { name: 'TripStore' }
   )

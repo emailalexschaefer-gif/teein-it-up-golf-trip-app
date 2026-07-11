@@ -7,7 +7,7 @@ export async function middleware(request: NextRequest) {
   const { pathname }    = request.nextUrl
 
   console.log('[middleware]', request.method, pathname, {
-    cookies: request.cookies.getAll().map(c => c.name),
+    cookies: request.cookies.getAll().map((c: { name: string }) => c.name),
   })
 
   if (!supabaseUrl || !supabaseAnonKey) {
@@ -22,7 +22,7 @@ export async function middleware(request: NextRequest) {
       getAll() {
         return request.cookies.getAll()
       },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }>) {
         cookiesToSet.forEach(({ name, value }) =>
           request.cookies.set(name, value)
         )
@@ -40,7 +40,7 @@ export async function middleware(request: NextRequest) {
     pathname,
     userId:       user?.id ?? null,
     error:        userError?.message ?? null,
-    hasAuthCookie: request.cookies.getAll().some(c =>
+    hasAuthCookie: request.cookies.getAll().some((c: { name: string }) =>
       c.name.includes('auth') || c.name.startsWith('sb-')
     ),
   })

@@ -1,5 +1,6 @@
 'use client'
 
+import React from 'react'
 // Password reset flow — two screens:
 //
 // Screen 1 (no ?code in URL): enter email → sends reset link via Supabase.
@@ -33,7 +34,7 @@ export default function ResetPasswordForm() {
   useEffect(() => {
     // If a session is already active, the user arrived from the reset email
     // (the callback route already exchanged the code). Show the "set password" form.
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    supabase.auth.getUser().then(({ data: { user } }: { data: { user: { id: string } | null } }) => {
       if (user) {
         setScreen('set')
       } else {
@@ -123,7 +124,7 @@ export default function ResetPasswordForm() {
             <label className="block text-sm font-medium text-text mb-1">New password</label>
             <input
               type="password" required minLength={8} value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
               placeholder="Minimum 8 characters"
               autoComplete="new-password"
               className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600"
@@ -133,7 +134,7 @@ export default function ResetPasswordForm() {
             <label className="block text-sm font-medium text-text mb-1">Confirm password</label>
             <input
               type="password" required minLength={8} value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfirm(e.target.value)}
               placeholder="Repeat your password"
               autoComplete="new-password"
               className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600"
@@ -170,7 +171,7 @@ export default function ResetPasswordForm() {
           <label className="block text-sm font-medium text-text mb-1">Email</label>
           <input
             type="email" required value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
             placeholder="you@example.com"
             autoComplete="email"
             className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600"
