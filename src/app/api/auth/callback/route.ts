@@ -9,7 +9,7 @@
 // This survives mobile email clients opening links in a fresh browser context —
 // no sessionStorage dependency.
 
-import { createServerClient } from '@supabase/ssr'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function GET(request: NextRequest) {
@@ -48,9 +48,9 @@ export async function GET(request: NextRequest) {
       getAll() {
         return request.cookies.getAll()
       },
-      setAll(cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }>) {
+      setAll(cookiesToSet: Array<{ name: string; value: string; options?: CookieOptions }>) {
         console.log('[api/auth/callback] Writing', cookiesToSet.length, 'cookies')
-        cookiesToSet.forEach(({ name, value, options }: { name: string; value: string; options?: unknown }) => {
+        cookiesToSet.forEach(({ name, value, options }) => {
           response.cookies.set(name, value, options)
         })
       },

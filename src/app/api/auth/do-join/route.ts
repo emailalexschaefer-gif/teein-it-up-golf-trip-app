@@ -99,13 +99,17 @@ export async function GET(request: NextRequest) {
     .from('trip_members')
     .insert({ trip_id: trip.id, profile_id: user.id, role: 'player', playing_handicap })
 
-  // Update profiles.handicap if player provided one and it differs (best-effort)
-  if (playing_handicap !== null) {
-    await admin
-      .from('profiles')
-      .update({ handicap: playing_handicap })
-      .eq('id', user.id)
-      .then(() => {}) // non-fatal
+  // Update profiles — save handicap and ensure name is set (best-effort, non-fatal)
+  const profileUpdate: Record<string, unknown> = {}
+  if (playing_handicap !== null) profileUpdate.handicap = playing_handicap
+  // Sync name from auth metadata if the profile still has the default empty name
+  const profileCheck = await admin.from('profiles').select('full_name').eq('id', user.id).single()
+  const currentName: string = profileCheck?.data?.full_name ?? ''
+  if (currentName === '' && user.user_metadata?.full_name) {
+    profileUpdate.full_name = user.user_metadata.full_name
+  }
+  if (Object.keys(profileUpdate).length > 0) {
+    await admin.from('profiles').update(profileUpdate).eq('id', user.id).then(() => {})
   }
 
   console.log('[do-join] Insert result', {

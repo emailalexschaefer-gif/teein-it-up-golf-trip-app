@@ -202,3 +202,40 @@ CREATE POLICY "profiles_view_own_and_cotrip"
 --    WHERE schemaname='public' AND tablename='trip_groups'
 --   ) AS trip_groups_policies;    -- 2
 -- =============================================================================
+
+-- ── STEP 8: Update profile trigger to capture handicap on sign-up ─────────────
+-- When a user signs up via supabase.auth.signUp({ options: { data: { handicap } } }),
+-- the value lands in raw_user_meta_data. This trigger now reads it into profiles.handicap
+-- so it's saved even when email confirmation is required.
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_handicap DECIMAL(4,1) := NULL;
+  v_hcp_raw  TEXT;
+BEGIN
+  -- Pull handicap from signup metadata if provided and non-empty
+  v_hcp_raw := NEW.raw_user_meta_data->>'handicap';
+  IF v_hcp_raw IS NOT NULL AND v_hcp_raw <> '' THEN
+    BEGIN
+      v_handicap := v_hcp_raw::DECIMAL(4,1);
+    EXCEPTION WHEN OTHERS THEN
+      v_handicap := NULL;  -- ignore malformed values
+    END;
+  END IF;
+
+  INSERT INTO public.profiles (id, email, full_name, handicap)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.email, ''),
+    COALESCE(NEW.raw_user_meta_data->>'full_name', ''),
+    v_handicap
+  )
+  ON CONFLICT (id) DO UPDATE
+    SET full_name = EXCLUDED.full_name,
+        handicap  = COALESCE(EXCLUDED.handicap, profiles.handicap);
+
+  RETURN NEW;
+END;
+$$;
+-- Trigger already exists from 001_profiles.sql — no need to recreate it.

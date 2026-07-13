@@ -146,6 +146,14 @@ export default function LoginForm() {
             </a>
           </div>
         )}
+        <div>
+          <a
+            href="/signup"
+            className="text-sm text-text-muted hover:text-brand-600 transition-colors"
+          >
+            New to Teein&apos; It Up? Create an account
+          </a>
+        </div>
       </div>
     </>
   )

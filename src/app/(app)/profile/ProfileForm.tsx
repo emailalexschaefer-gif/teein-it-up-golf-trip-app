@@ -209,6 +209,16 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
         </button>
       </form>
 
+      {/* Reset password link */}
+      <div style={{ marginTop: 12, textAlign: 'center' }}>
+        <a href="/reset-password" style={{
+          fontFamily: 'var(--font-body)', fontSize: 13, color: '#1a4731',
+          textDecoration: 'none', fontWeight: 600,
+        }}>
+          Reset password
+        </a>
+      </div>
+
       {/* Note about trip handicaps */}
       <div style={{
         marginTop: 16, padding: '10px 14px', borderRadius: 10,
