@@ -15,7 +15,7 @@ interface SyncStoreState {
   clearError: () => void
 }
 
-type SetFn = (partial: Partial<SyncStoreState>) => void
+type SetFn = Parameters<Parameters<typeof create<SyncStoreState>>[0]>[0]
 
 export const useSyncStore = create<SyncStoreState>()(
   devtools(
