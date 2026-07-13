@@ -1,34 +1,35 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
+import type { StoreApi } from 'zustand'
 
 type SyncState = 'idle' | 'syncing' | 'synced' | 'error'
 
-interface SyncStoreState {
-  syncState: SyncState
+export interface SyncStoreState {
+  syncState:    SyncState
   pendingCount: number
-  lastSyncAt: string | null
+  lastSyncAt:   string | null
   errorMessage: string | null
-  setSyncing: (v: boolean) => void
-  setSyncComplete: () => void
-  setSyncError: (msg: string) => void
-  setPendingCount: (n: number) => void
-  clearError: () => void
+  setSyncing:      (v: boolean)  => void
+  setSyncComplete: ()            => void
+  setSyncError:    (msg: string) => void
+  setPendingCount: (n: number)   => void
+  clearError:      ()            => void
 }
 
-type SetFn = Parameters<Parameters<typeof create<SyncStoreState>>[0]>[0]
+type Set = StoreApi<SyncStoreState>['setState']
 
 export const useSyncStore = create<SyncStoreState>()(
   devtools(
-    (set: SetFn) => ({
+    (set: Set) => ({
       syncState:    'idle' as SyncState,
       pendingCount: 0,
       lastSyncAt:   null,
       errorMessage: null,
-      setSyncing:      (v: boolean) => set({ syncState: v ? 'syncing' : 'idle', errorMessage: null }),
-      setSyncComplete: ()           => set({ syncState: 'synced', pendingCount: 0, lastSyncAt: new Date().toISOString() }),
-      setSyncError:    (msg: string)=> set({ syncState: 'error', errorMessage: msg }),
-      setPendingCount: (n: number)  => set({ pendingCount: n }),
-      clearError:      ()           => set({ errorMessage: null, syncState: 'idle' }),
+      setSyncing:      (v: boolean)  => set({ syncState: v ? 'syncing' : 'idle', errorMessage: null }),
+      setSyncComplete: ()            => set({ syncState: 'synced', pendingCount: 0, lastSyncAt: new Date().toISOString() }),
+      setSyncError:    (msg: string) => set({ syncState: 'error', errorMessage: msg }),
+      setPendingCount: (n: number)   => set({ pendingCount: n }),
+      clearError:      ()            => set({ errorMessage: null, syncState: 'idle' }),
     }),
     { name: 'SyncStore' }
   )
