@@ -19,7 +19,6 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
 
   const dateError = data.start_date && data.end_date && data.end_date < data.start_date
   const valid = !!data.name.trim() && !!data.start_date && !!data.end_date && !dateError
-
   const numGroups = groupsRequired(data.expected_players, data.players_per_group)
 
   return (
@@ -36,7 +35,7 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
       <Field label="Event type" required>
         <Select
           value={data.event_type}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('event_type', e.target.value as WizardTripDetails['event_type'])}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => set('event_type', e.target.value as WizardTripDetails['event_type'])}
         >
           {EVENT_TYPE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
@@ -55,18 +54,28 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Start date" required>
-          <Input type="date" value={data.start_date} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('start_date', e.target.value)} error={!!dateError} />
+          <Input
+            type="date"
+            value={data.start_date}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('start_date', e.target.value)}
+            error={!!dateError}
+          />
         </Field>
         <Field label="End date" required>
-          <Input type="date" value={data.end_date} min={data.start_date || undefined} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('end_date', e.target.value)} error={!!dateError} />
+          <Input
+            type="date"
+            value={data.end_date}
+            min={data.start_date || undefined}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('end_date', e.target.value)}
+            error={!!dateError}
+          />
         </Field>
       </div>
       {dateError && <p className="text-xs text-red-500 -mt-2">End date must be after start date</p>}
 
-      {/* ── Player capacity ────────────────────────────────────────────────── */}
+      {/* Player capacity */}
       <div className="rounded-2xl border border-surface-subtle bg-surface-subtle/40 p-4 space-y-3">
         <p className="text-sm font-semibold text-text">Player capacity</p>
-
         <div className="grid grid-cols-2 gap-3">
           <Field label="Expected players">
             <Input
@@ -79,7 +88,7 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
           <Field label="Players per group">
             <Select
               value={String(data.players_per_group)}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('players_per_group', parseInt(e.target.value))}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => set('players_per_group', parseInt(e.target.value))}
             >
               <option value="2">2</option>
               <option value="3">3</option>
@@ -87,8 +96,6 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
             </Select>
           </Field>
         </div>
-
-        {/* Live group calculation */}
         {numGroups > 0 && (
           <div className="flex items-center gap-3 pt-1">
             <div className="text-center">
@@ -97,21 +104,21 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
             </div>
             <div className="flex-1 text-xs text-text-muted">
               {data.expected_players} players ÷ {data.players_per_group} per group
-              = {numGroups} group{numGroups !== 1 ? 's' : ''} required
+              {' = '}{numGroups} group{numGroups !== 1 ? 's' : ''} required
             </div>
           </div>
         )}
       </div>
 
-      {/* ── Organiser playing? ──────────────────────────────────────── */}
+      {/* Organiser playing? */}
       <div className="rounded-2xl border border-surface-subtle bg-surface-subtle/40 p-4 space-y-2">
         <p className="text-sm font-semibold text-text">Will you also be playing?</p>
         <p className="text-xs text-text-muted">Many organisers manage the event without playing themselves.</p>
         <div className="flex gap-3 pt-1">
-          {[
+          {([
             { value: true,  label: "Yes, I'm playing" },
             { value: false, label: 'No, organising only' },
-          ].map(({ value, label }) => (
+          ] as const).map(({ value, label }) => (
             <button
               key={String(value)}
               type="button"
@@ -132,7 +139,7 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
       <Field label="Description" hint="Optional — shown to all players">
         <Textarea
           value={data.description}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('description', e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => set('description', e.target.value)}
           placeholder="Annual west coast trip. 3 rounds, great craic."
           rows={3}
           maxLength={500}
