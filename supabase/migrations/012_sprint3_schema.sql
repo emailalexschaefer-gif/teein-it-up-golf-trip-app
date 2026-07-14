@@ -224,16 +224,21 @@ BEGIN
     END;
   END IF;
 
-  INSERT INTO public.profiles (id, email, full_name, handicap)
+  INSERT INTO public.profiles (id, email, full_name, handicap, handicap_status)
   VALUES (
     NEW.id,
     COALESCE(NEW.email, ''),
     COALESCE(NEW.raw_user_meta_data->>'full_name', ''),
-    v_handicap
+    v_handicap,
+    COALESCE(NEW.raw_user_meta_data->>'handicap_status', 'pending')
   )
   ON CONFLICT (id) DO UPDATE
-    SET full_name = EXCLUDED.full_name,
-        handicap  = COALESCE(EXCLUDED.handicap, profiles.handicap);
+    SET full_name       = EXCLUDED.full_name,
+        handicap        = COALESCE(EXCLUDED.handicap, profiles.handicap),
+        handicap_status = CASE
+          WHEN profiles.handicap_status = 'pending' THEN EXCLUDED.handicap_status
+          ELSE profiles.handicap_status
+        END;
 
   RETURN NEW;
 END;

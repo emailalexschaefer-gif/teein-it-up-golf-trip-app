@@ -1,23 +1,19 @@
 'use client'
 
-import React from 'react'
-// Manual "Join a trip" widget on the dashboard.
-// Lets a player enter a 6-character invite code directly (e.g. ATATZ8)
-// without needing to receive the invite link by email.
-
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { tripKeys } from '@/lib/queries/trips'
 
+// Always-visible "Join a trip" card — displayed at the top of My Trips
 export default function JoinByCode() {
   const router      = useRouter()
   const queryClient = useQueryClient()
 
-  const [open, setOpen]       = useState(false)
   const [code, setCode]       = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
 
   async function handleJoin(e: React.FormEvent) {
     e.preventDefault()
@@ -29,7 +25,6 @@ export default function JoinByCode() {
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ invite_code: code.trim().toUpperCase() }),
     })
-
     const data = await res.json()
     setLoading(false)
 
@@ -38,53 +33,66 @@ export default function JoinByCode() {
       return
     }
 
+    setSuccess(true)
     void queryClient.invalidateQueries({ queryKey: tripKeys.lists() })
     router.push(`/trips/${data.tripId}`)
   }
 
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className="w-full text-sm text-brand-600 border border-brand-200 rounded-xl py-2.5 hover:bg-brand-50 transition-colors"
-      >
-        Have an invite code? Join a trip →
-      </button>
-    )
-  }
-
   return (
-    <div className="rounded-2xl border border-brand-200 bg-brand-50 p-4">
-      <p className="text-sm font-semibold text-text mb-3">Enter your invite code</p>
-      <form onSubmit={handleJoin} className="space-y-3">
-        <input
-          type="text"
-          value={code}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-          placeholder="e.g. ATATZ8"
-          maxLength={8}
-          autoCapitalize="characters"
-          className="w-full rounded-xl border border-surface-subtle bg-white px-4 py-3 text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-brand-600"
-        />
-        {error && (
-          <p className="text-xs text-red-600">{error}</p>
-        )}
-        <div className="flex gap-2">
+    <div style={{
+      background: '#f8f4eb',
+      border: '1.5px solid #d9c9a3',
+      borderRadius: 14,
+      padding: '16px 16px',
+      boxShadow: '0 2px 16px rgba(15,45,28,0.07)',
+    }}>
+      <p style={{
+        fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700,
+        color: '#1a1a16', marginBottom: 3,
+      }}>Join a trip</p>
+      <p style={{
+        fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260', marginBottom: 12,
+      }}>Enter the invite code shared by your organiser.</p>
+
+      <form onSubmit={handleJoin}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            type="text"
+            value={code}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))
+            }
+            placeholder="e.g. A1B2C3"
+            maxLength={8}
+            autoCapitalize="characters"
+            style={{
+              flex: 1, borderRadius: 10, border: '1.5px solid #d9c9a3',
+              padding: '10px 14px', fontSize: 14,
+              fontFamily: 'var(--font-body)', letterSpacing: 2,
+              color: '#1a1a16', background: '#ffffff', outline: 'none',
+            }}
+          />
           <button
             type="submit"
             disabled={loading || code.length < 4}
-            className="flex-1 bg-brand-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-brand-700 transition-colors disabled:opacity-50"
+            style={{
+              padding: '10px 18px', borderRadius: 10, border: 'none',
+              background: (loading || code.length < 4)
+                ? '#9db8a8'
+                : 'linear-gradient(135deg, #2d7a52, #1a4731)',
+              fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700,
+              color: '#ffffff', cursor: (loading || code.length < 4) ? 'not-allowed' : 'pointer',
+              whiteSpace: 'nowrap',
+            }}
           >
-            {loading ? 'Joining…' : 'Join trip'}
-          </button>
-          <button
-            type="button"
-            onClick={() => { setOpen(false); setCode(''); setError(null) }}
-            className="px-4 py-2.5 text-sm text-text-muted hover:text-text transition-colors"
-          >
-            Cancel
+            {loading ? 'Joining…' : success ? '✓ Joined' : 'Join Trip'}
           </button>
         </div>
+        {error && (
+          <p style={{
+            fontFamily: 'var(--font-body)', fontSize: 12, color: '#b91c1c', marginTop: 8,
+          }}>{error}</p>
+        )}
       </form>
     </div>
   )
