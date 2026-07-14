@@ -35,8 +35,16 @@ export async function GET(request: NextRequest) {
 
   // Determine where to send the user after session is established.
   // Priority: inviteCode (join flow) > next param > dashboard
+  // Forward handicap params through to do-join so they survive email confirmation
+  const hcpParam   = searchParams.get('handicap')
+  const noHcpParam = searchParams.get('noHandicap')
+
+  const doJoinParams = new URLSearchParams({ inviteCode: inviteCode ?? '' })
+  if (hcpParam)          doJoinParams.set('handicap',   hcpParam)
+  if (noHcpParam === '1') doJoinParams.set('noHandicap', '1')
+
   const destination = inviteCode
-    ? `${origin}/api/auth/do-join?inviteCode=${inviteCode}`
+    ? `${origin}/api/auth/do-join?${doJoinParams.toString()}`
     : next
     ? `${origin}${next.startsWith('/') ? next : '/dashboard'}`
     : `${origin}/dashboard`

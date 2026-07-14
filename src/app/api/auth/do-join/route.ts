@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/trips/${trip.id}`)
   }
 
-  // Read handicap from query params (passed through from join form)
+  // Read handicap from query params (passed through from join form or callback)
   const hcpRaw  = searchParams.get('handicap')
   const hcpNull = searchParams.get('noHandicap') === '1'
   let playing_handicap: number | null = null
@@ -94,17 +94,32 @@ export async function GET(request: NextRequest) {
     if (!isNaN(parsed)) playing_handicap = parsed
   }
 
+  // Fallback: read from auth metadata (populated during signUp/OTP for email-confirm path)
+  if (playing_handicap === null && !hcpNull) {
+    const metaHcp     = user.user_metadata?.handicap
+    const metaNoHcp   = user.user_metadata?.no_handicap
+    if (metaNoHcp !== '1' && metaHcp && metaHcp !== '') {
+      const parsed = parseFloat(String(metaHcp))
+      if (!isNaN(parsed)) playing_handicap = parsed
+    }
+  }
+
   // Insert membership with playing_handicap
   const { error: insertError } = await admin
     .from('trip_members')
     .insert({ trip_id: trip.id, profile_id: user.id, role: 'player', playing_handicap })
 
-  // Update profiles — save handicap and ensure name is set (best-effort, non-fatal)
+  // Update profiles — only fill in missing data, never overwrite existing values
+  const profileCheck = await admin.from('profiles').select('full_name, handicap').eq('id', user.id).single()
+  const currentName: string    = profileCheck?.data?.full_name ?? ''
+  const currentHcp:  unknown   = profileCheck?.data?.handicap
   const profileUpdate: Record<string, unknown> = {}
-  if (playing_handicap !== null) profileUpdate.handicap = playing_handicap
+
+  // Only save handicap to profile if user has none yet (new user onboarding)
+  if (playing_handicap !== null && (currentHcp === null || currentHcp === undefined)) {
+    profileUpdate.handicap = playing_handicap
+  }
   // Sync name from auth metadata if the profile still has the default empty name
-  const profileCheck = await admin.from('profiles').select('full_name').eq('id', user.id).single()
-  const currentName: string = profileCheck?.data?.full_name ?? ''
   if (currentName === '' && user.user_metadata?.full_name) {
     profileUpdate.full_name = user.user_metadata.full_name
   }

@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import HandicapPrompt from './HandicapPrompt'
 
-type Step = 'checking' | 'form' | 'check_email' | 'rate_limited' | 'invalid' | 'joining' | 'error'
+type Step = 'checking' | 'form' | 'needs_handicap' | 'check_email' | 'rate_limited' | 'invalid' | 'joining' | 'error'
 type AuthMode = 'password' | 'magic'
 
 export default function JoinForm() {
@@ -43,7 +44,26 @@ export default function JoinForm() {
 
     supabase.auth.getUser().then(async ({ data: { user } }: { data: { user: { id: string } | null } }) => {
       if (user) {
-        // Already logged in — redirect to do-join server route which handles the insert
+        // Already logged in — check if they have a handicap set
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const db: any = supabase
+        const profileResult = await db
+          .from('profiles')
+          .select('handicap, full_name')
+          .eq('id', user.id)
+          .single()
+
+        const existingHcp = profileResult?.data?.handicap
+        // null means never answered; we show the prompt once.
+        // If they previously set 0 or any value including null after explicitly declining,
+        // we check the profile for a non-null value OR skip prompt if they've joined before.
+        // Simple rule: if handicap is null, show prompt. Otherwise join directly.
+        if (existingHcp === null || existingHcp === undefined) {
+          setStep('needs_handicap')
+          return
+        }
+
+        // Handicap already on file — join directly
         setStep('joining')
         startJoinTimeout('Join timed out. Please try again or use the invite code on your dashboard.')
         window.location.href = buildDoJoinUrl()
@@ -76,7 +96,10 @@ export default function JoinForm() {
   }
 
   function buildCallbackUrl() {
-    return `${window.location.origin}/api/auth/callback?inviteCode=${encodeURIComponent(inviteCode)}`
+    const base = `${window.location.origin}/api/auth/callback?inviteCode=${encodeURIComponent(inviteCode)}`
+    if (noHandicap) return `${base}&noHandicap=1`
+    if (handicap)   return `${base}&handicap=${encodeURIComponent(handicap)}`
+    return base
   }
 
   function buildDoJoinUrl() {
@@ -112,7 +135,13 @@ export default function JoinForm() {
     const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: name } },
+      options: {
+        data: {
+          full_name: name,
+          handicap:  (!noHandicap && handicap !== '') ? handicap : '',
+          no_handicap: noHandicap ? '1' : '',
+        },
+      },
     })
 
     // ── "User already registered" — email exists, no password (magic-link account) ──
@@ -157,7 +186,11 @@ export default function JoinForm() {
     const { error: authError } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        data: { full_name: name },
+        data: {
+          full_name: name,
+          handicap:  (!noHandicap && handicap !== '') ? handicap : '',
+          no_handicap: noHandicap ? '1' : '',
+        },
         emailRedirectTo: buildCallbackUrl(),
       },
     })
@@ -266,6 +299,33 @@ export default function JoinForm() {
     )
   }
 
+  // ── Handicap prompt for existing logged-in users ──────────────────────────
+
+  if (step === 'needs_handicap') {
+    return (
+      <HandicapPrompt
+        loading={false}
+        onContinue={async (hcpVal, declined) => {
+          setStep('joining')
+          startJoinTimeout('Join timed out. Please try again.')
+
+          // Save handicap to profile, then redirect to do-join
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const db: any = supabase
+          const { data: { user } } = await supabase.auth.getUser()
+          if (user) {
+            await db.from('profiles').update({ handicap: hcpVal }).eq('id', user.id)
+          }
+
+          clearJoinTimeout()
+          const base = `/api/auth/do-join?inviteCode=${encodeURIComponent(inviteCode)}`
+          const url  = hcpVal !== null ? `${base}&handicap=${hcpVal}` : `${base}&noHandicap=1`
+          window.location.href = url
+        }}
+      />
+    )
+  }
+
   // ── Main form ──────────────────────────────────────────────────────────────
 
   return (
@@ -317,11 +377,11 @@ export default function JoinForm() {
             Your golf handicap<span className="text-red-500 ml-0.5">*</span>
           </label>
           <p className="text-xs text-text-muted mb-2">
-            We&apos;ll use this for scoring and group setup. You can update it later.
+            Your default handicap for future trips and events.
           </p>
           {!noHandicap && (
             <input
-              type="number" min="0" max="54" step="0.1"
+              type="number" min="-10" max="54" step="0.1"
               value={handicap}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setHandicap(e.target.value)}
               placeholder="e.g. 14 or 14.5"

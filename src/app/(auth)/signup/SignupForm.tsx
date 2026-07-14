@@ -30,7 +30,7 @@ export default function SignupForm() {
     if (password.length < 8)                   return 'Password must be at least 8 characters.'
     if (!noHcp && hcp !== '') {
       const n = parseFloat(hcp)
-      if (isNaN(n) || n < 0 || n > 54)        return 'Handicap must be between 0 and 54.'
+      if (isNaN(n) || n < -10 || n > 54)      return 'Handicap must be between -10 and 54.'
     }
     return null
   }
@@ -143,10 +143,10 @@ export default function SignupForm() {
           />
         </FormField>
 
-        <FormField label="Golf handicap" hint="Used for scoring and group setup. You can update this later.">
+        <FormField label="Golf handicap" hint="Your default handicap for future trips and events.">
           {!noHcp && (
             <input
-              type="number" min={0} max={54} step={0.1}
+              type="number" min={-10} max={54} step={0.1}
               value={hcp} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setHcp(e.target.value)}
               placeholder="e.g. 14 or 14.5"
               style={{ ...inputSty, marginBottom: 8 }}
