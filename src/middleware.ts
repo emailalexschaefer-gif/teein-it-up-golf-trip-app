@@ -49,6 +49,7 @@ export async function middleware(request: NextRequest) {
   const isPublic =
     pathname === '/' ||
     pathname === '/login' ||
+    pathname === '/signup' ||            // account creation — must be public
     pathname.startsWith('/auth/') ||     // /auth/callback (client-side handler)
     pathname === '/reset-password' ||
     pathname.startsWith('/join/') ||
