@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { z } from 'zod'
 
 const JoinSchema = z.object({
-  invite_code:    z.string().min(1).max(20),
+  invite_code:      z.string().min(1).max(20),
   playing_handicap: z.number().nullable().optional(),
 })
 
@@ -12,38 +12,47 @@ export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    return NextResponse.json({ error: 'Please sign in again before joining this trip.' }, { status: 401 })
   }
 
   let body: unknown
   try { body = await request.json() } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+    return NextResponse.json({ error: 'Invalid request.' }, { status: 400 })
   }
 
   const parsed = JoinSchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid invite code' }, { status: 400 })
+    return NextResponse.json({ error: "We couldn't find a trip with that invite code." }, { status: 400 })
   }
 
   const { invite_code, playing_handicap = null } = parsed.data
+  const code = invite_code.trim().toUpperCase()
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin: any = createAdminClient()
 
+  // Look up trip by invite code (case-insensitive via toUpperCase normalisation)
   const tripResult = await admin
     .from('trips')
     .select('id, name, status')
-    .eq('invite_code', invite_code.toUpperCase())
+    .ilike('invite_code', code)
     .single()
 
-  const trip = tripResult?.data ?? null
-  if (tripResult?.error || !trip) {
-    return NextResponse.json({ error: 'Invite link not found' }, { status: 404 })
+  if (tripResult?.error || !tripResult?.data) {
+    return NextResponse.json({ error: "We couldn't find a trip with that invite code." }, { status: 404 })
   }
+
+  const trip = tripResult.data
 
   if (trip.status === 'archived') {
-    return NextResponse.json({ error: 'This trip is no longer accepting members' }, { status: 410 })
+    return NextResponse.json({ error: 'This trip is no longer accepting players.' }, { status: 410 })
   }
 
+  if (trip.status === 'completed' || trip.status === 'live') {
+    // Still allow joining live/completed trips — organiser controls this
+  }
+
+  // Check if already a member — return success without inserting
   const existingResult = await admin
     .from('trip_members')
     .select('id')
@@ -55,18 +64,48 @@ export async function POST(request: Request) {
     return NextResponse.json({ tripId: trip.id, tripName: trip.name, alreadyMember: true })
   }
 
-  const { error: insertError } = await admin
-    .from('trip_members')
-    .insert({ trip_id: trip.id, profile_id: user.id, role: 'player', playing_handicap: playing_handicap ?? null })
-
-  // Update permanent profile handicap if one was provided
+  // Build the insert payload — only include playing_handicap if it has a value
+  // This prevents schema cache errors when the column hasn't been added yet
+  const memberRow: Record<string, unknown> = {
+    trip_id:    trip.id,
+    profile_id: user.id,
+    role:       'player',
+  }
   if (playing_handicap !== null && playing_handicap !== undefined) {
-    await admin.from('profiles').update({ handicap: playing_handicap }).eq('id', user.id).then(() => {})
+    memberRow.playing_handicap = playing_handicap
   }
 
+  const { error: insertError } = await admin
+    .from('trip_members')
+    .insert(memberRow)
+
   if (insertError) {
-    console.error('[POST /api/join]', insertError)
-    return NextResponse.json({ error: 'Failed to join trip' }, { status: 500 })
+    console.error('[POST /api/join] insert error', {
+      message: insertError.message,
+      code:    insertError.code,
+      details: insertError.details,
+      hint:    insertError.hint,
+    })
+
+    const m = (insertError.message ?? '').toLowerCase()
+
+    if (m.includes('unique') || m.includes('duplicate')) {
+      // Race condition — already a member by the time we inserted
+      return NextResponse.json({ tripId: trip.id, tripName: trip.name, alreadyMember: true })
+    }
+
+    return NextResponse.json({
+      error: "We couldn't join the trip. Please try again."
+    }, { status: 500 })
+  }
+
+  // Best-effort: update permanent profile handicap if one was provided
+  if (playing_handicap !== null && playing_handicap !== undefined) {
+    await admin
+      .from('profiles')
+      .update({ handicap: playing_handicap })
+      .eq('id', user.id)
+      .then(() => {})
   }
 
   return NextResponse.json({ tripId: trip.id, tripName: trip.name, alreadyMember: false }, { status: 201 })

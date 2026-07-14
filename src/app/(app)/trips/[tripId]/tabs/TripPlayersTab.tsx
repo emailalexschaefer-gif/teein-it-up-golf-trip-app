@@ -17,6 +17,7 @@ export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRef
   const [hcpValue, setHcpValue]     = useState('')
   const [hcpNone, setHcpNone]       = useState(false)
   const [saving, setSaving]         = useState(false)
+  const [hcpError, setHcpError]     = useState<string | null>(null)
 
   const organiserMember    = trip.trip_members.find(m => m.role === 'organiser')
   const players            = trip.trip_members.filter(m => m.role === 'player')
@@ -35,7 +36,7 @@ export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRef
     try {
       const res = await fetch(`/api/trips/${trip.id}/members/${member.id}`, { method: 'DELETE' })
       if (res.ok) onRefresh()
-      else { const d = await res.json().catch(() => ({})); alert(d.error ?? 'Failed') }
+      else { const d = await res.json().catch(() => ({})); setHcpError(d.error ?? 'Could not remove player. Please try again.') }
     } finally { setRemoving(null) }
   }
 
@@ -57,8 +58,16 @@ export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRef
       body: JSON.stringify({ playing_handicap }),
     })
     setSaving(false)
-    if (res.ok) { setEditingHcp(null); onRefresh() }
-    else { const d = await res.json().catch(() => ({})); alert(d.error ?? 'Failed to save handicap') }
+    if (res.ok) { setEditingHcp(null); setHcpError(null); onRefresh() }
+    else {
+      const d = await res.json().catch(() => ({}))
+      const msg = (d.error ?? '').toLowerCase()
+      if (msg.includes('schema cache') || msg.includes('column') || msg.includes('does not exist')) {
+        setHcpError('Handicap column not set up in database. Run migration 013 in Supabase SQL Editor.')
+      } else {
+        setHcpError(d.error ?? 'Could not save handicap. Please try again.')
+      }
+    }
   }
 
   return (

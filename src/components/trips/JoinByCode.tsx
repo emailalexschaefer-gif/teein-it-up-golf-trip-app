@@ -28,14 +28,16 @@ export default function JoinByCode() {
     const data = await res.json()
     setLoading(false)
 
-    if (!res.ok) {
-      setError(data.error ?? 'Could not join trip. Check the code and try again.')
+    // Already a member is always a success — just navigate to the trip
+    if (res.ok || data.alreadyMember) {
+      setSuccess(true)
+      void queryClient.invalidateQueries({ queryKey: tripKeys.lists() })
+      router.push(`/trips/${data.tripId}`)
       return
     }
 
-    setSuccess(true)
-    void queryClient.invalidateQueries({ queryKey: tripKeys.lists() })
-    router.push(`/trips/${data.tripId}`)
+    // Specific error messages from the API
+    setError(data.error ?? 'Could not join trip. Check the code and try again.')
   }
 
   return (

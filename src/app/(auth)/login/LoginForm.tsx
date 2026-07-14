@@ -4,7 +4,7 @@ import React, { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-type Mode = 'magic' | 'password' | 'signup'
+type Mode = 'magic' | 'password' | 'signup' | 'check_email'
 
 export default function LoginForm() {
   const router       = useRouter()
@@ -26,7 +26,11 @@ export default function LoginForm() {
   const [name, setName]       = useState('')
   const [confirm, setConfirm] = useState('')
   const [hcp, setHcp]         = useState('')
-  const [noHcp, setNoHcp]     = useState(false)
+  const [noHcp, setNoHcp]         = useState(false)
+  const [signedUpEmail, setSignedUpEmail] = useState('')
+  const [resendLoading, setResendLoading] = useState(false)
+  const [resendCooldown, setResendCooldown] = useState(false)
+  const [resendMsg, setResendMsg] = useState<string | null>(null)
 
   const supabase = createClient()
 
@@ -110,17 +114,42 @@ export default function LoginForm() {
     })
     setLoading(false)
 
+    // Log result for debugging — no passwords or tokens exposed
+    console.log('[signup] result', {
+      userId:          data?.user?.id ?? null,
+      email:           data?.user?.email ?? null,
+      sessionExists:   Boolean(data?.session),
+      identitiesCount: data?.user?.identities?.length ?? null,
+      error:           signUpErr ? { message: signUpErr.message, status: signUpErr.status } : null,
+    })
+
     if (signUpErr) {
-      const msg = signUpErr.message.toLowerCase()
-      setMsg({ type: 'err', text:
-        msg.includes('already registered') || msg.includes('already exists')
-          ? 'An account with this email already exists. Sign in instead.'
-          : signUpErr.message
-      })
+      const m = signUpErr.message.toLowerCase()
+      const statusCode = (signUpErr as { status?: number }).status ?? 0
+
+      let userMsg = signUpErr.message
+
+      if (m.includes('already registered') || m.includes('already exists')) {
+        userMsg = 'An account with this email already exists. Sign in instead.'
+      } else if (m.includes('rate limit') || m.includes('email rate') || statusCode === 429 || m.includes('too many')) {
+        userMsg = "Email limit reached \u2014 Supabase's free plan allows only 2 confirmation emails per hour across the project. Please wait and try again, or contact support."
+      } else if (m.includes('smtp') || m.includes('email') || m.includes('send')) {
+        userMsg = `Email delivery failed: ${signUpErr.message}. Please try again or use a different email address.`
+      }
+
+      setMsg({ type: 'err', text: userMsg })
+      return
+    }
+
+    // Supabase silently returns success for already-registered emails when email confirmation
+    // is enabled. Detect this via empty identities array — no email was sent.
+    if (data.user && (data.user.identities?.length ?? 0) === 0) {
+      setMsg({ type: 'err', text: 'An account with this email already exists. Sign in instead.' })
       return
     }
 
     if (data.session && data.user) {
+      // Email confirmation disabled — session created immediately
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db: any = supabase
       await db.from('profiles').upsert({
@@ -136,11 +165,92 @@ export default function LoginForm() {
       }
       router.push(redirectTo); router.refresh()
     } else {
-      setMsg({ type: 'ok', text: `Check your email — we sent a confirmation link to ${email}` })
+      // Email confirmation enabled — email was handed to the provider
+      setSignedUpEmail(email.trim())
+      setMode('check_email' as Mode)
+    }
+  }
+
+  async function handleResend() {
+    if (!signedUpEmail || resendCooldown) return
+    setResendLoading(true); setResendMsg(null)
+    const callbackUrl = `${window.location.origin}/api/auth/callback`
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: signedUpEmail,
+      options: { emailRedirectTo: callbackUrl },
+    })
+    setResendLoading(false)
+    if (error) {
+      const m = error.message.toLowerCase()
+      setResendMsg(m.includes('rate limit') || m.includes('too many')
+        ? 'Email limit reached — please wait before requesting another link.'
+        : `Could not resend: ${error.message}`)
+    } else {
+      setResendMsg('Confirmation link resent. Check your inbox.')
+      setResendCooldown(true)
+      setTimeout(() => setResendCooldown(false), 60_000)  // 60 s cooldown
     }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
+
+  if (mode === 'check_email') return (
+    <>
+      <p style={{ fontSize: 36, textAlign: 'center', marginBottom: 10 }}>📧</p>
+      <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, color: '#1a1a16', textAlign: 'center', marginBottom: 8 }}>
+        Check your email
+      </h1>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#7a7260', textAlign: 'center', marginBottom: 4 }}>
+        We sent a confirmation link to <strong>{signedUpEmail}</strong>.
+      </p>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#a89e88', textAlign: 'center', marginBottom: 16 }}>
+        Click it to activate your account. If you don&apos;t see it, check your spam folder.
+      </p>
+
+      {resendMsg && (
+        <p style={{
+          fontFamily: 'var(--font-body)', fontSize: 12,
+          color: resendMsg.includes('resent') || resendMsg.includes('sent') ? '#166534' : '#b91c1c',
+          textAlign: 'center', marginBottom: 12,
+        }}>{resendMsg}</p>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button
+          type="button" disabled={resendLoading || resendCooldown}
+          onClick={handleResend}
+          style={{
+            width: '100%', padding: '11px 16px', borderRadius: 10,
+            cursor: (resendLoading || resendCooldown) ? 'not-allowed' : 'pointer',
+            background: (resendLoading || resendCooldown) ? '#e0ddd8' : '#f8f4eb',
+            border: '1.5px solid #d9c9a3',
+            fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#1a4731',
+          }}
+        >
+          {resendLoading ? 'Sending…' : resendCooldown ? 'Link sent — wait 60s before resending' : 'Resend confirmation email'}
+        </button>
+        <button
+          type="button"
+          onClick={() => { setMode('signup'); setResendMsg(null) }}
+          style={{
+            width: '100%', padding: '11px 16px', borderRadius: 10,
+            border: '1.5px solid #d9c9a3', background: 'transparent',
+            cursor: 'pointer', fontFamily: 'var(--font-body)', fontSize: 13,
+            fontWeight: 600, color: '#7a7260',
+          }}
+        >
+          Use a different email
+        </button>
+        <a href={modeUrl('password')} style={{
+          display: 'block', textAlign: 'center', marginTop: 4,
+          fontFamily: 'var(--font-body)', fontSize: 13, color: '#a89e88', textDecoration: 'none',
+        }}>
+          Back to sign in
+        </a>
+      </div>
+    </>
+  )
 
   if (mode === 'signup') return (
     <>
