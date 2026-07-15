@@ -104,10 +104,20 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Insert membership with playing_handicap
+  // Build insert row — only include playing_handicap if the value is set
+  // (omitting it avoids schema cache errors if migration 013 hasn't been applied yet)
+  const memberRow: Record<string, unknown> = {
+    trip_id:    trip.id,
+    profile_id: user.id,
+    role:       'player',
+  }
+  if (playing_handicap !== null) {
+    memberRow.playing_handicap = playing_handicap
+  }
+
   const { error: insertError } = await admin
     .from('trip_members')
-    .insert({ trip_id: trip.id, profile_id: user.id, role: 'player', playing_handicap })
+    .insert(memberRow)
 
   // Update profiles — only fill in missing data, never overwrite existing values
   const profileCheck = await admin.from('profiles').select('full_name, handicap').eq('id', user.id).single()

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import TripList from '@/components/trips/TripList'
 import PendingJoinHandler from '@/components/trips/PendingJoinHandler'
 import JoinByCode from '@/components/trips/JoinByCode'
@@ -8,7 +9,7 @@ export const metadata: Metadata = { title: 'My Trips' }
 export default function DashboardPage() {
   return (
     <div className="space-y-5">
-      <PendingJoinHandler />
+      <Suspense fallback={null}><PendingJoinHandler /></Suspense>
 
       {/* Page heading */}
       <div className="pt-2 flex items-center justify-between">

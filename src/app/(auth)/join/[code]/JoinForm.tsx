@@ -49,16 +49,16 @@ export default function JoinForm() {
         const db: any = supabase
         const profileResult = await db
           .from('profiles')
-          .select('handicap, full_name')
+          .select('handicap, handicap_status, full_name')
           .eq('id', user.id)
           .single()
 
-        const existingHcp = profileResult?.data?.handicap
-        // null means never answered; we show the prompt once.
-        // If they previously set 0 or any value including null after explicitly declining,
-        // we check the profile for a non-null value OR skip prompt if they've joined before.
-        // Simple rule: if handicap is null, show prompt. Otherwise join directly.
-        if (existingHcp === null || existingHcp === undefined) {
+        const existingHcp    = profileResult?.data?.handicap
+        const hcpStatus      = profileResult?.data?.handicap_status ?? 'pending'
+        // Only prompt if they've never answered the handicap question.
+        // 'provided' = has a value, 'no_official_handicap' = explicitly declined.
+        // Both skip the prompt. Only 'pending' (never answered) shows it.
+        if (hcpStatus === 'pending' && existingHcp === null) {
           setStep('needs_handicap')
           return
         }
@@ -309,12 +309,15 @@ export default function JoinForm() {
           setStep('joining')
           startJoinTimeout('Join timed out. Please try again.')
 
-          // Save handicap to profile, then redirect to do-join
+          // Save handicap + handicap_status to profile before joining
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const db: any = supabase
           const { data: { user } } = await supabase.auth.getUser()
           if (user) {
-            await db.from('profiles').update({ handicap: hcpVal }).eq('id', user.id)
+            await db.from('profiles').update({
+              handicap:        hcpVal,
+              handicap_status: declined ? 'no_official_handicap' : 'provided',
+            }).eq('id', user.id)
           }
 
           clearJoinTimeout()
