@@ -152,10 +152,25 @@ export default function LoginForm() {
       // Email confirmation disabled — session created immediately
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db: any = supabase
-      await db.from('profiles').upsert({
+      // Try with handicap_status first; fall back without it if column missing
+      const profileData: Record<string, unknown> = {
         id: data.user.id, email: email.trim(),
-        full_name: name.trim(), handicap: hcpVal, handicap_status: handicapStatus,
-      }, { onConflict: 'id' })
+        full_name: name.trim(), handicap: hcpVal,
+      }
+      let upsertResult = await db.from('profiles').upsert(
+        { ...profileData, handicap_status: handicapStatus },
+        { onConflict: 'id' }
+      )
+      if (upsertResult.error) {
+        const em: string = upsertResult.error?.message ?? ''
+        if (em.includes('handicap_status') || em.includes('schema cache')) {
+          // Column not yet in DB — upsert without it
+          upsertResult = await db.from('profiles').upsert(profileData, { onConflict: 'id' })
+        }
+        if (upsertResult.error) {
+          console.error('[signup] profile upsert failed:', upsertResult.error.message)
+        }
+      }
 
       if (inviteCode) {
         await fetch('/api/join', {

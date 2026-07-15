@@ -53,12 +53,15 @@ export default function JoinForm() {
           .eq('id', user.id)
           .single()
 
-        const existingHcp    = profileResult?.data?.handicap
-        const hcpStatus      = profileResult?.data?.handicap_status ?? 'pending'
-        // Only prompt if they've never answered the handicap question.
-        // 'provided' = has a value, 'no_official_handicap' = explicitly declined.
-        // Both skip the prompt. Only 'pending' (never answered) shows it.
-        if (hcpStatus === 'pending' && existingHcp === null) {
+        const existingHcp = profileResult?.data?.handicap
+        const hcpStatus   = profileResult?.data?.handicap_status ?? 'pending'
+
+        // If handicap_status column doesn't exist yet, fall back to checking just the handicap value
+        const hasAnsweredHandicap = hcpStatus === 'provided'
+          || hcpStatus === 'no_official_handicap'
+          || existingHcp !== null
+
+        if (!hasAnsweredHandicap) {
           setStep('needs_handicap')
           return
         }
@@ -304,20 +307,30 @@ export default function JoinForm() {
   if (step === 'needs_handicap') {
     return (
       <HandicapPrompt
-        loading={false}
-        onContinue={async (hcpVal, declined) => {
+        inviteCode={inviteCode}
+        onCancel={() => router.push('/dashboard')}
+        onComplete={async (hcpVal, noHcp) => {
           setStep('joining')
           startJoinTimeout('Join timed out. Please try again.')
 
-          // Save handicap + handicap_status to profile before joining
+          // Save handicap to profile before joining
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const db: any = supabase
           const { data: { user } } = await supabase.auth.getUser()
           if (user) {
-            await db.from('profiles').update({
-              handicap:        hcpVal,
-              handicap_status: declined ? 'no_official_handicap' : 'provided',
-            }).eq('id', user.id)
+            // Try with handicap_status; fall back if column missing
+            const profileData: Record<string, unknown> = {
+              handicap: hcpVal,
+            }
+            let updateResult = await db.from('profiles')
+              .update({ ...profileData, handicap_status: noHcp ? 'no_official_handicap' : 'provided' })
+              .eq('id', user.id)
+            if (updateResult.error) {
+              const em: string = updateResult.error?.message ?? ''
+              if (em.includes('handicap_status') || em.includes('schema cache')) {
+                updateResult = await db.from('profiles').update(profileData).eq('id', user.id)
+              }
+            }
           }
 
           clearJoinTimeout()
