@@ -37,7 +37,7 @@ export const TRIP_STATUS_TRANSITIONS: Record<TripStatus, TripStatus[]> = {
   ready:        ['live', 'groups_ready', 'archived'],
   live:         ['completed'],
   completed:    ['archived'],
-  archived:     [],
+  archived:     ['completed', 'open', 'draft'],  // restore: inferred from trip data
 }
 
 // ─── Event types ──────────────────────────────────────────────────────────────

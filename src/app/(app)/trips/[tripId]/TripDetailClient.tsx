@@ -55,7 +55,8 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
   const router       = useRouter()
   const updateStatus = useUpdateTripStatus()
   const isOrganiser  = userRole === 'organiser'
-  const [tab, setTab] = useState<Tab>('overview')
+  const [tab, setTab]            = useState<Tab>('overview')
+  const [actualGroupCount, setActualGroupCount] = useState<number | null>(null)
 
   const organiserIsPlaying = trip.organiser_is_playing ?? false
   const playerCount  = trip.trip_members.filter(m => m.role === 'player').length + (organiserIsPlaying ? 1 : 0)
@@ -288,7 +289,7 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
         {tab === 'overview' && (
           <TripOverviewTab
             trip={trip} isOrganiser={isOrganiser}
-            playerCount={playerCount} numGroups={numGroups}
+            playerCount={playerCount} numGroups={actualGroupCount ?? numGroups}
             updateStatus={updateStatus} toast={toast} router={router}
             onTabChange={t => setTab(t)}
           />
@@ -305,6 +306,7 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
             trip={trip} isOrganiser={isOrganiser}
             onRefresh={() => router.refresh()}
             onTabChange={(t) => setTab(t)}
+            onGroupsLoaded={(count) => setActualGroupCount(count)}
           />
         )}
         {tab === 'rounds' && (

@@ -81,3 +81,37 @@ export async function PATCH(request: NextRequest, { params }: Props) {
 
   return NextResponse.json({ tripId, ok: true })
 }
+
+
+// DELETE /api/trips/[tripId] — permanently delete a trip (organiser only)
+// Removes trip + all cascading data: trip_members, rounds, groups, scores, etc.
+// All FK constraints have ON DELETE CASCADE so deleting the trip row is sufficient.
+export async function DELETE(_request: NextRequest, { params }: Props) {
+  const { tripId } = await params
+  const supabase   = await createClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin: any = createAdminClient()
+
+  // Verify organiser
+  const tripRes = await admin.from('trips').select('organiser_id, name').eq('id', tripId).single()
+  if (!tripRes.data || tripRes.data.organiser_id !== user.id) {
+    return NextResponse.json({ error: 'Not authorised' }, { status: 403 })
+  }
+
+  // Delete the trip — all related data cascades via FK ON DELETE CASCADE:
+  // trip_members, rounds, trip_groups, scorecards, score_entries, side_comps, etc.
+  const { error: deleteError } = await admin.from('trips').delete().eq('id', tripId)
+
+  if (deleteError) {
+    console.error('[DELETE /api/trips] failed', { tripId, error: deleteError.message })
+    return NextResponse.json({ error: 'Failed to delete trip. Please try again.' }, { status: 500 })
+  }
+
+  console.log('[DELETE /api/trips] deleted', { tripId, name: tripRes.data.name, userId: user.id })
+  return NextResponse.json({ ok: true })
+}

@@ -8,7 +8,7 @@ import { WizardNav } from './TripOverviewTab'
 
 interface TripGroup { id: string; name: string; tee_time: string | null; sort_order: number }
 type Tab = 'overview' | 'players' | 'groups' | 'rounds'
-interface Props { trip: TripData; isOrganiser: boolean; onRefresh: () => void; onTabChange: (t: Tab) => void }
+interface Props { trip: TripData; isOrganiser: boolean; onRefresh: () => void; onTabChange: (t: Tab) => void; onGroupsLoaded?: (count: number) => void }
 
 // Resolve effective handicap: trip-specific first, then profile fallback
 function effectiveHcp(m: TripMemberRow): number | null {
@@ -32,7 +32,7 @@ function roleLabel(m: TripMemberRow): string {
   return m.role === 'organiser' ? 'Organiser · Player' : 'Player'
 }
 
-export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChange }: Props) {
+export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChange, onGroupsLoaded }: Props) {
   const [groups, setGroups]     = useState<TripGroup[]>([])
   const [loading, setLoading]   = useState(true)
   const [generating, setGen]    = useState(false)
@@ -55,7 +55,9 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
     setLoading(true)
     const res = await fetch(`/api/trips/${trip.id}/groups`)
     if (res.ok) {
-      setGroups(await res.json())
+      const data = await res.json()
+      setGroups(data)
+      onGroupsLoaded?.(data.length)
     } else {
       const d = await res.json().catch(() => ({}))
       const msg: string = d.error ?? ''
@@ -68,7 +70,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
   async function generateGroups() {
     setApiError(null); setGen(true)
     const res = await fetch(`/api/trips/${trip.id}/groups/generate`, { method: 'POST' })
-    if (res.ok) { await loadGroups(); onRefresh() }
+    if (res.ok) { await loadGroups(); onRefresh() }  // onGroupsLoaded called inside loadGroups
     else { const d = await res.json().catch(() => ({})); setApiError(d.error ?? 'Failed to generate groups') }
     setGen(false)
   }
@@ -270,7 +272,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
               background: '#f8f4eb', border: '1.5px solid #d9c9a3',
               fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260',
               cursor: 'pointer', opacity: generating ? 0.5 : 1,
-            }}>Regen</button>
+            }}>Rebuild Groups</button>
           )}
         </div>
       )}
@@ -278,8 +280,16 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
       {/* All done banner */}
       {allAssigned && allHaveTimes && (
         <div style={{ background: 'linear-gradient(135deg, #1a4731, #2d7a52)', borderRadius: 14, padding: '14px 18px', textAlign: 'center' }}>
-          <p style={{ fontFamily: 'var(--font-display)', color: '#e8c96a', fontSize: 17, fontWeight: 700 }}>All groups ready ✓</p>
-          <p style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.65)', fontSize: 12, marginTop: 3 }}>Mark as Groups Ready from the Overview tab</p>
+          <p style={{ fontFamily: 'var(--font-display)', color: '#e8c96a', fontSize: 17, fontWeight: 700 }}>
+            {trip.status === 'groups_ready' || trip.status === 'ready' || trip.status === 'live' || trip.status === 'completed'
+              ? '✅ All playing groups are set'
+              : '✅ All players assigned and tee times set'}
+          </p>
+          <p style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.65)', fontSize: 12, marginTop: 3 }}>
+            {trip.status === 'groups_ready' || trip.status === 'ready' || trip.status === 'live' || trip.status === 'completed'
+              ? 'Your playing groups are confirmed. Review rounds or move to Ready to Start.'
+              : "Head to Overview to advance to Groups Ready when you're done."}
+          </p>
         </div>
       )}
 

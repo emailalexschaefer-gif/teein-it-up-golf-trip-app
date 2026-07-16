@@ -279,3 +279,40 @@ The journeys are blocked only by migration 015 not yet being applied.
 
 Both journeys require **migration 015** to be applied.
 Without it: groups tab fails, organiser_is_playing is ignored, handicap_status is missing.
+
+
+---
+
+## Trip Lifecycle (Archive vs Delete)
+
+### Features added
+
+**Dashboard — filter tabs:**
+- Active (live + upcoming + drafts) — default view
+- Completed — finished trips
+- Archived — hidden from default, preserved in full
+
+**Archive Trip:**
+- Available from Overview tab for all non-archived trips
+- Confirmation sheet: "Archive Trip?" with Archive / Cancel buttons
+- Marks trip as `archived`, removes from Active, preserves all data
+- Redirect to dashboard after archiving
+
+**Restore Trip (from archived):**
+- Visible on Overview tab when trip status is `archived`
+- One-click restore, no confirmation required
+- Returns trip to `completed` status
+
+**Delete Trip Permanently:**
+- Available from Overview tab for `completed` and `draft` trips
+- Also available from archived trip view
+- Requires typing `DELETE` to enable the button
+- Cascades via FK: removes trip_members, rounds, groups, scores, etc.
+- Only the organiser can delete
+
+### Acceptance test
+
+1. Create a trip → Archive it → confirm it moves to Archived tab
+2. Open archived trip → Restore → confirm it moves to Completed tab
+3. Open completed trip → Delete → type DELETE → confirm it disappears entirely
+4. Verify other users' trips are unaffected
