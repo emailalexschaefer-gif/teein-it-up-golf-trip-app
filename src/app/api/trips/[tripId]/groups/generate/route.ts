@@ -16,16 +16,26 @@ export async function POST(_req: NextRequest, { params }: Props) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin: any = createAdminClient()
-  const tripRes = await admin
+  // Try with Sprint 3 columns; fall back to base if columns missing
+  let tripRes = await admin
     .from('trips')
     .select('organiser_id, expected_players, players_per_group')
     .eq('id', tripId).single()
+
+  if (tripRes.error) {
+    const m: string = tripRes.error?.message ?? ''
+    if (m.includes('expected_players') || m.includes('players_per_group') || m.includes('does not exist')) {
+      tripRes = await admin.from('trips').select('organiser_id').eq('id', tripId).single()
+      if (tripRes.data) tripRes.data = { ...tripRes.data, expected_players: 0, players_per_group: 4 }
+    }
+  }
 
   if (!tripRes.data || tripRes.data.organiser_id !== user.id) {
     return NextResponse.json({ error: 'Not authorised' }, { status: 403 })
   }
 
-  const { expected_players, players_per_group } = tripRes.data
+  const expected_players: number  = tripRes.data.expected_players  ?? 0
+  const players_per_group: number = tripRes.data.players_per_group ?? 4
   if (!expected_players || !players_per_group) {
     return NextResponse.json({ error: 'Set expected players and group size first' }, { status: 400 })
   }

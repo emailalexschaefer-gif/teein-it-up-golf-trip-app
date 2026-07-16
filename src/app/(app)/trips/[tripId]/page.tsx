@@ -84,7 +84,8 @@ export default async function TripDetailPage({ params }: Props) {
       const msg: string = result.error.message ?? ''
       const isMissingCol = msg.includes('does not exist') && (
         msg.includes('group_id') || msg.includes('expected_players') ||
-        msg.includes('players_per_group') || msg.includes('organiser_is_playing')
+        msg.includes('players_per_group') || msg.includes('organiser_is_playing') ||
+        msg.includes('playing_handicap') || msg.includes('handicap_status')
       )
       if (isMissingCol) {
         console.warn('[trip page] Sprint 3 columns missing — run 012_sprint3_schema.sql in Supabase SQL Editor')

@@ -4,6 +4,15 @@
 - TypeScript: ✅ zero errors
 - Build: ✅ passes
 
+## Sprint 3 Stabilisation fixes (this build)
+- **Dashboard crash fixed**: `useMyTrips` no longer selects `expected_players` /
+  `players_per_group` from trips. These columns don't exist until migration 015
+  is applied. Dashboard now loads correctly with or without the migration.
+- **Trip detail fallback expanded**: the missing-column fallback now also triggers
+  on `playing_handicap` and `handicap_status`, not just `group_id` / `expected_players`.
+- **Generate route made resilient**: the group auto-generate endpoint falls back
+  gracefully if Sprint 3 columns are missing from the trips table.
+
 ---
 
 ## Step 1 — Environment variables
