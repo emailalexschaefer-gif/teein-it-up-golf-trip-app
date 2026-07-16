@@ -57,7 +57,8 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
   const isOrganiser  = userRole === 'organiser'
   const [tab, setTab] = useState<Tab>('overview')
 
-  const playerCount  = trip.trip_members.filter(m => m.role === 'player').length
+  const organiserIsPlaying = trip.organiser_is_playing ?? false
+  const playerCount  = trip.trip_members.filter(m => m.role === 'player').length + (organiserIsPlaying ? 1 : 0)
   const numGroups    = groupsRequired(trip.expected_players, trip.players_per_group)
   const eventLabel   = EVENT_TYPE_OPTIONS.find(o => o.value === trip.event_type)?.label ?? 'Golf Trip'
   const step         = workflowStep(trip.status)

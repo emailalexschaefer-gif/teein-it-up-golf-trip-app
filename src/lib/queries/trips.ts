@@ -64,7 +64,7 @@ export function useMyTrips(): UseQueryResult<TripSummary[], Error> {
       // Step 2: Get the trips by ID (avoids PostgREST relationship join issues)
       const tripsResult = await db
         .from('trips')
-        .select('id, name, description, event_type, location, start_date, end_date, status, logo_url, invite_code')
+        .select('id, name, description, event_type, location, start_date, end_date, status, logo_url, invite_code, expected_players, players_per_group')
         .in('id', tripIds)
 
       if (tripsResult.error) {
