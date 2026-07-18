@@ -4,7 +4,7 @@ import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-const TEST_EMAIL = 'teeinitupapp@gmail.com'
+const TEST_EMAILS = ['teeinitupapp@gmail.com', 'teeinitupdaztest@gmail.com']
 const CONFIRM_WORD = 'RESET'
 
 interface Props { userEmail: string; userId: string }
@@ -16,7 +16,7 @@ export default function DevResetSection({ userEmail, userId }: Props) {
   const [typed, setTyped] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  if (userEmail.toLowerCase() !== TEST_EMAIL.toLowerCase()) return null
+  if (!TEST_EMAILS.includes(userEmail.toLowerCase())) return null
 
   const confirmed = typed === CONFIRM_WORD
 

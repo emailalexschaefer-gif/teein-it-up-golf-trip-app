@@ -77,7 +77,9 @@ succeeds before testing.
 
 ## Step 4 — Reset the test account
 
-Test account: `teeinitupapp@gmail.com`
+Test accounts:
+- `teeinitupapp@gmail.com` — Alex (primary)
+- `teeinitupdaztest@gmail.com` — Darren (secondary)
 
 ### Option A — Reset via the app (preferred)
 

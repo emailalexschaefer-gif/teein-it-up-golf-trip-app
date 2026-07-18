@@ -6,7 +6,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-const TEST_EMAIL = 'teeinitupapp@gmail.com'
+const TEST_EMAILS = ['teeinitupapp@gmail.com', 'teeinitupdaztest@gmail.com']
 
 export async function POST(request: NextRequest) {
   // ── Guard 1: feature flag ────────────────────────────────────────────────
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   }
 
   // ── Guard 3: must be the exact test email ─────────────────────────────────
-  if (user.email?.toLowerCase() !== TEST_EMAIL.toLowerCase()) {
+  if (!TEST_EMAILS.includes(user.email?.toLowerCase() ?? '')) {
     console.warn('[reset-test-account] Rejected — caller is not the test account', {
       callerEmail: user.email,
     })
