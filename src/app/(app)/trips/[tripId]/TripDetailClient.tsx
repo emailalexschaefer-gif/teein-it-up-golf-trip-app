@@ -6,6 +6,8 @@ import { cn, formatTripDateRange } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
 import { useUpdateTripStatus } from '@/lib/queries/trips'
 import { TRIP_STATUS_LABELS, TRIP_STATUS_TRANSITIONS, EVENT_TYPE_OPTIONS, groupsRequired } from '@/types/app'
+import { useQueryClient } from '@tanstack/react-query'
+import { tripKeys } from '@/lib/queries/trips'
 import type { TripStatus, TripRole } from '@/types/app'
 import TripOverviewTab from './tabs/TripOverviewTab'
 import TripPlayersTab  from './tabs/TripPlayersTab'
@@ -56,6 +58,7 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
   const updateStatus = useUpdateTripStatus()
   const isOrganiser  = userRole === 'organiser'
   const [tab, setTab]            = useState<Tab>('overview')
+  const queryClient = useQueryClient()
   const [actualGroupCount, setActualGroupCount] = useState<number | null>(null)
 
   const organiserIsPlaying = trip.organiser_is_playing ?? false
@@ -297,14 +300,14 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
         {tab === 'players' && (
           <TripPlayersTab
             trip={trip} currentUserId={currentUserId}
-            isOrganiser={isOrganiser} onRefresh={() => router.refresh()}
+            isOrganiser={isOrganiser} onRefresh={() => { router.refresh(); void queryClient.invalidateQueries({ queryKey: tripKeys.lists() }) }}
             onTabChange={(t) => setTab(t)}
           />
         )}
         {tab === 'groups' && (
           <TripGroupsTab
             trip={trip} isOrganiser={isOrganiser}
-            onRefresh={() => router.refresh()}
+            onRefresh={() => { router.refresh(); void queryClient.invalidateQueries({ queryKey: tripKeys.lists() }) }}
             onTabChange={(t) => setTab(t)}
             onGroupsLoaded={(count) => setActualGroupCount(count)}
           />

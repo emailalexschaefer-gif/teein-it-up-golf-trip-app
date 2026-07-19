@@ -79,6 +79,54 @@ export async function PATCH(request: NextRequest, { params }: Props) {
     }
   }
 
+  // ── Rounds: replace existing rounds with the submitted set ──────────────────
+  // If rounds are included in the body, delete the current rounds and re-insert.
+  // This cleanly handles add / edit / remove in a single operation.
+  const rounds = (body.rounds as Array<{
+    name: string; course_name?: string; play_date: string
+    tee_time?: string; holes?: number; scoring_format?: string
+  }> | undefined)
+
+  if (rounds && rounds.length > 0) {
+    // Delete existing rounds for this trip
+    const { error: deleteRoundsError } = await admin
+      .from('rounds')
+      .delete()
+      .eq('trip_id', tripId)
+
+    if (deleteRoundsError) {
+      console.error('[PATCH /api/trips] rounds delete failed', deleteRoundsError)
+      return NextResponse.json({
+        error: `Failed to update rounds: ${deleteRoundsError.message}`,
+      }, { status: 500 })
+    }
+
+    // Re-insert updated rounds
+    const roundRows = rounds.map((r, i) => ({
+      trip_id:        tripId,
+      name:           r.name || `Round ${i + 1}`,
+      course_name:    r.course_name || null,
+      play_date:      r.play_date,
+      tee_time:       r.tee_time || null,
+      holes:          r.holes ?? 18,
+      scoring_format: r.scoring_format ?? 'stableford',
+      status:         'upcoming',
+    }))
+
+    const { error: insertRoundsError } = await admin
+      .from('rounds')
+      .insert(roundRows)
+
+    if (insertRoundsError) {
+      console.error('[PATCH /api/trips] rounds insert failed', insertRoundsError)
+      return NextResponse.json({
+        error: `Failed to save rounds: ${insertRoundsError.message}`,
+      }, { status: 500 })
+    }
+
+    console.log('[PATCH /api/trips] rounds updated', { tripId, count: rounds.length })
+  }
+
   return NextResponse.json({ tripId, ok: true })
 }
 

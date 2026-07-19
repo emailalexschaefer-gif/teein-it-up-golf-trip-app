@@ -56,12 +56,11 @@ export function useMyTrips(): UseQueryResult<TripSummary[], Error> {
       }
 
       const memberships: Array<{ trip_id: string; role: TripRole }> = memberResult.data ?? []
-
       if (memberships.length === 0) return []
 
       const tripIds = memberships.map((m) => m.trip_id)
 
-      // Step 2: Get the trips by ID (avoids PostgREST relationship join issues)
+      // Step 2: Get the trips — include ALL statuses (archived too, for the Archived tab)
       const tripsResult = await db
         .from('trips')
         .select('id, name, description, event_type, location, start_date, end_date, status, logo_url, invite_code')
@@ -72,37 +71,59 @@ export function useMyTrips(): UseQueryResult<TripSummary[], Error> {
       }
 
       const tripsData: any[] = tripsResult.data ?? []
-
-      // Build a role lookup
       const roleByTripId: Record<string, TripRole> = {}
-      for (const m of memberships) {
-        roleByTripId[m.trip_id] = m.role
+      for (const m of memberships) roleByTripId[m.trip_id] = m.role
+
+      // Step 3: Fetch real player counts and round counts for each trip
+      // Use a single batched query for each rather than N+1 queries
+      const [membersResult, roundsResult] = await Promise.all([
+        db.from('trip_members').select('trip_id, role').in('trip_id', tripIds),
+        db.from('rounds').select('id, trip_id').in('trip_id', tripIds),
+      ])
+
+      // Build count maps
+      const playerCountByTrip: Record<string, number> = {}
+      if (membersResult.data) {
+        for (const m of membersResult.data) {
+          if (m.role === 'player') {
+            playerCountByTrip[m.trip_id] = (playerCountByTrip[m.trip_id] ?? 0) + 1
+          }
+        }
       }
 
-      const summaries: TripSummary[] = tripsData
-        .filter((t: any) => t.status !== 'archived')
-        .map((t: any): TripSummary => ({
-          id:           t.id,
-          name:         t.name,
-          description:  t.description,
-          event_type:   t.event_type,
-          location:     t.location,
-          start_date:   t.start_date,
-          end_date:     t.end_date,
-          status:       t.status,
-          logo_url:     t.logo_url,
-          invite_code:  t.invite_code,
-          user_role:         roleByTripId[t.id] ?? 'player' as TripRole,
-          player_count:      0,
-          round_count:       0,
-          expected_players:  t.expected_players  ?? 0,
-          players_per_group: t.players_per_group ?? 4,
-        }))
+      const roundCountByTrip: Record<string, number> = {}
+      if (roundsResult.data) {
+        for (const r of roundsResult.data) {
+          roundCountByTrip[r.trip_id] = (roundCountByTrip[r.trip_id] ?? 0) + 1
+        }
+      }
+
+      const summaries: TripSummary[] = tripsData.map((t: any): TripSummary => ({
+        id:                t.id,
+        name:              t.name,
+        description:       t.description,
+        event_type:        t.event_type,
+        location:          t.location,
+        start_date:        t.start_date,
+        end_date:          t.end_date,
+        status:            t.status,
+        logo_url:          t.logo_url,
+        invite_code:       t.invite_code,
+        user_role:         roleByTripId[t.id] ?? 'player' as TripRole,
+        player_count:      playerCountByTrip[t.id] ?? 0,
+        round_count:       roundCountByTrip[t.id]  ?? 0,
+        expected_players:  t.expected_players  ?? 0,
+        players_per_group: t.players_per_group ?? 4,
+      }))
 
       summaries.sort((a, b) => a.start_date.localeCompare(b.start_date))
       return summaries
     },
-    staleTime: 1000 * 60 * 2,
+    // Low stale time so dashboard reflects changes quickly
+    staleTime: 0,
+    // Refetch when window regains focus and when user navigates back
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
     retry: 1,
   })
 }
