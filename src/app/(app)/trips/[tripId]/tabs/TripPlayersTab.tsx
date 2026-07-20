@@ -28,7 +28,9 @@ export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRef
 
   const expected    = trip.expected_players ?? 0
   const playerCount = organiserIsPlaying ? players.length + 1 : players.length
-  const remaining   = expected > 0 ? Math.max(0, expected - playerCount) : null
+  const over        = expected > 0 && playerCount > expected
+  const remaining   = expected > 0 && !over ? expected - playerCount : null
+  const overBy      = over ? playerCount - expected : 0
 
   async function removePlayer(member: TripMemberRow) {
     if (!confirm(`Remove ${member.profiles?.full_name ?? 'this player'}?`)) return
@@ -86,10 +88,19 @@ export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRef
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260' }}>Expected</p>
               </div>
               <div className="flex-1 px-3">
-                <p style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, color: (remaining ?? 0) > 0 ? '#d97706' : '#1a4731' }}>
-                  {remaining}
-                </p>
-                <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260' }}>Remaining</p>
+                {over ? (
+                  <>
+                    <p style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, color: '#b45309' }}>+{overBy}</p>
+                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#b45309' }}>Over capacity</p>
+                  </>
+                ) : (
+                  <>
+                    <p style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, color: remaining === 0 ? '#1a4731' : '#d97706' }}>
+                      {remaining}
+                    </p>
+                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260' }}>Remaining</p>
+                  </>
+                )}
               </div>
             </>
           )}

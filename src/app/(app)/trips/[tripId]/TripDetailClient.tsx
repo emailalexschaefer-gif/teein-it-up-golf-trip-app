@@ -29,7 +29,7 @@ export interface TripData {
   location: string | null; start_date: string; end_date: string
   status: TripStatus; invite_code: string
   expected_players?: number; players_per_group?: number; organiser_is_playing?: boolean
-  trip_members: TripMemberRow[]; rounds: RoundRow[]
+  trip_members: TripMemberRow[]; rounds: RoundRow[]; trip_groups?: Array<{ id: string }>
 }
 
 interface Props { trip: TripData; currentUserId: string; userRole: TripRole }
@@ -59,11 +59,15 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
   const isOrganiser  = userRole === 'organiser'
   const [tab, setTab]            = useState<Tab>('overview')
   const queryClient = useQueryClient()
-  const [actualGroupCount, setActualGroupCount] = useState<number | null>(null)
+  // Initialise from server-fetched trip data so Overview is correct before Groups tab is visited
+  const [actualGroupCount, setActualGroupCount] = useState<number>(
+    Array.isArray(trip.trip_groups) ? trip.trip_groups.length : 0
+  )
 
   const organiserIsPlaying = trip.organiser_is_playing ?? false
   const playerCount  = trip.trip_members.filter(m => m.role === 'player').length + (organiserIsPlaying ? 1 : 0)
-  const numGroups    = groupsRequired(trip.expected_players, trip.players_per_group)
+  const numGroups    = actualGroupCount  // always use real count from DB
+  const _numGroupsCalc = groupsRequired(trip.expected_players, trip.players_per_group)  // kept for group setup hints
   const eventLabel   = EVENT_TYPE_OPTIONS.find(o => o.value === trip.event_type)?.label ?? 'Golf Trip'
   const step         = workflowStep(trip.status)
 
@@ -292,7 +296,7 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
         {tab === 'overview' && (
           <TripOverviewTab
             trip={trip} isOrganiser={isOrganiser}
-            playerCount={playerCount} numGroups={actualGroupCount ?? numGroups}
+            playerCount={playerCount} numGroups={numGroups}
             updateStatus={updateStatus} toast={toast} router={router}
             onTabChange={t => setTab(t)}
           />

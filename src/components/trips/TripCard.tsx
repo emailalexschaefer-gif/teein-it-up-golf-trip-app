@@ -1,8 +1,7 @@
-import { cn, formatTripDateRange, initials, avatarColor } from '@/lib/utils'
+import { cn, formatTripDateRange, initials } from '@/lib/utils'
 import { TRIP_STATUS_LABELS } from '@/types/app'
 import type { TripSummary } from '@/types/app'
 
-// Status pill colours — demo uses warm/muted palette
 const STATUS_PILL: Record<string, string> = {
   draft:        'bg-cream-200 text-text-muted border-cream-300',
   open:         'bg-blue-50   text-blue-700  border-blue-200',
@@ -14,8 +13,13 @@ const STATUS_PILL: Record<string, string> = {
 }
 
 export default function TripCard({ trip }: { trip: TripSummary; key?: string }) {
-  const isLive   = trip.status === 'live'
-  const pill     = STATUS_PILL[trip.status] ?? STATUS_PILL.draft
+  const isLive = trip.status === 'live'
+  const pill   = STATUS_PILL[trip.status] ?? STATUS_PILL.draft
+
+  // Player capacity wording
+  const joined   = trip.player_count
+  const expected = trip.expected_players
+  const over     = expected > 0 && joined > expected
 
   return (
     <a
@@ -25,7 +29,6 @@ export default function TripCard({ trip }: { trip: TripSummary; key?: string }) 
         isLive && 'ring-2 ring-green-400'
       )}
     >
-      {/* Live indicator stripe */}
       {isLive && (
         <div className="bg-green-bright px-4 py-1.5 flex items-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
@@ -62,10 +65,42 @@ export default function TripCard({ trip }: { trip: TripSummary; key?: string }) 
             </p>
 
             {/* Stats row */}
-            <div className="flex items-center gap-3 mt-2.5">
-              <Stat icon="👤" value={trip.player_count} label={`/ ${trip.expected_players || '?'}`} />
-              <span className="text-cream-400">·</span>
-              <Stat icon="⛳" value={trip.round_count} label={trip.round_count === 1 ? 'round' : 'rounds'} />
+            <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+              {/* Players */}
+              <span className="flex items-center gap-1 text-xs text-text-muted">
+                <span>👥</span>
+                <span className="font-semibold text-text">{joined}</span>
+                {expected > 0 ? (
+                  over
+                    ? <span className="text-amber-600 font-medium">({joined - expected} over)</span>
+                    : <span>of {expected}</span>
+                ) : (
+                  <span>{joined === 1 ? 'player' : 'players'}</span>
+                )}
+              </span>
+
+              {trip.group_count > 0 && (
+                <>
+                  <span className="text-cream-400">·</span>
+                  <span className="flex items-center gap-1 text-xs text-text-muted">
+                    <span>🏌️</span>
+                    <span className="font-semibold text-text">{trip.group_count}</span>
+                    <span>{trip.group_count === 1 ? 'group' : 'groups'}</span>
+                  </span>
+                </>
+              )}
+
+              {trip.round_count > 0 && (
+                <>
+                  <span className="text-cream-400">·</span>
+                  <span className="flex items-center gap-1 text-xs text-text-muted">
+                    <span>⛳</span>
+                    <span className="font-semibold text-text">{trip.round_count}</span>
+                    <span>{trip.round_count === 1 ? 'round' : 'rounds'}</span>
+                  </span>
+                </>
+              )}
+
               <span className="text-cream-400">·</span>
               <span className={cn(
                 'text-xs font-medium capitalize',
@@ -80,15 +115,5 @@ export default function TripCard({ trip }: { trip: TripSummary; key?: string }) 
         </div>
       </div>
     </a>
-  )
-}
-
-function Stat({ icon, value, label }: { icon: string; value: number; label: string }) {
-  return (
-    <span className="flex items-center gap-1 text-xs text-text-muted">
-      <span>{icon}</span>
-      <span className="font-semibold text-text">{value}</span>
-      <span>{label}</span>
-    </span>
   )
 }

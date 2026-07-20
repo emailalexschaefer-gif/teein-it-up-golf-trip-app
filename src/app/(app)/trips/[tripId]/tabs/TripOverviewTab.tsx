@@ -123,7 +123,14 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
         {/* ── Stat strip ───────────────────────────────────────────────── */}
         <div className="card p-4">
           <div className="flex" style={{ gap: 0 }}>
-            <StatCell icon="👥" value={playerCount} sub={expected > 0 ? `of ${expected} players` : 'players'} label="Players" />
+            <StatCell
+              icon="👥"
+              value={playerCount}
+              sub={expected > 0
+                ? (playerCount > expected ? `(${playerCount - expected} over)` : `of ${expected}`)
+                : 'players'}
+              label="Players"
+            />
             <div style={{ width: 1, background: '#ede0c4' }} />
             <StatCell icon="⛳" value={trip.rounds.length} sub="rounds" label="Rounds" />
             <div style={{ width: 1, background: '#ede0c4' }} />

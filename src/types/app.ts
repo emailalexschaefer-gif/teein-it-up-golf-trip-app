@@ -69,6 +69,7 @@ export interface TripSummary {
   user_role: TripRole
   player_count: number
   round_count: number
+  group_count: number
   expected_players: number
   players_per_group: number
 }

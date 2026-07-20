@@ -124,8 +124,22 @@ export default async function TripDetailPage({ params }: Props) {
     )
   }
 
+  // Fetch actual group count for initial render (so Overview shows correct count
+  // before the Groups tab is visited and onGroupsLoaded fires)
+  let initialGroupCount = 0
+  try {
+    const groupsResult = await db
+      .from('trip_groups')
+      .select('id', { count: 'exact', head: true })
+      .eq('trip_id', tripId)
+    initialGroupCount = groupsResult.count ?? 0
+  } catch {
+    // trip_groups table may not exist yet — default to 0
+  }
+
   const sortedTrip = {
     ...rawTrip,
+    trip_groups: Array.from({ length: initialGroupCount }, (_, i) => ({ id: String(i) })),
     rounds: [...(rawTrip.rounds ?? [])].sort(
       (a: { play_date?: string }, b: { play_date?: string }) =>
         (a.play_date ?? '').localeCompare(b.play_date ?? '')
