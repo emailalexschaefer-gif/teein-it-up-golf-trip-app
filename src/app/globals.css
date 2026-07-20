@@ -156,3 +156,114 @@
     font-weight: 700;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Sprint 4A — Design System Additions
+   Tokens: see tailwind.config.ts
+   ═══════════════════════════════════════════════════════════════════ */
+
+@layer base {
+  /* Typography scale — every screen uses these classes */
+  .t-page-title  { @apply font-display font-bold text-ink text-3xl tracking-tight leading-tight; }
+  .t-section     { @apply font-display font-semibold text-ink text-lg leading-snug; }
+  .t-card-title  { @apply font-display font-semibold text-ink text-base leading-snug; }
+  .t-subtitle    { @apply font-body text-ink-light text-sm leading-relaxed; }
+  .t-body        { @apply font-body text-ink text-sm leading-relaxed; }
+  .t-caption     { @apply font-body text-ink-faint text-xs leading-relaxed; }
+  .t-badge       { @apply font-body text-xs font-semibold uppercase tracking-wide; }
+  .t-stat-value  { @apply font-display font-bold text-2xl leading-none text-ink; }
+  .t-stat-label  { @apply font-body text-xs text-ink-faint uppercase tracking-wide; }
+
+  /* Smooth motion — respect prefers-reduced-motion */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* Animations */
+  @keyframes glowPulse {
+    0%, 100% { box-shadow: 0 0 8px rgba(201,168,76,0.3); }
+    50%       { box-shadow: 0 0 22px rgba(201,168,76,0.7); }
+  }
+  @keyframes rankUp   { from { background: rgba(22,163,74,.22); } to { background: transparent; } }
+  @keyframes rankDown { from { background: rgba(220,38,38,.12); } to { background: transparent; } }
+  @keyframes trophyBounce {
+    0%,100% { transform: scale(1); }
+    40%     { transform: scale(1.06); }
+    70%     { transform: scale(0.97); }
+  }
+  @keyframes goldGlow {
+    0%,100% { text-shadow: 0 2px 18px rgba(201,168,76,0.5); }
+    50%     { text-shadow: 0 2px 40px rgba(201,168,76,1), 0 0 60px rgba(201,168,76,0.5); }
+  }
+  @keyframes drivePulse {
+    0%   { box-shadow: 0 0 0 0 rgba(22,163,74,0.8); }
+    70%  { box-shadow: 0 0 0 14px rgba(22,163,74,0); }
+    100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
+  }
+  @keyframes skeletonShimmer {
+    0%   { background-position: -200% 0; }
+    100% { background-position:  200% 0; }
+  }
+}
+
+@layer components {
+  /* ── Skeleton loading ─────────────────────────────────────────── */
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      #ede0c4 25%,
+      #f2e8d0 50%,
+      #ede0c4 75%
+    );
+    background-size: 200% 100%;
+    animation: skeletonShimmer 1.5s infinite;
+    border-radius: 6px;
+  }
+
+  /* ── Skeleton variants ────────────────────────────────────────── */
+  .skeleton-text  { @apply skeleton h-3 w-3/4; }
+  .skeleton-title { @apply skeleton h-5 w-1/2; }
+  .skeleton-card  { @apply skeleton h-24 w-full rounded-card; }
+  .skeleton-avatar{ @apply skeleton rounded-full; }
+
+  /* ── Animation utility classes ────────────────────────────────── */
+  .animate-fadeUp      { animation: fadeUp 0.35s ease-out both; }
+  .animate-fadeIn      { animation: fadeIn 0.25s ease-out both; }
+  .animate-glowPulse   { animation: glowPulse 2s ease-in-out infinite; }
+  .animate-goldGlow    { animation: goldGlow 2.4s ease-in-out infinite; }
+  .animate-drivePulse  { animation: drivePulse 1s ease-out; }
+  .animate-trophyBounce{ animation: trophyBounce 1.6s ease-in-out infinite; }
+
+  /* ── Staggered fade-up for lists ──────────────────────────────── */
+  .stagger > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger > *:nth-child(2) { animation-delay: 60ms; }
+  .stagger > *:nth-child(3) { animation-delay: 120ms; }
+  .stagger > *:nth-child(4) { animation-delay: 180ms; }
+  .stagger > *:nth-child(5) { animation-delay: 240ms; }
+  .stagger > *:nth-child(6) { animation-delay: 300ms; }
+  .stagger > *:nth-child(n+7) { animation-delay: 360ms; }
+
+  /* ── Focus ring (accessible) ──────────────────────────────────── */
+  .focus-ring:focus-visible {
+    outline: 2px solid #c9a84c;
+    outline-offset: 2px;
+  }
+
+  /* ── Touch target (min 44×44) ─────────────────────────────────── */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* ── Tab bar active indicator ─────────────────────────────────── */
+  .tab-active-dot {
+    width: 16px;
+    height: 2px;
+    border-radius: 1px;
+    background: #c9a84c;
+    margin-top: -1px;
+  }
+}

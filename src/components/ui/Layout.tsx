@@ -1,15 +1,20 @@
-import { cn } from '@/lib/utils'
-import type { ReactNode } from 'react'
+'use client'
 
-export function Card({ children, className, padding = 'md' }: {
-  children: ReactNode; className?: string; padding?: 'sm' | 'md' | 'lg'
+import React, { type ReactNode } from 'react'
+import { cn } from '@/lib/utils'
+
+// ── Card ─────────────────────────────────────────────────────────────────────
+// Exact match to demo Card component: ivory bg, parchment border, green shadow
+
+export function Card({ children, className, noPad }: {
+  children: ReactNode; className?: string; noPad?: boolean
 }) {
   return (
     <div className={cn(
-      'bg-white rounded-2xl shadow-card',
-      padding === 'sm' && 'p-3',
-      padding === 'md' && 'p-4',
-      padding === 'lg' && 'p-6',
+      'bg-ivory rounded-card overflow-hidden',
+      'border border-parchment-dark',
+      'shadow-card',
+      !noPad && 'p-4',
       className,
     )}>
       {children}
@@ -17,37 +22,104 @@ export function Card({ children, className, padding = 'md' }: {
   )
 }
 
+// ── GoldCard ─────────────────────────────────────────────────────────────────
+// Dark green gradient with gold border — used for invite / hero sections
+
+export function GoldCard({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div
+      className={cn('rounded-2xl overflow-hidden border-2 border-gold', className)}
+      style={{
+        background: 'linear-gradient(160deg, #1e5c38 0%, #1a4731 60%, #0f2d1c 100%)',
+        boxShadow: '0 4px 24px rgba(15,45,28,0.4)',
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+// ── SLabel ───────────────────────────────────────────────────────────────────
+// Section label — 10.5px uppercase tracking — exact match to demo SLabel
+
+export function SLabel({ children, className }: { children?: ReactNode; className?: string }) {
+  return (
+    <div className={cn('s-label', className)}>
+      {children}
+    </div>
+  )
+}
+
+// ── Divider ──────────────────────────────────────────────────────────────────
+
+export function Divider({ className }: { className?: string }) {
+  return <div className={cn('divider', className)} />
+}
+
+export function GoldRule({ className }: { className?: string }) {
+  return <div className={cn('gold-rule', className)} />
+}
+
+// ── PageTitle ─────────────────────────────────────────────────────────────────
+
+export function PageTitle({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <h1 className={cn(
+      'font-display font-bold text-ink text-3xl tracking-tight leading-tight',
+      className,
+    )}>
+      {children}
+    </h1>
+  )
+}
+
+// ── SectionHeader ─────────────────────────────────────────────────────────────
+
 export function SectionHeader({ title, subtitle, action }: {
   title: string; subtitle?: string; action?: ReactNode
 }) {
   return (
     <div className="flex items-start justify-between mb-3">
       <div>
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-text-muted">{title}</h2>
-        {subtitle && <p className="text-xs text-text-subtle mt-0.5">{subtitle}</p>}
+        <SLabel>{title}</SLabel>
+        {subtitle && <p className="text-xs text-ink-light mt-0.5">{subtitle}</p>}
       </div>
-      {action}
+      {action ? <div>{action}</div> : null}
     </div>
   )
 }
 
-export function Badge({ children, className }: { children: ReactNode; className?: string }) {
+// ── EmptyState ────────────────────────────────────────────────────────────────
+
+export function EmptyState({ icon, title, body, action }: {
+  icon?: string; title: string; body?: string; action?: ReactNode
+}) {
   return (
-    <span className={cn('inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full', className)}>
-      {children}
-    </span>
+    <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+      {icon && <span className="text-4xl mb-3">{icon}</span>}
+      <h3 className="font-display font-semibold text-ink text-base mb-1">{title}</h3>
+      {body && <p className="text-sm text-ink-light max-w-xs mb-4">{body}</p>}
+      {action ? <div>{action}</div> : null}
+    </div>
   )
 }
 
-export function EmptyState({ icon = '⛳', title, description, action }: {
-  icon?: string; title: string; description?: string; action?: ReactNode
-}) {
+// ── InlineError ───────────────────────────────────────────────────────────────
+
+export function InlineError({ message, onDismiss }: { message: string; onDismiss?: () => void }) {
   return (
-    <div className="text-center py-10 px-4">
-      <p className="text-4xl mb-3">{icon}</p>
-      <h3 className="font-semibold text-text mb-1">{title}</h3>
-      {description && <p className="text-sm text-text-muted mb-4 max-w-xs mx-auto">{description}</p>}
-      {action}
+    <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+      <span className="text-red-500 flex-shrink-0 mt-0.5">⚠</span>
+      <p className="text-sm text-red-700 flex-1">{message}</p>
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-red-400 hover:text-red-600 flex-shrink-0 text-xs underline"
+        >
+          Dismiss
+        </button>
+      )}
     </div>
   )
 }
