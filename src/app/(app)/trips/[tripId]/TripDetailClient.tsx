@@ -162,89 +162,88 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
           </div>
         </div>
 
-        {/* Invite players section */}
+        {/* ── Invite players section ─────────────────────────────── */}
         {isOrganiser && (
-          <div style={{ marginBottom: 10 }}>
-            {/* Heading */}
-            <div style={{ marginBottom: 8 }}>
+          <div style={{ marginBottom: 14 }}>
+            {/* Section heading — prominent */}
+            <div style={{ marginBottom: 10 }}>
               <div style={{
-                fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.7)',
-                fontSize: 13, fontWeight: 700, marginBottom: 2,
+                fontFamily: 'var(--font-display)', color: '#ffffff',
+                fontSize: 17, fontWeight: 700, marginBottom: 3,
               }}>Invite players to this trip</div>
               <div style={{
-                fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.42)',
-                fontSize: 11,
-              }}>Share this link so players can join instantly.</div>
+                fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.5)',
+                fontSize: 12, lineHeight: 1.4,
+              }}>Share an invitation link or send the trip code so players can join.</div>
             </div>
 
-            {/* Invite card */}
-            <div style={{
-              background: 'rgba(0,0,0,0.22)',
-              border: '1px dashed rgba(201,168,76,0.45)',
-              borderRadius: 10, padding: '12px 14px',
-            }}>
-              {/* PRIMARY: Full invite link + Copy & Share button */}
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
-              }}>
-                <div style={{
-                  fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.45)',
-                  fontSize: 11, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}>
-                  {`${typeof window !== 'undefined' ? window.location.origin : ''}/join/${trip.invite_code}`}
-                </div>
-                <button
-                  className="btn-press"
-                  onClick={async () => {
-                    const url = `${window.location.origin}/join/${trip.invite_code}`
-                    try { await navigator.clipboard.writeText(url); toast('Link copied!', 'success') }
-                    catch { toast('Could not copy', 'error') }
-                  }}
-                  style={{
-                    padding: '8px 15px',
-                    background: 'linear-gradient(135deg, #c9a84c, #e8c96a)',
-                    border: 'none',
-                    borderRadius: 9,
-                    fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 800,
-                    color: '#0f2d1c', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap',
-                    boxShadow: '0 2px 8px rgba(201,168,76,0.4)',
-                  }}>
-                  Copy &amp; Share
-                </button>
-              </div>
+            {/* PRIMARY ACTION — Invite via link */}
+            <button
+              className="btn-press"
+              style={{
+                width: '100%', padding: '14px 18px', marginBottom: 8,
+                background: 'linear-gradient(135deg, #c9a84c 0%, #e8c96a 50%, #c9a84c 100%)',
+                border: 'none', borderRadius: 12, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                boxShadow: '0 4px 16px rgba(201,168,76,0.45)',
+              }}
+              onClick={async () => {
+                const url = `${window.location.origin}/join/${trip.invite_code}`
+                if (navigator.share) {
+                  try { await navigator.share({ title: `Join ${trip.name}`, url }); toast('Shared!', 'success') }
+                  catch { /* user cancelled */ }
+                } else {
+                  try { await navigator.clipboard.writeText(url); toast('Invitation link copied', 'success') }
+                  catch { toast('Could not copy link', 'error') }
+                }
+              }}
+            >
+              <span style={{ fontSize: 16 }}>🔗</span>
+              <span style={{
+                fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 800,
+                color: '#0f2d1c', letterSpacing: 0.3,
+              }}>Invite via link</span>
+            </button>
 
-              {/* SECONDARY: Join code */}
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                background: 'rgba(0,0,0,0.15)', borderRadius: 8, padding: '7px 10px',
-              }}>
-                <div>
-                  <div style={{
-                    fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.35)',
-                    fontSize: 9, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 1,
-                  }}>Or share the join code</div>
-                  <div style={{
-                    fontFamily: 'var(--font-display)', color: '#e8c96a',
-                    fontSize: 22, fontWeight: 700, letterSpacing: 4, lineHeight: 1,
-                  }}>{trip.invite_code}</div>
-                </div>
-                <button
-                  className="btn-press"
-                  onClick={async () => {
-                    try { await navigator.clipboard.writeText(trip.invite_code); toast('Code copied!', 'success') }
-                    catch { toast('Could not copy', 'error') }
-                  }}
-                  style={{
-                    padding: '6px 12px',
-                    background: 'rgba(201,168,76,0.12)',
-                    border: '1px solid rgba(201,168,76,0.28)',
-                    borderRadius: 8,
-                    fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 600,
-                    color: '#e8c96a', cursor: 'pointer', flexShrink: 0,
-                  }}>
-                  Copy code
-                </button>
+            {/* Divider */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <div style={{ flex: 1, height: 1, background: 'rgba(201,168,76,0.2)' }} />
+              <span style={{
+                fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.35)',
+                fontSize: 9, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase',
+              }}>Or share the join code</span>
+              <div style={{ flex: 1, height: 1, background: 'rgba(201,168,76,0.2)' }} />
+            </div>
+
+            {/* SECONDARY — Join code */}
+            <div style={{
+              background: 'rgba(0,0,0,0.2)',
+              border: '1px solid rgba(201,168,76,0.2)',
+              borderRadius: 12, padding: '12px 16px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <div>
+                <div style={{
+                  fontFamily: 'var(--font-display)', color: '#e8c96a',
+                  fontSize: 28, fontWeight: 800, letterSpacing: 5, lineHeight: 1,
+                }}>{trip.invite_code}</div>
               </div>
+              <button
+                className="btn-press"
+                onClick={async () => {
+                  try { await navigator.clipboard.writeText(trip.invite_code); toast('Join code copied', 'success') }
+                  catch { toast('Could not copy code', 'error') }
+                }}
+                style={{
+                  padding: '9px 16px',
+                  background: 'rgba(201,168,76,0.12)',
+                  border: '1.5px solid rgba(201,168,76,0.35)',
+                  borderRadius: 9,
+                  fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700,
+                  color: '#e8c96a', cursor: 'pointer', flexShrink: 0,
+                }}>
+                Copy code
+              </button>
             </div>
           </div>
         )}

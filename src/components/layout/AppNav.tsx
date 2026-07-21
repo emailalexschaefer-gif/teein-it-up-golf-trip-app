@@ -32,17 +32,17 @@ export default function AppNav({ userName, avatarUrl }: Props) {
           {/* Simplified app logo */}
           <a href="/dashboard" className="flex items-center gap-2.5 flex-shrink-0 active:opacity-80 transition-opacity">
             <div style={{
-              width: 46, height: 46, borderRadius: 12,
-              background: '#0f2d1c',
-              border: '1.5px solid #c9a84c',
-              overflow: 'hidden', padding: 2,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+              width: 48, height: 48, borderRadius: 12,
+              border: '2px solid #c9a84c',
+              overflow: 'hidden',
+              boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
+              flexShrink: 0,
             }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/logo-app.png"
                 alt="Teein' It Up"
-                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                 onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none' }}
               />
             </div>
