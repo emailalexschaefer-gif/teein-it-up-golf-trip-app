@@ -316,7 +316,7 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
           />
         )}
         {tab === 'rounds' && (
-          <TripRoundsTab trip={trip} onTabChange={(t) => setTab(t)} />
+          <TripRoundsTab trip={trip} isOrganiser={isOrganiser} onTabChange={(t) => setTab(t)} />
         )}
       </div>
     </div>
