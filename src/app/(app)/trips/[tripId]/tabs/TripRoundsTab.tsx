@@ -17,7 +17,7 @@ export default function TripRoundsTab({ trip, onTabChange }: Props) {
         <div className="card p-8 text-center">
           <p style={{ fontSize: 32, marginBottom: 8 }}>📅</p>
           <p style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: '#1a1a16', marginBottom: 4 }}>No rounds configured</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260' }}>Rounds are added during trip creation. Edit the trip to add or change rounds.</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#7a7260' }}>Rounds are added during trip creation. Edit the trip to add or change rounds.</p>
         </div>
       ) : (
         <div className="space-y-3">

@@ -2,10 +2,6 @@
 
 import React from 'react'
 
-// Premium hero section for the dashboard.
-// Atmosphere: Masters green, gold accents, Playfair Display headline.
-// The hero communicates confidence and excitement before the organiser begins.
-
 export default function DashboardHero() {
   return (
     <div
@@ -13,11 +9,12 @@ export default function DashboardHero() {
       style={{
         background: 'linear-gradient(160deg, #0f2d1c 0%, #1a4731 55%, #236040 100%)',
         border: '1.5px solid rgba(201,168,76,0.35)',
-        boxShadow: '0 4px 24px rgba(15,45,28,0.35)',
-        padding: '24px 22px 22px',
+        boxShadow: '0 6px 32px rgba(15,45,28,0.4)',
+        padding: '30px 24px 26px',
+        minHeight: 180,
       }}
     >
-      {/* Decorative background texture — subtle fairway lines */}
+      {/* Subtle fairway-line texture */}
       <div style={{
         position: 'absolute', inset: 0, opacity: 0.04,
         backgroundImage: 'repeating-linear-gradient(0deg, #c9a84c 0px, #c9a84c 1px, transparent 1px, transparent 32px)',
@@ -31,29 +28,29 @@ export default function DashboardHero() {
       }} />
 
       <div className="relative">
-        {/* Headline */}
+        {/* Headline — larger, product language */}
         <h1 style={{
           fontFamily: 'var(--font-display)',
           color: '#ffffff',
-          fontSize: 26, fontWeight: 800,
-          lineHeight: 1.15, letterSpacing: -0.3,
-          marginBottom: 4,
+          fontSize: 30, fontWeight: 800,
+          lineHeight: 1.1, letterSpacing: -0.5,
+          marginBottom: 6,
         }}>
-          Run your next<br />
-          <span style={{ color: '#e8c96a' }}>golf event like a pro</span>
+          Run your golf trip<br />
+          <span style={{ color: '#e8c96a' }}>like a pro</span>
         </h1>
 
         {/* Subtitle */}
         <p style={{
           fontFamily: 'var(--font-body)',
-          color: 'rgba(245,230,184,0.65)',
-          fontSize: 13, lineHeight: 1.5,
-          marginBottom: 18,
+          color: 'rgba(245,230,184,0.6)',
+          fontSize: 13.5, lineHeight: 1.5,
+          marginBottom: 22,
         }}>
-          No admin chaos. Just great golf experiences.
+          No admin chaos. Just great experiences.
         </p>
 
-        {/* Primary CTA */}
+        {/* Primary CTA — "Create Trip" not "Create Event" */}
         <a
           href="/trips/new"
           className="inline-flex items-center gap-2 active:scale-95 transition-transform"
@@ -61,28 +58,23 @@ export default function DashboardHero() {
             background: 'linear-gradient(135deg, #c9a84c 0%, #e8c96a 50%, #c9a84c 100%)',
             color: '#0f2d1c',
             borderRadius: 12,
-            padding: '12px 22px',
+            padding: '13px 24px',
             fontFamily: 'var(--font-body)',
-            fontSize: 14, fontWeight: 800,
-            letterSpacing: 0.5,
-            boxShadow: '0 4px 18px rgba(201,168,76,0.45)',
+            fontSize: 14.5, fontWeight: 800,
+            letterSpacing: 0.6,
+            boxShadow: '0 4px 18px rgba(201,168,76,0.5)',
             textDecoration: 'none',
-            display: 'inline-flex',
           }}
         >
-          <span style={{ fontSize: 16 }}>📅</span>
-          Create Event
+          + Create Trip
         </a>
       </div>
 
-      {/* Decorative gold diamond */}
+      {/* Watermark */}
       <div style={{
-        position: 'absolute', bottom: 18, right: 20,
-        opacity: 0.12,
-        fontFamily: 'var(--font-display)',
-        fontSize: 72, color: '#c9a84c',
-        lineHeight: 1, userSelect: 'none',
-        pointerEvents: 'none',
+        position: 'absolute', bottom: 16, right: 20,
+        opacity: 0.1, fontSize: 80, lineHeight: 1,
+        userSelect: 'none', pointerEvents: 'none',
       }}>
         ⛳
       </div>

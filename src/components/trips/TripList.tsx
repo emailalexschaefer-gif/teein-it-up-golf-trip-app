@@ -37,17 +37,17 @@ const EMPTY_STATES: Record<FilterTab, { icon: string; title: string; body: strin
   active: {
     icon:  '⛳',
     title: 'No active trips yet',
-    body:  'Create your first event and invite your crew. The tee is waiting.',
+    body:  'Create your first trip and start bringing people together through golf.',
   },
   completed: {
     icon:  '🏆',
-    title: 'No completed events yet',
-    body:  'Finish your first event and celebrate your results here.',
+    title: 'No completed trips yet',
+    body:  'Finish your first trip and celebrate your results here.',
   },
   archived: {
     icon:  '📁',
     title: 'No archived trips',
-    body:  'Archive a trip to remove it from your active list while keeping all its data.',
+    body:  'Trips you archive will remain safely stored here — restore them any time.',
   },
 }
 

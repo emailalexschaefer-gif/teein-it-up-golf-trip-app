@@ -79,13 +79,13 @@ export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRef
         <div className={cn('flex text-center', expected > 0 ? 'divide-x' : '')} style={{ borderColor: '#ede0c4' }}>
           <div className="flex-1 px-3">
             <p style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, color: '#1a4731' }}>{playerCount}</p>
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260' }}>Joined</p>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260' }}>Joined</p>
           </div>
           {expected > 0 && (
             <>
               <div className="flex-1 px-3">
                 <p style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, color: '#1a1a16' }}>{expected}</p>
-                <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260' }}>Expected</p>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260' }}>Expected</p>
               </div>
               <div className="flex-1 px-3">
                 {over ? (
@@ -98,7 +98,7 @@ export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRef
                     <p style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, color: remaining === 0 ? '#1a4731' : '#d97706' }}>
                       {remaining}
                     </p>
-                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260' }}>Remaining</p>
+                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260' }}>Remaining</p>
                   </>
                 )}
               </div>
@@ -236,7 +236,7 @@ function PlayerRow({
               {formatHandicap(member.playing_handicap, member.profiles?.handicap)}
             </span>
           </div>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260' }}>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260' }}>
             {roleLabel ?? (member.role === 'organiser' ? 'Organiser' : 'Player')}
           </p>
         </div>

@@ -32,7 +32,7 @@ export default function AppNav({ userName, avatarUrl }: Props) {
           {/* Simplified app logo */}
           <a href="/dashboard" className="flex items-center gap-2.5 flex-shrink-0 active:opacity-80 transition-opacity">
             <div style={{
-              width: 38, height: 38, borderRadius: 10,
+              width: 46, height: 46, borderRadius: 12,
               background: '#0f2d1c',
               border: '1.5px solid #c9a84c',
               overflow: 'hidden', padding: 2,
@@ -50,7 +50,7 @@ export default function AppNav({ userName, avatarUrl }: Props) {
               <div style={{
                 fontFamily: 'var(--font-display)',
                 color: '#e8c96a',
-                fontSize: 14.5, fontWeight: 800, letterSpacing: 0.3,
+                fontSize: 15.5, fontWeight: 800, letterSpacing: 0.3,
               }}>Teein&apos; It Up</div>
               <div style={{
                 fontFamily: 'var(--font-body)',

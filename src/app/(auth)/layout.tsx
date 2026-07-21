@@ -22,6 +22,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
             src="/logo-full.png"
             alt="Teein' It Up"
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none' }}
           />
         </div>
         <p style={{
