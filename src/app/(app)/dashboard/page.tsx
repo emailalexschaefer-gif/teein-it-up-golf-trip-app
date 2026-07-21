@@ -2,27 +2,20 @@ import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import TripList from '@/components/trips/TripList'
 import PendingJoinHandler from '@/components/trips/PendingJoinHandler'
+import DashboardHero from '@/components/trips/DashboardHero'
 import JoinByCode from '@/components/trips/JoinByCode'
 
-export const metadata: Metadata = { title: 'My Trips' }
+export const metadata: Metadata = { title: 'My Trips · Teein\' It Up' }
 
 export default function DashboardPage() {
   return (
     <div className="space-y-5">
       <Suspense fallback={null}><PendingJoinHandler /></Suspense>
 
-      {/* Page heading */}
-      <div className="pt-2 flex items-center justify-between">
-        <h1 className="text-3xl font-black text-text tracking-tight">My Trips</h1>
-        <a
-          href="/trips/new"
-          className="bg-brand-600 text-white text-sm font-bold px-5 py-3 rounded-2xl hover:bg-brand-700 transition-colors shadow-card"
-        >
-          + New Trip
-        </a>
-      </div>
+      {/* Premium hero */}
+      <DashboardHero />
 
-      {/* Join code card — always at top, above trip list */}
+      {/* Join a trip — secondary, reduced visual weight */}
       <JoinByCode />
 
       {/* Trip list */}

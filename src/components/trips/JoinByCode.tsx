@@ -42,19 +42,16 @@ export default function JoinByCode() {
 
   return (
     <div style={{
-      background: '#f8f4eb',
-      border: '1.5px solid #d9c9a3',
-      borderRadius: 14,
-      padding: '16px 16px',
-      boxShadow: '0 2px 16px rgba(15,45,28,0.07)',
+      background: 'rgba(242,232,208,0.4)',
+      border: '1px solid #d9c9a3',
+      borderRadius: 12,
+      padding: '12px 14px',
     }}>
       <p style={{
-        fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700,
-        color: '#1a1a16', marginBottom: 3,
+        fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700,
+        color: '#7a7260', letterSpacing: 0.8, textTransform: 'uppercase',
+        marginBottom: 8,
       }}>Join a trip</p>
-      <p style={{
-        fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260', marginBottom: 12,
-      }}>Enter the invite code shared by your organiser.</p>
 
       <form onSubmit={handleJoin}>
         <div style={{ display: 'flex', gap: 8 }}>
