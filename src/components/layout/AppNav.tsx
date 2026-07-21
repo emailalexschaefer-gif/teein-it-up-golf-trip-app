@@ -20,9 +20,6 @@ export default function AppNav({ userName, avatarUrl }: Props) {
     router.refresh()
   }
 
-  const userInitials = initials(userName || '?')
-  const userColor    = avatarColor(userName)
-
   return (
     <>
       <header style={{
@@ -46,6 +43,7 @@ export default function AppNav({ userName, avatarUrl }: Props) {
                 src="/logo-app.png"
                 alt="Teein' It Up"
                 style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none' }}
               />
             </div>
             <div style={{ lineHeight: 1.1 }}>
@@ -63,7 +61,7 @@ export default function AppNav({ userName, avatarUrl }: Props) {
             </div>
           </a>
 
-          {/* Right: New Trip + user avatar */}
+          {/* Right: New Trip + avatar */}
           <div className="flex items-center gap-2">
             <a
               href="/trips/new"
@@ -75,12 +73,12 @@ export default function AppNav({ userName, avatarUrl }: Props) {
                 fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700,
                 color: '#e8c96a', letterSpacing: 0.4,
                 boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                textDecoration: 'none',
               }}
             >
               + New Trip
             </a>
 
-            {/* Pass badge */}
             <div style={{
               background: 'rgba(201,168,76,0.15)',
               border: '1px solid rgba(201,168,76,0.4)',
@@ -89,7 +87,6 @@ export default function AppNav({ userName, avatarUrl }: Props) {
               fontSize: 10, fontWeight: 700, letterSpacing: 0.5,
             }}>PASS</div>
 
-            {/* Avatar / dropdown trigger */}
             <button
               type="button"
               onClick={() => setOpen(!open)}
@@ -97,7 +94,12 @@ export default function AppNav({ userName, avatarUrl }: Props) {
             >
               {avatarUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={avatarUrl} alt={userName} className="w-9 h-9 rounded-full object-cover border-2 border-gold" />
+                <img
+                  src={avatarUrl}
+                  alt={userName}
+                  className="w-9 h-9 rounded-full object-cover border-2 border-gold"
+                  onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none' }}
+                />
               ) : (
                 <GoldAvatar name={userName || '?'} size={36} />
               )}
@@ -106,7 +108,7 @@ export default function AppNav({ userName, avatarUrl }: Props) {
         </div>
       </header>
 
-      {/* Dropdown menu */}
+      {/* Dropdown */}
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
@@ -126,33 +128,30 @@ export default function AppNav({ userName, avatarUrl }: Props) {
                 Golf Event Organiser
               </p>
             </div>
+
+            {/* Nav links — Tailwind hover, no inline JS handlers */}
             {[
-              { label: '🏠  My Trips',    href: '/dashboard' },
+              { label: '🏠  My Trips',   href: '/dashboard' },
               { label: '+ New Trip',     href: '/trips/new' },
-              { label: '👤  My Profile',  href: '/profile' },
+              { label: '👤  My Profile', href: '/profile' },
             ].map(({ label, href }) => (
-              <a key={href} href={href} onClick={() => setOpen(false)} style={{
-                display: 'block', padding: '11px 16px',
-                fontFamily: 'var(--font-body)', fontSize: 13, color: '#1a1a16',
-                borderBottom: '1px solid #ede0c4', textDecoration: 'none',
-              }}
-              onMouseEnter={(e: React.MouseEvent<HTMLAnchorElement>) => (e.currentTarget.style.background = '#f2e8d0')}
-              onMouseLeave={(e: React.MouseEvent<HTMLAnchorElement>) => (e.currentTarget.style.background = 'transparent')}
+              <a
+                key={href}
+                href={href}
+                onClick={() => setOpen(false)}
+                className="block px-4 py-3 text-sm text-ink hover:bg-cream transition-colors border-b border-parchment"
+                style={{ fontFamily: 'var(--font-body)', textDecoration: 'none' }}
               >
                 {label}
               </a>
             ))}
+
+            {/* Sign out button — Tailwind hover, no inline JS handlers */}
             <button
               type="button"
               onClick={handleSignOut}
-              style={{
-                display: 'block', width: '100%', textAlign: 'left',
-                padding: '11px 16px',
-                fontFamily: 'var(--font-body)', fontSize: 13, color: '#b91c1c',
-                background: 'none', border: 'none', cursor: 'pointer',
-              }}
-              onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = '#fef2f2')}
-              onMouseLeave={(e: React.MouseEvent<HTMLAnchorElement>) => (e.currentTarget.style.background = 'transparent')}
+              className="block w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors"
+              style={{ fontFamily: 'var(--font-body)', background: 'none', border: 'none', cursor: 'pointer' }}
             >
               🚪  Sign out
             </button>
