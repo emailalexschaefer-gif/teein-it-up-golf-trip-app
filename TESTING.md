@@ -318,3 +318,75 @@ Without it: groups tab fails, organiser_is_playing is ignored, handicap_status i
 2. Open archived trip → Restore → confirm it moves to Completed tab
 3. Open completed trip → Delete → type DELETE → confirm it disappears entirely
 4. Verify other users' trips are unaffected
+
+
+---
+
+## Sprint 5A — Begin Round & Scoring Foundation
+
+### New files
+- `src/lib/scoring/defaultHoles.ts` — default 18/9-hole template + `resolvePlayingHandicap()` + `getDefaultHoles()`
+- `src/app/api/trips/[tripId]/rounds/[roundId]/start/route.ts` — POST start-round API
+- `src/app/api/trips/[tripId]/rounds/[roundId]/scorecards/route.ts` — GET scorecards API
+- `src/components/scoring/BeginRoundModal.tsx` — 3-stage pre-round confirmation modal
+- `src/app/(app)/trips/[tripId]/rounds/[roundId]/page.tsx` — active round server page
+- `src/app/(app)/trips/[tripId]/rounds/[roundId]/ScoreSessionShell.tsx` — active round shell UI
+
+### Modified files
+- `src/app/(app)/trips/[tripId]/tabs/TripRoundsTab.tsx` — Begin Round button, modal, status badges
+- `src/app/(app)/trips/[tripId]/TripDetailClient.tsx` — passes `isOrganiser` to TripRoundsTab
+
+### No database migrations required
+Migration 004 (scoring tables) must be applied. No new tables needed for Sprint 5A.
+
+### Handicap rounding rule
+`resolvePlayingHandicap()` in `defaultHoles.ts` applies `Math.floor()` to any decimal handicap.
+Example: 14.5 → 14. This is consistent with standard amateur golf practice (play off whole number, rounding down).
+The resolved value is shown to the organiser in the confirmation modal before the round starts.
+
+### Duplicate prevention
+- Holes: `upsert` with `onConflict: 'round_id,hole_number'` — defined in migration 004 as `UNIQUE (round_id, hole_number)`
+- Scorecards: `upsert` with `onConflict: 'round_id,player_id'` — defined in migration 004 as `UNIQUE (round_id, player_id)`
+
+### Sprint 5A manual test checklist
+
+**Begin Round flow (organiser)**
+- [ ] Open a trip with `live` or `ready` status
+- [ ] Go to the Rounds tab
+- [ ] Confirm "Begin Round" button appears on an upcoming round
+- [ ] Tap "Begin Round" — confirm modal opens
+- [ ] Stage 1: Review shows all groups, players and handicaps
+- [ ] Stage 1: Missing handicap shows ⚠ warning with player name
+- [ ] Stage 2: Holes — default template loads with 18 holes
+- [ ] Stage 2: Edit par/SI — changes save correctly
+- [ ] Stage 2: "Review & Confirm" disabled if validation fails
+- [ ] Stage 3: Summary shows all players with resolved handicaps
+- [ ] Tap "Confirm & Begin Round"
+- [ ] Verify `rounds.status = 'active'` in Supabase
+- [ ] Verify 18 rows in `holes` for this round
+- [ ] Verify one `scorecard` per assigned player
+- [ ] Verify `playing_handicap` in scorecard matches `Math.floor()` of source
+- [ ] Redirected to `/trips/[tripId]/rounds/[roundId]/score`
+- [ ] Round shell shows: round name, date, tee time, all players with HCP
+- [ ] "Enter Scores" button visible (Sprint 5B placeholder)
+
+**Access control**
+- [ ] Non-organiser does NOT see "Begin Round" button
+- [ ] Non-organiser CAN see "Enter Scores" on an active round
+- [ ] Calling POST /start as a non-organiser returns 403
+
+**Validation**
+- [ ] No groups → error message, Begin Round blocked
+- [ ] Group with no players → error message
+- [ ] Player missing handicap → error message with player name
+- [ ] Begin Round a second time → 409 "already started"
+- [ ] 9-hole round → SI validates 1–9, hole table shows 9 rows
+
+**Regression (existing features)**
+- [ ] Trip detail page loads correctly
+- [ ] Overview tab status transitions unchanged
+- [ ] Players tab unchanged
+- [ ] Groups tab unchanged
+- [ ] Dashboard trip counts unchanged
+- [ ] Join by code unchanged
+- [ ] Create Trip wizard unchanged
