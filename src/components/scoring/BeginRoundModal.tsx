@@ -186,7 +186,7 @@ export default function BeginRoundModal({
                       g.players.map(p => {
                         const hcp = resolvePlayingHandicap(p.playing_handicap, p.profile_handicap)
                         return (
-                          <div key={p.profile_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4, marginBottom: 4 }}>
+                          <div key={p.profile_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', marginBottom: 4 }}>
                             <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#1a1a16', fontWeight: 500 }}>{p.full_name}</span>
                             {hcp !== null ? (
                               <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260', background: '#f2e8d0', borderRadius: 6, padding: '2px 8px' }}>HCP {hcp}</span>
