@@ -140,23 +140,32 @@ export default function BeginRoundModal({
           {stage === 'review' && (
             <>
               {/* Round info */}
-              <div className="card p-4 mb-4" style={{ marginBottom: 14 }}>
-                <p className="s-label mb-2">Round Details</p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  {[
-                    ['📅 Date', formattedDate],
-                    ['⏱ Tee time', teeTime ?? 'TBC'],
-                    ['⛳ Holes', String(holeCount)],
-                    ['🏆 Format', 'Stableford'],
-                    ...(courseName ? [['📍 Course', courseName]] : []),
-                  ].map(([label, val]) => (
-                    <div key={label}>
-                      <p style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#7a7260', fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 2 }}>{label}</p>
-                      <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#1a1a16' }}>{val}</p>
+              {(() => {
+                const groupTimes = groups.map(g => g.tee_time).filter(Boolean).sort() as string[]
+                const teeTimeDisplay = groupTimes.length === 0 ? 'TBC'
+                  : groupTimes.length === 1 ? groupTimes[0]
+                  : `${groupTimes[0]}–${groupTimes[groupTimes.length - 1]}`
+                const detailRows = [
+                  ['📅 Date', formattedDate],
+                  ['⏱ First tee', teeTimeDisplay],
+                  ['⛳ Holes', String(holeCount)],
+                  ['🏆 Format', 'Stableford'],
+                  ...(courseName ? [['📍 Course', courseName]] : []),
+                ]
+                return (
+                  <div className="card p-4 mb-4" style={{ marginBottom: 14 }}>
+                    <p className="s-label mb-2">Round Details</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      {detailRows.map(([label, val]) => (
+                        <div key={label}>
+                          <p style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#7a7260', fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 2 }}>{label}</p>
+                          <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#1a1a16' }}>{val}</p>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              </div>
+                  </div>
+                )
+              })()}
 
               {/* Groups & players */}
               <p className="s-label mb-2" style={{ marginBottom: 8 }}>Playing Groups</p>
@@ -220,7 +229,7 @@ export default function BeginRoundModal({
             <>
               <div style={{ background: '#fdf8ee', border: '1px solid #e8d98a', borderRadius: 10, padding: '10px 14px', marginBottom: 14 }}>
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a5c00' }}>
-                  <strong>Default template loaded.</strong> This is not real course data. Review and adjust par and stroke index for each hole before continuing.
+                  <strong>Default hole template loaded.</strong> Review and adjust each hole's par and stroke index to match your course before continuing.
                 </p>
               </div>
 

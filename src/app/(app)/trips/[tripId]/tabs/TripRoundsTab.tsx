@@ -145,7 +145,7 @@ function RoundCard({ round, index, tripId, isOrganiser, canBegin, onBeginRound }
         <div style={{ background: '#1a4731', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#e8c96a', display: 'inline-block' }} />
           <span style={{ fontFamily: 'var(--font-body)', color: '#e8c96a', fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }}>
-            Round in progress
+            🟢 Round in progress — scoring underway
           </span>
         </div>
       )}
@@ -208,7 +208,7 @@ function RoundCard({ round, index, tripId, isOrganiser, canBegin, onBeginRound }
                 color: '#ffffff', boxShadow: '0 3px 12px rgba(26,71,49,0.35)',
               }}
             >
-              Enter Scores →
+              Continue Scoring →
             </a>
           )}
 

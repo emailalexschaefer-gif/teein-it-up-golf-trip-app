@@ -73,8 +73,23 @@ function RoundCard({ round, index, total, onUpdate, onRemove }: {
 export default function StepRounds({ tripDetails, rounds, onChange, onNext, onBack }: Props) {
   const valid = rounds.every((r) => r.name.trim() && r.play_date)
 
+  // Warn when a round date falls outside the trip date range
+  const dateWarnings = rounds.filter(r => {
+    if (!r.play_date || !tripDetails.start_date || !tripDetails.end_date) return false
+    return r.play_date < tripDetails.start_date || r.play_date > tripDetails.end_date
+  })
+
   return (
     <div className="space-y-4">
+      {dateWarnings.length > 0 && (
+        <div style={{
+          background: '#fef9ec', border: '1px solid #f5c842',
+          borderRadius: 10, padding: '10px 14px',
+          fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a5c00',
+        }}>
+          ⚠ {dateWarnings.length === 1 ? 'A round date' : `${dateWarnings.length} round dates`} fall outside the trip dates ({tripDetails.start_date} – {tripDetails.end_date}). You can continue, but check the dates are correct.
+        </div>
+      )}
       <div className="space-y-3">
         {rounds.map((r, i) => (
           <RoundCard
