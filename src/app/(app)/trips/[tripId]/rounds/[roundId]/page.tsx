@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import ScoreSessionShell from './ScoreSessionShell'
 
 interface Props { params: Promise<{ tripId: string; roundId: string }> }
@@ -11,11 +12,25 @@ export default async function RoundScorePage({ params }: Props) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  // Use admin client to bypass RLS — ensures the page always loads
+  // even if the user's RLS session hasn't fully propagated after round start.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db: any = supabase
+  const admin: any = createAdminClient()
+
+  // Verify the user belongs to this trip
+  const memberCheck = await admin
+    .from('trip_members')
+    .select('role')
+    .eq('trip_id', tripId)
+    .eq('profile_id', user.id)
+    .maybeSingle()
+
+  if (!memberCheck.data) {
+    redirect(`/dashboard`)
+  }
 
   // Fetch round details
-  const roundRes = await db
+  const roundRes = await admin
     .from('rounds')
     .select('id, name, status, holes, scoring_format, course_name, tee_time, play_date, trip_id')
     .eq('id', roundId)
@@ -27,20 +42,22 @@ export default async function RoundScorePage({ params }: Props) {
   }
 
   const round = roundRes.data
-  if (round.status !== 'active') {
+
+  // If round is not yet active, redirect back to the trip (they'll see the Rounds tab)
+  if (round.status === 'upcoming') {
     redirect(`/trips/${tripId}`)
   }
 
   // Fetch the caller's scorecard
-  const scorecardRes = await db
+  const scorecardRes = await admin
     .from('scorecards')
     .select('id, playing_handicap, status')
     .eq('round_id', roundId)
     .eq('player_id', user.id)
     .maybeSingle()
 
-  // Fetch all scorecards with player info (for group display)
-  const allCardsRes = await db
+  // Fetch all scorecards with player info
+  const allCardsRes = await admin
     .from('scorecards')
     .select(`
       id, player_id, playing_handicap, status,
@@ -49,8 +66,8 @@ export default async function RoundScorePage({ params }: Props) {
     .eq('round_id', roundId)
     .neq('status', 'withdrawn')
 
-  // Fetch trip name
-  const tripRes = await db
+  // Fetch trip info
+  const tripRes = await admin
     .from('trips')
     .select('name, organiser_id')
     .eq('id', tripId)

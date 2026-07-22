@@ -352,7 +352,7 @@ export default function LoginForm() {
       <h1 className="text-xl font-bold text-text mb-1">Sign in</h1>
       <p className="text-text-muted text-sm mb-6">
         {mode === 'magic'
-          ? "We'll send you a sign-in link — no password needed."
+          ? "We'll email you a secure sign-in link."
           : 'Sign in with your email and password.'}
       </p>
 

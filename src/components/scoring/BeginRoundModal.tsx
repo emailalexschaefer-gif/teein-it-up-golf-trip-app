@@ -69,7 +69,7 @@ export default function BeginRoundModal({
         return
       }
       // Navigate to the active round shell
-      router.push(`/trips/${tripId}/rounds/${roundId}/score`)
+      router.push(`/trips/${tripId}/rounds/${roundId}`)
       router.refresh()
     } catch {
       setError("We couldn't begin the round. Please try again.")

@@ -199,7 +199,7 @@ function RoundCard({ round, index, tripId, isOrganiser, canBegin, onBeginRound }
 
           {isLive && (
             <a
-              href={`/trips/${tripId}/rounds/${round.id}/score`}
+              href={`/trips/${tripId}/rounds/${round.id}`}
               style={{
                 display: 'block', width: '100%', padding: '12px 18px', textAlign: 'center',
                 background: 'linear-gradient(135deg, #2d7a52, #1a4731)',
@@ -214,7 +214,7 @@ function RoundCard({ round, index, tripId, isOrganiser, canBegin, onBeginRound }
 
           {isCompleted && (
             <a
-              href={`/trips/${tripId}/rounds/${round.id}/score`}
+              href={`/trips/${tripId}/rounds/${round.id}`}
               style={{
                 display: 'block', width: '100%', padding: '10px 18px', textAlign: 'center',
                 background: '#f2e8d0', borderRadius: 10, textDecoration: 'none',
