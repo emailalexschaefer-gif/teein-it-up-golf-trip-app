@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { initials, avatarColor } from '@/lib/utils'
+import NextImage from 'next/image'
 import { GoldAvatar } from '@/components/ui/Avatar'
 
 interface Props { userName: string; avatarUrl: string | null }
@@ -37,13 +38,14 @@ export default function AppNav({ userName, avatarUrl }: Props) {
               overflow: 'hidden',
               boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
               flexShrink: 0,
+              position: 'relative',
             }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <NextImage
                 src="/logo-app.png"
                 alt="Teein' It Up"
-                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none' }}
+                fill
+                priority
+                style={{ objectFit: 'cover' }}
               />
             </div>
             <div style={{ lineHeight: 1.1 }}>

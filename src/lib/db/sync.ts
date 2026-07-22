@@ -22,6 +22,12 @@ export async function syncScoreQueue(): Promise<void> {
   for (const entry of pending) {
     if (entry.retryCount >= MAX_RETRIES) { errors++; continue }
 
+    // Snapshot the gross score we're about to send. If the person edits this
+    // same hole again before the request resolves, the queued record will
+    // have moved on — markEntrySynced compares against this snapshot and
+    // will not falsely mark the newer edit as synced.
+    const sentGrossScore = entry.grossScore
+
     try {
       await markEntrySyncing(entry.clientId)
 
@@ -39,7 +45,7 @@ export async function syncScoreQueue(): Promise<void> {
       })
 
       if (res.ok || res.status === 409) {
-        await markEntrySynced(entry.clientId)
+        await markEntrySynced(entry.clientId, sentGrossScore)
       } else {
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error || `HTTP ${res.status}`)

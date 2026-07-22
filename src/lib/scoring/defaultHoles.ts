@@ -8,6 +8,8 @@
  *  - Pars: 2× par-5, 4× par-3, 12× par-4 on a standard par-72 course.
  */
 
+import { roundHandicap } from './rounding'
+
 export interface HoleTemplate {
   hole_number: number
   par: number
@@ -86,5 +88,5 @@ export function resolvePlayingHandicap(
 ): number | null {
   const raw = tripHandicap ?? profileHandicap ?? null
   if (raw === null) return null
-  return Math.round(raw)
+  return roundHandicap(raw)
 }
