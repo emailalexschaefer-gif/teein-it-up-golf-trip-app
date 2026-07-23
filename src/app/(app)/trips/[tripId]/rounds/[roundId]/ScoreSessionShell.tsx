@@ -195,6 +195,7 @@ export default function ScoreSessionShell({
       const queued = await getQueuedEntriesForScorecards(allVisibleScorecards.map(c => c.id))
       if (cancelled) return
       for (const entry of queued.values()) {
+        if (entry.captureRole !== 'self') continue // this shell (group_scorer mode) has no marker concept
         const holeNum = holeNumberById.get(entry.holeId)
         if (!holeNum) continue
         nextScores[entry.scorecardId] = { ...nextScores[entry.scorecardId], [holeNum]: entry.grossScore }
@@ -342,6 +343,7 @@ export default function ScoreSessionShell({
       const clientId = await queueScoreEntry({
         scorecardId: scoredCardId,
         holeId: scoredHole.id,
+        captureRole: 'self',
         grossScore: gross,
         isNoReturn: false,
         enteredAt: new Date().toISOString(),
