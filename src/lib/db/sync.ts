@@ -22,11 +22,11 @@ export async function syncScoreQueue(): Promise<void> {
   for (const entry of pending) {
     if (entry.retryCount >= MAX_RETRIES) { errors++; continue }
 
-    // Snapshot the gross score we're about to send. If the person edits this
-    // same hole again before the request resolves, the queued record will
+    // Snapshot what we're about to send. If the person edits this same
+    // hole+role again before the request resolves, the queued record will
     // have moved on — markEntrySynced compares against this snapshot and
     // will not falsely mark the newer edit as synced.
-    const sentGrossScore = entry.grossScore
+    const sent = { grossScore: entry.grossScore, isNoReturn: entry.isNoReturn }
 
     try {
       await markEntrySyncing(entry.clientId)
@@ -35,17 +35,18 @@ export async function syncScoreQueue(): Promise<void> {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          scorecard_id: entry.scorecardId,
-          hole_id:      entry.holeId,
-          gross_score:  entry.grossScore,
-          is_no_return: entry.isNoReturn,
-          client_id:    entry.clientId,
-          entered_at:   entry.enteredAt,
+          scorecard_id:  entry.scorecardId,
+          hole_id:       entry.holeId,
+          capture_role:  entry.captureRole,
+          gross_score:   entry.grossScore,
+          is_no_return:  entry.isNoReturn,
+          client_id:     entry.clientId,
+          entered_at:    entry.enteredAt,
         }),
       })
 
       if (res.ok || res.status === 409) {
-        await markEntrySynced(entry.clientId, sentGrossScore)
+        await markEntrySynced(entry.clientId, sent)
       } else {
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error || `HTTP ${res.status}`)
