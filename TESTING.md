@@ -729,3 +729,338 @@ against the full project. Result: **51/51 passing.** One test
 arithmetic mistake in its own hand-worked example — the implementation was
 correct, the test's chosen inputs weren't; I corrected the test's inputs
 rather than the implementation. Full detail in the completion report below.
+
+---
+
+## Critical Fixes — "No scorecard found" + Logo Loading
+
+### Issue 1 root cause: "No scorecard found for this group"
+
+**Not a scorecard-creation bug.** `begin_round()` (migration 016) was already
+correctly creating one scorecard per assigned player. The bug was entirely
+in the scoring page's READ path:
+
+`page.tsx` queried scorecards with:
+```
+.from('scorecards').select('..., trip_members!inner(group_id), ...')
+```
+`scorecards.player_id` references `profiles(id)` — there is **no foreign
+key from `scorecards` to `trip_members`**, so PostgREST has no relationship
+to embed. This query failed on every single request, for every user, on
+every round. The failure was never checked (`allCardsRes.data ?? []`
+silently turned the error into an empty array), so the page always believed
+there were zero scorecards, regardless of what was actually in the database.
+
+**Fix:** fetch scorecards on their own (their embeds of `profiles` and
+`score_entries` ARE valid — real foreign keys exist for both), fetch
+`trip_members` separately, and merge group membership in application code
+instead of asking PostgREST to embed a relationship that doesn't exist.
+
+**Practical implication:** the existing live "Round 1" almost certainly
+already has correct scorecard data — see migration 021's diagnostic query to
+confirm this for your specific round before assuming a repair is needed.
+
+### Issue 1 — additional hardening added
+
+- `begin_round()` (migration 020) now verifies, after insert, that the
+  distinct hole count and active scorecard count match what was expected,
+  and that every scorecard's player has a playing-group assignment — RAISEs
+  (full rollback, round stays `upcoming`) if not. Returns a structured
+  result: `{ roundId, holesCreated, scorecardsCreated, expectedScorecards,
+  groupsProcessed, success }`.
+- The direct-insert fallback path (used only if the RPC itself doesn't
+  exist) now runs the equivalent checks before flipping the round to
+  `active`.
+- The start-round API route no longer falls back to direct inserts when the
+  RPC raises a genuine validation error (`HOLE_COUNT_MISMATCH`,
+  `SCORECARD_COUNT_MISMATCH`, `UNMAPPED_PLAYING_GROUP`) — that fallback path
+  doesn't have those checks, so silently retrying through it would have
+  reintroduced the exact problem the RPC just caught. Fallback is reserved
+  for "the RPC doesn't exist yet" only.
+- Organiser group resolution: `page.tsx` now keeps every group in
+  `allGroups` for an organiser (even an empty one), instead of filtering
+  empty groups out — an empty group is exactly the state an organiser needs
+  to see and act on, not one to hide.
+- The scoring screen no longer shows a flat "No scorecard found for this
+  group" in every case. It now distinguishes: organiser + genuine empty
+  group → "Scorecards were not created correctly for this group. Return to
+  the trip and regenerate the round setup."; ordinary player + genuine empty
+  group → a message telling them to contact the organiser, not a dead end.
+- Temporary structured diagnostic logging was added to `page.tsx`, gated
+  behind `SCORING_DEBUG=1` (off by default) — logs `user_id`, `trip_id`,
+  `round_id`, `trip_member_id`, `trip_role`, `resolved_group_id`,
+  `available_group_ids`, and scorecard counts before/after filtering. **Do
+  not leave `SCORING_DEBUG=1` set in production** — remove it from Vercel's
+  environment variables once this is confirmed fixed.
+
+### Existing broken test round — repair or recreate?
+
+Given the root cause was a read-path bug, not a write-path bug: **the
+existing "Round 1" almost certainly does not need repair.** Redeploying the
+fixed `page.tsx` should be sufficient on its own.
+
+To be certain, run the diagnostic query at the top of migration 021 against
+the actual `round_id` for Round 1 before doing anything else. If — and only
+if — that diagnostic genuinely shows missing or unmapped scorecards, run:
+```sql
+SELECT public.repair_round_scorecards('YOUR_ROUND_ID');
+```
+This is idempotent and safe to run more than once; it only creates
+scorecards that are genuinely missing and never touches existing
+`score_entries`.
+
+### Issue 2 root cause: logo not loading
+
+- Two separate logo files existed (`/public/logo-full.png`,
+  `/public/logo-app.png`), referenced from two different, non-shared
+  components (`(auth)/BrandLogo.tsx`, and inline markup duplicated in
+  `AppNav.tsx`). Neither was case-ambiguous or corrupted in this working
+  tree, and `logo-app.png` (used in `AppNav`, visible on dashboard/trip
+  pages) was clearly rendering fine in the screenshots — only
+  `/logo-full.png` (the `(auth)` pages only: login/join) showed a broken-
+  image icon in production.
+- This points at the same recurring class of issue already noted in
+  project history: a file present in the working tree but not committed
+  (`git add`-ed) before a Vercel deploy 404s in production while working
+  fine in local dev. I can't verify your actual git/Vercel state from here
+  — see the deployment steps below for how to confirm it this time.
+- Consolidated to **one** shared component (`src/components/brand/
+  BrandLogo.tsx`), used on the `(auth)` pages (landing/login/join),
+  `AppNav` (dashboard + every `(app)` page including trip pages), and the
+  scoring screen header (which previously had no logo image at all, just
+  text).
+- Moved both assets to the stable path the brief specified:
+  `/public/brand/teein-it-up-logo.png` and `/public/brand/teein-it-up-
+  icon.png`. Old `/public/logo-full.png` and `/public/logo-app.png` removed
+  — nothing references them anymore.
+- The `(auth)` logo now uses a responsive `fill`-based wrapper
+  (`clamp(160px, 55vw, 280px)`) instead of a fixed 220px box, so it scales
+  correctly on narrow phones without clipping, and is larger/more prominent
+  per the requirement.
+- Removed the `next/image` `fill`-inside-fixed-box pattern in favor of
+  explicit width/height for the icon variant (header use), which is more
+  robust across build environments.
+- Added a genuine text fallback (`Teein' It Up` in the display font) that
+  only appears on an actual `onError` from `next/image` — there was no
+  golfer-emoji fallback in the code to begin with (confirmed by search), but
+  there also wasn't a controlled fallback for a genuine load failure either;
+  now there is.
+
+### Manual test steps for the logo (do these on the actual Vercel deployment)
+
+1. Hard refresh (Ctrl+Shift+R) the landing/login page — confirm the full
+   crest logo renders, not a broken-image icon.
+2. Open DevTools → Network tab, filter "brand" — confirm both
+   `teein-it-up-logo.png` and `teein-it-up-icon.png` return **HTTP 200**,
+   not 404.
+3. Repeat in an incognito window (rules out a stale local cache).
+4. Check the join page, dashboard, a trip page, and the scoring page — all
+   should show the compact icon variant in the header.
+5. Check on a mobile viewport (DevTools device toolbar or a real phone) —
+   confirm no clipping and the logo still reads clearly at the smaller size.
+
+If it's still broken after deploying this fix, the very next thing to check
+is `git status` / `git ls-files public/brand/` — confirm both PNGs are
+actually tracked and were included in the commit that got deployed, not just
+sitting on disk locally. This exact class of issue has happened before on
+this project.
+
+---
+
+## Self + Marker Scoring Model (MiScore-style)
+
+Sprint 5B's default scoring model changed from "one scorer enters the whole
+group" to "each player enters their own score and one nominated marker
+partner's score." The old model is retained, not deleted — see
+`rounds.score_capture_mode` (`self_and_marker` is now the default,
+`group_scorer` is the legacy behaviour, selectable per round).
+
+### Marker assignment rules
+
+- 2 players: mutual — each marks the other.
+- Even player count: consecutive mutual pairs in playing order.
+- Odd player count: circular — each player marks the next, wrapping around.
+- Auto-generated the moment a round begins (`autoGenerateMarkers` in the
+  start-round route), and fully visible/editable afterward at
+  `/trips/[tripId]/rounds/[roundId]/markers` (organiser-only).
+
+### Data model
+
+`round_markers (round_id, player_id, marker_player_id)` — one row per
+player, directional (`marker_player_id` records `player_id`'s score, in
+addition to their own). This is what makes a 3-player circular assignment
+representable without forcing symmetry.
+
+`score_entries` gained `capture_role` ('self' | 'marker'), and the unique
+constraint widened from `(scorecard_id, hole_id)` to
+`(scorecard_id, hole_id, capture_role)` — a player's self-entered score and
+their marker's entry for them are two independent rows, never one
+overwriting the other. `gross_score` is now nullable for a genuine pick-up
+(previously it was forced to always store some number even when picked up).
+
+### Stableford and handicaps
+
+Unchanged calculation, but the input handicap is always the *scored
+player's*, never the marker's — `getHandicapStrokesForHole` is called with
+`scorecard.playing_handicap` for whichever scorecard is being written to,
+regardless of who's entering the data. Darren recording Alex's score still
+uses Alex's handicap and stroke allocation, because the marker capture is
+written against Alex's `scorecard_id`, not Darren's.
+
+### Permissions
+
+Enforced in both places, not just the UI:
+- DB: `score_entry_capture_allowed(scorecard_id, capture_role)` — mode-aware;
+  self_and_marker mode checks `round_markers` for a marker-role write,
+  `same_playing_group()` (unchanged) only applies in group_scorer mode.
+- API: `/api/scores` mirrors the same logic server-side before writing
+  anything, independent of RLS.
+- `round_markers` itself: only organisers can write (RLS `FOR ALL` policy),
+  players can only read — matches "a player may not change marker
+  assignments."
+
+### Offline dedupe
+
+The Dexie queue key widened from `(scorecardId, holeId)` to
+`(scorecardId, holeId, captureRole)` — a self entry and a marker entry for
+the same hole are queued, retried, and deduped completely independently,
+and never collide with each other. Existing queued rows (pre-marker model)
+are backfilled to `capture_role: 'self'` via a Dexie v2 upgrade function.
+
+### Resume behaviour
+
+Resumes at the first hole where either the player's own score OR their
+marker entry for their partner is missing — not hole 1. Computed from
+server-hydrated data merged with anything still in the local offline queue,
+same pattern as the existing hydration logic.
+
+### Reconciliation
+
+After hole 18 (or via "View Score Comparison" once all holes are done), a
+comparison screen shows matched/mismatch/pending counts and lists each
+mismatched hole with both values. **Known limitation:** you can only edit
+*your own* side of a mismatch from this screen — correcting your marker's
+entry for you requires the marker (or the organiser) to do it, since a
+player isn't permitted to write into someone else's capture role for
+themselves. This matches the permission model but is a narrower editing
+experience than a full two-sided reconciliation UI would offer.
+
+### Existing data — no recreation needed for previous rounds
+
+`capture_role` defaults to `'self'` for every existing `score_entries` row
+— they keep meaning exactly what they always meant (a single authoritative
+capture), nothing is silently upgraded to "verified marker score." Rounds
+already begun under the old model don't need any migration; only rounds
+begun *after* migration 022 get marker assignments auto-seeded. A round
+already in progress when this deploys will have no `round_markers` rows
+until the organiser visits the marker review screen and clicks
+"Auto-assign" for each group (or the organiser sets `score_capture_mode`
+to `group_scorer` for that round if a full marker retrofit isn't wanted).
+
+### Manual testing required (not run against a live app in this pass)
+
+**Two-player group:** mutual marking, both enter both scores, matched and
+mismatch detection, reconciliation edit flow.
+
+**Four-player group:** two independent marker pairs, each player sees only
+their own card + their assigned marker's card, no access to the other
+pair's cards, organiser can view all pairs via the marker review screen.
+
+**Three-player group:** circular assignment, each score gets one
+independent marker capture, verify Alex/Darren/Sam wraps correctly.
+
+**Offline:** enter both own and marker scores offline, refresh (unsynced
+data should still show), reconnect, confirm no duplicate `score_entries`
+rows, confirm comparison status updates once synced.
+
+**Reconciliation:** all holes match; one mismatch; multiple mismatches;
+marker score missing; self score missing; picked-up vs numeric mismatch;
+corrected score recalculates Stableford correctly.
+
+**Permissions:** a player cannot POST a marker-role entry for someone who
+isn't their assigned partner (expect 403); a player cannot write a self-role
+entry for anyone but themselves outside group_scorer mode; the assigned
+marker can score their partner; the organiser can inspect/correct any
+scorecard; a non-member gets denied.
+
+---
+
+## Fix: `individual` Mode Was Not Genuinely Distinct From `self_and_marker`
+
+Review correctly caught a real bug: the permission logic (both the API
+route and the DB function) branched only on `group_scorer` vs "everything
+else," so `individual` mode fell into the same code path as
+`self_and_marker` — a marker-role write would have been honoured in
+`individual` mode if a `round_markers` row happened to exist for that
+player, even though `individual` mode is supposed to have no marker concept
+at all.
+
+### Root cause
+
+`score_entry_capture_allowed()` (migration 022) and `/api/scores`'s inline
+branching both checked `capture_role === 'marker'` and looked up
+`round_markers` unconditionally whenever the mode wasn't `group_scorer` —
+never checking that the mode was specifically `self_and_marker` first.
+
+### Fix
+
+- New pure, tested module `src/lib/scoring/captureMode.ts` —
+  `isCaptureAllowed({ mode, captureRole, isOwnCard, isOrganiser, ... })` is
+  now the single source of truth on the TS side, with 15 tests covering all
+  three modes explicitly, including "individual mode denies marker role
+  even if isAssignedMarker is somehow true."
+- `/api/scores` now calls this function instead of ad hoc branching, and
+  structurally never even looks up `round_markers` for an `individual`-mode
+  request.
+- Migration `023_individual_mode_permission_fix.sql` fixes the DB-side
+  function to match — `individual` mode now has its own explicit branch that
+  never consults `round_markers`.
+- `autoGenerateMarkers()` (start-round route) now only seeds marker
+  assignments for `self_and_marker` mode — previously it skipped only
+  `group_scorer`, so `individual` mode rounds were getting `round_markers`
+  rows created for them, which is exactly backwards.
+- `page.tsx` no longer even queries `round_markers` for `individual` mode —
+  `markedScorecard` and `markedByName` are structurally `null` for that
+  mode, not just filtered out downstream.
+- `SelfMarkerScoreShell.tsx` gates every marker-related behaviour on a
+  `requiresMarker = round.score_capture_mode === 'self_and_marker'` flag,
+  checked at every point: which card renders, whether comparison status is
+  computed, whether Confirm requires a partner score, resume logic, and
+  whether the end-of-round reconciliation screen exists at all for that
+  round.
+
+### Confirmed behaviour (per the review's checklist)
+
+1. **`individual` mode does not require `round_markers`.** ✅ — `page.tsx`
+   never queries it for this mode; `autoGenerateMarkers` never seeds it.
+2. **`individual` mode does not create marker captures.** ✅ — Card 2 never
+   renders (`requiresMarker && markedScorecard`), and `markedScorecard` is
+   always `null` for this mode regardless of any stray data.
+3. **`individual` mode does not block submission awaiting marker data.** ✅
+   — the reconciliation screen is only reachable when `requiresMarker` is
+   true; Confirm only requires the player's own score.
+4. **`individual` mode resumes based only on missing self scores.** ✅ — the
+   resume calculation's `partnerDone` check short-circuits to `true`
+   whenever `!requiresMarker`.
+5. **RLS permits only the player or organiser to enter that player's
+   score.** ✅ — migration 023's `score_entry_capture_allowed()`, `individual`
+   branch: `capture_role = 'self' AND v_target_player = auth.uid()`, or
+   organiser.
+6. **The UI shows one scoring card, not two.** ✅ — Card 2's render
+   condition includes `requiresMarker`.
+7. **Existing `group_scorer` behaviour remains unchanged.** ✅ — its branch
+   in both the pure function and the DB function is untouched from
+   migration 022; `captureMode.test.ts` has explicit group_scorer coverage
+   confirming this.
+
+### Tests added for all three modes
+
+`src/lib/scoring/captureMode.test.ts` — 15 tests: 5 for `self_and_marker`
+(own-card self writes, assigned-marker writes, denial for the wrong marker,
+denial when merely in the same group but not the assigned marker), 5 for
+`individual` (own-card self writes, denial for others, **marker role always
+denied even when `isAssignedMarker: true`**, denial even for same playing
+group, organiser bypass), 4 for `group_scorer` (same-group self writes,
+cross-group denial, marker role always denied regardless of flags, own-card
+always allowed), plus 1 confirming the organiser bypass applies identically
+across all three modes. **82/82 total domain tests passing** (67 + 15 new).
