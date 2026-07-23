@@ -339,6 +339,7 @@ export default function ScoreSessionShell({
     // queueScoreEntry dedupes: if this same scorecard+hole already has an
     // unsynced entry queued, it's replaced in place (same operation id)
     // rather than creating a second queued write.
+    // BUILD_VERIFY_CAPTURE_ROLE_V3
     try {
       const clientId = await queueScoreEntry({
         scorecardId: scoredCardId,
