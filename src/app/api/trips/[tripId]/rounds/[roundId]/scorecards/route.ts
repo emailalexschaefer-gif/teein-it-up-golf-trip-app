@@ -41,7 +41,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       id, round_id, player_id, playing_handicap, status, submitted_at,
       profiles:player_id ( id, full_name, avatar_url ),
       trip_members!inner ( group_id, trip_groups:group_id ( id, name, tee_time ) ),
-      score_entries ( hole_id, gross_score, stableford_pts, is_no_return )
+      score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_by )
     `)
     .eq('round_id', roundId)
     .neq('status', 'withdrawn')

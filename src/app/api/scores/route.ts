@@ -1,15 +1,20 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { isCaptureAllowed } from '@/lib/scoring/captureMode'
 import { z } from 'zod'
 
 const ScoreSchema = z.object({
   scorecard_id: z.string().uuid(),
   hole_id:      z.string().uuid(),
-  gross_score:  z.number().int().min(1).max(20),
+  capture_role: z.enum(['self', 'marker']).default('self'),
+  gross_score:  z.number().int().min(1).max(20).nullable(),
   is_no_return: z.boolean().default(false),
   client_id:    z.string().uuid(),
   entered_at:   z.string().datetime().optional(),
-})
+}).refine(
+  (v) => (v.is_no_return && v.gross_score === null) || (!v.is_no_return && v.gross_score !== null),
+  { message: 'gross_score must be null for a pick-up, and a number 1-20 otherwise' }
+)
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -31,7 +36,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Validation failed', issues: parsed.error.issues }, { status: 400 })
   }
 
-  const { scorecard_id, hole_id, gross_score, is_no_return, client_id, entered_at } = parsed.data
+  const { scorecard_id, hole_id, capture_role, gross_score, is_no_return, client_id, entered_at } = parsed.data
 
   const scorecardResult = await db
     .from('scorecards')
@@ -45,7 +50,7 @@ export async function POST(request: Request) {
 
   const roundResult = await db
     .from('rounds')
-    .select('id, status, trip_id')
+    .select('id, status, trip_id, score_capture_mode')
     .eq('id', scorecard.round_id)
     .single()
 
@@ -63,15 +68,21 @@ export async function POST(request: Request) {
 
   if (!memberResult?.data) return NextResponse.json({ error: 'Not a trip member' }, { status: 403 })
 
-  // ── Playing-group scoring permission ─────────────────────────────────────
-  // Anyone may score their own card. Otherwise the caller must be the trip
-  // organiser, or share a playing group (trip_groups) with the scorecard's
-  // player. Mirrors the same_playing_group() DB function in migration 017,
-  // checked here too so we return a clean 403 rather than relying on RLS.
-  const isOwnCard = scorecard.player_id === user.id
   const isOrganiser = memberResult.data.role === 'organiser'
-  let isSameGroup = false
-  if (!isOwnCard && !isOrganiser) {
+  const isOwnCard = scorecard.player_id === user.id
+
+  // ── Score-capture permission ────────────────────────────────────────────
+  // Delegates to the same pure function the tests cover (captureMode.ts) —
+  // fixes a real bug: this route used to look up round_markers for ANY
+  // marker-role write without first checking the round's mode, so
+  // 'individual' mode (which should have no marker concept at all) would
+  // still honour a stray marker-role write if one somehow existed. Now
+  // 'individual' mode structurally never even reaches the round_markers
+  // lookup for a marker-role request.
+  let isSamePlayingGroup: boolean | undefined
+  let isAssignedMarker: boolean | undefined
+
+  if (!isOrganiser && round.score_capture_mode === 'group_scorer' && capture_role === 'self' && !isOwnCard) {
     const targetMemberResult = await db
       .from('trip_members')
       .select('group_id')
@@ -79,11 +90,37 @@ export async function POST(request: Request) {
       .eq('profile_id', scorecard.player_id)
       .maybeSingle()
     const targetGroupId = targetMemberResult?.data?.group_id ?? null
-    isSameGroup = !!targetGroupId && targetGroupId === memberResult.data.group_id
+    isSamePlayingGroup = !!targetGroupId && targetGroupId === memberResult.data.group_id
   }
 
-  if (!isOwnCard && !isOrganiser && !isSameGroup) {
-    return NextResponse.json({ error: 'You can only score for your own playing group' }, { status: 403 })
+  if (!isOrganiser && round.score_capture_mode === 'self_and_marker' && capture_role === 'marker') {
+    const markerResult = await db
+      .from('round_markers')
+      .select('id')
+      .eq('round_id', scorecard.round_id)
+      .eq('player_id', scorecard.player_id)
+      .eq('marker_player_id', user.id)
+      .maybeSingle()
+    isAssignedMarker = !!markerResult?.data
+  }
+
+  const allowed = isCaptureAllowed({
+    mode: round.score_capture_mode,
+    captureRole: capture_role,
+    isOwnCard,
+    isOrganiser,
+    isSamePlayingGroup,
+    isAssignedMarker,
+  })
+
+  if (!allowed) {
+    return NextResponse.json({
+      error: capture_role === 'marker'
+        ? (round.score_capture_mode === 'individual'
+          ? 'This round does not use marker scoring.'
+          : 'You are not the assigned marker for this player.')
+        : 'You can only enter your own score.',
+    }, { status: 403 })
   }
 
   const holeResult = await db
@@ -106,30 +143,32 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: 'Already recorded', conflict: true }, { status: 200 })
   }
 
-  // ── Real upsert target: (scorecard_id, hole_id) ──────────────────────────
-  // This is what makes editing a previously-scored hole actually work,
-  // instead of colliding with the UNIQUE(scorecard_id, hole_id) constraint
-  // and returning a false 409 on every re-score.
-  const existingForHole = await db
+  // ── Real upsert target: (scorecard_id, hole_id, capture_role) ────────────
+  // A self entry and a marker entry for the same hole are independent
+  // records — this is what makes them never collide with each other, while
+  // re-scoring the SAME role for the same hole still correctly updates
+  // rather than duplicating.
+  const existingForRole = await db
     .from('score_entries')
     .select('id')
     .eq('scorecard_id', scorecard_id)
     .eq('hole_id', hole_id)
+    .eq('capture_role', capture_role)
     .maybeSingle()
 
   const payload = {
-    scorecard_id, hole_id, gross_score, is_no_return,
+    scorecard_id, hole_id, capture_role, gross_score, is_no_return,
     entered_by: user.id,
     entered_at: entered_at ?? new Date().toISOString(),
     client_id,
   }
 
   let entry, dbError
-  if (existingForHole?.data) {
+  if (existingForRole?.data) {
     ({ data: entry, error: dbError } = await db
       .from('score_entries')
       .update(payload)
-      .eq('id', existingForHole.data.id)
+      .eq('id', existingForRole.data.id)
       .select()
       .single())
   } else {

@@ -119,11 +119,16 @@ export interface WizardRound {
 
 export type SyncStatus = 'pending' | 'syncing' | 'synced' | 'error'
 
+export type ScoreCaptureRole = 'self' | 'marker'
+
 export interface OfflineScoreEntry {
   clientId: string
   scorecardId: string
   holeId: string
-  grossScore: number
+  /** Which of this scorecard's two independent captures this is — see the
+   * self+marker scoring model. Existing single-entry rows are 'self'. */
+  captureRole: ScoreCaptureRole
+  grossScore: number | null
   isNoReturn: boolean
   enteredAt: string
   syncStatus: SyncStatus

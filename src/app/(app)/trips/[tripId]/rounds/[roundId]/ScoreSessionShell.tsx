@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { calculateStableford } from '@/lib/scoring/stableford'
 import { getHandicapStrokesForHole } from '@/lib/scoring/strokeAllocation'
+import BrandLogo from '@/components/brand/BrandLogo'
 import { queueScoreEntry, getPendingCount, getQueuedEntriesForScorecards } from '@/lib/db/dexie'
 import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
 import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
@@ -42,6 +43,11 @@ interface Props {
   allGroups: GroupInfo[] | null
   initialGroupIdx?: number
   isOrganiser: boolean; currentUserId: string
+  /** True only when the server has verified this is a genuine data problem
+   * (a group with zero scorecards after the round has started), not a query
+   * failure or a normal "not assigned yet" state. Drives which recovery
+   * message is shown below. */
+  dataProblem?: boolean
 }
 
 // ── Score flash labels ────────────────────────────────────────────────────────
@@ -98,7 +104,7 @@ function findResumePosition(
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function ScoreSessionShell({
-  tripId, tripName, round, groupScorecards, allGroups, initialGroupIdx, isOrganiser, currentUserId,
+  tripId, tripName, round, groupScorecards, allGroups, initialGroupIdx, isOrganiser, currentUserId, dataProblem,
 }: Props) {
   // ── State ──────────────────────────────────────────────────────────────────
   const [holes, setHoles]               = useState<Hole[]>([])
@@ -384,12 +390,24 @@ export default function ScoreSessionShell({
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (loadingHoles || holes.length === 0 || !activeCard) {
+    let message = 'Loading holes…'
+    if (!loadingHoles && holes.length === 0) {
+      message = 'No holes found — run migration 004 and begin the round again.'
+    } else if (!loadingHoles && !activeCard) {
+      if (dataProblem && isOrganiser) {
+        message = 'Scorecards were not created correctly for this group. Return to the trip and regenerate the round setup.'
+      } else if (dataProblem) {
+        message = "Your scorecard hasn't been set up for this round yet. Ask the organiser to check the group setup and try again."
+      } else {
+        message = 'No scorecard found for this group.'
+      }
+    }
     return (
       <div style={{ minHeight: '100vh', background: '#0e1912', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ textAlign: 'center' }}>
+        <div style={{ textAlign: 'center', maxWidth: 320, padding: '0 20px' }}>
           <p style={{ fontSize: 32, marginBottom: 8 }}>⛳</p>
           <p style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.5)', fontSize: 13 }}>
-            {loadingHoles ? 'Loading holes…' : !activeCard ? 'No scorecard found for this group.' : 'No holes found — run migration 004 and begin the round again.'}
+            {message}
           </p>
           <Link href={`/trips/${tripId}`} style={{ display: 'block', marginTop: 16, fontFamily: 'var(--font-body)', fontSize: 12, color: '#e8c96a', textDecoration: 'none' }}>
             ← Back to trip
@@ -413,8 +431,13 @@ export default function ScoreSessionShell({
         padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         borderBottom: '2px solid #c9a84c', flexShrink: 0,
       }}>
-        <Link href={`/trips/${tripId}`} style={{ fontFamily: 'var(--font-display)', color: '#e8c96a', fontSize: 15, fontWeight: 800, textDecoration: 'none' }}>
-          Teein&apos; It Up
+        <Link href={`/trips/${tripId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
+          <div style={{ width: 30, height: 30, borderRadius: 8, border: '1.5px solid #c9a84c', overflow: 'hidden', flexShrink: 0 }}>
+            <BrandLogo variant="icon" size={30} />
+          </div>
+          <span style={{ fontFamily: 'var(--font-display)', color: '#e8c96a', fontSize: 15, fontWeight: 800 }}>
+            Teein&apos; It Up
+          </span>
         </Link>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ textAlign: 'right' }}>

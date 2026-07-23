@@ -4,8 +4,8 @@ import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { initials, avatarColor } from '@/lib/utils'
-import NextImage from 'next/image'
 import { GoldAvatar } from '@/components/ui/Avatar'
+import BrandLogo from '@/components/brand/BrandLogo'
 
 interface Props { userName: string; avatarUrl: string | null }
 
@@ -30,7 +30,7 @@ export default function AppNav({ userName, avatarUrl }: Props) {
       }} className="sticky top-0 z-40 flex-shrink-0">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
 
-          {/* Simplified app logo */}
+          {/* Simplified app logo — shared component, same asset used everywhere */}
           <a href="/dashboard" className="flex items-center gap-2.5 flex-shrink-0 active:opacity-80 transition-opacity">
             <div style={{
               width: 48, height: 48, borderRadius: 12,
@@ -38,15 +38,8 @@ export default function AppNav({ userName, avatarUrl }: Props) {
               overflow: 'hidden',
               boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
               flexShrink: 0,
-              position: 'relative',
             }}>
-              <NextImage
-                src="/logo-app.png"
-                alt="Teein' It Up"
-                fill
-                priority
-                style={{ objectFit: 'cover' }}
-              />
+              <BrandLogo variant="icon" size={48} priority />
             </div>
             <div style={{ lineHeight: 1.1 }}>
               <div style={{

@@ -15,6 +15,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolvePlayingHandicap } from '@/lib/scoring/defaultHoles'
+import { generateMarkerAssignments } from '@/lib/scoring/markerAssignment'
 import { z } from 'zod'
 
 const HoleSchema = z.object({
@@ -28,6 +29,52 @@ const StartSchema = z.object({
 })
 
 interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
+
+/**
+ * Seeds sensible default marker assignments for every playing group in this
+ * round, immediately on Begin Round — so the self+marker scoring model has
+ * something to work with without the organiser having to visit the marker
+ * review screen first. Still fully editable there afterward.
+ *
+ * A no-op for both 'group_scorer' (markers don't apply — legacy model) AND
+ * 'individual' (markers don't apply — genuinely single-capture scoring,
+ * no marker concept at all). Only 'self_and_marker' rounds get seeded.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function autoGenerateMarkers(admin: any, tripId: string, roundId: string, scoreCaptureMode: string) {
+  if (scoreCaptureMode !== 'self_and_marker') return
+
+  const [groupsRes, membersRes, cardsRes, existingMarkersRes] = await Promise.all([
+    admin.from('trip_groups').select('id').eq('trip_id', tripId),
+    admin.from('trip_members').select('profile_id, group_id').eq('trip_id', tripId),
+    admin.from('scorecards').select('player_id').eq('round_id', roundId).neq('status', 'withdrawn'),
+    admin.from('round_markers').select('player_id').eq('round_id', roundId),
+  ])
+
+  const groupIds: string[] = (groupsRes.data ?? []).map((g: { id: string }) => g.id)
+  const cardPlayerIds = new Set((cardsRes.data ?? []).map((c: { player_id: string }) => c.player_id))
+  const alreadyAssigned = new Set((existingMarkersRes.data ?? []).map((m: { player_id: string }) => m.player_id))
+
+  for (const groupId of groupIds) {
+    const groupPlayerIds: string[] = (membersRes.data ?? [])
+      .filter((m: { group_id: string | null; profile_id: string }) => m.group_id === groupId && cardPlayerIds.has(m.profile_id))
+      .map((m: { profile_id: string }) => m.profile_id)
+
+    if (groupPlayerIds.length < 2) continue // solo group — nothing to pair
+    if (groupPlayerIds.every(id => alreadyAssigned.has(id))) continue // already seeded
+
+    try {
+      const assignments = generateMarkerAssignments(groupPlayerIds)
+      const rows = assignments.map(a => ({ round_id: roundId, player_id: a.playerId, marker_player_id: a.markerPlayerId }))
+      await admin.from('round_markers').insert(rows)
+    } catch (err) {
+      // Don't fail Begin Round over marker seeding — the organiser can
+      // still assign manually from the marker review screen.
+      console.error('[start-round] auto marker generation failed for group', { roundId, groupId, err })
+    }
+  }
+}
+
 
 export async function POST(req: NextRequest, { params }: RouteProps) {
   const { tripId, roundId } = await params
@@ -61,7 +108,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   // ── Verify round ───────────────────────────────────────────────────────────
   const roundRes = await admin
     .from('rounds')
-    .select('id, status, holes, name, trip_id')
+    .select('id, status, holes, name, trip_id, score_capture_mode')
     .eq('id', roundId)
     .eq('trip_id', tripId)
     .single()
@@ -170,28 +217,65 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
 
   // If RPC worked, return immediately
   if (!rpcError && rpcResult) {
-    const result = rpcResult as { round_id: string; status: string; holes_created: number; scorecards_created: number }
+    const result = rpcResult as {
+      roundId: string; status: string; holesCreated: number; scorecardsCreated: number
+      expectedScorecards: number; groupsProcessed: number; success: boolean
+    }
     console.log('[start-round] SUCCESS via RPC', result)
-    return NextResponse.json({
-      roundId: result.round_id, status: result.status,
-      holesCreated: result.holes_created, scorecardsCreated: result.scorecards_created,
-    }, { status: 201 })
+    await autoGenerateMarkers(admin, tripId, roundId, round.score_capture_mode)
+    return NextResponse.json(result, { status: 201 })
   }
 
-  // Log the RPC error for diagnosis
   const rpcMsg: string = rpcError?.message ?? ''
   const rpcCode: string = rpcError?.code ?? ''
-  console.warn('[start-round] RPC failed, attempting direct insert fallback', {
+  console.warn('[start-round] RPC returned an error', {
     rpcCode, rpcMsg,
     details: rpcError?.details ?? null,
     hint:    rpcError?.hint    ?? null,
     roundId, tripId, userId: user.id,
   })
 
-  // Known fatal errors — don't attempt fallback
+  // Known fatal errors from the round-state guard — never fall back for these.
   if (rpcMsg.includes('ROUND_NOT_UPCOMING')) {
     return NextResponse.json({ error: 'This round has already started.' }, { status: 409 })
   }
+
+  // Transaction-integrity failures (migration 020) — these mean the RPC ran
+  // and correctly REFUSED to begin the round because the data wasn't right.
+  // The round has been rolled back to 'upcoming' automatically. Do NOT fall
+  // back to direct inserts here — that fallback has none of these checks and
+  // would silently re-introduce the exact problem the RPC just caught.
+  if (rpcMsg.includes('HOLE_COUNT_MISMATCH')) {
+    return NextResponse.json({
+      error: 'Hole setup is incomplete or has duplicate hole numbers. Review the hole list and try again.',
+      success: false,
+    }, { status: 422 })
+  }
+  if (rpcMsg.includes('SCORECARD_COUNT_MISMATCH')) {
+    return NextResponse.json({
+      error: 'Scorecards could not be created for every player. Return to the trip and check player assignments before trying again.',
+      success: false,
+    }, { status: 422 })
+  }
+  if (rpcMsg.includes('UNMAPPED_PLAYING_GROUP')) {
+    return NextResponse.json({
+      error: 'One or more players are not assigned to a playing group. Assign every player to a group before beginning.',
+      success: false,
+    }, { status: 422 })
+  }
+
+  // Only fall back to direct inserts if the RPC itself doesn't exist yet
+  // (migration 016/020 not applied) — a genuine "we can't use the safer path"
+  // situation, not a validation failure from a safer path that just worked.
+  const rpcMissing = rpcCode === '42883' || rpcMsg.includes('function public.begin_round') || rpcMsg.includes('does not exist')
+  if (!rpcMissing) {
+    return NextResponse.json({
+      error: "We couldn't begin the round due to an unexpected error. Please try again or contact support.",
+      success: false,
+    }, { status: 500 })
+  }
+
+  console.warn('[start-round] begin_round() RPC not found — falling back to direct inserts (run migration 020)', { roundId, tripId })
 
   // ── Direct insert fallback (works even if migration 016 not applied) ───────
   // Holes upsert
@@ -237,7 +321,44 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
       roundId, playerCount: scorecardRows.length,
     })
     // Holes already inserted but round status not changed — safe state to retry from
-    return NextResponse.json({ error: "We couldn't create player scorecards. Please try again." }, { status: 500 })
+    return NextResponse.json({ error: "We couldn't create player scorecards. Please try again.", success: false }, { status: 500 })
+  }
+
+  // ── Verify the same invariants the RPC path checks (migration 020) ────────
+  // This fallback isn't a single DB transaction, so this can't be a perfect
+  // guarantee — but it stops the round from going 'active' on obviously
+  // incomplete data, matching the "do not show Continue Scoring" requirement.
+  const verifyRes = await admin
+    .from('scorecards')
+    .select('id, player_id', { count: 'exact' })
+    .eq('round_id', roundId)
+    .eq('status', 'active')
+
+  const actualScorecardCount = verifyRes.data?.length ?? 0
+  if (actualScorecardCount !== scorecardRows.length) {
+    console.error('[start-round] fallback scorecard count mismatch — refusing to activate round', {
+      roundId, expected: scorecardRows.length, actual: actualScorecardCount,
+    })
+    return NextResponse.json({
+      error: 'Scorecards could not be created for every player. Return to the trip and check player assignments before trying again.',
+      success: false,
+    }, { status: 422 })
+  }
+
+  const membersForCheck = await admin
+    .from('trip_members')
+    .select('profile_id, group_id')
+    .eq('trip_id', tripId)
+  const groupByProfile = new Map<string, string | null>(
+    (membersForCheck.data ?? []).map((m: { profile_id: string; group_id: string | null }) => [m.profile_id, m.group_id])
+  )
+  const unmappedCount = (verifyRes.data ?? []).filter((sc: { player_id: string }) => !groupByProfile.get(sc.player_id)).length
+  if (unmappedCount > 0) {
+    console.error('[start-round] fallback: players with no playing group', { roundId, unmappedCount })
+    return NextResponse.json({
+      error: 'One or more players are not assigned to a playing group. Assign every player to a group before beginning.',
+      success: false,
+    }, { status: 422 })
   }
 
   // Round status update — last, so any earlier failure leaves round as 'upcoming'
@@ -252,16 +373,22 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
       details: statusError.details, hint: statusError.hint,
       roundId,
     })
-    return NextResponse.json({ error: "We couldn't begin the round. Please try again." }, { status: 500 })
+    return NextResponse.json({ error: "We couldn't begin the round. Please try again.", success: false }, { status: 500 })
   }
+
+  const groupsProcessed = new Set([...groupByProfile.values()].filter(Boolean)).size
 
   console.log('[start-round] SUCCESS via direct inserts (RPC fallback)', {
     roundId, holesCreated: holeRows.length, scorecardsCreated: scorecardRows.length,
   })
+  await autoGenerateMarkers(admin, tripId, roundId, round.score_capture_mode)
 
   return NextResponse.json({
     roundId, status: 'active',
-    holesCreated:     holeRows.length,
-    scorecardsCreated: scorecardRows.length,
+    holesCreated:       holeRows.length,
+    scorecardsCreated:  scorecardRows.length,
+    expectedScorecards: scorecardRows.length,
+    groupsProcessed,
+    success: true,
   }, { status: 201 })
 }
