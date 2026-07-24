@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { initials, avatarColor, formatHandicap, cn } from '@/lib/utils'
 import type { TripData, TripMemberRow } from '../TripDetailClient'
 import { WizardNav } from './TripOverviewTab'
@@ -44,6 +45,7 @@ export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRef
 
   function openHcpEdit(member: TripMemberRow) {
     setEditingHcp(member.id)
+    setHcpError(null)
     const hcp = member.playing_handicap
     if (hcp === null || hcp === undefined) {
       setHcpValue(''); setHcpNone(false)
@@ -126,12 +128,12 @@ export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRef
               roleLabel={organiserIsPlaying ? 'Organiser · Player' : 'Organiser'}
               isOrganiser={isOrganiser}
               editingHcp={editingHcp} hcpValue={hcpValue} hcpNone={hcpNone}
-              saving={saving}
+              saving={saving} hcpError={hcpError}
               onEditHcp={() => openHcpEdit(organiserMember)}
               onHcpChange={(v) => setHcpValue(v)}
               onHcpNoneChange={(v) => setHcpNone(v)}
               onSaveHcp={() => saveHcp(organiserMember.id)}
-              onCancelHcp={() => setEditingHcp(null)}
+              onCancelHcp={() => { setEditingHcp(null); setHcpError(null) }}
             />
           </div>
         </section>
@@ -161,12 +163,12 @@ export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRef
                   removing={removing === member.id}
                   onRemove={() => removePlayer(member)}
                   editingHcp={editingHcp} hcpValue={hcpValue} hcpNone={hcpNone}
-                  saving={saving}
+                  saving={saving} hcpError={hcpError}
                   onEditHcp={() => openHcpEdit(member)}
                   onHcpChange={(v) => setHcpValue(v)}
                   onHcpNoneChange={(v) => setHcpNone(v)}
                   onSaveHcp={() => saveHcp(member.id)}
-                  onCancelHcp={() => setEditingHcp(null)}
+                  onCancelHcp={() => { setEditingHcp(null); setHcpError(null) }}
                 />
               </div>
             ))}
@@ -188,6 +190,7 @@ interface PlayerRowProps {
   isOrganiser: boolean; canRemove?: boolean; removing?: boolean
   onRemove?: () => void
   editingHcp: string | null; hcpValue: string; hcpNone: boolean; saving: boolean
+  hcpError: string | null
   onEditHcp: () => void
   onHcpChange: (v: string) => void
   onHcpNoneChange: (v: boolean) => void
@@ -198,7 +201,7 @@ interface PlayerRowProps {
 function PlayerRow({
   member, currentUserId, roleLabel, flex,
   isOrganiser, canRemove, removing, onRemove,
-  editingHcp, hcpValue, hcpNone, saving,
+  editingHcp, hcpValue, hcpNone, saving, hcpError,
   onEditHcp, onHcpChange, onHcpNoneChange, onSaveHcp, onCancelHcp,
 }: PlayerRowProps) {
   const name     = member.profiles?.full_name || 'Player'
@@ -212,9 +215,9 @@ function PlayerRow({
       <div className="flex items-center gap-3">
         {/* Avatar */}
         {member.profiles?.avatar_url ? (
-          <img src={member.profiles.avatar_url} alt={name}
-            className="w-10 h-10 rounded-full object-cover flex-shrink-0"
-            style={{ border: '2px solid rgba(255,255,255,0.3)', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }} />
+          <div className="w-10 h-10 rounded-full flex-shrink-0" style={{ position: 'relative', overflow: 'hidden', border: '2px solid rgba(255,255,255,0.3)', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
+            <Image src={member.profiles.avatar_url} alt={name} fill sizes="40px" className="object-cover" />
+          </div>
         ) : (
           <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-white text-sm"
             style={{ backgroundColor: color, border: '2px solid rgba(255,255,255,0.3)', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
@@ -270,6 +273,11 @@ function PlayerRow({
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#6b7280', marginBottom: 6 }}>
             Changing this does not update the player&apos;s permanent profile handicap.
           </p>
+          {hcpError && (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 600, color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 10px', marginBottom: 8 }}>
+              {hcpError}
+            </p>
+          )}
           {!hcpNone && (
             <input
               type="number" min="0" max="54" step="0.1"

@@ -11,6 +11,45 @@ interface Props { params: Promise<{ tripId: string; roundId: string }> }
 // this on in production; it logs user/trip/round ids.
 const DEBUG = process.env.SCORING_DEBUG === '1'
 
+// ── Narrow row types matching exactly the columns each query below selects ──
+// The admin client itself stays `any` (documented TEMPORARY MVP BACKSTOP in
+// next.config.ts — a project-wide, deliberate boundary, not something this
+// pass touches) but every value read OUT of a query result is typed from
+// here on, instead of re-typing (or mistyping) `any` at each call site.
+
+interface TripMemberRow {
+  profile_id: string
+  group_id: string | null
+}
+
+interface ScoreEntryRow {
+  hole_id: string
+  gross_score: number
+  stableford_pts: number
+  is_no_return: boolean
+  capture_role: 'self' | 'marker'
+  entered_by: string
+}
+
+interface ScorecardProfile {
+  id: string
+  full_name: string
+  avatar_url: string | null
+}
+
+interface ScorecardRow {
+  id: string
+  player_id: string
+  playing_handicap: number
+  status: string
+  profiles: ScorecardProfile | null
+  score_entries: ScoreEntryRow[]
+}
+
+interface ScorecardWithGroup extends ScorecardRow {
+  groupId: string | null
+}
+
 export default async function RoundScorePage({ params }: Props) {
   const { tripId, roundId } = await params
 
@@ -107,23 +146,19 @@ export default async function RoundScorePage({ params }: Props) {
     console.error('[round page] trip_members query failed', { tripId, error: membersRes.error })
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const groupIdByProfile = new Map<string, string | null>(
-    (membersRes.data ?? []).map((m: any) => [m.profile_id, m.group_id])
+    ((membersRes.data ?? []) as TripMemberRow[]).map((m) => [m.profile_id, m.group_id])
   )
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const allCards = (allCardsRes.data ?? []).map((c: any) => ({
+  const allCards: ScorecardWithGroup[] = ((allCardsRes.data ?? []) as ScorecardRow[]).map((c) => ({
     ...c,
     groupId: groupIdByProfile.get(c.player_id) ?? null,
   }))
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const myCard = allCards.find((c: any) => c.player_id === user.id)
+  const myCard = allCards.find((c) => c.player_id === user.id)
   const myGroupId = myCard?.groupId ?? memberCheck.data.group_id ?? null
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sortMine = (cards: any[]) =>
+  const sortMine = (cards: ScorecardWithGroup[]) =>
     [...cards].sort((a, b) => (a.player_id === user.id ? -1 : b.player_id === user.id ? 1 : 0))
 
   if (DEBUG) {
@@ -134,7 +169,7 @@ export default async function RoundScorePage({ params }: Props) {
       trip_member_id: memberCheck.data.id,
       trip_role: memberCheck.data.role,
       resolved_group_id: myGroupId,
-      available_group_ids: [...new Set(allCards.map((c: { groupId: string | null }) => c.groupId))],
+      available_group_ids: [...new Set(allCards.map((c) => c.groupId))],
       scorecard_count_before_filter: allCards.length,
     })
   }
@@ -148,7 +183,7 @@ export default async function RoundScorePage({ params }: Props) {
   // corporate events per the brief. Everything else (self_and_marker, the
   // default, and individual) uses the new per-player self+marker model.
   if (round.score_capture_mode !== 'group_scorer') {
-    const myCard = allCards.find((c: { player_id: string }) => c.player_id === user.id) ?? null
+    const myCard = allCards.find((c) => c.player_id === user.id) ?? null
 
     // 'individual' mode genuinely has no marker concept — skip the
     // round_markers lookup entirely rather than fetching it and then
@@ -156,10 +191,8 @@ export default async function RoundScorePage({ params }: Props) {
     // through into the UI for this mode.
     const usesMarkers = round.score_capture_mode === 'self_and_marker'
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let markedByProfile: any = null
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let markedCard: any = null
+    let markedByProfile: ScorecardProfile | null = null
+    let markedCard: ScorecardWithGroup | null = null
 
     if (usesMarkers) {
       const markersRes = await admin
@@ -178,11 +211,11 @@ export default async function RoundScorePage({ params }: Props) {
       const iMarkRow = markerRows.find(r => r.marker_player_id === user.id)
 
       markedByProfile = markedByRow
-        ? allCards.find((c: { player_id: string }) => c.player_id === markedByRow.marker_player_id)?.profiles ?? null
+        ? allCards.find((c) => c.player_id === markedByRow.marker_player_id)?.profiles ?? null
         : null
 
       markedCard = iMarkRow
-        ? allCards.find((c: { player_id: string }) => c.player_id === iMarkRow.player_id) ?? null
+        ? allCards.find((c) => c.player_id === iMarkRow.player_id) ?? null
         : null
 
       if (DEBUG) {
@@ -209,7 +242,6 @@ export default async function RoundScorePage({ params }: Props) {
         markedScorecard={markedCard}
         markedByName={markedByProfile?.full_name ?? null}
         isOrganiser={isOrganiser}
-        currentUserId={user.id}
         dataProblem={dataProblem}
       />
     )
@@ -220,10 +252,9 @@ export default async function RoundScorePage({ params }: Props) {
   // re-derives and checks this via same_playing_group() before writing
   // anything, so this filtering is a UX convenience, not the security layer.
   if (!isOrganiser) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const groupScorecards = sortMine(myGroupId
-      ? allCards.filter((c: any) => c.groupId === myGroupId)
-      : allCards.filter((c: any) => c.player_id === user.id) // solo fallback: no group assigned
+      ? allCards.filter((c) => c.groupId === myGroupId)
+      : allCards.filter((c) => c.player_id === user.id) // solo fallback: no group assigned
     )
 
     if (DEBUG) {
@@ -261,13 +292,11 @@ export default async function RoundScorePage({ params }: Props) {
 
   const trip_groups: Array<{ id: string; name: string; tee_time: string | null }> = groupsRes.data ?? []
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const allGroups = trip_groups.map((g) => ({
     groupId: g.id,
     groupName: g.name,
     teeTime: g.tee_time,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    scorecards: sortMine(allCards.filter((c: any) => c.groupId === g.id)),
+    scorecards: sortMine(allCards.filter((c) => c.groupId === g.id)),
   }))
   // NOTE: unlike the player path, organisers keep EVERY group here — even an
   // empty one — because an empty group for an organiser is exactly the

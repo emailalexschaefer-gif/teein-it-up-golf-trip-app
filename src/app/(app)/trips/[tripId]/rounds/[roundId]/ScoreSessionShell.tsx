@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { calculateStableford } from '@/lib/scoring/stableford'
 import { getHandicapStrokesForHole } from '@/lib/scoring/strokeAllocation'
@@ -133,13 +133,17 @@ export default function ScoreSessionShell({
   // The group currently being scored. Non-organisers only ever see their own
   // group (server already narrowed `groupScorecards` to it); organisers can
   // switch between every group via `allGroups`.
-  const currentGroup: GroupScorecard[] = allGroups ? (allGroups[activeGroupIdx]?.scorecards ?? []) : groupScorecards
+  const currentGroup: GroupScorecard[] = useMemo(
+    () => (allGroups ? (allGroups[activeGroupIdx]?.scorecards ?? []) : groupScorecards),
+    [allGroups, activeGroupIdx, groupScorecards]
+  )
 
   // Every scorecard visible to this session, across every group — used only
   // for hydration, so switching groups never shows blank/stale data.
-  const allVisibleScorecards: GroupScorecard[] = allGroups
-    ? allGroups.flatMap(g => g.scorecards)
-    : groupScorecards
+  const allVisibleScorecards: GroupScorecard[] = useMemo(
+    () => (allGroups ? allGroups.flatMap(g => g.scorecards) : groupScorecards),
+    [allGroups, groupScorecards]
+  )
 
   // Default the active card to the current user's own scorecard within the
   // active group (a playing organiser sees themselves; a non-playing

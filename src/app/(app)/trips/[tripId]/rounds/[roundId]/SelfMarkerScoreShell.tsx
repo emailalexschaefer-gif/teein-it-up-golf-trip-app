@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { calculateStableford } from '@/lib/scoring/stableford'
 import { getHandicapStrokesForHole } from '@/lib/scoring/strokeAllocation'
@@ -37,13 +37,11 @@ interface Props {
   myScorecard: ScorecardFull | null
   markedScorecard: ScorecardFull | null
   markedByName: string | null
-  isOrganiser: boolean; currentUserId: string
+  isOrganiser: boolean
   dataProblem?: boolean
 }
 
 type CaptureMap = Record<number, CaptureValue> // keyed by hole_number
-
-function initialsOf(name: string): string { return name.slice(0, 2).toUpperCase() }
 
 function splitByRole(entries: ScoreEntryRow[], holes: Hole[]): { self: CaptureMap; marker: CaptureMap } {
   const holeNumberById = new Map(holes.map(h => [h.id, h.hole_number]))
@@ -70,7 +68,7 @@ function statusColor(status: ComparisonStatus): string {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function SelfMarkerScoreShell({
-  tripId, tripName, round, myScorecard, markedScorecard, markedByName, isOrganiser, currentUserId, dataProblem,
+  tripId, tripName, round, myScorecard, markedScorecard, markedByName, isOrganiser, dataProblem,
 }: Props) {
   // 'individual' mode has no marker concept at all — comparison status,
   // the marker card, and reconciliation only make sense in self_and_marker

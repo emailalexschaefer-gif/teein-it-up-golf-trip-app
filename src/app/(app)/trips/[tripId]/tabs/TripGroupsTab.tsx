@@ -1,7 +1,8 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { initials, avatarColor, formatHandicap, cn } from '@/lib/utils'
+import Image from 'next/image'
+import { initials, avatarColor, formatHandicap } from '@/lib/utils'
 import { groupsRequired } from '@/types/app'
 import type { TripData, TripMemberRow } from '../TripDetailClient'
 import { WizardNav } from './TripOverviewTab'
@@ -537,8 +538,9 @@ function PlayerAvatar({ member, small }: { member: TripMemberRow; small?: boolea
   const color = avatarColor(member.profile_id)
   const size  = small ? 32 : 38
   return member.profiles?.avatar_url ? (
-    <img src={member.profiles.avatar_url} alt={name}
-      style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '2px solid rgba(255,255,255,0.3)' }} />
+    <div style={{ position: 'relative', width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: '2px solid rgba(255,255,255,0.3)' }}>
+      <Image src={member.profiles.avatar_url} alt={name} fill sizes={`${size}px`} className="object-cover" />
+    </div>
   ) : (
     <div style={{
       width: size, height: size, borderRadius: '50%', flexShrink: 0,
