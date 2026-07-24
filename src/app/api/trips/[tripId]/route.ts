@@ -79,52 +79,109 @@ export async function PATCH(request: NextRequest, { params }: Props) {
     }
   }
 
-  // ── Rounds: replace existing rounds with the submitted set ──────────────────
-  // If rounds are included in the body, delete the current rounds and re-insert.
-  // This cleanly handles add / edit / remove in a single operation.
+  // ── Rounds: reconcile with the submitted set, in place ──────────────────────
+  // This USED to delete every existing round for the trip and re-insert fresh
+  // rows on every save — including saves that only touched the trip's name or
+  // dates, with the rounds array just being resubmitted unchanged. Since a new
+  // INSERT always gets a new id, that silently orphaned every round's id: any
+  // round already 'active' (or 'completed') had its holes/scorecards/scores
+  // CASCADE DELETEd the moment someone next edited the trip, and any round a
+  // client still had cached under its old id would 404 with "Round not found
+  // in this trip" the next time Begin Round was attempted. This is the actual
+  // root cause of that error — not a lookup bug, a destructive write bug.
+  //
+  // Fixed: match incoming rounds against existing ones by id. A matching id
+  // is UPDATEd in place (same id, same holes/scorecards/scores survive). A
+  // round with no matching id is a genuinely new round and gets INSERTed. An
+  // existing round whose id is missing from the incoming array is only
+  // deleted if it's still 'upcoming' — an 'active' or 'completed' round is
+  // never implicitly deleted through this endpoint, full stop.
   const rounds = (body.rounds as Array<{
-    name: string; course_name?: string; play_date: string
+    id?: string; name: string; course_name?: string; play_date: string
     tee_time?: string; holes?: number; scoring_format?: string
   }> | undefined)
 
   if (rounds && rounds.length > 0) {
-    // Delete existing rounds for this trip
-    const { error: deleteRoundsError } = await admin
+    const existingRes = await admin
       .from('rounds')
-      .delete()
+      .select('id, status')
       .eq('trip_id', tripId)
 
-    if (deleteRoundsError) {
-      console.error('[PATCH /api/trips] rounds delete failed', deleteRoundsError)
-      return NextResponse.json({
-        error: `Failed to update rounds: ${deleteRoundsError.message}`,
-      }, { status: 500 })
+    if (existingRes.error) {
+      console.error('[PATCH /api/trips] rounds lookup failed', existingRes.error)
+      return NextResponse.json({ error: `Failed to load existing rounds: ${existingRes.error.message}` }, { status: 500 })
     }
 
-    // Re-insert updated rounds
-    const roundRows = rounds.map((r, i) => ({
-      trip_id:        tripId,
-      name:           r.name || `Round ${i + 1}`,
-      course_name:    r.course_name || null,
-      play_date:      r.play_date,
-      tee_time:       r.tee_time || null,
-      holes:          r.holes ?? 18,
-      scoring_format: r.scoring_format ?? 'stableford',
-      status:         'upcoming',
-    }))
+    const existingById = new Map<string, { id: string; status: string }>(
+      (existingRes.data ?? []).map((r: { id: string; status: string }) => [r.id, r])
+    )
 
-    const { error: insertRoundsError } = await admin
-      .from('rounds')
-      .insert(roundRows)
+    const toUpdate = rounds.filter(r => r.id && existingById.has(r.id))
+    const toInsert = rounds.filter(r => !r.id || !existingById.has(r.id))
+    const incomingIds = new Set(rounds.map(r => r.id).filter(Boolean))
+    // Only ever remove rounds that are both absent from the incoming array
+    // AND still upcoming — never an active or completed round.
+    const toDelete = [...existingById.values()].filter(r => !incomingIds.has(r.id) && r.status === 'upcoming')
 
-    if (insertRoundsError) {
-      console.error('[PATCH /api/trips] rounds insert failed', insertRoundsError)
-      return NextResponse.json({
-        error: `Failed to save rounds: ${insertRoundsError.message}`,
-      }, { status: 500 })
+    for (const r of toUpdate) {
+      const { error: updateRoundError } = await admin
+        .from('rounds')
+        .update({
+          name:           r.name || 'Round',
+          course_name:    r.course_name || null,
+          play_date:      r.play_date,
+          tee_time:       r.tee_time || null,
+          holes:          r.holes ?? 18,
+          scoring_format: r.scoring_format ?? 'stableford',
+        })
+        .eq('id', r.id as string)
+        .eq('trip_id', tripId)
+
+      if (updateRoundError) {
+        console.error('[PATCH /api/trips] round update failed', { roundId: r.id, error: updateRoundError })
+        return NextResponse.json({ error: `Failed to update round: ${updateRoundError.message}` }, { status: 500 })
+      }
     }
 
-    console.log('[PATCH /api/trips] rounds updated', { tripId, count: rounds.length })
+    if (toInsert.length > 0) {
+      const insertRows = toInsert.map((r, i) => ({
+        trip_id:        tripId,
+        name:           r.name || `Round ${i + 1}`,
+        course_name:    r.course_name || null,
+        play_date:      r.play_date,
+        tee_time:       r.tee_time || null,
+        holes:          r.holes ?? 18,
+        scoring_format: r.scoring_format ?? 'stableford',
+        status:         'upcoming',
+      }))
+
+      const { error: insertRoundsError } = await admin.from('rounds').insert(insertRows)
+      if (insertRoundsError) {
+        console.error('[PATCH /api/trips] rounds insert failed', insertRoundsError)
+        return NextResponse.json({ error: `Failed to save rounds: ${insertRoundsError.message}` }, { status: 500 })
+      }
+    }
+
+    if (toDelete.length > 0) {
+      const { error: deleteRoundsError } = await admin
+        .from('rounds')
+        .delete()
+        .in('id', toDelete.map(r => r.id))
+
+      if (deleteRoundsError) {
+        console.error('[PATCH /api/trips] rounds delete failed', deleteRoundsError)
+        return NextResponse.json({ error: `Failed to remove round(s): ${deleteRoundsError.message}` }, { status: 500 })
+      }
+    }
+
+    const skippedActiveCount = existingRes.data?.filter(
+      (r: { id: string; status: string }) => !incomingIds.has(r.id) && r.status !== 'upcoming'
+    ).length ?? 0
+
+    console.log('[PATCH /api/trips] rounds reconciled', {
+      tripId, updated: toUpdate.length, inserted: toInsert.length, deleted: toDelete.length,
+      skippedActiveOrCompleted: skippedActiveCount,
+    })
   }
 
   return NextResponse.json({ tripId, ok: true })

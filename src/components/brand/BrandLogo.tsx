@@ -48,7 +48,7 @@ export default function BrandLogo({ variant = 'full', size, priority = false, cl
   const { src, alt } = ASSET[variant]
 
   if (failed) {
-    const fallbackSize = variant === 'full' ? Math.round((size ?? 280) * 0.16) : 15
+    const fallbackSize = variant === 'full' ? Math.round((size ?? 420) * 0.12) : 15
     return (
       <span
         className={className}
@@ -73,21 +73,25 @@ export default function BrandLogo({ variant = 'full', size, priority = false, cl
         height={dimension}
         priority={priority}
         className={className}
-        style={{ objectFit: 'contain', width: dimension, height: dimension }}
+        style={{ objectFit: 'contain', width: dimension, height: dimension, display: 'block' }}
         onError={() => setFailed(true)}
       />
     )
   }
 
-  // 'full' — responsive: scales with viewport, capped at `size` (default 280px),
-  // never smaller than 160px, so it stays prominent without clipping on any screen.
-  const maxWidth = size ?? 280
+  // 'full' — sized relative to the viewport so it genuinely reads as "upper
+  // third of the hero," not just a small fixed box: preferred size tracks
+  // viewport HEIGHT (34vh) since "occupy the upper third" is a height-based
+  // ask, capped by viewport WIDTH too (80vw) so it can never overflow a
+  // narrow phone in landscape, and capped overall at `size` (default 420px).
+  // Never smaller than 200px so it stays prominent on any screen.
+  const maxWidth = size ?? 420
   return (
     <div
       className={className}
       style={{
         position: 'relative',
-        width: `clamp(160px, 55vw, ${maxWidth}px)`,
+        width: `clamp(200px, min(34vh, 80vw), ${maxWidth}px)`,
         aspectRatio: '1 / 1',
         margin: '0 auto',
       }}

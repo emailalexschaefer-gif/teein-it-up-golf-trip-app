@@ -35,11 +35,14 @@ export default function AppNav({ userName, avatarUrl }: Props) {
             <div style={{
               width: 48, height: 48, borderRadius: 12,
               border: '2px solid #c9a84c',
+              background: '#f8f4eb',
               overflow: 'hidden',
               boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
               flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 4,
             }}>
-              <BrandLogo variant="icon" size={48} priority />
+              <BrandLogo variant="icon" size={40} priority />
             </div>
             <div style={{ lineHeight: 1.1 }}>
               <div style={{

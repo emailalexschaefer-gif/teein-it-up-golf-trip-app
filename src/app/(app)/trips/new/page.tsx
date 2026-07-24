@@ -61,7 +61,7 @@ function NewTripForm() {
           body:    JSON.stringify({
             ...details,
             rounds: rounds.map((r: WizardRound) => ({
-              name: r.name, course_name: r.course_name, play_date: r.play_date,
+              id: r.id, name: r.name, course_name: r.course_name, play_date: r.play_date,
               tee_time: r.tee_time, holes: r.holes, scoring_format: r.scoring_format,
             })),
           }),

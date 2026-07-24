@@ -2,8 +2,9 @@ import React from 'react'
 import BrandLogo from '@/components/brand/BrandLogo'
 
 // Auth layout: Masters-dark background, full brand logo, premium card.
-// Logo is sized to occupy roughly the upper quarter-to-third of the panel
-// on a typical mobile viewport, without overwhelming the form below it.
+// Logo is sized to occupy roughly the upper third of the hero area on a
+// typical mobile viewport (tracks viewport height, not just width — see
+// BrandLogo's 'full' variant), without overwhelming the form below it.
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -14,9 +15,9 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       alignItems: 'center', justifyContent: 'center',
       padding: '24px 16px 40px',
     }}>
-      {/* Full brand logo — larger and visually prominent per the landing-page requirement */}
+      {/* Full brand logo — sized by BrandLogo itself (viewport-height-relative) */}
       <div style={{ marginBottom: 24, textAlign: 'center' }}>
-        <BrandLogo variant="full" size={280} priority />
+        <BrandLogo variant="full" priority />
         <p style={{
           fontFamily: 'var(--font-body)',
           color: 'rgba(245,230,184,0.45)',
