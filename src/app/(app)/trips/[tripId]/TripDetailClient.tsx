@@ -3,10 +3,10 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { cn, formatTripDateRange } from '@/lib/utils'
+import { formatTripDateRange } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
 import { useUpdateTripStatus } from '@/lib/queries/trips'
-import { TRIP_STATUS_LABELS, TRIP_STATUS_TRANSITIONS, EVENT_TYPE_OPTIONS, groupsRequired } from '@/types/app'
+import { TRIP_STATUS_LABELS, EVENT_TYPE_OPTIONS } from '@/types/app'
 import { useQueryClient } from '@tanstack/react-query'
 import { tripKeys } from '@/lib/queries/trips'
 import type { TripStatus, TripRole } from '@/types/app'
@@ -68,7 +68,6 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
   const organiserIsPlaying = trip.organiser_is_playing ?? false
   const playerCount  = trip.trip_members.filter(m => m.role === 'player').length + (organiserIsPlaying ? 1 : 0)
   const numGroups    = actualGroupCount  // always use real count from DB
-  const _numGroupsCalc = groupsRequired(trip.expected_players, trip.players_per_group)  // kept for group setup hints
   const eventLabel   = EVENT_TYPE_OPTIONS.find(o => o.value === trip.event_type)?.label ?? 'Golf Trip'
   const step         = workflowStep(trip.status)
 

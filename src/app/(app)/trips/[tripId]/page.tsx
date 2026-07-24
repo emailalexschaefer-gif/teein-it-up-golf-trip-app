@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import TripDetailClient from './TripDetailClient'
+import type { TripData } from './TripDetailClient'
 import Link from 'next/link'
 
 interface Props { params: Promise<{ tripId: string }> }
@@ -59,7 +60,7 @@ export default async function TripDetailPage({ params }: Props) {
   }
 
   // Full trip query
-  let rawTrip: any = null
+  let rawTrip: TripData | null = null
   let tripError: string | null = null
   try {
     // Try full Sprint 3 query first
@@ -137,18 +138,17 @@ export default async function TripDetailPage({ params }: Props) {
     // trip_groups table may not exist yet — default to 0
   }
 
-  const sortedTrip = {
+  const sortedTrip: TripData = {
     ...rawTrip,
     trip_groups: Array.from({ length: initialGroupCount }, (_, i) => ({ id: String(i) })),
     rounds: [...(rawTrip.rounds ?? [])].sort(
-      (a: { play_date?: string }, b: { play_date?: string }) =>
-        (a.play_date ?? '').localeCompare(b.play_date ?? '')
+      (a, b) => a.play_date.localeCompare(b.play_date)
     ),
   }
 
   return (
     <TripDetailClient
-      trip={sortedTrip as any}
+      trip={sortedTrip}
       currentUserId={user.id}
       userRole={membership.role as 'organiser' | 'player'}
     />

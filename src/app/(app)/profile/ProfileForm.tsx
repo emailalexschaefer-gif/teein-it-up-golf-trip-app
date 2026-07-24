@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -102,9 +103,10 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
       {/* Avatar */}
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
         {avatarUrl ? (
-          <img src={avatarUrl} alt={name}
-            style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover',
-              border: '3px solid #d9c9a3', boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }} />
+          <div style={{ position: 'relative', width: 72, height: 72, borderRadius: '50%', overflow: 'hidden',
+            border: '3px solid #d9c9a3', boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }}>
+            <Image src={avatarUrl} alt={name} fill sizes="72px" className="object-cover" />
+          </div>
         ) : (
           <div style={{
             width: 72, height: 72, borderRadius: '50%', flexShrink: 0,
