@@ -1,7 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import React, { useState } from 'react'
 import type { TripData, RoundRow } from '../TripDetailClient'
 import { WizardNav } from './TripOverviewTab'
 import BeginRoundModal from '@/components/scoring/BeginRoundModal'
@@ -15,7 +14,6 @@ interface GroupWithMembers {
 }
 
 export default function TripRoundsTab({ trip, isOrganiser, onTabChange }: Props) {
-  const router = useRouter()
   const sorted = [...trip.rounds].sort((a, b) => a.play_date.localeCompare(b.play_date))
 
   const [beginRound, setBeginRound] = useState<RoundRow | null>(null)
@@ -27,10 +25,7 @@ export default function TripRoundsTab({ trip, isOrganiser, onTabChange }: Props)
   // Only load groups when the organiser intends to begin a round
   async function loadGroupsForModal() {
     try {
-      const [gRes, mRes] = await Promise.all([
-        fetch(`/api/trips/${trip.id}/groups`),
-        Promise.resolve({ ok: true, json: async () => trip.trip_members }),
-      ])
+      const gRes = await fetch(`/api/trips/${trip.id}/groups`)
       if (!gRes.ok) return
       const groupData: GroupWithMembers[] = await gRes.json()
       setGroups(groupData)
@@ -93,7 +88,6 @@ export default function TripRoundsTab({ trip, isOrganiser, onTabChange }: Props)
                 round={round}
                 index={i}
                 tripId={trip.id}
-                isOrganiser={isOrganiser}
                 canBegin={canBeginRound(round)}
                 onBeginRound={() => openBeginModal(round)}
               />
@@ -115,7 +109,6 @@ export default function TripRoundsTab({ trip, isOrganiser, onTabChange }: Props)
           roundName={beginRound.name}
           courseName={beginRound.course_name}
           holeCount={(beginRound.holes === 9 ? 9 : 18) as 9 | 18}
-          teeTime={beginRound.tee_time}
           playDate={beginRound.play_date}
           groups={modalGroups}
           onClose={() => setBeginRound(null)}
@@ -129,13 +122,12 @@ interface RoundCardProps {
   round:    RoundRow
   index:    number
   tripId:   string
-  isOrganiser: boolean
   canBegin: boolean
   onBeginRound: () => void
   key?: string
 }
 
-function RoundCard({ round, index, tripId, isOrganiser, canBegin, onBeginRound }: RoundCardProps) {
+function RoundCard({ round, index, tripId, canBegin, onBeginRound }: RoundCardProps) {
   const isLive      = round.status === 'active'
   const isCompleted = round.status === 'completed'
 

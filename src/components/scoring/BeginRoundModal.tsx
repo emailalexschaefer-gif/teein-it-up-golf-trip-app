@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getDefaultHoles, resolvePlayingHandicap } from '@/lib/scoring/defaultHoles'
 import type { HoleTemplate } from '@/lib/scoring/defaultHoles'
@@ -25,7 +25,6 @@ interface Props {
   roundName: string
   courseName: string | null
   holeCount: 9 | 18
-  teeTime:   string | null
   playDate:  string
   groups:    Group[]
   onClose:   () => void
@@ -35,7 +34,7 @@ type Stage = 'review' | 'holes' | 'confirm' | 'starting'
 
 export default function BeginRoundModal({
   tripId, roundId, roundName, courseName, holeCount,
-  teeTime, playDate, groups, onClose,
+  playDate, groups, onClose,
 }: Props) {
   const router = useRouter()
   const [stage, setStage]   = useState<Stage>('review')
@@ -229,7 +228,7 @@ export default function BeginRoundModal({
             <>
               <div style={{ background: '#fdf8ee', border: '1px solid #e8d98a', borderRadius: 10, padding: '10px 14px', marginBottom: 14 }}>
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a5c00' }}>
-                  <strong>Default hole template loaded.</strong> Review and adjust each hole's par and stroke index to match your course before continuing.
+                  <strong>Default hole template loaded.</strong> Review and adjust each hole&apos;s par and stroke index to match your course before continuing.
                 </p>
               </div>
 

@@ -163,7 +163,7 @@ export default function ResetPasswordForm() {
     <>
       <h1 className="text-xl font-bold text-text mb-1">Set or reset your password</h1>
       <p className="text-text-muted text-sm mb-6">
-        Enter your email and we'll send a link. Works for forgotten passwords
+        Enter your email and we&apos;ll send a link. Works for forgotten passwords
         and for accounts created with a magic link.
       </p>
 

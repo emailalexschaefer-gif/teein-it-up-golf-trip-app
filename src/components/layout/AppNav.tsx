@@ -4,7 +4,6 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { initials, avatarColor } from '@/lib/utils'
 import { GoldAvatar } from '@/components/ui/Avatar'
 import BrandLogo from '@/components/brand/BrandLogo'
 

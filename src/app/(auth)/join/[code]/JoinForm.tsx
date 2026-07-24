@@ -135,7 +135,7 @@ export default function JoinForm() {
     // We can't distinguish A from B/C here, so we attempt signUp.
     // Supabase returns "User already registered" if the email already exists.
 
-    const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+    const { error: signUpErr } = await supabase.auth.signUp({
       email,
       password,
       options: {
