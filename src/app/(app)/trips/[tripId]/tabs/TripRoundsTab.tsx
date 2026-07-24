@@ -49,9 +49,7 @@ export default function TripRoundsTab({ trip, isOrganiser, onTabChange }: Props)
   }
 
   const canBeginRound = (round: RoundRow) =>
-    isOrganiser &&
-    round.status === 'upcoming' &&
-    (trip.status === 'live' || trip.status === 'ready' || trip.status === 'groups_ready')
+    isOrganiser && round.status === 'upcoming'
 
   function openBeginModal(round: RoundRow) {
     setBeginRound(round)

@@ -2,9 +2,9 @@ import React from 'react'
 import BrandLogo from '@/components/brand/BrandLogo'
 
 // Auth layout: Masters-dark background, full brand logo, premium card.
-// Logo is sized to occupy roughly the upper third of the hero area on a
-// typical mobile viewport (tracks viewport height, not just width — see
-// BrandLogo's 'full' variant), without overwhelming the form below it.
+// Logo is ~110–150px wide on a typical mobile viewport, scaling up
+// responsively on larger screens (see BrandLogo's 'full' variant),
+// without overwhelming the form below it.
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (

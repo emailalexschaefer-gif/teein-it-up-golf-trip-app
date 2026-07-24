@@ -13,6 +13,17 @@
 // committed will 404 on Vercel while working perfectly in local dev, which
 // is exactly what happened before. Run `git status public/brand/` before
 // every push that touches branding.
+//
+// If the graphical logo is STILL not appearing (falling through to the text
+// fallback below) after confirming the asset is committed and deployed: the
+// `full` variant now uses `unoptimized`, which serves the raw file directly
+// and bypasses Vercel's image-optimization proxy entirely — that proxy is
+// itself a possible point of failure (size/format handling, quota limits on
+// some plans) independent of whether the source file is correctly deployed.
+// If it's still failing after that, the fault is not in this component: curl
+// the deployed asset URL directly (https://<your-domain>/brand/teein-it-up-
+// logo.png) to check whether it 404s at the CDN/hosting level, independent
+// of anything React or Next.js is doing.
 
 import Image from 'next/image'
 import { useState } from 'react'
@@ -48,7 +59,7 @@ export default function BrandLogo({ variant = 'full', size, priority = false, cl
   const { src, alt } = ASSET[variant]
 
   if (failed) {
-    const fallbackSize = variant === 'full' ? Math.round((size ?? 420) * 0.12) : 15
+    const fallbackSize = variant === 'full' ? Math.round((size ?? 320) * 0.14) : 15
     return (
       <span
         className={className}
@@ -72,6 +83,7 @@ export default function BrandLogo({ variant = 'full', size, priority = false, cl
         width={dimension}
         height={dimension}
         priority={priority}
+        unoptimized
         className={className}
         style={{ objectFit: 'contain', width: dimension, height: dimension, display: 'block' }}
         onError={() => setFailed(true)}
@@ -79,19 +91,18 @@ export default function BrandLogo({ variant = 'full', size, priority = false, cl
     )
   }
 
-  // 'full' — sized relative to the viewport so it genuinely reads as "upper
-  // third of the hero," not just a small fixed box: preferred size tracks
-  // viewport HEIGHT (34vh) since "occupy the upper third" is a height-based
-  // ask, capped by viewport WIDTH too (80vw) so it can never overflow a
-  // narrow phone in landscape, and capped overall at `size` (default 420px).
-  // Never smaller than 200px so it stays prominent on any screen.
-  const maxWidth = size ?? 420
+  // 'full' — sized per spec: roughly 110–150px wide on a typical mobile
+  // viewport (35vw lands there for 360–430px-wide phones), scaling up
+  // responsively on larger screens, capped at `size` (default 320px) so it
+  // never becomes oversized on desktop. Floor of 110px so it's never smaller
+  // than that even on a very narrow viewport.
+  const maxWidth = size ?? 320
   return (
     <div
       className={className}
       style={{
         position: 'relative',
-        width: `clamp(200px, min(34vh, 80vw), ${maxWidth}px)`,
+        width: `clamp(110px, 35vw, ${maxWidth}px)`,
         aspectRatio: '1 / 1',
         margin: '0 auto',
       }}
@@ -101,8 +112,9 @@ export default function BrandLogo({ variant = 'full', size, priority = false, cl
         alt={alt}
         fill
         priority={priority}
+        unoptimized
         sizes={`${maxWidth}px`}
-        style={{ objectFit: 'contain' }}
+        style={{ objectFit: 'contain', display: 'block' }}
         onError={() => setFailed(true)}
       />
     </div>
