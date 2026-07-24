@@ -423,7 +423,7 @@ export type Database = {
           location: string | null
           start_date: string
           end_date: string
-          status: string
+          status: TripStatus
           logo_url: string | null
           cover_image_url: string | null
           invite_code: string
@@ -441,7 +441,7 @@ export type Database = {
           location?: string | null
           start_date: string
           end_date: string
-          status?: string
+          status?: TripStatus
           logo_url?: string | null
           cover_image_url?: string | null
           invite_code?: string
@@ -457,7 +457,7 @@ export type Database = {
           location?: string | null
           start_date?: string
           end_date?: string
-          status?: string
+          status?: TripStatus
           logo_url?: string | null
           cover_image_url?: string | null
           expected_players?: number
