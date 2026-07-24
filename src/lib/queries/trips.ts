@@ -8,6 +8,17 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import type { TripSummary } from '@/types/app'
 import type { TripRole } from '@/types/database'
+import type { Database } from '@/types/database'
+
+// Narrow row type matching exactly the columns selected in the trips query
+// below. `expected_players` and `players_per_group` are NOT in that select
+// list, so they're typed as possibly-absent rather than claimed as always
+// present the way the full generated Row type would — the `?? 0` / `?? 4`
+// fallbacks already in the mapping below exist precisely because of this.
+type TripRow = Pick<
+  Database['public']['Tables']['trips']['Row'],
+  'id' | 'name' | 'description' | 'event_type' | 'location' | 'start_date' | 'end_date' | 'status' | 'logo_url' | 'invite_code'
+> & Partial<Pick<Database['public']['Tables']['trips']['Row'], 'expected_players' | 'players_per_group'>>
 
 export const tripKeys = {
   all:     ['trips'] as const,
@@ -71,7 +82,7 @@ export function useMyTrips(): UseQueryResult<TripSummary[], Error> {
         throw new Error(`trips query failed: ${tripsResult.error.message}`)
       }
 
-      const tripsData: any[] = tripsResult.data ?? []
+      const tripsData: TripRow[] = tripsResult.data ?? []
       const roleByTripId: Record<string, TripRole> = {}
       for (const m of memberships) roleByTripId[m.trip_id] = m.role
 
@@ -106,7 +117,7 @@ export function useMyTrips(): UseQueryResult<TripSummary[], Error> {
       }
 
 
-      const summaries: TripSummary[] = tripsData.map((t: any): TripSummary => ({
+      const summaries: TripSummary[] = tripsData.map((t): TripSummary => ({
         id:                t.id,
         name:              t.name,
         description:       t.description,

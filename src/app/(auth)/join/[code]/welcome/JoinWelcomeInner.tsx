@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useJoinTrip } from '@/lib/queries/trips'
 
@@ -34,7 +35,7 @@ export default function JoinWelcomeInner() {
         <p className="text-3xl text-center mb-3">⛳</p>
         <h1 className="text-lg font-bold text-text text-center mb-2">Couldn&apos;t join trip</h1>
         <p className="text-text-muted text-sm text-center mb-4">{error}</p>
-        <a href="/dashboard" className="block text-center text-sm text-brand-600 hover:underline">Go to My Trips</a>
+        <Link href="/dashboard" className="block text-center text-sm text-brand-600 hover:underline">Go to My Trips</Link>
       </>
     )
   }

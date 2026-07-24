@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -207,7 +208,7 @@ export default function SignupForm() {
 
       <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#7a7260', textAlign: 'center', marginTop: 16 }}>
         Already have an account?{' '}
-        <a href="/login" style={{ color: '#1a4731', fontWeight: 600, textDecoration: 'none' }}>Sign in</a>
+        <Link href="/login" style={{ color: '#1a4731', fontWeight: 600, textDecoration: 'none' }}>Sign in</Link>
       </p>
     </>
   )

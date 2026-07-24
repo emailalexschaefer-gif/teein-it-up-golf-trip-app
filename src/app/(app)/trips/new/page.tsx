@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 import StepIndicator from '@/components/trips/wizard/StepIndicator'
@@ -97,10 +98,10 @@ function NewTripForm() {
   return (
     <div>
       <div className="mb-6">
-        <a href={isEditing ? `/trips/${editingTripId}` : '/dashboard'}
+        <Link href={isEditing ? `/trips/${editingTripId}` : '/dashboard'}
           className="inline-flex items-center text-sm text-text-muted hover:text-brand-600 transition-colors mb-2">
           ← {isEditing ? 'Back to trip' : 'My Trips'}
-        </a>
+        </Link>
         <h1 className="text-2xl font-bold text-text">
           {isEditing ? 'Edit trip' : 'Create a trip'}
         </h1>

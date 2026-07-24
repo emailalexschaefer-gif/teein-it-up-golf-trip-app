@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { initials, avatarColor } from '@/lib/utils'
@@ -31,7 +32,7 @@ export default function AppNav({ userName, avatarUrl }: Props) {
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
 
           {/* Simplified app logo — shared component, same asset used everywhere */}
-          <a href="/dashboard" className="flex items-center gap-2.5 flex-shrink-0 active:opacity-80 transition-opacity">
+          <Link href="/dashboard" className="flex items-center gap-2.5 flex-shrink-0 active:opacity-80 transition-opacity">
             <div style={{
               width: 48, height: 48, borderRadius: 12,
               border: '2px solid #c9a84c',
@@ -54,11 +55,11 @@ export default function AppNav({ userName, avatarUrl }: Props) {
                 textTransform: 'uppercase', opacity: 0.6, marginTop: 1,
               }}>Golf Event App</div>
             </div>
-          </a>
+          </Link>
 
           {/* Right: New Trip + avatar */}
           <div className="flex items-center gap-2">
-            <a
+            <Link
               href="/trips/new"
               className="hidden sm:flex items-center gap-1.5 active:scale-95 transition-transform"
               style={{
@@ -72,7 +73,7 @@ export default function AppNav({ userName, avatarUrl }: Props) {
               }}
             >
               + New Trip
-            </a>
+            </Link>
 
             <div style={{
               background: 'rgba(201,168,76,0.15)',

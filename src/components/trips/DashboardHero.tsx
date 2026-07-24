@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import Link from 'next/link'
 
 export default function DashboardHero() {
   return (
@@ -51,7 +52,7 @@ export default function DashboardHero() {
         </p>
 
         {/* Primary CTA — "Create Trip" not "Create Event" */}
-        <a
+        <Link
           href="/trips/new"
           className="inline-flex items-center gap-2 active:scale-95 transition-transform"
           style={{
@@ -67,7 +68,7 @@ export default function DashboardHero() {
           }}
         >
           + Create Trip
-        </a>
+        </Link>
       </div>
 
       {/* Watermark */}

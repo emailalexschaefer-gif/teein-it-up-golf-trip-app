@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -257,12 +258,12 @@ export default function LoginForm() {
         >
           Use a different email
         </button>
-        <a href={modeUrl('password')} style={{
+        <Link href={modeUrl('password')} style={{
           display: 'block', textAlign: 'center', marginTop: 4,
           fontFamily: 'var(--font-body)', fontSize: 13, color: '#a89e88', textDecoration: 'none',
         }}>
           Back to sign in
-        </a>
+        </Link>
       </div>
     </>
   )
@@ -339,9 +340,9 @@ export default function LoginForm() {
 
       <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#7a7260', textAlign: 'center', marginTop: 16 }}>
         Already have an account?{' '}
-        <a href={modeUrl('password')} style={{ color: '#1a4731', fontWeight: 600, textDecoration: 'none' }}>
+        <Link href={modeUrl('password')} style={{ color: '#1a4731', fontWeight: 600, textDecoration: 'none' }}>
           Sign in
-        </a>
+        </Link>
       </p>
     </>
   )
@@ -390,9 +391,9 @@ export default function LoginForm() {
             {msg.text}
             {msg.type === 'err' && mode === 'password' && (
               <div className="mt-2">
-                <a href="/reset-password" className="underline font-medium hover:opacity-80">
+                <Link href="/reset-password" className="underline font-medium hover:opacity-80">
                   Set or reset your password →
-                </a>
+                </Link>
               </div>
             )}
           </div>
@@ -418,9 +419,9 @@ export default function LoginForm() {
         </div>
         {mode === 'password' && (
           <div>
-            <a href="/reset-password" className="text-sm text-text-muted hover:text-brand-600 transition-colors">
+            <Link href="/reset-password" className="text-sm text-text-muted hover:text-brand-600 transition-colors">
               Forgot password / set a password
-            </a>
+            </Link>
           </div>
         )}
         <div>

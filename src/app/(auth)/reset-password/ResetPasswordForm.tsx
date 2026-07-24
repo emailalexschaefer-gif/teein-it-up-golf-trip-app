@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import Link from 'next/link'
 // Password reset flow — two screens:
 //
 // Screen 1 (no ?code in URL): enter email → sends reset link via Supabase.
@@ -191,9 +192,9 @@ export default function ResetPasswordForm() {
       </form>
 
       <div className="mt-4 text-center">
-        <a href="/login" className="text-sm text-text-muted hover:text-brand-600 transition-colors">
+        <Link href="/login" className="text-sm text-text-muted hover:text-brand-600 transition-colors">
           Back to sign in
-        </a>
+        </Link>
       </div>
     </>
   )

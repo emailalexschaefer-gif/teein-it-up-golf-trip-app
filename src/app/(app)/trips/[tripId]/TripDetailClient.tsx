@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { cn, formatTripDateRange } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
@@ -106,11 +107,11 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
         padding: '12px 16px',
       }}>
         {/* Back link */}
-        <a href="/dashboard" style={{
+        <Link href="/dashboard" style={{
           fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600,
           color: 'rgba(245,230,184,0.55)', letterSpacing: 0.3,
           display: 'inline-block', marginBottom: 8,
-        }}>← My Trips</a>
+        }}>← My Trips</Link>
 
         <div style={{ height: 1, margin: '0 0 10px', background: 'linear-gradient(90deg, transparent, #c9a84c, transparent)' }} />
 
@@ -152,12 +153,12 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
               </div>
             )}
             {isOrganiser && (
-              <a href={editUrl} style={{
+              <Link href={editUrl} style={{
                 fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 600,
                 color: 'rgba(245,230,184,0.45)',
               }}>
                 Edit trip
-              </a>
+              </Link>
             )}
           </div>
         </div>

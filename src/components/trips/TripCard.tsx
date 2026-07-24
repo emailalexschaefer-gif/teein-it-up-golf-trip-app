@@ -1,4 +1,5 @@
 import React from 'react'
+import Link from 'next/link'
 import { cn, formatTripDateRange, initials } from '@/lib/utils'
 import { TRIP_STATUS_LABELS } from '@/types/app'
 import type { TripSummary } from '@/types/app'
@@ -22,7 +23,7 @@ export default function TripCard({ trip }: { trip: TripSummary }) {
   const isOrg    = trip.user_role === 'organiser'
 
   return (
-    <a
+    <Link
       href={`/trips/${trip.id}`}
       className={cn(
         'block bg-ivory rounded-card border border-parchment-dark',
@@ -154,7 +155,7 @@ export default function TripCard({ trip }: { trip: TripSummary }) {
           <span style={{ color: '#c5b99a', fontSize: 18, alignSelf: 'center', flexShrink: 0 }}>›</span>
         </div>
       </div>
-    </a>
+    </Link>
   )
 }
 
@@ -168,6 +169,6 @@ function Stat({ children }: { children?: React.ReactNode }) {
   )
 }
 
-function Sep(_props: object) {
+function Sep() {
   return <span style={{ color: '#d9c9a3', fontSize: 10 }}>·</span>
 }

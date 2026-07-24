@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
+import Link from 'next/link'
 import { useMyTrips } from '@/lib/queries/trips'
 import TripCard from './TripCard'
 import type { TripSummary } from '@/types/app'
@@ -26,7 +27,6 @@ function filterTrips(trips: TripSummary[], tab: FilterTab): TripSummary[] {
 
 // Section label within the active trips list
 function groupLabel(trips: TripSummary[]): { upcoming: TripSummary[]; live: TripSummary[] } {
-  const now = new Date().toISOString().split('T')[0]
   return {
     live:     trips.filter(t => t.status === 'live'),
     upcoming: trips.filter(t => t.status !== 'live'),
@@ -74,7 +74,6 @@ export default function TripList() {
   const { data: trips, isLoading, error } = useMyTrips()
 
   const filtered   = filterTrips(trips ?? [], filter)
-  const activeCount = filterTrips(trips ?? [], 'active').length
 
   if (isLoading) {
     return (
@@ -166,7 +165,7 @@ export default function TripList() {
             maxWidth: 260, lineHeight: 1.55,
           }}>{empty.body}</p>
           {filter === 'active' && (
-            <a
+            <Link
               href="/trips/new"
               className="mt-5 active:scale-95 transition-transform"
               style={{
@@ -179,7 +178,7 @@ export default function TripList() {
               }}
             >
               + Create your first event
-            </a>
+            </Link>
           )}
         </div>
       ) : (

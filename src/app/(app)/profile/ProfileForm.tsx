@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { initials, avatarColor } from '@/lib/utils'
@@ -89,10 +90,10 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
     <div>
       {/* Header */}
       <div style={{ marginBottom: 20 }}>
-        <a href="/dashboard" style={{
+        <Link href="/dashboard" style={{
           fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600,
           color: '#7a7260', textDecoration: 'none', display: 'inline-block', marginBottom: 8,
-        }}>← Dashboard</a>
+        }}>← Dashboard</Link>
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 700, color: '#1a1a16' }}>
           My Profile
         </h1>
@@ -211,12 +212,12 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
 
       {/* Reset password link */}
       <div style={{ marginTop: 12, textAlign: 'center' }}>
-        <a href="/reset-password" style={{
+        <Link href="/reset-password" style={{
           fontFamily: 'var(--font-body)', fontSize: 13, color: '#1a4731',
           textDecoration: 'none', fontWeight: 600,
         }}>
           Reset password
-        </a>
+        </Link>
       </div>
 
       {/* Note about trip handicaps */}

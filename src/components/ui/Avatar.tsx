@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import Image from 'next/image'
 import { cn } from '@/lib/utils'
 import { initials, avatarColor } from '@/lib/utils'
 
@@ -28,7 +29,7 @@ export default function Avatar({ name, size = 'md', color, imageUrl, className }
 
   return (
     <div
-      className={cn('flex-shrink-0 rounded-full flex items-center justify-center font-bold text-white', className)}
+      className={cn('flex-shrink-0 rounded-full flex items-center justify-center font-bold text-white overflow-hidden', className)}
       style={{
         width: outer, height: outer,
         background: imageUrl ? undefined : bg,
@@ -36,10 +37,17 @@ export default function Avatar({ name, size = 'md', color, imageUrl, className }
         border: '2px solid rgba(255,255,255,0.22)',
         boxShadow: '0 2px 8px rgba(0,0,0,0.22)',
         fontFamily: 'var(--font-body)',
+        position: 'relative',
       }}
     >
       {imageUrl ? (
-        <img src={imageUrl} alt={name} className="w-full h-full rounded-full object-cover" />
+        <Image
+          src={imageUrl}
+          alt={name}
+          fill
+          sizes={`${outer}px`}
+          className="rounded-full object-cover"
+        />
       ) : text}
     </div>
   )

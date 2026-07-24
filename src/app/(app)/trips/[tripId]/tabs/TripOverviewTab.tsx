@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatTripDateRange } from '@/lib/utils'
 import { TRIP_STATUS_LABELS, TRIP_STATUS_TRANSITIONS, EVENT_TYPE_OPTIONS } from '@/types/app'
@@ -395,13 +396,13 @@ export function WizardNav({
   return (
     <div className="flex gap-3 pt-2">
       {backHref ? (
-        <a href={backHref} style={{
+        <Link href={backHref} style={{
           flex: 1, textAlign: 'center', display: 'block',
           padding: '13px 16px', borderRadius: 12,
           background: '#f8f4eb', border: '1.5px solid #d9c9a3',
           fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#7a7260',
           textDecoration: 'none',
-        }}>{backLabel}</a>
+        }}>{backLabel}</Link>
       ) : onBack ? (
         <button onClick={onBack} style={{
           flex: 1, padding: '13px 16px', borderRadius: 12,
