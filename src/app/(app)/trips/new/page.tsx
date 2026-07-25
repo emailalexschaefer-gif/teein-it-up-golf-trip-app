@@ -70,6 +70,8 @@ function NewTripForm() {
           const d = await res.json().catch(() => ({}))
           throw new Error(d.error ?? 'Failed to update trip')
         }
+        const saveData = await res.json().catch(() => ({}))
+        console.log('[trips/new] trip saved — persisted rounds returned by the server:', saveData.rounds)
         router.push(`/trips/${editingTripId}`)
         router.refresh()
         return

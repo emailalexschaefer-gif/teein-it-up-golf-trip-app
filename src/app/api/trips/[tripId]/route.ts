@@ -184,7 +184,16 @@ export async function PATCH(request: NextRequest, { params }: Props) {
     })
   }
 
-  return NextResponse.json({ tripId, ok: true })
+  // Return the actual persisted round rows — direct proof (visible in the
+  // Network tab) of what ids exist right after this save, independent of
+  // whatever the next page load does.
+  const finalRoundsRes = await admin
+    .from('rounds')
+    .select('id, name, play_date, status')
+    .eq('trip_id', tripId)
+    .order('play_date', { ascending: true })
+
+  return NextResponse.json({ tripId, ok: true, rounds: finalRoundsRes.data ?? [] })
 }
 
 

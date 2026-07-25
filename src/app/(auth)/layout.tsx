@@ -1,10 +1,10 @@
 import React from 'react'
-import BrandLogo from '@/components/brand/BrandLogo'
+import AuthBranding from '@/components/brand/AuthBranding'
 
 // Auth layout: Masters-dark background, full brand logo, premium card.
-// Logo is ~110–150px wide on a typical mobile viewport, scaling up
-// responsively on larger screens (see BrandLogo's 'full' variant),
-// without overwhelming the form below it.
+// Wraps every unauthenticated route (login, signup, reset-password, join)
+// via Next.js route-group layout inheritance — there is exactly one of
+// these, applied automatically to every page under (auth).
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -15,16 +15,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       alignItems: 'center', justifyContent: 'center',
       padding: '24px 16px 40px',
     }}>
-      {/* Full brand logo — sized by BrandLogo itself (viewport-height-relative) */}
-      <div style={{ marginBottom: 24, textAlign: 'center' }}>
-        <BrandLogo variant="full" priority />
-        <p style={{
-          fontFamily: 'var(--font-body)',
-          color: 'rgba(245,230,184,0.45)',
-          fontSize: 10, marginTop: 2,
-          letterSpacing: 2.5, textTransform: 'uppercase',
-        }}>Golf Event App</p>
-      </div>
+      <AuthBranding />
 
       {/* Auth card */}
       <div style={{
