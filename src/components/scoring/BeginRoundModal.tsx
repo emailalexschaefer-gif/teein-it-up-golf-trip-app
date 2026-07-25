@@ -54,6 +54,11 @@ export default function BeginRoundModal({
 
   async function handleBegin() {
     setStarting(true); setError(null)
+    // TEMP DIAGNOSTIC — explicitly requested for this debugging pass.
+    // Remove once the round-lookup issue is confirmed fixed.
+    console.log('[BeginRoundModal] handleBegin — values being sent', {
+      tripId, roundId, roundName, targetEndpoint: `/api/trips/${tripId}/rounds/${roundId}/start`,
+    })
     try {
       const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/start`, {
         method:  'POST',
@@ -61,6 +66,7 @@ export default function BeginRoundModal({
         body:    JSON.stringify({ holes }),
       })
       const data = await res.json().catch(() => ({}))
+      console.log('[BeginRoundModal] handleBegin — response', { ok: res.ok, status: res.status, data })
       if (!res.ok) {
         setError(data.error ?? "We couldn't begin the round. Please try again.")
         setStarting(false)

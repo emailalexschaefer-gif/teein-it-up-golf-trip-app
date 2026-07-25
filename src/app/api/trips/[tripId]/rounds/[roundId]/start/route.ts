@@ -106,17 +106,45 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   }
 
   // ── Verify round ───────────────────────────────────────────────────────────
-  const roundRes = await admin
+  // Two-step lookup, deliberately: a single combined
+  // `.eq('id', roundId).eq('trip_id', tripId)` query can't distinguish
+  // "this round doesn't exist at all" from "this round exists, but under a
+  // different trip_id than the one in the URL" — and those are two very
+  // different bugs with two different fixes. Checking the round by id alone
+  // first, then comparing trip_id explicitly, tells us which one this is.
+  const roundByIdRes = await admin
     .from('rounds')
     .select('id, status, holes, name, trip_id, score_capture_mode')
     .eq('id', roundId)
-    .eq('trip_id', tripId)
-    .single()
+    .maybeSingle()
 
-  if (!roundRes.data) {
-    console.error('[start-round] round not found', { roundId, tripId })
-    return NextResponse.json({ error: 'Round not found in this trip.' }, { status: 404 })
+  console.log('[start-round] DIAGNOSTIC round lookup', {
+    requested_tripId: tripId,
+    requested_roundId: roundId,
+    round_exists_at_all: !!roundByIdRes.data,
+    round_actual_trip_id: roundByIdRes.data?.trip_id ?? null,
+    round_status: roundByIdRes.data?.status ?? null,
+    trip_id_matches: roundByIdRes.data ? roundByIdRes.data.trip_id === tripId : null,
+    query_error: roundByIdRes.error?.message ?? null,
+  })
+
+  if (!roundByIdRes.data) {
+    console.error('[start-round] round does not exist in the database at all', { roundId, tripId })
+    return NextResponse.json({
+      error: `Round not found. No round exists with id ${roundId}. It may have been deleted or the id is stale — try refreshing the trip page.`,
+    }, { status: 404 })
   }
+
+  if (roundByIdRes.data.trip_id !== tripId) {
+    console.error('[start-round] round exists but belongs to a DIFFERENT trip', {
+      roundId, requestedTripId: tripId, actualTripId: roundByIdRes.data.trip_id,
+    })
+    return NextResponse.json({
+      error: `This round belongs to a different trip than the one you're viewing. Try refreshing the trip page — if this persists, the round's trip assignment may need to be corrected directly in the database.`,
+    }, { status: 404 })
+  }
+
+  const roundRes = { data: roundByIdRes.data }
 
   const round = roundRes.data
   console.log('[start-round] round status check', { roundId, status: round.status })

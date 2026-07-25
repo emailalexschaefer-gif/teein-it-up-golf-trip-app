@@ -43,11 +43,11 @@ const ASSET: Record<'full' | 'icon', { src: string; alt: string }> = {
 }
 
 /**
- * Renders the official logo. The 'icon' variant uses explicit width/height
- * (fixed header size). The 'full' variant uses a responsively-sized wrapper
- * with `fill`, so it scales down on narrow phones instead of clipping or
- * overflowing — it never depends on an implicitly-sized parent, which is
- * what silently produced a collapsed/invisible logo before.
+ * Renders the official logo. Both variants use explicit width/height props
+ * (Next's real intrinsic-dimensions requirement) with a CSS override on the
+ * displayed size — not `fill`, which depends on a parent resolving a
+ * non-zero computed height and can silently render at zero size instead of
+ * erroring if that fails.
  *
  * Falls back to plain text ONLY if the asset genuinely fails to load
  * client-side (onError) — never a golfer emoji, never a broken-image icon.
@@ -91,32 +91,35 @@ export default function BrandLogo({ variant = 'full', size, priority = false, cl
     )
   }
 
-  // 'full' — sized per spec: roughly 110–150px wide on a typical mobile
-  // viewport (35vw lands there for 360–430px-wide phones), scaling up
-  // responsively on larger screens, capped at `size` (default 320px) so it
-  // never becomes oversized on desktop. Floor of 110px so it's never smaller
-  // than that even on a very narrow viewport.
-  const maxWidth = size ?? 320
+  // 'full' — explicit width/height (the standard next/image responsive
+  // pattern: real intrinsic dimensions as props so Next always knows the
+  // image's aspect ratio, then a CSS override on the *displayed* size).
+  // Deliberately NOT using `fill`: fill requires the parent element to
+  // resolve a non-zero computed height via CSS (aspect-ratio, in the
+  // previous version of this component) — if that computed height silently
+  // comes out as 0 in some rendering context, the image renders at zero
+  // size with no error thrown (onError never fires, because the image
+  // request itself succeeds — it's just invisible), which looks exactly
+  // like "no graphical logo, just the text below it." Explicit width/height
+  // has no such dependency on a parent's computed size.
+  const displaySize = size ?? 320
   return (
-    <div
+    <Image
+      src={src}
+      alt={alt}
+      width={displaySize}
+      height={displaySize}
+      priority={priority}
+      unoptimized
       className={className}
       style={{
-        position: 'relative',
-        width: `clamp(110px, 35vw, ${maxWidth}px)`,
-        aspectRatio: '1 / 1',
+        display: 'block',
+        width: `clamp(110px, 35vw, ${displaySize}px)`,
+        height: 'auto',
         margin: '0 auto',
+        objectFit: 'contain',
       }}
-    >
-      <Image
-        src={src}
-        alt={alt}
-        fill
-        priority={priority}
-        unoptimized
-        sizes={`${maxWidth}px`}
-        style={{ objectFit: 'contain', display: 'block' }}
-        onError={() => setFailed(true)}
-      />
-    </div>
+      onError={() => setFailed(true)}
+    />
   )
 }
