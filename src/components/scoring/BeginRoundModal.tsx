@@ -54,6 +54,7 @@ export default function BeginRoundModal({
 
   async function handleBegin() {
     setStarting(true); setError(null)
+    let staySpinning = false
     try {
       const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/start`, {
         method:  'POST',
@@ -70,21 +71,28 @@ export default function BeginRoundModal({
           // and close the modal rather than leaving the user stuck on it.
           setError((data.error ?? 'This round no longer exists.') + ' Refreshing…')
           router.refresh()
+          staySpinning = true // keep the disabled/spinner state until close, intentionally
           setTimeout(() => onClose(), 1500)
           return
         }
         setError(data.error ?? "We couldn't begin the round. Please try again.")
-        setStarting(false)
         setStage('confirm')
         return
       }
-      // Navigate to the active round shell
+      // Success — navigate to the active round shell. Keep the spinner
+      // state through the navigation rather than flipping it off right
+      // before the page changes.
+      staySpinning = true
       router.push(`/trips/${tripId}/rounds/${roundId}`)
       router.refresh()
     } catch {
       setError("We couldn't begin the round. Please try again.")
-      setStarting(false)
       setStage('confirm')
+    } finally {
+      // Guarantees 'starting' never gets stuck true after an error, on any
+      // exit path — except the two cases above where staying disabled
+      // during a close/navigation transition is the correct UX, not a bug.
+      if (!staySpinning) setStarting(false)
     }
   }
 

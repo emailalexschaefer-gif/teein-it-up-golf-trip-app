@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import type { TripData, RoundRow } from '../TripDetailClient'
 import { WizardNav } from './TripOverviewTab'
 import BeginRoundModal from '@/components/scoring/BeginRoundModal'
@@ -21,6 +21,16 @@ export default function TripRoundsTab({ trip, isOrganiser, onTabChange }: Props)
   const [groupMembers, setGroupMembers] = useState<Record<string, Array<{
     profile_id: string; full_name: string; playing_handicap: number | null; profile_handicap: number | null
   }>>>({})
+
+  // If `trip` refreshes (e.g. after router.refresh()) and the round
+  // currently open in the modal no longer exists in the fresh data, close
+  // the modal instead of leaving it pointed at a round that's gone —
+  // otherwise pressing Confirm would just fail against a dead id again.
+  useEffect(() => {
+    if (beginRound && !trip.rounds.some(r => r.id === beginRound.id)) {
+      setBeginRound(null)
+    }
+  }, [trip.rounds, beginRound])
 
   // Only load groups when the organiser intends to begin a round
   async function loadGroupsForModal() {
