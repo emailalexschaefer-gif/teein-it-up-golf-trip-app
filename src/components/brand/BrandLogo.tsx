@@ -38,7 +38,17 @@ interface BrandLogoProps {
 }
 
 const ASSET: Record<'full' | 'icon', { src: string; alt: string }> = {
-  full: { src: '/brand/teein-it-up-logo.png', alt: "Teein' It Up — Golf Event App" },
+  // Both variants deliberately use the SAME file. The separate, larger
+  // teein-it-up-logo.png kept failing to render in production across
+  // several rounds of fixes to the code around it — while the code changes
+  // themselves were confirmed reaching production (a different fix, to the
+  // round-lookup API route, took effect in the same deployment). That
+  // strongly points at something specific to that one binary asset, not
+  // the component. Reusing the exact file already proven to render
+  // correctly in the header sidesteps the mystery entirely: if this file
+  // works here, it works on the login page too, because it's the same
+  // HTTP resource.
+  full: { src: '/brand/teein-it-up-icon.png', alt: "Teein' It Up — Golf Event App" },
   icon: { src: '/brand/teein-it-up-icon.png', alt: "Teein' It Up" },
 }
 

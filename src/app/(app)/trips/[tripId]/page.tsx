@@ -5,6 +5,13 @@ import TripDetailClient from './TripDetailClient'
 import type { TripData } from './TripDetailClient'
 import Link from 'next/link'
 
+// This page must always reflect the live database — it's the page that was
+// showing stale round data (a round id that had already been deleted) after
+// a trip edit. Force dynamic rendering so there's no possibility of a
+// cached server render being served for this route.
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 interface Props { params: Promise<{ tripId: string }> }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {

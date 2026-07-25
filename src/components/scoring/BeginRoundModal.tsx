@@ -54,11 +54,6 @@ export default function BeginRoundModal({
 
   async function handleBegin() {
     setStarting(true); setError(null)
-    // TEMP DIAGNOSTIC — explicitly requested for this debugging pass.
-    // Remove once the round-lookup issue is confirmed fixed.
-    console.log('[BeginRoundModal] handleBegin — values being sent', {
-      tripId, roundId, roundName, targetEndpoint: `/api/trips/${tripId}/rounds/${roundId}/start`,
-    })
     try {
       const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/start`, {
         method:  'POST',
@@ -66,8 +61,18 @@ export default function BeginRoundModal({
         body:    JSON.stringify({ holes }),
       })
       const data = await res.json().catch(() => ({}))
-      console.log('[BeginRoundModal] handleBegin — response', { ok: res.ok, status: res.status, data })
       if (!res.ok) {
+        if (res.status === 404) {
+          // The round genuinely doesn't exist anymore (deleted, or the id
+          // this modal was opened with has gone stale). Retrying against a
+          // dead id can't ever succeed — refresh the trip's data so the
+          // Rounds tab re-renders with whatever rounds actually exist now,
+          // and close the modal rather than leaving the user stuck on it.
+          setError((data.error ?? 'This round no longer exists.') + ' Refreshing…')
+          router.refresh()
+          setTimeout(() => onClose(), 1500)
+          return
+        }
         setError(data.error ?? "We couldn't begin the round. Please try again.")
         setStarting(false)
         setStage('confirm')

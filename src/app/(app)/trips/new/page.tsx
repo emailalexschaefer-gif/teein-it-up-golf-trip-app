@@ -71,6 +71,7 @@ function NewTripForm() {
           throw new Error(d.error ?? 'Failed to update trip')
         }
         router.push(`/trips/${editingTripId}`)
+        router.refresh()
         return
       }
 
@@ -90,6 +91,7 @@ function NewTripForm() {
         })),
       })
       router.push(`/trips/${tripId}`)
+      router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
     }

@@ -4,6 +4,10 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import ScoreSessionShell from './ScoreSessionShell'
 import SelfMarkerScoreShell from './SelfMarkerScoreShell'
 
+// Same reasoning as the trip detail page — never serve a cached render here.
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 interface Props { params: Promise<{ tripId: string; roundId: string }> }
 
 // Set SCORING_DEBUG=1 in the environment to get structured diagnostic logs

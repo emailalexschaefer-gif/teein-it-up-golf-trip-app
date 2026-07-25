@@ -118,16 +118,6 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     .eq('id', roundId)
     .maybeSingle()
 
-  console.log('[start-round] DIAGNOSTIC round lookup', {
-    requested_tripId: tripId,
-    requested_roundId: roundId,
-    round_exists_at_all: !!roundByIdRes.data,
-    round_actual_trip_id: roundByIdRes.data?.trip_id ?? null,
-    round_status: roundByIdRes.data?.status ?? null,
-    trip_id_matches: roundByIdRes.data ? roundByIdRes.data.trip_id === tripId : null,
-    query_error: roundByIdRes.error?.message ?? null,
-  })
-
   if (!roundByIdRes.data) {
     console.error('[start-round] round does not exist in the database at all', { roundId, tripId })
     return NextResponse.json({
