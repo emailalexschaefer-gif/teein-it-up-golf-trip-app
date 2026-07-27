@@ -282,6 +282,17 @@ export default function SelfMarkerScoreShell({
     return sum + calculateStableford({ grossScore: c.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp })
   }, 0)
 
+  // Same calculation, but for the partner's own card — uses the partner's
+  // own captures and their own handicap, not the current user's. Without
+  // this, the YOUR MARKER card would show (or risk showing) the wrong
+  // player's total if their handicaps differ.
+  const partnerRunningTotal = holes.reduce((sum, h) => {
+    const c = partnerSelf[h.hole_number]
+    if (!c || (c.grossScore === null && !c.pickedUp)) return sum
+    if (c.pickedUp) return sum
+    return sum + calculateStableford({ grossScore: c.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: partnerHcp })
+  }, 0)
+
   function pick(which: 'mine' | 'partner', delta: number) {
     if (which === 'mine') {
       setDraftMyGross(g => Math.max(0, Math.min(15, (g ?? 0) + delta)) || null)
@@ -521,8 +532,8 @@ export default function SelfMarkerScoreShell({
 
         {/* ── Card 1: YOUR SCORE ─────────────────────────────────────────── */}
         <ScoreCard
-          title="YOUR SCORE" name={myName} hcp={myHcp} par={par} si={si} strokes={myStrokes}
-          gross={draftMyGross} pickedUp={draftMyPickedUp} pts={myPts}
+          title="YOUR SCORE" name={myName} hcp={myHcp} par={par} si={si} strokes={myStrokes} holeNum={holeNum}
+          gross={draftMyGross} pickedUp={draftMyPickedUp} pts={myPts} runningTotal={myRunningTotal}
           onPick={d => pick('mine', d)} onPar={() => pickPar('mine')} onTogglePickUp={() => togglePickUp('mine')}
           status={myComparison}
         />
@@ -530,8 +541,8 @@ export default function SelfMarkerScoreShell({
         {/* ── Card 2: YOUR MARKER (the partner I mark) ──────────────────── */}
         {requiresMarker && markedScorecard && partnerName && (
           <ScoreCard
-            title="YOUR MARKER" name={partnerName} hcp={partnerHcp} par={par} si={si} strokes={partnerStrokes}
-            gross={draftPartnerGross} pickedUp={draftPartnerPickedUp} pts={partnerPts}
+            title="YOUR MARKER" name={partnerName} hcp={partnerHcp} par={par} si={si} strokes={partnerStrokes} holeNum={holeNum}
+            gross={draftPartnerGross} pickedUp={draftPartnerPickedUp} pts={partnerPts} runningTotal={partnerRunningTotal}
             onPick={d => pick('partner', d)} onPar={() => pickPar('partner')} onTogglePickUp={() => togglePickUp('partner')}
             status={partnerComparison}
           />
@@ -577,25 +588,29 @@ export default function SelfMarkerScoreShell({
 // ── Score card sub-component ───────────────────────────────────────────────────
 
 function ScoreCard({
-  title, name, hcp, par, si, strokes, gross, pickedUp, pts, onPick, onPar, onTogglePickUp, status,
+  title, name, hcp, par, si, strokes, holeNum, gross, pickedUp, pts, runningTotal, onPick, onPar, onTogglePickUp, status,
 }: {
-  title: string; name: string; hcp: number; par: number; si: number; strokes: number
-  gross: number | null; pickedUp: boolean; pts: number | null
+  title: string; name: string; hcp: number; par: number; si: number; strokes: number; holeNum: number
+  gross: number | null; pickedUp: boolean; pts: number | null; runningTotal: number
   onPick: (delta: number) => void; onPar: () => void; onTogglePickUp: () => void
   status: ComparisonStatus | null
 }) {
   return (
     <div style={{ borderRadius: 14, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 12, overflow: 'hidden' }}>
-      <div style={{ background: '#f7f6f1', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eceae3' }}>
+      <div style={{ background: '#f7f6f1', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #eceae3' }}>
         <div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#a1791f', letterSpacing: 0.8 }}>{title}</div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#14532d' }}>{name} <span style={{ color: '#9ca3af', fontWeight: 500, fontSize: 12 }}>(HC {hcp})</span></div>
         </div>
-        {status && (
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: statusColor(status), textAlign: 'right' }}>
-            {COMPARISON_LABEL[status]}
-          </div>
-        )}
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 800, color: '#14532d', lineHeight: 1 }}>H{holeNum}</div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 2 }}>Par {par} · Index {si}</div>
+          {status && (
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: statusColor(status), marginTop: 2 }}>
+              {COMPARISON_LABEL[status]}
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={{ padding: '14px' }}>
@@ -612,17 +627,39 @@ function ScoreCard({
           <button onClick={() => onPick(1)} style={{ width: 54, height: 54, borderRadius: 12, background: '#f7f6f1', border: '1.5px solid #e5e2d9', color: '#14532d', fontSize: 24 }}>+</button>
         </div>
 
+        {/* Pick Up — relocated here from the permanent tile row below, per
+            Darren's feedback. Same onTogglePickUp behavior, just moved: it's
+            an action, not a status, so it reads better as a small secondary
+            control near the score selector than as one-third of the
+            PAR/SHOTS/TOTAL summary row. */}
+        <div style={{ textAlign: 'center', marginTop: 8 }}>
+          <button
+            onClick={onTogglePickUp}
+            style={{
+              fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700,
+              color: pickedUp ? '#a1791f' : '#9ca3af',
+              background: pickedUp ? '#fdf3d9' : 'transparent',
+              border: pickedUp ? '1px solid #e8c96a' : '1px solid #e5e2d9',
+              borderRadius: 20, padding: '4px 14px', cursor: 'pointer',
+            }}
+          >
+            {pickedUp ? '✕ Picked up — tap to undo' : 'Pick up'}
+          </button>
+        </div>
+
         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <button onClick={onPar} style={{ flex: 1, padding: '7px 4px', borderRadius: 8, background: gross === par && !pickedUp ? '#dcfce7' : '#f7f6f1', border: gross === par && !pickedUp ? '1px solid #86efac' : '1px solid #e5e2d9', fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: gross === par && !pickedUp ? '#16a34a' : '#6b7280' }}>
-            PAR {par}
+          <button onClick={onPar} style={{ flex: 1, padding: '7px 4px', borderRadius: 8, background: gross === par && !pickedUp ? '#dcfce7' : '#f7f6f1', border: gross === par && !pickedUp ? '1px solid #86efac' : '1px solid #e5e2d9', textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: gross === par && !pickedUp ? '#16a34a' : '#9ca3af' }}>PAR</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: gross === par && !pickedUp ? '#16a34a' : '#14532d' }}>{par}</div>
           </button>
           <div style={{ flex: 1, textAlign: 'center', padding: '7px 4px', borderRadius: 8, background: '#f7f6f1', border: '1px solid #e5e2d9' }}>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: '#9ca3af' }}>SHOTS</div>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, color: '#14532d', fontWeight: 700 }}>{strokes}</div>
           </div>
-          <button onClick={onTogglePickUp} style={{ flex: 1, padding: '7px 4px', borderRadius: 8, background: pickedUp ? '#fdf3d9' : '#f7f6f1', border: pickedUp ? '1px solid #e8c96a' : '1px solid #e5e2d9', fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: pickedUp ? '#a1791f' : '#6b7280' }}>
-            PICK UP
-          </button>
+          <div style={{ flex: 1, textAlign: 'center', padding: '7px 4px', borderRadius: 8, background: '#fdf3d9', border: '1px solid #e8c96a' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: '#a1791f' }}>TOTAL</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#a1791f' }}>{runningTotal}</div>
+          </div>
         </div>
       </div>
     </div>

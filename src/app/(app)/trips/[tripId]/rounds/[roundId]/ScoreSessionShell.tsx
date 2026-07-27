@@ -70,7 +70,7 @@ function ptsBackground(pts: number): string {
   if (pts >= 4) return '#fef9c3'
   if (pts === 3) return '#dcfce7'
   if (pts === 2) return '#dbeafe'
-  return 'rgba(255,255,255,0.08)'
+  return '#f3f4f6'
 }
 
 function initialsOf(name: string): string {
@@ -377,11 +377,11 @@ export default function ScoreSessionShell({
 
   // ── Tile metadata for hole strip (reflects the ACTIVE player's card) ──────
   function tileMeta(h: Hole): { bg: string; label: string; sub: string; color?: string } {
-    if (!activeCard) return { bg: 'rgba(255,255,255,0.07)', label: String(h.hole_number), sub: `p${h.par}` }
+    if (!activeCard) return { bg: '#f3f4f6', label: String(h.hole_number), sub: `p${h.par}` }
     const g = scores[activeCard.id]?.[h.hole_number]
     const isConf = confirmed[activeCard.id]?.[h.hole_number]
     if (!isConf || !g) {
-      return { bg: 'rgba(255,255,255,0.07)', label: String(h.hole_number), sub: `p${h.par}` }
+      return { bg: '#f3f4f6', label: String(h.hole_number), sub: `p${h.par}` }
     }
     const p = calculateStableford({ grossScore: g, par: h.par, strokeIndex: h.stroke_index, playingHandicap: activeCard.playing_handicap })
     return { bg: ptsBackground(p), label: String(g), sub: `${p}pt`, color: ptsColor(p) }
@@ -473,17 +473,17 @@ export default function ScoreSessionShell({
         {/* ── Organiser: playing-group switcher ────────────────────────────── */}
         {allGroups && allGroups.length > 1 && (
           <div style={{ padding: '10px 16px 0', flexShrink: 0 }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: 'rgba(245,230,184,0.4)', marginBottom: 6 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: '#9ca3af', marginBottom: 6 }}>
               ORGANISER — SWITCH PLAYING GROUP
             </div>
             <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
               {allGroups.map((g, i) => (
                 <button key={g.groupId} onClick={() => switchGroup(i)} style={{
                   flexShrink: 0, padding: '6px 12px', borderRadius: 20, cursor: 'pointer',
-                  background: i === activeGroupIdx ? 'linear-gradient(135deg,#8a6d1f,#c9a84c)' : 'rgba(255,255,255,0.06)',
-                  border: i === activeGroupIdx ? '1.5px solid #e8c96a' : '1px solid rgba(255,255,255,0.12)',
+                  background: i === activeGroupIdx ? '#fdf3d9' : '#f7f6f1',
+                  border: i === activeGroupIdx ? '1.5px solid #e8c96a' : '1px solid #e5e2d9',
                   fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700,
-                  color: i === activeGroupIdx ? '#0f2d1c' : 'rgba(255,255,255,0.7)',
+                  color: i === activeGroupIdx ? '#a1791f' : '#6b7280',
                 }}>
                   {g.groupName}{g.teeTime ? ` · ${g.teeTime}` : ''}
                 </button>
@@ -495,7 +495,7 @@ export default function ScoreSessionShell({
         {/* ── Playing-group switcher ─────────────────────────────────────── */}
         {currentGroup.length > 1 && (
           <div style={{ padding: '10px 16px 0', flexShrink: 0 }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: 'rgba(245,230,184,0.4)', marginBottom: 6 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: '#9ca3af', marginBottom: 6 }}>
               PLAYING GROUP — TAP TO SCORE FOR
             </div>
             <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
@@ -507,16 +507,16 @@ export default function ScoreSessionShell({
                   <button key={c.id} onClick={() => setActiveIdx(i)} style={{
                     display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
                     padding: '6px 10px', borderRadius: 20, cursor: 'pointer',
-                    background: isOn ? 'linear-gradient(135deg,#2d7a52,#16a34a)' : 'rgba(255,255,255,0.06)',
-                    border: isOn ? '1.5px solid #e8c96a' : '1px solid rgba(255,255,255,0.12)',
+                    background: isOn ? '#dcfce7' : '#f7f6f1',
+                    border: isOn ? '1.5px solid #16a34a' : '1px solid #e5e2d9',
                   }}>
                     <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'radial-gradient(#e8c96a,#c9a84c)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 9 }}>
                       {initialsOf(name)}
                     </span>
-                    <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: isOn ? '#fff' : 'rgba(255,255,255,0.7)' }}>
+                    <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: isOn ? '#14532d' : '#6b7280' }}>
                       {name.split(' ')[0]}
                     </span>
-                    {done && <span style={{ fontSize: 10, color: '#86efac' }}>✓</span>}
+                    {done && <span style={{ fontSize: 10, color: '#16a34a' }}>✓</span>}
                   </button>
                 )
               })}
@@ -526,7 +526,7 @@ export default function ScoreSessionShell({
 
         {/* ── Hole strip ──────────────────────────────────────────────────── */}
         <div style={{ padding: '10px 16px 6px', flexShrink: 0 }}>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: 'rgba(134,239,172,0.6)', marginBottom: 4 }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: '#16a34a', marginBottom: 4 }}>
             {front9Pts > 0 ? `✓ FRONT 9 — ${front9Pts} PTS` : ''}
           </div>
           <div style={{ display: 'flex', gap: 3, overflowX: 'auto', marginBottom: 8 }}>
@@ -536,14 +536,14 @@ export default function ScoreSessionShell({
               return (
                 <div key={h.id} onClick={() => setHoleIdx(i)} style={{
                   minWidth: 32, height: 40, borderRadius: 6, flexShrink: 0, cursor: 'pointer',
-                  background: isOn ? 'linear-gradient(160deg,#2d7a52,#1a4731)' : m.bg,
-                  border: `1.5px solid ${isOn ? '#e8c96a' : 'rgba(255,255,255,0.11)'}`,
+                  background: isOn ? '#16a34a' : m.bg,
+                  border: `1.5px solid ${isOn ? '#14532d' : '#e5e2d9'}`,
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                   transform: isOn ? 'scale(1.1)' : 'scale(1)', transition: 'transform 0.12s',
-                  boxShadow: isOn ? '0 4px 14px rgba(45,122,82,0.5)' : undefined,
+                  boxShadow: isOn ? '0 4px 14px rgba(22,163,74,0.35)' : undefined,
                 }}>
-                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: isOn ? '#fff' : (m.color ?? 'rgba(255,255,255,0.7)') }}>{m.label}</div>
-                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 8, fontWeight: 600, color: isOn ? '#e8c96a' : (m.color ?? 'rgba(255,255,255,0.45)') }}>{m.sub}</div>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: isOn ? '#fff' : (m.color ?? '#6b7280') }}>{m.label}</div>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 8, fontWeight: 600, color: isOn ? '#e8c96a' : (m.color ?? '#9ca3af') }}>{m.sub}</div>
                 </div>
               )
             })}
@@ -551,7 +551,7 @@ export default function ScoreSessionShell({
 
           {back9.length > 0 && (
             <>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: '#9ca3af', marginBottom: 4 }}>
                 BACK 9 — {isBack9 ? 'ENTERING NOW' : 'COMING UP'}
               </div>
               <div style={{ display: 'flex', gap: 5, overflowX: 'auto', paddingRight: 16, WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>
@@ -562,14 +562,14 @@ export default function ScoreSessionShell({
                   return (
                     <div key={h.id} onClick={() => setHoleIdx(realIdx)} style={{
                       minWidth: 38, height: 50, borderRadius: 8, flexShrink: 0, cursor: 'pointer',
-                      background: isOn ? 'linear-gradient(160deg,#2d7a52,#1a4731)' : m.bg,
-                      border: `1.5px solid ${isOn ? '#e8c96a' : 'rgba(255,255,255,0.11)'}`,
+                      background: isOn ? '#16a34a' : m.bg,
+                      border: `1.5px solid ${isOn ? '#14532d' : '#e5e2d9'}`,
                       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                       transform: isOn ? 'scale(1.1)' : 'scale(1)', transition: 'transform 0.12s',
-                      boxShadow: isOn ? '0 4px 14px rgba(45,122,82,0.5)' : undefined,
+                      boxShadow: isOn ? '0 4px 14px rgba(22,163,74,0.35)' : undefined,
                     }}>
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: isOn ? '#fff' : (m.color ?? 'rgba(255,255,255,0.7)') }}>{m.label}</div>
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 600, color: isOn ? '#e8c96a' : (m.color ?? 'rgba(255,255,255,0.45)') }}>{m.sub}</div>
+                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: isOn ? '#fff' : (m.color ?? '#6b7280') }}>{m.label}</div>
+                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 600, color: isOn ? '#e8c96a' : (m.color ?? '#9ca3af') }}>{m.sub}</div>
                     </div>
                   )
                 })}
@@ -580,7 +580,7 @@ export default function ScoreSessionShell({
 
         {/* ── Swipeable score entry card ─────────────────────────────────── */}
         <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ userSelect: 'none', WebkitUserSelect: 'none' as React.CSSProperties['WebkitUserSelect'] }}>
-          <div style={{ margin: '0 16px 8px', borderRadius: 14, background: '#161f19', border: '1.5px solid rgba(255,255,255,0.07)', boxShadow: '0 6px 28px rgba(0,0,0,0.5)', flexShrink: 0, overflow: 'hidden', position: 'relative' }}>
+          <div style={{ margin: '0 16px 8px', borderRadius: 14, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', flexShrink: 0, overflow: 'hidden', position: 'relative' }}>
 
             {flash && (
               <div style={{
@@ -595,56 +595,56 @@ export default function ScoreSessionShell({
               </div>
             )}
 
-            <div style={{ background: `linear-gradient(90deg,#0f2d1c,#1a3828)`, padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ background: '#f7f6f1', padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #eceae3' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'radial-gradient(#e8c96a,#c9a84c)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 11 }}>
                   {initialsOf(activeName)}
                 </div>
                 <div>
-                  <div style={{ fontFamily: 'var(--font-body)', color: '#ffffff', fontWeight: 700, fontSize: 14 }}>{activeName}</div>
-                  <div style={{ fontFamily: 'var(--font-body)', color: '#e8c96a', fontSize: 11, opacity: 0.7 }}>Daily HCP {hcp}</div>
+                  <div style={{ fontFamily: 'var(--font-body)', color: '#14532d', fontWeight: 700, fontSize: 14 }}>{activeName}</div>
+                  <div style={{ fontFamily: 'var(--font-body)', color: '#a1791f', fontSize: 11 }}>Daily HCP {hcp}</div>
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontFamily: 'var(--font-display)', color: '#e8c96a', fontSize: 20, fontWeight: 800, lineHeight: 1 }}>H{holeNum}</div>
-                <div style={{ fontFamily: 'var(--font-body)', color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>Par {par} · Index {si}</div>
+                <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 20, fontWeight: 800, lineHeight: 1 }}>H{holeNum}</div>
+                <div style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 11 }}>Par {par} · Index {si}</div>
               </div>
             </div>
 
             <div style={{ padding: '16px 16px 12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                <button onClick={() => pick(-1)} style={{ width: 64, height: 64, borderRadius: 14, flexShrink: 0, background: 'rgba(255,255,255,0.06)', border: '1.5px solid rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-                  <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 28, fontWeight: 300 }}>−</span>
+                <button onClick={() => pick(-1)} style={{ width: 64, height: 64, borderRadius: 14, flexShrink: 0, background: '#f7f6f1', border: '1.5px solid #e5e2d9', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                  <span style={{ color: '#14532d', fontSize: 28, fontWeight: 300 }}>−</span>
                 </button>
                 <div style={{ flex: 1, textAlign: 'center' }}>
-                  <div style={{ fontFamily: 'var(--font-display)', color: gross === null ? 'rgba(255,255,255,0.25)' : '#ffffff', fontSize: 64, fontWeight: 800, lineHeight: 1 }}>
+                  <div style={{ fontFamily: 'var(--font-display)', color: gross === null ? '#d1d5db' : '#14532d', fontSize: 64, fontWeight: 800, lineHeight: 1 }}>
                     {gross === null ? '0' : gross}
                   </div>
                   {pts !== null ? (
-                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, marginTop: 2, color: pts >= 3 ? '#4ade80' : pts === 2 ? '#93c5fd' : 'rgba(255,255,255,0.5)' }}>
+                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, marginTop: 2, color: pts >= 3 ? '#16a34a' : pts === 2 ? '#2563eb' : '#6b7280' }}>
                       {pts} {pts === 1 ? 'Point' : 'Points'}
                     </div>
                   ) : (
-                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>tap + to add shots · or tap PAR</div>
+                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', marginTop: 2 }}>tap + to add shots · or tap PAR</div>
                   )}
                 </div>
-                <button onClick={() => pick(+1)} style={{ width: 64, height: 64, borderRadius: 14, flexShrink: 0, background: 'rgba(255,255,255,0.06)', border: '1.5px solid rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-                  <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 28, fontWeight: 300 }}>+</span>
+                <button onClick={() => pick(+1)} style={{ width: 64, height: 64, borderRadius: 14, flexShrink: 0, background: '#f7f6f1', border: '1.5px solid #e5e2d9', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                  <span style={{ color: '#14532d', fontSize: 28, fontWeight: 300 }}>+</span>
                 </button>
               </div>
 
-              <div style={{ display: 'flex', gap: 8, marginTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10 }}>
-                <button onClick={pickPar} style={{ flex: 1, textAlign: 'center', background: gross === par ? 'rgba(74,158,114,0.25)' : 'rgba(255,255,255,0.04)', borderRadius: 8, padding: '7px 4px', border: gross === par ? '1px solid rgba(74,158,114,0.5)' : '1px solid rgba(255,255,255,0.06)', cursor: 'pointer', transition: 'all 0.15s' }}>
-                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: gross === par ? '#4ade80' : 'rgba(255,255,255,0.4)', letterSpacing: 0.8, marginBottom: 3 }}>PAR</div>
-                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: gross === par ? '#4ade80' : '#ffffff' }}>{par}</div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, borderTop: '1px solid #eceae3', paddingTop: 10 }}>
+                <button onClick={pickPar} style={{ flex: 1, textAlign: 'center', background: gross === par ? '#dcfce7' : '#f7f6f1', borderRadius: 8, padding: '7px 4px', border: gross === par ? '1px solid #86efac' : '1px solid #e5e2d9', cursor: 'pointer', transition: 'all 0.15s' }}>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: gross === par ? '#16a34a' : '#9ca3af', letterSpacing: 0.8, marginBottom: 3 }}>PAR</div>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: gross === par ? '#16a34a' : '#14532d' }}>{par}</div>
                 </button>
-                <div style={{ flex: 1, textAlign: 'center', background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: '7px 4px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.8, marginBottom: 3 }}>SHOTS</div>
-                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: '#ffffff' }}>{strokesReceived}</div>
+                <div style={{ flex: 1, textAlign: 'center', background: '#f7f6f1', borderRadius: 8, padding: '7px 4px', border: '1px solid #e5e2d9' }}>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: '#9ca3af', letterSpacing: 0.8, marginBottom: 3 }}>SHOTS</div>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: '#14532d' }}>{strokesReceived}</div>
                 </div>
-                <div style={{ flex: 1, textAlign: 'center', background: 'rgba(201,168,76,0.08)', borderRadius: 8, padding: '7px 4px', border: '1px solid rgba(201,168,76,0.22)' }}>
-                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: '#c9a84c', letterSpacing: 0.8, marginBottom: 3 }}>TOTAL</div>
-                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: '#e8c96a' }}>{confirmedPts}</div>
+                <div style={{ flex: 1, textAlign: 'center', background: '#fdf3d9', borderRadius: 8, padding: '7px 4px', border: '1px solid #e8c96a' }}>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: '#a1791f', letterSpacing: 0.8, marginBottom: 3 }}>TOTAL</div>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: '#a1791f' }}>{confirmedPts}</div>
                 </div>
               </div>
             </div>
@@ -655,12 +655,12 @@ export default function ScoreSessionShell({
                 disabled={gross === null || gross === 0 || flash}
                 style={{
                   width: '100%', padding: 14,
-                  background: flash ? '#16a34a' : (gross !== null && gross > 0) ? `linear-gradient(135deg,#2d7a52,#16a34a)` : 'rgba(255,255,255,0.08)',
-                  color: '#ffffff', border: 'none', borderRadius: 10,
+                  background: flash ? '#16a34a' : (gross !== null && gross > 0) ? `linear-gradient(135deg,#2d7a52,#16a34a)` : '#e5e7eb',
+                  color: (gross !== null && gross > 0) || flash ? '#ffffff' : '#9ca3af', border: 'none', borderRadius: 10,
                   fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-body)',
                   cursor: (gross !== null && gross > 0) ? 'pointer' : 'not-allowed',
                   letterSpacing: 0.5, transition: 'background 0.2s',
-                  boxShadow: gross !== null ? '0 4px 16px rgba(22,163,74,0.4)' : 'none',
+                  boxShadow: gross !== null ? '0 4px 16px rgba(22,163,74,0.25)' : 'none',
                 }}
               >
                 {flash ? '✓ Saved!' : '✓ Confirm Score'}
@@ -668,36 +668,36 @@ export default function ScoreSessionShell({
             </div>
           </div>
 
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: 'rgba(245,230,184,0.22)', textAlign: 'center', paddingTop: 4, paddingBottom: 2, letterSpacing: 0.3 }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#9ca3af', textAlign: 'center', paddingTop: 4, paddingBottom: 2, letterSpacing: 0.3 }}>
             Swipe left/right to change holes
           </div>
         </div>
 
         {/* ── F9 / B9 totals ──────────────────────────────────────────────── */}
         <div style={{ padding: '4px 16px 6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'rgba(255,255,255,0.38)' }}>
-            F9: <strong style={{ color: 'rgba(134,239,172,0.7)' }}>{front9Pts}</strong>{'  +  '}B9: <strong style={{ color: 'rgba(255,255,255,0.6)' }}>{back9Pts}</strong>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af' }}>
+            F9: <strong style={{ color: '#16a34a' }}>{front9Pts}</strong>{'  +  '}B9: <strong style={{ color: '#374151' }}>{back9Pts}</strong>
           </div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: '#e8c96a', fontWeight: 800 }}>{confirmedPts} pts</div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: '#a1791f', fontWeight: 800 }}>{confirmedPts} pts</div>
         </div>
 
         {/* ── Group progress (neutral — no rankings, that's Sprint 5C) ─────── */}
         {currentGroup.length > 1 && (
           <div style={{ margin: '6px 16px 20px', flexShrink: 0 }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#c9a84c', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#a1791f', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>
               Group Progress
             </div>
-            <div style={{ background: '#111a14', borderRadius: 12, border: '1px solid rgba(201,168,76,0.2)', overflow: 'hidden' }}>
+            <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
               {currentGroup.map(c => {
                 const name = c.profiles?.full_name ?? 'Player'
                 const played = cardHolesPlayed(c)
                 const total = cardConfirmedPts(c)
                 const isMe = c.player_id === currentUserId
                 return (
-                  <div key={c.id} style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)', background: isMe ? 'rgba(201,168,76,0.09)' : 'transparent' }}>
-                    <div style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: isMe ? 800 : 600, color: isMe ? '#e8c96a' : '#ffffff' }}>{name}</div>
-                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'rgba(255,255,255,0.4)', marginRight: 10 }}>{played}/{holes.length} holes</div>
-                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: isMe ? '#e8c96a' : 'rgba(255,255,255,0.68)' }}>{total}<span style={{ fontSize: 10, opacity: 0.5 }}> pts</span></div>
+                  <div key={c.id} style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #eceae3', background: isMe ? '#fdf3d9' : 'transparent' }}>
+                    <div style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: isMe ? 800 : 600, color: isMe ? '#a1791f' : '#14532d' }}>{name}</div>
+                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginRight: 10 }}>{played}/{holes.length} holes</div>
+                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: isMe ? '#a1791f' : '#6b7280' }}>{total}<span style={{ fontSize: 10, opacity: 0.7 }}> pts</span></div>
                   </div>
                 )
               })}
@@ -705,7 +705,7 @@ export default function ScoreSessionShell({
           </div>
         )}
 
-        <Link href={`/trips/${tripId}`} style={{ display: 'block', textAlign: 'center', marginBottom: 24, fontFamily: 'var(--font-body)', fontSize: 12, color: 'rgba(245,230,184,0.3)', textDecoration: 'none' }}>
+        <Link href={`/trips/${tripId}`} style={{ display: 'block', textAlign: 'center', marginBottom: 24, fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', textDecoration: 'none' }}>
           ← Return to trip overview
         </Link>
 
