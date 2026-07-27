@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { calculateStableford } from '@/lib/scoring/stableford'
 import { getHandicapStrokesForHole } from '@/lib/scoring/strokeAllocation'
-import BrandLogo from '@/components/brand/BrandLogo'
 import { queueScoreEntry, getPendingCount, getQueuedEntriesForScorecards } from '@/lib/db/dexie'
 import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
 import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
@@ -104,7 +103,7 @@ function findResumePosition(
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function ScoreSessionShell({
-  tripId, tripName, round, groupScorecards, allGroups, initialGroupIdx, isOrganiser, currentUserId, dataProblem,
+  tripId, round, groupScorecards, allGroups, initialGroupIdx, isOrganiser, currentUserId, dataProblem,
 }: Props) {
   // ── State ──────────────────────────────────────────────────────────────────
   const [holes, setHoles]               = useState<Hole[]>([])
@@ -409,13 +408,13 @@ export default function ScoreSessionShell({
       }
     }
     return (
-      <div style={{ minHeight: '100vh', background: '#0e1912', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ minHeight: '100vh', background: '#faf9f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center', maxWidth: 320, padding: '0 20px' }}>
           <p style={{ fontSize: 32, marginBottom: 8 }}>⛳</p>
-          <p style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.5)', fontSize: 13 }}>
+          <p style={{ fontFamily: 'var(--font-body)', color: '#6b7280', fontSize: 13 }}>
             {message}
           </p>
-          <Link href={`/trips/${tripId}`} style={{ display: 'block', marginTop: 16, fontFamily: 'var(--font-body)', fontSize: 12, color: '#e8c96a', textDecoration: 'none' }}>
+          <Link href={`/trips/${tripId}`} style={{ display: 'block', marginTop: 16, fontFamily: 'var(--font-body)', fontSize: 12, color: '#14532d', fontWeight: 700, textDecoration: 'none' }}>
             ← Back to trip
           </Link>
         </div>
@@ -429,47 +428,30 @@ export default function ScoreSessionShell({
   const activeName = activeCard.profiles?.full_name ?? 'Player'
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#0e1912', minHeight: '100vh', position: 'relative' }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#ffffff', minHeight: '100vh', position: 'relative' }}>
 
-      {/* ── App header ─────────────────────────────────────────────────────── */}
-      <div style={{
-        background: `linear-gradient(135deg,#0f2d1c 0%,#172d1f 100%)`,
-        padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        borderBottom: '2px solid #c9a84c', flexShrink: 0,
-      }}>
-        <Link href={`/trips/${tripId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
-          <div style={{ width: 34, height: 34, borderRadius: 9, border: '1.5px solid #c9a84c', background: '#f8f4eb', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 3 }}>
-            <BrandLogo variant="icon" size={28} />
-          </div>
-          <span style={{ fontFamily: 'var(--font-display)', color: '#e8c96a', fontSize: 15, fontWeight: 800 }}>
-            Teein&apos; It Up
-          </span>
-        </Link>
+      {/* ── Round status bar ───────────────────────────────────────────────── */}
+      <div style={{ padding: '16px 16px 12px', borderBottom: '2px solid #c9a84c', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontFamily: 'var(--font-body)', color: '#ffffff', fontWeight: 700, fontSize: 12 }}>{activeName}</div>
-            <div style={{ fontFamily: 'var(--font-body)', color: '#e8c96a', fontSize: 10, opacity: 0.7 }}>{tripName}</div>
-          </div>
-          <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'radial-gradient(#e8c96a,#c9a84c)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 12 }}>
-            {initialsOf(activeName)}
-          </div>
-          {isOrganiser && (
-            <div style={{ background: 'rgba(201,168,76,0.18)', border: '1px solid #c9a84c', borderRadius: 16, padding: '3px 9px', fontFamily: 'var(--font-body)', color: '#e8c96a', fontSize: 10, fontWeight: 700 }}>ORGANISER</div>
+          <span style={{ fontSize: 18 }}>🚩</span>
+          <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 17, fontWeight: 800 }}>
+            {round.name} — round in progress
+          </span>
+          {displaySyncLabel && (
+            <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-body)', fontSize: 10, color: syncState === 'synced' ? '#16a34a' : syncState === 'error' ? '#dc2626' : '#9ca3af' }}>
+              {displaySyncLabel}
+            </span>
           )}
         </div>
-      </div>
-
-      {/* ── Round status bar (no rankings — that's Sprint 5C) ─────────────── */}
-      <div style={{ background: 'linear-gradient(90deg,#14532d,#166534)', padding: '7px 16px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
-        <span style={{ fontSize: 13 }}>⛳</span>
-        <span style={{ fontFamily: 'var(--font-body)', color: '#86efac', fontSize: 12, fontWeight: 700 }}>
-          {round.name} — round in progress
-        </span>
-        {displaySyncLabel && (
-          <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-body)', fontSize: 10, color: syncState === 'synced' ? '#86efac' : syncState === 'error' ? '#fca5a5' : 'rgba(134,239,172,0.5)' }}>
-            {displaySyncLabel}
-          </span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+          <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'radial-gradient(#e8c96a,#c9a84c)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 10, flexShrink: 0 }}>
+            {initialsOf(activeName)}
+          </div>
+          <span style={{ fontFamily: 'var(--font-body)', color: '#374151', fontWeight: 700, fontSize: 12 }}>Scoring for {activeName}</span>
+          {isOrganiser && (
+            <span style={{ background: '#fdf3d9', border: '1px solid #e8c96a', borderRadius: 16, padding: '2px 8px', fontFamily: 'var(--font-body)', color: '#a1791f', fontSize: 9.5, fontWeight: 700 }}>ORGANISER</span>
+          )}
+        </div>
       </div>
 
       {/* ── Toast ──────────────────────────────────────────────────────────── */}

@@ -9,7 +9,6 @@ import { compareCaptures, COMPARISON_LABEL, type ComparisonStatus, type CaptureV
 import { queueScoreEntry, getPendingCount, getQueuedEntriesForScorecards } from '@/lib/db/dexie'
 import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
 import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
-import BrandLogo from '@/components/brand/BrandLogo'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -72,17 +71,17 @@ function splitByRole(entries: ScoreEntryRow[], holes: Hole[]): { self: CaptureMa
 
 function statusColor(status: ComparisonStatus): string {
   switch (status) {
-    case 'matched': return '#4ade80'
-    case 'mismatch': return '#f87171'
-    case 'pending_marker': case 'pending_self': return '#e8c96a'
-    default: return 'rgba(255,255,255,0.35)'
+    case 'matched': return '#16a34a'
+    case 'mismatch': return '#dc2626'
+    case 'pending_marker': case 'pending_self': return '#a1791f'
+    default: return '#9ca3af'
   }
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function SelfMarkerScoreShell({
-  tripId, tripName, round, myScorecard, markedScorecard, markedByName, isOrganiser, dataProblem,
+  tripId, round, myScorecard, markedScorecard, markedByName, isOrganiser, dataProblem,
 }: Props) {
   // 'individual' mode has no marker concept at all — comparison status,
   // the marker card, and reconciliation only make sense in self_and_marker
@@ -374,11 +373,11 @@ export default function SelfMarkerScoreShell({
         : "Your scorecard hasn't been set up for this round yet. Ask the organiser to check the setup and try again."
     }
     return (
-      <div style={{ minHeight: '100vh', background: '#0e1912', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ minHeight: '100vh', background: '#faf9f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center', maxWidth: 320, padding: '0 20px' }}>
           <p style={{ fontSize: 32, marginBottom: 8 }}>⛳</p>
-          <p style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.5)', fontSize: 13 }}>{message}</p>
-          <Link href={`/trips/${tripId}`} style={{ display: 'block', marginTop: 16, fontFamily: 'var(--font-body)', fontSize: 12, color: '#e8c96a', textDecoration: 'none' }}>← Back to trip</Link>
+          <p style={{ fontFamily: 'var(--font-body)', color: '#6b7280', fontSize: 13 }}>{message}</p>
+          <Link href={`/trips/${tripId}`} style={{ display: 'block', marginTop: 16, fontFamily: 'var(--font-body)', fontSize: 12, color: '#14532d', fontWeight: 700, textDecoration: 'none' }}>← Back to trip</Link>
         </div>
       </div>
     )
@@ -419,10 +418,10 @@ export default function SelfMarkerScoreShell({
     const allClear = mismatches.length === 0 && pending.length === 0
 
     return (
-      <div style={{ minHeight: '100vh', background: '#0e1912', padding: '20px 16px 60px' }}>
+      <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '20px 16px 60px' }}>
         <div style={{ textAlign: 'center', marginBottom: 20 }}>
-          <div style={{ fontFamily: 'var(--font-display)', color: '#e8c96a', fontSize: 20, fontWeight: 800 }}>Score Comparison</div>
-          <div style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.6)', fontSize: 13, marginTop: 4 }}>
+          <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 20, fontWeight: 800 }}>Score Comparison</div>
+          <div style={{ fontFamily: 'var(--font-body)', color: '#6b7280', fontSize: 13, marginTop: 4 }}>
             {rows.length - mismatches.length - pending.length} holes matched · {mismatches.length} need review{pending.length > 0 ? ` · ${pending.length} pending` : ''}
           </div>
         </div>
@@ -430,18 +429,18 @@ export default function SelfMarkerScoreShell({
         {mismatches.length > 0 && (
           <div style={{ marginBottom: 20 }}>
             {mismatches.map(r => (
-              <div key={r.hole.id} style={{ background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.4)', borderRadius: 12, padding: '12px 14px', marginBottom: 8 }}>
-                <div style={{ fontFamily: 'var(--font-body)', color: '#f87171', fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Hole {r.hole.hole_number}</div>
+              <div key={r.hole.id} style={{ background: '#ffffff', border: '1px solid #fecaca', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', borderRadius: 14, padding: '12px 14px', marginBottom: 8 }}>
+                <div style={{ fontFamily: 'var(--font-body)', color: '#dc2626', fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Hole {r.hole.hole_number}</div>
 
                 {r.mineStatus === 'mismatch' && (
                   <div style={{ marginBottom: r.partnerStatus === 'mismatch' ? 10 : 0 }}>
-                    <div style={{ display: 'flex', gap: 16, fontFamily: 'var(--font-body)', fontSize: 13, color: '#fff' }}>
+                    <div style={{ display: 'flex', gap: 16, fontFamily: 'var(--font-body)', fontSize: 13, color: '#14532d' }}>
                       <div>Your score: <strong>{r.mine?.pickedUp ? 'Pick-up' : r.mine?.grossScore ?? '—'}</strong></div>
                       <div>Marker score: <strong>{r.myMarkerVal?.pickedUp ? 'Pick-up' : r.myMarkerVal?.grossScore ?? '—'}</strong></div>
                     </div>
                     <button
                       onClick={() => { setHoleIdx(holes.indexOf(r.hole)); setShowReconciliation(false) }}
-                      style={{ marginTop: 6, fontFamily: 'var(--font-body)', fontSize: 12, color: '#e8c96a', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                      style={{ marginTop: 6, fontFamily: 'var(--font-body)', fontSize: 12, color: '#c9a84c', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                     >
                       Edit your score →
                     </button>
@@ -450,13 +449,13 @@ export default function SelfMarkerScoreShell({
 
                 {r.partnerStatus === 'mismatch' && (
                   <div>
-                    <div style={{ display: 'flex', gap: 16, fontFamily: 'var(--font-body)', fontSize: 13, color: '#fff' }}>
+                    <div style={{ display: 'flex', gap: 16, fontFamily: 'var(--font-body)', fontSize: 13, color: '#14532d' }}>
                       <div>{partnerName ?? 'Partner'}&apos;s score: <strong>{r.partnerSelfVal?.pickedUp ? 'Pick-up' : r.partnerSelfVal?.grossScore ?? '—'}</strong></div>
                       <div>Your marker entry: <strong>{r.partnerMarkerVal?.pickedUp ? 'Pick-up' : r.partnerMarkerVal?.grossScore ?? '—'}</strong></div>
                     </div>
                     <button
                       onClick={() => { setHoleIdx(holes.indexOf(r.hole)); setShowReconciliation(false) }}
-                      style={{ marginTop: 6, fontFamily: 'var(--font-body)', fontSize: 12, color: '#e8c96a', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                      style={{ marginTop: 6, fontFamily: 'var(--font-body)', fontSize: 12, color: '#c9a84c', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                     >
                       Edit marker entry →
                     </button>
@@ -468,25 +467,25 @@ export default function SelfMarkerScoreShell({
         )}
 
         {pending.length > 0 && (
-          <div style={{ marginBottom: 20, fontFamily: 'var(--font-body)', fontSize: 12, color: 'rgba(232,201,106,0.8)' }}>
+          <div style={{ marginBottom: 20, fontFamily: 'var(--font-body)', fontSize: 12, color: '#a16207', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 12, padding: '10px 14px' }}>
             Waiting on marker entries for hole{pending.length > 1 ? 's' : ''}: {pending.map(r => r.hole.hole_number).join(', ')}.
             The round can&apos;t be finally submitted until every hole is matched.
           </div>
         )}
 
         {allClear && (
-          <div style={{ textAlign: 'center', color: '#4ade80', fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, marginBottom: 20 }}>
+          <div style={{ textAlign: 'center', color: '#16a34a', fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, marginBottom: 20 }}>
             ✓ All 18 holes matched — ready to submit.
           </div>
         )}
 
         <button
           onClick={() => setShowReconciliation(false)}
-          style={{ width: '100%', padding: 12, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, color: '#fff', fontFamily: 'var(--font-body)', fontSize: 13, marginBottom: 10 }}
+          style={{ width: '100%', padding: 12, background: '#ffffff', border: '1.5px solid #d1d5db', borderRadius: 10, color: '#14532d', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, marginBottom: 10 }}
         >
           ← Back to scoring
         </button>
-        <Link href={`/trips/${tripId}`} style={{ display: 'block', textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 12, color: 'rgba(245,230,184,0.3)', textDecoration: 'none' }}>
+        <Link href={`/trips/${tripId}`} style={{ display: 'block', textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', textDecoration: 'none' }}>
           Return to trip overview
         </Link>
       </div>
@@ -495,24 +494,15 @@ export default function SelfMarkerScoreShell({
 
   // ── Main hole-scoring view ──────────────────────────────────────────────────
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#0e1912', minHeight: '100vh' }}>
-      <div style={{ background: 'linear-gradient(135deg,#0f2d1c 0%,#172d1f 100%)', padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '2px solid #c9a84c' }}>
-        <Link href={`/trips/${tripId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
-          <div style={{ width: 34, height: 34, borderRadius: 9, border: '1.5px solid #c9a84c', background: '#f8f4eb', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 3 }}>
-            <BrandLogo variant="icon" size={28} />
-          </div>
-          <span style={{ fontFamily: 'var(--font-display)', color: '#e8c96a', fontSize: 15, fontWeight: 800 }}>Teein&apos; It Up</span>
-        </Link>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontFamily: 'var(--font-body)', color: '#fff', fontWeight: 700, fontSize: 12 }}>{myName}</div>
-          <div style={{ fontFamily: 'var(--font-body)', color: '#e8c96a', fontSize: 10, opacity: 0.7 }}>{tripName}</div>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#ffffff', minHeight: '100vh' }}>
+      <div style={{ padding: '16px 16px 12px', borderBottom: '2px solid #c9a84c' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 18 }}>🚩</span>
+          <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 17, fontWeight: 800 }}>
+            {round.name} — Hole {holeNum} of {holes.length}
+          </span>
+          {displaySyncLabel && <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-body)', fontSize: 10, color: '#6b7280' }}>{displaySyncLabel}</span>}
         </div>
-      </div>
-
-      <div style={{ background: 'linear-gradient(90deg,#14532d,#166534)', padding: '7px 16px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-        <span style={{ fontSize: 13 }}>⛳</span>
-        <span style={{ fontFamily: 'var(--font-body)', color: '#86efac', fontSize: 12, fontWeight: 700 }}>{round.name} — Hole {holeNum} of {holes.length}</span>
-        {displaySyncLabel && <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-body)', fontSize: 10, color: 'rgba(134,239,172,0.8)' }}>{displaySyncLabel}</span>}
       </div>
 
       {toast && (
@@ -521,10 +511,10 @@ export default function SelfMarkerScoreShell({
         </div>
       )}
 
-      <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px 24px' }}>
+      <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px 24px', background: '#faf9f6' }}>
 
         {currentMarkedByName && (
-          <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 11, color: 'rgba(245,230,184,0.4)', marginBottom: 10 }}>
+          <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 11, color: '#6b7280', marginBottom: 10 }}>
             Marked by {currentMarkedByName}
           </div>
         )}
@@ -552,30 +542,30 @@ export default function SelfMarkerScoreShell({
           disabled={!canConfirm || flash}
           style={{
             width: '100%', padding: 14, marginTop: 8,
-            background: flash ? '#16a34a' : canConfirm ? 'linear-gradient(135deg,#2d7a52,#16a34a)' : 'rgba(255,255,255,0.08)',
-            color: '#fff', border: 'none', borderRadius: 10, fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-body)',
+            background: flash ? '#16a34a' : canConfirm ? 'linear-gradient(135deg,#2d7a52,#16a34a)' : '#e5e7eb',
+            color: canConfirm || flash ? '#fff' : '#9ca3af', border: 'none', borderRadius: 10, fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-body)',
             cursor: canConfirm ? 'pointer' : 'not-allowed',
           }}
         >
           {flash ? '✓ Saved!' : '✓ Confirm Score'}
         </button>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, fontFamily: 'var(--font-body)', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af' }}>
           <span>Swipe to change holes</span>
-          <span style={{ color: '#e8c96a', fontWeight: 700 }}>{myRunningTotal} pts</span>
+          <span style={{ color: '#c9a84c', fontWeight: 700 }}>{myRunningTotal} pts</span>
         </div>
 
         {requiresMarker && holes.length > 0 && holeIdx >= holes.length - 1 && (
           <button
             onClick={() => setShowReconciliation(true)}
-            style={{ width: '100%', marginTop: 16, padding: 10, background: 'rgba(201,168,76,0.12)', border: '1px solid rgba(201,168,76,0.4)', borderRadius: 10, color: '#e8c96a', fontFamily: 'var(--font-body)', fontSize: 13, cursor: 'pointer' }}
+            style={{ width: '100%', marginTop: 16, padding: 10, background: '#ffffff', border: '1.5px solid #c9a84c', borderRadius: 10, color: '#a1791f', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
           >
             View Score Comparison →
           </button>
         )}
 
         {isOrganiser && (
-          <Link href={`/trips/${tripId}/rounds/${round.id}/markers`} style={{ display: 'block', textAlign: 'center', marginTop: 20, fontFamily: 'var(--font-body)', fontSize: 12, color: 'rgba(245,230,184,0.4)', textDecoration: 'none' }}>
+          <Link href={`/trips/${tripId}/rounds/${round.id}/markers`} style={{ display: 'block', textAlign: 'center', marginTop: 20, fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', textDecoration: 'none' }}>
             Organiser: review marker assignments →
           </Link>
         )}
@@ -595,11 +585,11 @@ function ScoreCard({
   status: ComparisonStatus | null
 }) {
   return (
-    <div style={{ borderRadius: 14, background: '#161f19', border: '1.5px solid rgba(255,255,255,0.07)', marginBottom: 12, overflow: 'hidden' }}>
-      <div style={{ background: 'linear-gradient(90deg,#0f2d1c,#1a3828)', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div style={{ borderRadius: 14, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 12, overflow: 'hidden' }}>
+      <div style={{ background: '#f7f6f1', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eceae3' }}>
         <div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#c9a84c', letterSpacing: 0.8 }}>{title}</div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#fff' }}>{name} <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 500, fontSize: 12 }}>(HC {hcp})</span></div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#a1791f', letterSpacing: 0.8 }}>{title}</div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#14532d' }}>{name} <span style={{ color: '#9ca3af', fontWeight: 500, fontSize: 12 }}>(HC {hcp})</span></div>
         </div>
         {status && (
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: statusColor(status), textAlign: 'right' }}>
@@ -610,27 +600,27 @@ function ScoreCard({
 
       <div style={{ padding: '14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <button onClick={() => onPick(-1)} style={{ width: 54, height: 54, borderRadius: 12, background: 'rgba(255,255,255,0.06)', border: '1.5px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)', fontSize: 24 }}>−</button>
+          <button onClick={() => onPick(-1)} style={{ width: 54, height: 54, borderRadius: 12, background: '#f7f6f1', border: '1.5px solid #e5e2d9', color: '#14532d', fontSize: 24 }}>−</button>
           <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#e8c96a' : gross === null ? 'rgba(255,255,255,0.25)' : '#fff', fontSize: 48, fontWeight: 800 }}>
+            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#d1d5db' : '#14532d', fontSize: 48, fontWeight: 800 }}>
               {pickedUp ? 'P' : gross ?? '0'}
             </div>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280', marginTop: 2 }}>
               {pickedUp ? '0 Points (pick-up)' : pts !== null ? `${pts} Point${pts === 1 ? '' : 's'}` : 'Par ' + par + ' · SI ' + si}
             </div>
           </div>
-          <button onClick={() => onPick(1)} style={{ width: 54, height: 54, borderRadius: 12, background: 'rgba(255,255,255,0.06)', border: '1.5px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)', fontSize: 24 }}>+</button>
+          <button onClick={() => onPick(1)} style={{ width: 54, height: 54, borderRadius: 12, background: '#f7f6f1', border: '1.5px solid #e5e2d9', color: '#14532d', fontSize: 24 }}>+</button>
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <button onClick={onPar} style={{ flex: 1, padding: '7px 4px', borderRadius: 8, background: gross === par && !pickedUp ? 'rgba(74,158,114,0.25)' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', fontFamily: 'var(--font-body)', fontSize: 11, color: gross === par && !pickedUp ? '#4ade80' : 'rgba(255,255,255,0.6)' }}>
+          <button onClick={onPar} style={{ flex: 1, padding: '7px 4px', borderRadius: 8, background: gross === par && !pickedUp ? '#dcfce7' : '#f7f6f1', border: gross === par && !pickedUp ? '1px solid #86efac' : '1px solid #e5e2d9', fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: gross === par && !pickedUp ? '#16a34a' : '#6b7280' }}>
             PAR {par}
           </button>
-          <div style={{ flex: 1, textAlign: 'center', padding: '7px 4px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: 'rgba(255,255,255,0.4)' }}>SHOTS</div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, color: '#fff', fontWeight: 700 }}>{strokes}</div>
+          <div style={{ flex: 1, textAlign: 'center', padding: '7px 4px', borderRadius: 8, background: '#f7f6f1', border: '1px solid #e5e2d9' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: '#9ca3af' }}>SHOTS</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, color: '#14532d', fontWeight: 700 }}>{strokes}</div>
           </div>
-          <button onClick={onTogglePickUp} style={{ flex: 1, padding: '7px 4px', borderRadius: 8, background: pickedUp ? 'rgba(232,201,106,0.25)' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', fontFamily: 'var(--font-body)', fontSize: 11, color: pickedUp ? '#e8c96a' : 'rgba(255,255,255,0.6)' }}>
+          <button onClick={onTogglePickUp} style={{ flex: 1, padding: '7px 4px', borderRadius: 8, background: pickedUp ? '#fdf3d9' : '#f7f6f1', border: pickedUp ? '1px solid #e8c96a' : '1px solid #e5e2d9', fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: pickedUp ? '#a1791f' : '#6b7280' }}>
             PICK UP
           </button>
         </div>
