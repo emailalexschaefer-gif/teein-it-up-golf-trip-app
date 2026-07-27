@@ -1064,3 +1064,79 @@ group, organiser bypass), 4 for `group_scorer` (same-group self writes,
 cross-group denial, marker role always denied regardless of flags, own-card
 always allowed), plus 1 confirming the organiser bypass applies identically
 across all three modes. **82/82 total domain tests passing** (67 + 15 new).
+
+---
+
+## Sprint 5C.1 — Live Leaderboard
+
+First stage of Sprint 5C, per the staged rollout plan (5C.1 leaderboard →
+5C.2 group progress/organiser dashboard → 5C.3 side competitions). Only
+5C.1 is in this delivery.
+
+### Bug fixed while building this
+
+The leaderboard API already existed from earlier Sprint 5A scaffolding but
+was never wired to any UI. It summed **every** `score_entries` row per
+scorecard — before migration 022 (marker scoring), a scorecard could only
+ever have one row per hole, so this was correct at the time. Since 022, a
+scorecard can have both a `'self'` row and a `'marker'` row for the same
+hole (the unique constraint widened to `(scorecard_id, hole_id,
+capture_role)` specifically to allow that). Summing both would double-count
+any hole currently mid-reconciliation. Fixed by filtering to
+`capture_role = 'self'` only — the same convention `SelfMarkerScoreShell`
+already uses for the player's own running total, not a new rule.
+
+Also added `export const dynamic = 'force-dynamic'` — this route will now
+be polled, and this is the exact same caching bug class found and fixed in
+`my-scores`/`groups` earlier in this project.
+
+### What's new
+
+- `src/components/scoring/LiveLeaderboard.tsx` — polls the leaderboard API
+  every 8s while `round.status === 'active'` (stops polling automatically
+  once a round isn't live — no polling for finished rounds), plus
+  `refetchOnWindowFocus`/`refetchOnReconnect`, matching the established
+  live-refresh pattern exactly.
+- Movement arrows (▲/▼/–) computed client-side by diffing each poll's
+  positions against the previous one — no new state persisted anywhere,
+  no new query key, just a comparison of two consecutive reads of the
+  existing leaderboard output.
+- New "Leaderboard" tab on the trip page, showing the active round's board,
+  or the most recent round's final standings if none is currently live, or
+  an empty state if no rounds exist yet.
+
+### Manual test steps
+
+1. With a round active and at least 2 players scoring, open the
+   Leaderboard tab — confirm position, name, points, "Thru N", and medal
+   emojis for top 3 all display correctly.
+2. Confirm a score as one player, wait up to 8s (or refocus the browser
+   tab) — confirm the leaderboard updates without a manual refresh.
+3. Get two players' totals to cross over (the trailing player takes the
+   lead) — confirm the movement arrows update to reflect the swap.
+4. Mark a round complete (all holes for all players) — confirm polling
+   stops (check Network tab: no further requests to the leaderboard
+   endpoint) and the final standings remain correct.
+5. Test with a self_and_marker round specifically — confirm a hole with
+   both a self entry and a marker entry (before reconciliation) is **not**
+   double-counted in that player's total.
+6. Open the Leaderboard tab with no rounds created yet — confirm the empty
+   state, not an error.
+
+### Not in this delivery (5C.2 / 5C.3)
+
+Group progress panel, organiser tournament dashboard, side competitions
+(Nearest the Pin, Longest Drive, etc.), and the player "position/points
+behind leader" quick-view are all separate, later stages per the staged
+plan — not built in this pass.
+
+### Update — tournament summary header added
+
+The Leaderboard tab now opens with a summary card (round name, scoring
+format, player count, currently-scoring count, finished count, and a live-
+updating "Last updated Xs ago" line) above the standings list, per
+feedback that the leaderboard should feel like "the home of the
+tournament" rather than just a list. Reuses the same leaderboard API
+response (added `scoring_format` to the existing query) — no new data
+source. The "Last updated" text ticks forward every 10s independently of
+polling, so it stays accurate even between refreshes.

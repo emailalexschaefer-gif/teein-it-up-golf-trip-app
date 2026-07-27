@@ -596,15 +596,17 @@ function ScoreCard({
   status: ComparisonStatus | null
 }) {
   return (
-    <div style={{ borderRadius: 14, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 12, overflow: 'hidden' }}>
+    <div style={{ borderRadius: 14, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 4px 18px rgba(0,0,0,0.09)', marginBottom: 16, overflow: 'hidden' }}>
       <div style={{ background: '#f7f6f1', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #eceae3' }}>
         <div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#a1791f', letterSpacing: 0.8 }}>{title}</div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#14532d' }}>{name} <span style={{ color: '#9ca3af', fontWeight: 500, fontSize: 12 }}>(HC {hcp})</span></div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 18, fontWeight: 800, color: '#14532d', lineHeight: 1.25 }}>
+            {name} <span style={{ color: '#b0b6be', fontWeight: 500, fontSize: 11.5 }}>(HC {hcp})</span>
+          </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 800, color: '#14532d', lineHeight: 1 }}>H{holeNum}</div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 2 }}>Par {par} · Index {si}</div>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#14532d', lineHeight: 1 }}>H{holeNum}</div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#9ca3af', marginTop: 2 }}>Par {par} · Index {si}</div>
           {status && (
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: statusColor(status), marginTop: 2 }}>
               {COMPARISON_LABEL[status]}
@@ -632,7 +634,7 @@ function ScoreCard({
             an action, not a status, so it reads better as a small secondary
             control near the score selector than as one-third of the
             PAR/SHOTS/TOTAL summary row. */}
-        <div style={{ textAlign: 'center', marginTop: 8 }}>
+        <div style={{ textAlign: 'center', marginTop: 4 }}>
           <button
             onClick={onTogglePickUp}
             style={{
@@ -647,10 +649,10 @@ function ScoreCard({
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <button onClick={onPar} style={{ flex: 1, padding: '7px 4px', borderRadius: 8, background: gross === par && !pickedUp ? '#dcfce7' : '#f7f6f1', border: gross === par && !pickedUp ? '1px solid #86efac' : '1px solid #e5e2d9', textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: gross === par && !pickedUp ? '#16a34a' : '#9ca3af' }}>PAR</div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: gross === par && !pickedUp ? '#16a34a' : '#14532d' }}>{par}</div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <button onClick={onPar} style={{ flex: 1, padding: '7px 4px', borderRadius: 8, background: gross === par && !pickedUp ? '#dcfce7' : '#eefbf2', border: gross === par && !pickedUp ? '1px solid #86efac' : '1px solid #dcf1e2', textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: gross === par && !pickedUp ? '#16a34a' : '#5a9c72' }}>PAR</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#16a34a' }}>{par}</div>
           </button>
           <div style={{ flex: 1, textAlign: 'center', padding: '7px 4px', borderRadius: 8, background: '#f7f6f1', border: '1px solid #e5e2d9' }}>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: '#9ca3af' }}>SHOTS</div>

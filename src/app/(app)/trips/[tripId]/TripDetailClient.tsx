@@ -14,6 +14,7 @@ import TripOverviewTab from './tabs/TripOverviewTab'
 import TripPlayersTab  from './tabs/TripPlayersTab'
 import TripGroupsTab   from './tabs/TripGroupsTab'
 import TripRoundsTab   from './tabs/TripRoundsTab'
+import LiveLeaderboard from '@/components/scoring/LiveLeaderboard'
 
 export interface MemberProfile { id: string; full_name: string; avatar_url: string | null; handicap?: number | null }
 export interface TripMemberRow {
@@ -34,7 +35,7 @@ export interface TripData {
 }
 
 interface Props { trip: TripData; currentUserId: string; userRole: TripRole }
-type Tab = 'overview' | 'players' | 'groups' | 'rounds'
+type Tab = 'overview' | 'players' | 'groups' | 'rounds' | 'leaderboard' | 'sidegames'
 
 // Workflow progress steps — maps to demo's ProgressBar
 const WORKFLOW: { key: TripStatus | 'setup'; label: string }[] = [
@@ -76,6 +77,8 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
     { id: 'players',  label: 'Players', count: playerCount || undefined },
     { id: 'groups',   label: 'Groups' },
     { id: 'rounds',   label: 'Rounds', count: trip.rounds.length || undefined },
+    { id: 'leaderboard', label: 'Leaderboard' },
+    { id: 'sidegames', label: 'Side Games' },
   ]
 
   // Edit trip URL — passes current values as prefill
@@ -317,6 +320,46 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
         )}
         {tab === 'rounds' && (
           <TripRoundsTab trip={trip} isOrganiser={isOrganiser} onTabChange={(t) => setTab(t)} />
+        )}
+        {tab === 'leaderboard' && (() => {
+          const activeRound = trip.rounds.find(r => r.status === 'active')
+          const fallbackRound = [...trip.rounds].sort((a, b) => b.play_date.localeCompare(a.play_date))[0]
+          const round = activeRound ?? fallbackRound
+
+          if (!round) {
+            return (
+              <div style={{ textAlign: 'center', padding: '40px 16px', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>
+                No rounds yet — the leaderboard appears once a round begins.
+              </div>
+            )
+          }
+
+          return (
+            <div>
+              {!activeRound && (
+                <div style={{ marginBottom: 12, fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', textAlign: 'center' }}>
+                  Showing {round.name} (not currently live)
+                </div>
+              )}
+              <LiveLeaderboard tripId={trip.id} roundId={round.id} roundStatus={round.status} />
+            </div>
+          )
+        })()}
+        {tab === 'sidegames' && (
+          // Preserved navigation destination for Sprint 5C.2 — Nearest the
+          // Pin, Longest Drive, Pro's Approach. Not built yet, deliberately:
+          // this tab exists so the information architecture is right now,
+          // without shipping half-built competition logic. Skins is a
+          // separate, later feature area and is not referenced here.
+          <div style={{ textAlign: 'center', padding: '40px 16px' }}>
+            <p style={{ fontSize: 32, marginBottom: 8 }}>🎯</p>
+            <p style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 16, fontWeight: 800, marginBottom: 6 }}>
+              Side Games — coming soon
+            </p>
+            <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, maxWidth: 280, margin: '0 auto' }}>
+              Nearest the Pin, Longest Drive, and Pro&apos;s Approach will live here in a future update.
+            </p>
+          </div>
         )}
       </div>
     </div>

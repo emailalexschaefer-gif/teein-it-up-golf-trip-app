@@ -580,7 +580,7 @@ export default function ScoreSessionShell({
 
         {/* ── Swipeable score entry card ─────────────────────────────────── */}
         <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ userSelect: 'none', WebkitUserSelect: 'none' as React.CSSProperties['WebkitUserSelect'] }}>
-          <div style={{ margin: '0 16px 8px', borderRadius: 14, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', flexShrink: 0, overflow: 'hidden', position: 'relative' }}>
+          <div style={{ margin: '0 16px 8px', borderRadius: 14, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 4px 18px rgba(0,0,0,0.09)', flexShrink: 0, overflow: 'hidden', position: 'relative' }}>
 
             {flash && (
               <div style={{
@@ -601,13 +601,13 @@ export default function ScoreSessionShell({
                   {initialsOf(activeName)}
                 </div>
                 <div>
-                  <div style={{ fontFamily: 'var(--font-body)', color: '#14532d', fontWeight: 700, fontSize: 14 }}>{activeName}</div>
-                  <div style={{ fontFamily: 'var(--font-body)', color: '#a1791f', fontSize: 11 }}>Daily HCP {hcp}</div>
+                  <div style={{ fontFamily: 'var(--font-body)', color: '#14532d', fontWeight: 800, fontSize: 18, lineHeight: 1.25 }}>{activeName}</div>
+                  <div style={{ fontFamily: 'var(--font-body)', color: '#b0b6be', fontSize: 11 }}>Daily HCP {hcp}</div>
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 20, fontWeight: 800, lineHeight: 1 }}>H{holeNum}</div>
-                <div style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 11 }}>Par {par} · Index {si}</div>
+                <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 16, fontWeight: 800, lineHeight: 1 }}>H{holeNum}</div>
+                <div style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 10.5 }}>Par {par} · Index {si}</div>
               </div>
             </div>
 
@@ -633,10 +633,10 @@ export default function ScoreSessionShell({
                 </button>
               </div>
 
-              <div style={{ display: 'flex', gap: 8, marginTop: 12, borderTop: '1px solid #eceae3', paddingTop: 10 }}>
-                <button onClick={pickPar} style={{ flex: 1, textAlign: 'center', background: gross === par ? '#dcfce7' : '#f7f6f1', borderRadius: 8, padding: '7px 4px', border: gross === par ? '1px solid #86efac' : '1px solid #e5e2d9', cursor: 'pointer', transition: 'all 0.15s' }}>
-                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: gross === par ? '#16a34a' : '#9ca3af', letterSpacing: 0.8, marginBottom: 3 }}>PAR</div>
-                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: gross === par ? '#16a34a' : '#14532d' }}>{par}</div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10, borderTop: '1px solid #eceae3', paddingTop: 10 }}>
+                <button onClick={pickPar} style={{ flex: 1, textAlign: 'center', background: gross === par ? '#dcfce7' : '#eefbf2', borderRadius: 8, padding: '7px 4px', border: gross === par ? '1px solid #86efac' : '1px solid #dcf1e2', cursor: 'pointer', transition: 'all 0.15s' }}>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: gross === par ? '#16a34a' : '#5a9c72', letterSpacing: 0.8, marginBottom: 3 }}>PAR</div>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: '#16a34a' }}>{par}</div>
                 </button>
                 <div style={{ flex: 1, textAlign: 'center', background: '#f7f6f1', borderRadius: 8, padding: '7px 4px', border: '1px solid #e5e2d9' }}>
                   <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: '#9ca3af', letterSpacing: 0.8, marginBottom: 3 }}>SHOTS</div>
