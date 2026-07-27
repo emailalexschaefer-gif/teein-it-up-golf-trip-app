@@ -389,12 +389,33 @@ export default function SelfMarkerScoreShell({
 
   // ── End-of-round reconciliation ─────────────────────────────────────────────
   if (showReconciliation) {
+    const PENDING: ComparisonStatus[] = ['pending_marker', 'pending_self', 'not_started']
+
     const rows = holes.map(h => {
-      const status = compareCaptures(mySelf[h.hole_number] ?? null, myMarker[h.hole_number] ?? null)
-      return { hole: h, status, mine: mySelf[h.hole_number] ?? null, marker: myMarker[h.hole_number] ?? null }
+      const mineStatus = compareCaptures(mySelf[h.hole_number] ?? null, myMarker[h.hole_number] ?? null)
+      // Only meaningful when there's actually a partner card to mark —
+      // requiresMarker is false in individual mode, and currentMarked can be
+      // null even in self_and_marker mode if no partner is assigned yet.
+      const partnerStatus = (requiresMarker && currentMarked)
+        ? compareCaptures(partnerSelf[h.hole_number] ?? null, partnerMarker[h.hole_number] ?? null)
+        : null
+      return {
+        hole: h,
+        mineStatus, mine: mySelf[h.hole_number] ?? null, myMarkerVal: myMarker[h.hole_number] ?? null,
+        partnerStatus, partnerSelfVal: partnerSelf[h.hole_number] ?? null, partnerMarkerVal: partnerMarker[h.hole_number] ?? null,
+      }
     })
-    const mismatches = rows.filter(r => r.status === 'mismatch')
-    const pending = rows.filter(r => r.status === 'pending_marker' || r.status === 'pending_self' || r.status === 'not_started')
+
+    // A hole needs review if EITHER pairing mismatches — this is the fix.
+    // Previously only mineStatus fed into this list, so a mismatch that only
+    // showed up on the partner's card (exactly what happens when the person
+    // you're marking changes their own score) was invisible here even
+    // though the scoring screen's "YOUR MARKER" badge already showed it.
+    const mismatches = rows.filter(r => r.mineStatus === 'mismatch' || r.partnerStatus === 'mismatch')
+    const pending = rows.filter(r =>
+      r.mineStatus !== 'mismatch' && r.partnerStatus !== 'mismatch' &&
+      (PENDING.includes(r.mineStatus) || (r.partnerStatus !== null && PENDING.includes(r.partnerStatus)))
+    )
     const allClear = mismatches.length === 0 && pending.length === 0
 
     return (
@@ -411,16 +432,36 @@ export default function SelfMarkerScoreShell({
             {mismatches.map(r => (
               <div key={r.hole.id} style={{ background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.4)', borderRadius: 12, padding: '12px 14px', marginBottom: 8 }}>
                 <div style={{ fontFamily: 'var(--font-body)', color: '#f87171', fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Hole {r.hole.hole_number}</div>
-                <div style={{ display: 'flex', gap: 16, fontFamily: 'var(--font-body)', fontSize: 13, color: '#fff' }}>
-                  <div>Your score: <strong>{r.mine?.pickedUp ? 'Pick-up' : r.mine?.grossScore ?? '—'}</strong></div>
-                  <div>Marker score: <strong>{r.marker?.pickedUp ? 'Pick-up' : r.marker?.grossScore ?? '—'}</strong></div>
-                </div>
-                <button
-                  onClick={() => { setHoleIdx(holes.indexOf(r.hole)); setShowReconciliation(false) }}
-                  style={{ marginTop: 8, fontFamily: 'var(--font-body)', fontSize: 12, color: '#e8c96a', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                >
-                  Edit your score →
-                </button>
+
+                {r.mineStatus === 'mismatch' && (
+                  <div style={{ marginBottom: r.partnerStatus === 'mismatch' ? 10 : 0 }}>
+                    <div style={{ display: 'flex', gap: 16, fontFamily: 'var(--font-body)', fontSize: 13, color: '#fff' }}>
+                      <div>Your score: <strong>{r.mine?.pickedUp ? 'Pick-up' : r.mine?.grossScore ?? '—'}</strong></div>
+                      <div>Marker score: <strong>{r.myMarkerVal?.pickedUp ? 'Pick-up' : r.myMarkerVal?.grossScore ?? '—'}</strong></div>
+                    </div>
+                    <button
+                      onClick={() => { setHoleIdx(holes.indexOf(r.hole)); setShowReconciliation(false) }}
+                      style={{ marginTop: 6, fontFamily: 'var(--font-body)', fontSize: 12, color: '#e8c96a', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                    >
+                      Edit your score →
+                    </button>
+                  </div>
+                )}
+
+                {r.partnerStatus === 'mismatch' && (
+                  <div>
+                    <div style={{ display: 'flex', gap: 16, fontFamily: 'var(--font-body)', fontSize: 13, color: '#fff' }}>
+                      <div>{partnerName ?? 'Partner'}&apos;s score: <strong>{r.partnerSelfVal?.pickedUp ? 'Pick-up' : r.partnerSelfVal?.grossScore ?? '—'}</strong></div>
+                      <div>Your marker entry: <strong>{r.partnerMarkerVal?.pickedUp ? 'Pick-up' : r.partnerMarkerVal?.grossScore ?? '—'}</strong></div>
+                    </div>
+                    <button
+                      onClick={() => { setHoleIdx(holes.indexOf(r.hole)); setShowReconciliation(false) }}
+                      style={{ marginTop: 6, fontFamily: 'var(--font-body)', fontSize: 12, color: '#e8c96a', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                    >
+                      Edit marker entry →
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
