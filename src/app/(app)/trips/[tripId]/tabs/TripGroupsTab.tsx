@@ -52,6 +52,26 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
 
   useEffect(() => { loadGroups() }, [trip.id]) // eslint-disable-line
 
+  // A player may already have this tab open when the organiser assigns them
+  // to a group elsewhere. Refresh on focus/reconnect rather than polling —
+  // groups don't change fast enough to need a timer, but "switch back to
+  // this browser tab" and "phone reconnects after losing signal" are both
+  // real moments a fresh assignment should appear without a full trip
+  // leave-and-re-enter.
+  useEffect(() => {
+    function refresh() { void loadGroups() }
+    function onVisible() { if (!document.hidden) refresh() }
+    window.addEventListener('focus', refresh)
+    window.addEventListener('online', refresh)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('focus', refresh)
+      window.removeEventListener('online', refresh)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trip.id])
+
   async function loadGroups() {
     setLoading(true)
     const res = await fetch(`/api/trips/${trip.id}/groups`)

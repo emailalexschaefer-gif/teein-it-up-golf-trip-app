@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import { useQuery } from '@tanstack/react-query'
 import { calculateStableford } from '@/lib/scoring/stableford'
 import { getHandicapStrokesForHole } from '@/lib/scoring/strokeAllocation'
 import { compareCaptures, COMPARISON_LABEL, type ComparisonStatus, type CaptureValue } from '@/lib/scoring/comparison'
@@ -42,6 +43,19 @@ interface Props {
 }
 
 type CaptureMap = Record<number, CaptureValue> // keyed by hole_number
+
+interface LiveScores {
+  round: { id: string; status: string }
+  myScorecard: ScorecardFull | null
+  markedScorecard: ScorecardFull | null
+  markedByName: string | null
+}
+
+async function fetchLiveScores(tripId: string, roundId: string): Promise<LiveScores> {
+  const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/my-scores`)
+  if (!res.ok) throw new Error('Failed to refresh scores')
+  return res.json()
+}
 
 function splitByRole(entries: ScoreEntryRow[], holes: Hole[]): { self: CaptureMap; marker: CaptureMap } {
   const holeNumberById = new Map(holes.map(h => [h.id, h.hole_number]))
@@ -109,6 +123,50 @@ export default function SelfMarkerScoreShell({
   const swipeStartX = useRef<number | null>(null)
   const swipeStartY = useRef<number | null>(null)
 
+  // ── Live refresh ────────────────────────────────────────────────────────────
+  // Root cause of the stale-data issue: this component used to hydrate its
+  // capture maps ONCE from server-provided props and never again, so a
+  // marker's submission or a reconciliation update on the other person's
+  // device never appeared until this component fully remounted (leaving the
+  // round and coming back). This query re-fetches the same data the server
+  // resolves on first load, seeded with that same data via `initialData` so
+  // there's no loading flash, then keeps it fresh via polling + window-focus
+  // + reconnect — all without touching holeIdx or any in-progress draft.
+  const { data: liveData, isFetching: isRefreshingScores } = useQuery<LiveScores>({
+    queryKey: ['round-my-scores', tripId, round.id],
+    queryFn: () => fetchLiveScores(tripId, round.id),
+    initialData: {
+      round: { id: round.id, status: round.status },
+      myScorecard, markedScorecard, markedByName,
+    },
+    staleTime: 0, // always eligible for a window-focus/reconnect refetch
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    // Poll only while there's actually something to wait on. Stops
+    // automatically once the round is no longer active, or once every hole
+    // is fully reconciled (my own entry +, in self_and_marker mode, my
+    // marker entry for my partner) — re-evaluated after every fetch.
+    refetchInterval: (query) => {
+      const d = query.state.data
+      if (!d || d.round.status !== 'active' || holes.length === 0) return false
+      const mine = splitByRole(d.myScorecard?.score_entries ?? [], holes)
+      const theirsMarker = d.markedScorecard ? splitByRole(d.markedScorecard.score_entries ?? [], holes).marker : {}
+      const allDone = holes.every(h =>
+        mine.self[h.hole_number] !== undefined &&
+        (!requiresMarker || !d.markedScorecard || theirsMarker[h.hole_number] !== undefined)
+      )
+      return allDone ? false : 7000
+    },
+  })
+
+  // Everything below reads from these, not the raw props — the props are
+  // only used to seed initialData above so there's no loading flash. This
+  // is what makes a marker (re)assignment or partner data change show up
+  // without a full remount, same as the score entries themselves.
+  const currentMy = liveData.myScorecard
+  const currentMarked = liveData.markedScorecard
+  const currentMarkedByName = liveData.markedByName
+
   // ── Load holes ──────────────────────────────────────────────────────────────
   useEffect(() => {
     async function load() {
@@ -122,16 +180,16 @@ export default function SelfMarkerScoreShell({
     void load()
   }, [tripId, round.id])
 
-  // ── Hydrate from server props, then overlay unsynced local queue entries ───
+  // ── Hydrate from live query data, then overlay unsynced local queue entries ─
   useEffect(() => {
-    if (holes.length === 0 || !myScorecard) return
+    if (holes.length === 0 || !currentMy) return
     let cancelled = false
 
     async function hydrate() {
-      const mine = splitByRole(myScorecard!.score_entries ?? [], holes)
-      const theirs = markedScorecard ? splitByRole(markedScorecard.score_entries ?? [], holes) : { self: {}, marker: {} }
+      const mine = splitByRole(currentMy!.score_entries ?? [], holes)
+      const theirs = currentMarked ? splitByRole(currentMarked.score_entries ?? [], holes) : { self: {}, marker: {} }
 
-      const scorecardIds = [myScorecard!.id, ...(markedScorecard ? [markedScorecard.id] : [])]
+      const scorecardIds = [currentMy!.id, ...(currentMarked ? [currentMarked.id] : [])]
       const queued = await getQueuedEntriesForScorecards(scorecardIds)
       if (cancelled) return
 
@@ -140,31 +198,36 @@ export default function SelfMarkerScoreShell({
         const holeNum = holeNumberById.get(entry.holeId)
         if (!holeNum) continue
         const value: CaptureValue = { grossScore: entry.grossScore, pickedUp: entry.isNoReturn }
-        if (entry.scorecardId === myScorecard!.id && entry.captureRole === 'self') mine.self[holeNum] = value
-        else if (entry.scorecardId === myScorecard!.id && entry.captureRole === 'marker') mine.marker[holeNum] = value
-        else if (markedScorecard && entry.scorecardId === markedScorecard.id && entry.captureRole === 'self') theirs.self[holeNum] = value
-        else if (markedScorecard && entry.scorecardId === markedScorecard.id && entry.captureRole === 'marker') theirs.marker[holeNum] = value
+        if (entry.scorecardId === currentMy!.id && entry.captureRole === 'self') mine.self[holeNum] = value
+        else if (entry.scorecardId === currentMy!.id && entry.captureRole === 'marker') mine.marker[holeNum] = value
+        else if (currentMarked && entry.scorecardId === currentMarked.id && entry.captureRole === 'self') theirs.self[holeNum] = value
+        else if (currentMarked && entry.scorecardId === currentMarked.id && entry.captureRole === 'marker') theirs.marker[holeNum] = value
       }
 
+      // These four always reflect the latest live data — updating them on
+      // every refetch (not just the first) is exactly what makes a marker's
+      // submission or a reconciliation change appear automatically.
       setMySelf(mine.self)
       setMyMarker(mine.marker)
       setPartnerSelf(theirs.self)
       setPartnerMarker(theirs.marker)
 
+      // Resume-position and reconciliation-panel logic only ever runs ONCE
+      // (guarded by `resumed`) — subsequent refetches update the maps above
+      // but deliberately never touch holeIdx or re-trigger this, so the
+      // current hole and any in-progress draft are preserved across refreshes.
       if (!resumed) {
         setResumed(true)
-        // Resume at the first hole where either my own score or my marker
-        // entry for my partner is missing — never reset to hole 1 blindly.
         let target = holes.length - 1
         for (let i = 0; i < holes.length; i++) {
           const hn = holes[i].hole_number
           const myDone = mine.self[hn] !== undefined
-          const partnerDone = !requiresMarker || !markedScorecard || theirs.marker[hn] !== undefined
+          const partnerDone = !requiresMarker || !currentMarked || theirs.marker[hn] !== undefined
           if (!myDone || !partnerDone) { target = i; break }
         }
         setHoleIdx(target)
         if (target >= holes.length - 1) {
-          const allDone = holes.every(h => mine.self[h.hole_number] && (!requiresMarker || !markedScorecard || theirs.marker[h.hole_number]))
+          const allDone = holes.every(h => mine.self[h.hole_number] && (!requiresMarker || !currentMarked || theirs.marker[h.hole_number]))
           if (allDone && requiresMarker) setShowReconciliation(true)
         }
       }
@@ -172,7 +235,7 @@ export default function SelfMarkerScoreShell({
     void hydrate()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [holes, myScorecard, markedScorecard])
+  }, [holes, liveData])
 
   useEffect(() => {
     const cleanup = initSyncListeners()
@@ -202,8 +265,8 @@ export default function SelfMarkerScoreShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [holeNum])
 
-  const myHcp = myScorecard?.playing_handicap ?? 0
-  const partnerHcp = markedScorecard?.playing_handicap ?? 0
+  const myHcp = currentMy?.playing_handicap ?? 0
+  const partnerHcp = currentMarked?.playing_handicap ?? 0
   const myStrokes = hole ? getHandicapStrokesForHole({ playingHandicap: myHcp, strokeIndex: si }) : 0
   const partnerStrokes = hole ? getHandicapStrokesForHole({ playingHandicap: partnerHcp, strokeIndex: si }) : 0
 
@@ -211,7 +274,7 @@ export default function SelfMarkerScoreShell({
   const partnerPts = draftPartnerPickedUp ? 0 : (draftPartnerGross !== null ? calculateStableford({ grossScore: draftPartnerGross, par, strokeIndex: si, playingHandicap: partnerHcp }) : null)
 
   const myComparison = requiresMarker ? compareCaptures(mySelf[holeNum] ?? null, myMarker[holeNum] ?? null) : null
-  const partnerComparison = requiresMarker && markedScorecard ? compareCaptures(partnerSelf[holeNum] ?? null, partnerMarker[holeNum] ?? null) : null
+  const partnerComparison = requiresMarker && currentMarked ? compareCaptures(partnerSelf[holeNum] ?? null, partnerMarker[holeNum] ?? null) : null
 
   const myRunningTotal = holes.reduce((sum, h) => {
     const c = mySelf[h.hole_number]
@@ -239,16 +302,16 @@ export default function SelfMarkerScoreShell({
   }
 
   const canConfirm = (draftMyGross !== null || draftMyPickedUp)
-    && (!requiresMarker || !markedScorecard || draftPartnerGross !== null || draftPartnerPickedUp)
+    && (!requiresMarker || !currentMarked || draftPartnerGross !== null || draftPartnerPickedUp)
 
   async function confirmScore() {
-    if (!canConfirm || !hole || !myScorecard || confirmingRef.current) return
+    if (!canConfirm || !hole || !currentMy || confirmingRef.current) return
     confirmingRef.current = true
     setFlash(true)
 
     const myValue: CaptureValue = { grossScore: draftMyPickedUp ? null : draftMyGross, pickedUp: draftMyPickedUp }
     setMySelf(prev => ({ ...prev, [holeNum]: myValue }))
-    if (requiresMarker && markedScorecard) {
+    if (requiresMarker && currentMarked) {
       const partnerValue: CaptureValue = { grossScore: draftPartnerPickedUp ? null : draftPartnerGross, pickedUp: draftPartnerPickedUp }
       setPartnerMarker(prev => ({ ...prev, [holeNum]: partnerValue }))
     }
@@ -269,13 +332,13 @@ export default function SelfMarkerScoreShell({
 
     try {
       await queueScoreEntry({
-        scorecardId: myScorecard.id, holeId: hole.id, captureRole: 'self',
+        scorecardId: currentMy.id, holeId: hole.id, captureRole: 'self',
         grossScore: myValue.grossScore, isNoReturn: myValue.pickedUp,
         enteredAt: new Date().toISOString(),
       })
-      if (requiresMarker && markedScorecard) {
+      if (requiresMarker && currentMarked) {
         await queueScoreEntry({
-          scorecardId: markedScorecard.id, holeId: hole.id, captureRole: 'marker',
+          scorecardId: currentMarked.id, holeId: hole.id, captureRole: 'marker',
           grossScore: draftPartnerPickedUp ? null : draftPartnerGross, isNoReturn: draftPartnerPickedUp,
           enteredAt: new Date().toISOString(),
         })
@@ -321,8 +384,8 @@ export default function SelfMarkerScoreShell({
     )
   }
 
-  const myName = myScorecard.profiles?.full_name ?? 'You'
-  const partnerName = markedScorecard?.profiles?.full_name ?? null
+  const myName = currentMy?.profiles?.full_name ?? 'You'
+  const partnerName = currentMarked?.profiles?.full_name ?? null
 
   // ── End-of-round reconciliation ─────────────────────────────────────────────
   if (showReconciliation) {
@@ -419,9 +482,9 @@ export default function SelfMarkerScoreShell({
 
       <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px 24px' }}>
 
-        {markedByName && (
+        {currentMarkedByName && (
           <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 11, color: 'rgba(245,230,184,0.4)', marginBottom: 10 }}>
-            Marked by {markedByName}
+            Marked by {currentMarkedByName}
           </div>
         )}
 

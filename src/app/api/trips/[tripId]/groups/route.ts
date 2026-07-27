@@ -5,6 +5,12 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
+// Never cache — a player needs to see a fresh group assignment when they
+// return to this tab or refocus the app, not a stale response from Next's
+// route-handler cache.
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 interface Props { params: Promise<{ tripId: string }> }
 
 export async function GET(_req: NextRequest, { params }: Props) {

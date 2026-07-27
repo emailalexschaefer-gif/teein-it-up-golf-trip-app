@@ -79,15 +79,6 @@ async function autoGenerateMarkers(admin: any, tripId: string, roundId: string, 
 export async function POST(req: NextRequest, { params }: RouteProps) {
   const { tripId, roundId } = await params
 
-  // Log the exact raw values as received from the route, before anything
-  // else touches them — rules out any transformation between the URL and
-  // the query that actually runs.
-  console.log('[start-round] RAW incoming params', {
-    tripId, roundId,
-    tripIdType: typeof tripId, roundIdType: typeof roundId,
-    tripIdLength: tripId?.length, roundIdLength: roundId?.length,
-  })
-
   // ── Auth ───────────────────────────────────────────────────────────────────
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -121,41 +112,18 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   // different trip_id than the one in the URL" — and those are two very
   // different bugs with two different fixes. Checking the round by id alone
   // first, then comparing trip_id explicitly, tells us which one this is.
-  // Log exactly what client/project this request is using, at the moment
-  // of the query — the only way to directly verify, from a live request,
-  // whether this is really hitting the same Supabase project as everything
-  // else, and using the service-role key (not the anon key).
-  console.log('[start-round] client config check', {
-    supabaseUrlHost: (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').replace(/^https?:\/\//, '').split('.')[0],
-    usingServiceRoleKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-    serviceRoleKeyLength: (process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').length,
-  })
-
   const roundByIdRes = await admin
     .from('rounds')
     .select('id, status, holes, name, trip_id, score_capture_mode')
     .eq('id', roundId)
     .maybeSingle()
 
-  // Log the RAW response — data AND error — before making any determination.
-  // The previous version of this code only checked `!roundByIdRes.data` and
-  // returned "Round not found" regardless of whether that was because there
-  // were genuinely zero rows, or because a real Postgres/PostgREST error
-  // occurred (RLS denial, malformed query, permission issue, etc.) and got
-  // silently swallowed. Since the round is now confirmed to exist via direct
-  // SQL, this was very likely masking a real error this whole time.
-  console.log('[start-round] RAW round lookup response', {
-    roundId, tripId,
-    query: `select id, status, holes, name, trip_id, score_capture_mode from rounds where id = '${roundId}'`,
-    data: roundByIdRes.data,
-    error: roundByIdRes.error,
-    status: roundByIdRes.status,
-    statusText: roundByIdRes.statusText,
-  })
-
   // A genuine query ERROR is not the same thing as "no round found" — surface
   // it distinctly instead of masking it as a 404, which was hiding whatever
-  // was actually going wrong.
+  // was actually going wrong (this masking was the actual root cause behind
+  // an earlier, misleading "Round not found" message for a round that did
+  // exist — the real error was a missing database function from a migration
+  // that hadn't been applied yet).
   if (roundByIdRes.error) {
     console.error('[start-round] round lookup returned a real error, not just zero rows', {
       roundId, tripId, error: roundByIdRes.error,
