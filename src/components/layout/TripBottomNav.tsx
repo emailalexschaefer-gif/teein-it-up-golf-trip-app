@@ -1,0 +1,111 @@
+'use client'
+
+// Sprint 5C navigation architecture — the persistent "live event" nav,
+// distinct from the top trip-management tabs (Overview/Players/Groups/
+// Rounds, unchanged, still in TripDetailClient). This bar lives in
+// (app)/trips/[tripId]/layout.tsx, which is why it automatically appears
+// on every route nested under a trip — including the scoring pages under
+// rounds/[roundId] — without those pages needing to render it themselves.
+//
+// Mobile: fixed to the bottom of the viewport. Desktop (md breakpoint and
+// up): hidden here entirely — DesktopTripNav (rendered alongside this in
+// the same layout) takes over at that width, so the two are never both
+// visible at once.
+
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+
+interface NavItem { href: string; label: string; icon: string; match: (path: string) => boolean }
+
+function buildItems(tripId: string, isOrganiser: boolean): NavItem[] {
+  const base = `/trips/${tripId}`
+  const items: NavItem[] = [
+    { href: base, label: 'Home', icon: '🏠', match: (p) => p === base || p.startsWith(`${base}/rounds`) },
+    { href: `${base}/leaderboard`, label: 'Leaderboard', icon: '🏆', match: (p) => p.startsWith(`${base}/leaderboard`) },
+    { href: `${base}/sidegames`, label: 'Side Games', icon: '🎯', match: (p) => p.startsWith(`${base}/sidegames`) },
+  ]
+  if (isOrganiser) {
+    items.push({ href: `${base}/tournament`, label: 'Tournament', icon: '🎛️', match: (p) => p.startsWith(`${base}/tournament`) })
+  }
+  items.push({ href: `${base}/chat`, label: 'Chat', icon: '💬', match: (p) => p.startsWith(`${base}/chat`) })
+  return items
+}
+
+export function TripBottomNav({ tripId, isOrganiser }: { tripId: string; isOrganiser: boolean }) {
+  const pathname = usePathname() ?? ''
+  const items = buildItems(tripId, isOrganiser)
+
+  return (
+    <nav
+      className="md:hidden"
+      style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 100,
+        background: 'linear-gradient(135deg,#0f2d1c 0%,#172d1f 100%)',
+        borderTop: '2px solid #c9a84c',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        boxShadow: '0 -4px 20px rgba(0,0,0,0.3)',
+      }}
+    >
+      <div style={{ display: 'flex' }}>
+        {items.map((item) => {
+          const active = item.match(pathname)
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              style={{
+                flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+                gap: 2, padding: '8px 4px 6px', textDecoration: 'none',
+                minHeight: 52, position: 'relative',
+              }}
+            >
+              <span style={{ fontSize: 20, lineHeight: 1, filter: active ? 'none' : 'grayscale(40%) opacity(0.7)' }}>{item.icon}</span>
+              <span style={{
+                fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: active ? 800 : 600,
+                color: active ? '#e8c96a' : 'rgba(245,230,184,0.45)',
+              }}>
+                {item.label}
+              </span>
+              {active && (
+                <span style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: 28, height: 2.5, borderRadius: 2, background: '#e8c96a' }} />
+              )}
+            </Link>
+          )
+        })}
+      </div>
+    </nav>
+  )
+}
+
+export function DesktopTripNav({ tripId, isOrganiser }: { tripId: string; isOrganiser: boolean }) {
+  const pathname = usePathname() ?? ''
+  const items = buildItems(tripId, isOrganiser)
+
+  return (
+    <div className="hidden md:flex" style={{
+      alignItems: 'center', gap: 4, padding: '8px 16px',
+      background: '#f7f6f1', borderBottom: '1px solid #eceae3',
+    }}>
+      {items.map((item) => {
+        const active = item.match(pathname)
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 20, textDecoration: 'none',
+              background: active ? '#fdf3d9' : 'transparent',
+              border: active ? '1.5px solid #e8c96a' : '1.5px solid transparent',
+            }}
+          >
+            <span style={{ fontSize: 14 }}>{item.icon}</span>
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: active ? 800 : 600, color: active ? '#a1791f' : '#6b7280' }}>
+              {item.label}
+            </span>
+          </Link>
+        )
+      })}
+    </div>
+  )
+}

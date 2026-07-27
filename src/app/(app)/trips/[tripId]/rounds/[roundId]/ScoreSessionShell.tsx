@@ -705,7 +705,7 @@ export default function ScoreSessionShell({
           </div>
         )}
 
-        <Link href={`/trips/${tripId}`} style={{ display: 'block', textAlign: 'center', marginBottom: 24, fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', textDecoration: 'none' }}>
+        <Link href={`/trips/${tripId}`} style={{ display: 'block', textAlign: 'center', marginBottom: 90, fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', textDecoration: 'none' }}>
           ← Return to trip overview
         </Link>
 

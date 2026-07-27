@@ -429,7 +429,7 @@ export default function SelfMarkerScoreShell({
     const allClear = mismatches.length === 0 && pending.length === 0
 
     return (
-      <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '20px 16px 60px' }}>
+      <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '20px 16px 90px' }}>
         <div style={{ textAlign: 'center', marginBottom: 20 }}>
           <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 20, fontWeight: 800 }}>Score Comparison</div>
           <div style={{ fontFamily: 'var(--font-body)', color: '#6b7280', fontSize: 13, marginTop: 4 }}>
@@ -522,7 +522,7 @@ export default function SelfMarkerScoreShell({
         </div>
       )}
 
-      <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px 24px', background: '#faf9f6' }}>
+      <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px 90px', background: '#faf9f6' }}>
 
         {currentMarkedByName && (
           <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 11, color: '#6b7280', marginBottom: 10 }}>

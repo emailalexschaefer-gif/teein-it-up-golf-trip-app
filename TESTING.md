@@ -1140,3 +1140,52 @@ tournament" rather than just a list. Reuses the same leaderboard API
 response (added `scoring_format` to the existing query) — no new data
 source. The "Last updated" text ticks forward every 10s independently of
 polling, so it stays accurate even between refreshes.
+
+---
+
+## Navigation Architecture Update
+
+Two distinct navigation layers now exist:
+
+**Trip management** (top tabs, unchanged mechanism): Overview | Players |
+Groups | Rounds — Leaderboard and Side Games removed from this row.
+
+**Live event** (new persistent nav): Home | Leaderboard | Side Games |
+Tournament (organiser only) | Chat.
+
+### How it works
+
+`src/app/(app)/trips/[tripId]/layout.tsx` is new — it wraps every route
+nested under a trip, including the scoring pages under `rounds/[roundId]`,
+which is why the bottom nav appears there automatically without those
+scoring files needing to render it themselves. This layout does a
+lightweight `trip_members` role check (same pattern already used in
+`page.tsx`) to decide whether Tournament shows.
+
+Leaderboard and Side Games, previously tabs inside `TripDetailClient`,
+are now real routes: `trips/[tripId]/leaderboard`, `trips/[tripId]/
+sidegames`. Two new placeholder routes: `trips/[tripId]/tournament`
+(organiser-only, with a real server-side redirect guard for non-organisers
+— not just a hidden nav link) and `trips/[tripId]/chat`.
+
+### Manual test steps
+
+1. Mobile viewport: confirm top tabs show only Overview/Players/Groups/
+   Rounds, no wrapping or overflow.
+2. Confirm the bottom nav appears on: trip Overview, Leaderboard,
+   Side Games, Chat, and both active-scoring screens (self+marker and
+   group_scorer modes) and the Score Comparison screen.
+3. As a normal player, confirm Tournament is absent from the bottom nav
+   AND that navigating directly to `/trips/{id}/tournament` redirects you
+   away rather than showing the page.
+4. As an organiser, confirm Tournament appears and the placeholder loads
+   with no working buttons (by design — 5C.2 builds the real screen).
+5. Confirm Confirm Score, the last leaderboard row, and Score Comparison's
+   bottom controls are not obscured by the fixed bar — scroll to the very
+   bottom of each screen.
+6. Desktop viewport (≥768px): confirm the fixed bottom bar is gone and a
+   horizontal nav row appears instead, with the same five (or four, for
+   players) destinations, not duplicated anywhere else.
+7. Confirm login/signup/reset-password/join/create-trip screens never show
+   this nav (they sit outside the `trips/[tripId]/` route tree entirely,
+   so this should hold structurally, not just by convention).
