@@ -28,12 +28,12 @@ export default function AppNav({ userName, avatarUrl }: Props) {
         borderBottom: '2px solid #c9a84c',
         boxShadow: '0 2px 16px rgba(0,0,0,0.35)',
       }} className="sticky top-0 z-40 flex-shrink-0">
-        <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
+        <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
 
           {/* Simplified app logo — shared component, same asset used everywhere */}
           <Link href="/dashboard" className="flex items-center gap-2.5 flex-shrink-0 active:opacity-80 transition-opacity">
             <div style={{
-              width: 48, height: 48, borderRadius: 12,
+              width: 52, height: 52, borderRadius: 13,
               border: '2px solid #c9a84c',
               background: '#f8f4eb',
               overflow: 'hidden',
@@ -42,7 +42,7 @@ export default function AppNav({ userName, avatarUrl }: Props) {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               padding: 4,
             }}>
-              <BrandLogo variant="icon" size={40} priority />
+              <BrandLogo variant="icon" size={46} priority />
             </div>
             <div style={{ lineHeight: 1.1 }}>
               <div style={{
@@ -110,7 +110,7 @@ export default function AppNav({ userName, avatarUrl }: Props) {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="fixed top-14 right-4 z-50 w-52 animate-fadeIn" style={{
+          <div className="fixed top-16 right-4 z-50 w-52 animate-fadeIn" style={{
             background: '#f8f4eb',
             border: '1.5px solid #d9c9a3',
             borderRadius: 14,

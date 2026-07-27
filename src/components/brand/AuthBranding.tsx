@@ -16,12 +16,12 @@ import BrandLogo from '@/components/brand/BrandLogo'
 
 export default function AuthBranding() {
   return (
-    <div style={{ marginBottom: 24, textAlign: 'center' }}>
+    <div style={{ marginBottom: 10, textAlign: 'center' }}>
       <BrandLogo variant="full" priority />
       <p style={{
         fontFamily: 'var(--font-body)',
         color: 'rgba(245,230,184,0.45)',
-        fontSize: 10, marginTop: 2,
+        fontSize: 10, marginTop: 6,
         letterSpacing: 2.5, textTransform: 'uppercase',
       }}>Golf Event App</p>
     </div>

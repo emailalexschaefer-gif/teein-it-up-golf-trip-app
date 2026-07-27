@@ -438,8 +438,8 @@ export default function ScoreSessionShell({
         borderBottom: '2px solid #c9a84c', flexShrink: 0,
       }}>
         <Link href={`/trips/${tripId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
-          <div style={{ width: 30, height: 30, borderRadius: 8, border: '1.5px solid #c9a84c', background: '#f8f4eb', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 3 }}>
-            <BrandLogo variant="icon" size={24} />
+          <div style={{ width: 34, height: 34, borderRadius: 9, border: '1.5px solid #c9a84c', background: '#f8f4eb', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 3 }}>
+            <BrandLogo variant="icon" size={28} />
           </div>
           <span style={{ fontFamily: 'var(--font-display)', color: '#e8c96a', fontSize: 15, fontWeight: 800 }}>
             Teein&apos; It Up

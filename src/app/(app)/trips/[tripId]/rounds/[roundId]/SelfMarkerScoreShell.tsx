@@ -498,8 +498,8 @@ export default function SelfMarkerScoreShell({
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#0e1912', minHeight: '100vh' }}>
       <div style={{ background: 'linear-gradient(135deg,#0f2d1c 0%,#172d1f 100%)', padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '2px solid #c9a84c' }}>
         <Link href={`/trips/${tripId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
-          <div style={{ width: 30, height: 30, borderRadius: 8, border: '1.5px solid #c9a84c', background: '#f8f4eb', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 3 }}>
-            <BrandLogo variant="icon" size={24} />
+          <div style={{ width: 34, height: 34, borderRadius: 9, border: '1.5px solid #c9a84c', background: '#f8f4eb', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 3 }}>
+            <BrandLogo variant="icon" size={28} />
           </div>
           <span style={{ fontFamily: 'var(--font-display)', color: '#e8c96a', fontSize: 15, fontWeight: 800 }}>Teein&apos; It Up</span>
         </Link>

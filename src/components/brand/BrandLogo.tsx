@@ -61,7 +61,7 @@ export default function BrandLogo({ variant = 'full', size, priority = false, cl
   const { src, alt } = ASSET[variant]
 
   if (failed) {
-    const fallbackSize = variant === 'full' ? Math.round((size ?? FULL_LOGO_WIDTH) * 0.14) : 15
+    const fallbackSize = variant === 'full' ? Math.round((size ?? 640) * 0.11) : 15
     return (
       <span
         className={className}
@@ -95,10 +95,12 @@ export default function BrandLogo({ variant = 'full', size, priority = false, cl
 
   // 'full' — explicit width/height using the asset's REAL aspect ratio
   // (500×494, not a forced square), with a CSS override on the displayed
-  // size. This is a brand-new file path never requested before, which also
-  // rules out any stale 404 cached under the old filename.
-  const displayWidth = size ?? FULL_LOGO_WIDTH
-  const displayHeight = Math.round(displayWidth * (FULL_LOGO_HEIGHT / FULL_LOGO_WIDTH))
+  // size. Sized as the visual hero of the landing page per the branding
+  // polish pass: ~50% larger across the board than the previous sizing.
+  // The display cap (640) is independent of the asset's own intrinsic
+  // pixel size (500×494, passed to Image for correct aspect-ratio metadata)
+  // — next/image can display larger than the source's native resolution.
+  const displayWidth = size ?? 640
   return (
     <Image
       src={src}
@@ -110,7 +112,7 @@ export default function BrandLogo({ variant = 'full', size, priority = false, cl
       className={className}
       style={{
         display: 'block',
-        width: `clamp(110px, 35vw, ${displayWidth}px)`,
+        width: `clamp(170px, 52vw, ${displayWidth}px)`,
         height: 'auto',
         aspectRatio: `${FULL_LOGO_WIDTH} / ${FULL_LOGO_HEIGHT}`,
         margin: '0 auto',

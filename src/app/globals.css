@@ -2,6 +2,43 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ═══════════════════════════════════════════════════════════════════════
+   DESIGN TOKENS — visual-consistency reference
+   ═══════════════════════════════════════════════════════════════════════
+   These are the canonical values for anything not already covered by the
+   shared components in src/components/ui/ (Button, Badge, Card, etc.) —
+   which already define their own consistent size/variant scales and
+   should always be preferred over new inline styles where they fit.
+
+   Most of the app's interactive screens (scoring flows, modals, trip
+   tabs) currently use hand-rolled inline styles rather than those shared
+   components, accumulated incrementally across many separate changes.
+   Bringing every one of those screens onto the shared component system
+   is a larger, higher-risk refactor than a cosmetic-only pass — these
+   tokens are the reference for that future pass, and have been applied
+   directly to the highest-traffic touchpoints (primary confirm buttons
+   in the scoring flow) as a concrete first step, without changing any
+   button's behavior.
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+  --radius-sm: 8px;    /* small chips, tiles */
+  --radius-md: 10px;   /* standard buttons, inputs */
+  --radius-lg: 14px;   /* cards */
+  --radius-xl: 18px;   /* modals, hero cards */
+
+  --control-height-sm: 36px;
+  --control-height-md: 48px;  /* primary action buttons — Confirm Score, Begin Round, etc. */
+  --control-height-lg: 56px;
+
+  --shadow-card:   0 6px 28px rgba(0,0,0,0.35);
+  --shadow-button: 0 4px 16px rgba(22,163,74,0.35);
+  --shadow-modal:  0 4px 32px rgba(0,0,0,0.4);
+
+  --icon-size-sm: 20px;
+  --icon-size-md: 24px;
+  --icon-size-lg: 32px;
+}
+
 @layer base {
   html { scroll-behavior: smooth; }
   * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }

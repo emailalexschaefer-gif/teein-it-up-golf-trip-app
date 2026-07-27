@@ -371,7 +371,7 @@ function Warning({ children }: { children?: React.ReactNode }) {
 
 function btnStyle(variant: 'primary' | 'secondary' | 'ghost' | 'gold' | 'disabled'): React.CSSProperties {
   const base: React.CSSProperties = {
-    flex: 1, padding: '13px 18px', borderRadius: 12, border: 'none',
+    flex: 1, padding: '14px 18px', borderRadius: 10, border: 'none',
     fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700,
     cursor: variant === 'disabled' ? 'not-allowed' : 'pointer',
     transition: 'all 0.15s', textAlign: 'center',
