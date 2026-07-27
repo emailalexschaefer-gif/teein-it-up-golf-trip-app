@@ -35,21 +35,17 @@ interface BrandLogoProps {
   className?: string
 }
 
-// Real intrinsic dimensions of the full-crest asset — not a forced square.
-const FULL_LOGO_WIDTH = 500
-const FULL_LOGO_HEIGHT = 494
-
 const ASSET: Record<'full' | 'icon', { src: string; alt: string }> = {
   full: { src: '/brand/teein-it-up-logo-transparent.png', alt: "Teein' It Up — Golf Event App" },
   icon: { src: '/brand/teein-it-up-icon.png', alt: "Teein' It Up" },
 }
 
 /**
- * Renders the official logo. Both variants use explicit width/height props
- * (Next's real intrinsic-dimensions requirement) with a CSS override on the
- * displayed size — not `fill`, which depends on a parent resolving a
- * non-zero computed height and can silently render at zero size instead of
- * erroring if that fails.
+ * Renders the official logo. 'icon' uses next/image (explicit width/height,
+ * unoptimized). 'full' uses a plain <img> tag — deliberately not
+ * next/image, to rule it out as a variable after the icon variant (same
+ * asset folder, same serving mechanism) worked in production while several
+ * different next/image configurations for 'full' did not.
  *
  * Falls back to plain text ONLY if the asset genuinely fails to load
  * client-side (onError) — never a golfer emoji, never a broken-image icon.
@@ -93,30 +89,29 @@ export default function BrandLogo({ variant = 'full', size, priority = false, cl
     )
   }
 
-  // 'full' — explicit width/height using the asset's REAL aspect ratio
-  // (500×494, not a forced square), with a CSS override on the displayed
-  // size. Sized as the visual hero of the landing page per the branding
-  // polish pass: ~50% larger across the board than the previous sizing.
-  // The display cap (640) is independent of the asset's own intrinsic
-  // pixel size (500×494, passed to Image for correct aspect-ratio metadata)
-  // — next/image can display larger than the source's native resolution.
+  // 'full' — plain, unmanaged <img> tag, deliberately NOT next/image.
+  // The icon variant (identical folder, identical serving mechanism) is
+  // confirmed working in production; this variant, using next/image with
+  // several different configurations across several fixes, has not. The
+  // file itself has been re-verified as a structurally valid 8-bit RGBA
+  // PNG. With the asset and the serving mechanism both checking out, the
+  // remaining variable was next/image's own handling of this component —
+  // so this renders the image the simplest possible way, with the fewest
+  // unknowns left, to isolate whether the fault was ever really here.
   const displayWidth = size ?? 640
   return (
-    <Image
+    // eslint-disable-next-line @next/next/no-img-element -- deliberate: see comment above, this is diagnostic/corrective, not a shortcut
+    <img
       src={src}
       alt={alt}
-      width={FULL_LOGO_WIDTH}
-      height={FULL_LOGO_HEIGHT}
-      priority={priority}
-      unoptimized
       className={className}
+      loading={priority ? 'eager' : 'lazy'}
+      fetchPriority={priority ? 'high' : 'auto'}
       style={{
         display: 'block',
         width: `clamp(170px, 52vw, ${displayWidth}px)`,
         height: 'auto',
-        aspectRatio: `${FULL_LOGO_WIDTH} / ${FULL_LOGO_HEIGHT}`,
         margin: '0 auto',
-        objectFit: 'contain',
       }}
       onError={() => setFailed(true)}
     />
