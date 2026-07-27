@@ -38,6 +38,19 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       }}>
         No admin chaos. Just great golf.
       </p>
+
+      {/* TEMPORARY DEPLOYMENT-VERIFICATION MARKER — remove once confirmed.
+          If this exact string is NOT visible on the live login page after a
+          deploy, that is definitive, unambiguous proof the deployment is not
+          running this build — independent of anything else in this file. */}
+      <p style={{
+        marginTop: 8,
+        fontFamily: 'monospace',
+        color: 'rgba(232,201,106,0.5)',
+        fontSize: 9,
+      }}>
+        build-marker: 2026-07-25-transparent-logo-v1
+      </p>
     </div>
   )
 }
