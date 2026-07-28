@@ -1189,3 +1189,123 @@ sidegames`. Two new placeholder routes: `trips/[tripId]/tournament`
 7. Confirm login/signup/reset-password/join/create-trip screens never show
    this nav (they sit outside the `trips/[tripId]/` route tree entirely,
    so this should hold structurally, not just by convention).
+
+---
+
+## Sprint 5C.2 — Tournament Control Centre
+
+### New API
+`GET /api/trips/[tripId]/rounds/[roundId]/tournament` — organiser-only
+(403 for non-organisers). Not a duplicate of the leaderboard route: that
+returns a ranked player list; this returns group-level operational state
+(current hole per group, reconciliation mismatches, alerts) which is a
+genuinely different question, built on the same underlying tables and the
+same `capture_role='self'` convention the leaderboard already established.
+
+### What's real vs. honestly limited
+- **Health, Summary, Group Progress, Quick Actions, Live Stats (birdies/
+  pars/bogeys/avg/best-hole/hardest-hole):** computed from real, current
+  `scorecards`/`score_entries`/`holes` data. Nothing fabricated.
+- **Timeline:** genuinely sourced from `score_entries.entered_at` — a real
+  timestamp column confirmed to exist before building this (not assumed).
+  Shows the 15 most recent confirmed self-entries, most recent first.
+- **Alerts:** derived from *current* state (which groups have mismatches,
+  which are waiting, which are stuck), not a true historical event log —
+  there isn't one to query. Framed honestly as current status, not history.
+- **Longest Drive / Nearest Pin stat cards:** explicitly show "Coming in
+  Sprint 5D" rather than fabricated numbers, since Side Games isn't built.
+- **Pause Round / Close Round / Finalise Results:** deliberately **not**
+  included in Quick Actions — no handlers exist anywhere in the codebase
+  for these (checked before building), and the brief was explicit not to
+  create dead buttons.
+- **"Review Reconciliation" as a distinct quick action:** also not
+  included — no dedicated organiser-wide reconciliation screen exists to
+  link to. Reconciliation issues are surfaced as Alerts instead.
+
+### Step 1 — scoring polish
+`SelfMarkerScoreShell.tsx`: "Marked by" text made smaller/lighter
+(11px→10px, `#6b7280`→`#b0b6be`); gap beneath the score number increased
+(2px→6px); Pick Up button moved closer to the score row (4px→2px gap) with
+increased contrast (light-grey text→darker grey, transparent
+background→light fill). Logic unchanged.
+
+### Manual test steps
+1. As organiser, open Tournament — confirm health banner, summary card
+   with progress bar, group cards (tap to expand → player list with
+   mismatch/waiting badges), alerts, timeline, quick actions, stats grid,
+   and group map all render.
+2. As a normal player, confirm Tournament is absent from the bottom nav,
+   and navigating directly to `/trips/{id}/tournament` redirects to the
+   trip Overview rather than showing content.
+3. Create a deliberate self/marker mismatch on one hole — confirm it
+   appears in that group's status badge, the expanded player row, and the
+   Alerts list within one poll cycle (≤8s) or on window refocus.
+4. Confirm polling stops once the round is no longer active (check Network
+   tab — no further requests to the tournament endpoint).
+5. Confirm the "Review Marker Assignments" and "View Leaderboard" quick
+   actions navigate correctly.
+
+---
+
+## Sprint 5C.2 Addendum — Field-Tested UX Improvements
+
+### 1. Round Start Notification
+New `RoundStartBanner.tsx`, rendered in the shared trip layout so it can
+appear on any live-event page except the scoring screen for that exact
+round (redundant there). Reuses the **existing** `my-scores` endpoint to
+show the current user's marker name — no new API. Dismissible per-round
+via `sessionStorage` (won't nag every page load once dismissed, resets
+naturally for the next round).
+
+### 2. Bottom Navigation Reorder
+New order: Home | Scorecard | Leaderboard | Side Games | Tournament
+(organiser only) | Chat. "Scorecard" is new — links directly into the
+active round if one exists (fetched once in the shared layout, passed down
+to both nav components), or falls back to Home if no round is active yet.
+
+### 3. Reduced Vertical Scrolling
+`SelfMarkerScoreShell.tsx`: card margins/padding tightened throughout
+(card `marginBottom` 16→10, internal padding 14→10, +/− buttons 54→48px,
+score number 48→44px). Honest note: with both YOUR SCORE and YOUR MARKER
+cards visible in self_and_marker mode, guaranteeing everything including
+Confirm Score fits on one screen on every device isn't something I can
+promise from here — this is a real, meaningful tightening, not a
+guaranteed fit on all screen sizes.
+
+### 4. Round Summary
+The reconciliation screen ("Score Comparison") is now "Round Summary" —
+shows **every** hole (not just mismatches) as a compact tappable row with
+points and a status icon (✓ / 🔴 / 🟡), tap any row to jump straight
+there. The TOTAL tile on both scoring cards is now itself a button that
+opens this screen. The detailed self-vs-marker breakdown for holes that
+actually need review is preserved below the compact list, not discarded —
+tells you *why*, not just *which*. The "Round Summary" access button below
+Confirm Score is no longer restricted to the last hole only.
+
+### 5. Organiser Close Round
+New endpoint: `POST /api/trips/[tripId]/rounds/[roundId]/close` —
+confirmed no equivalent existed anywhere before writing it. Transitions
+`active` → `completed`, organiser-only, with a **server-side** completion
+guard (every scorecard has all holes self-scored, and in marker mode every
+self-entered hole also has a marker entry) — not just a UI-level check, so
+the round can't be closed early via a direct API call even if the button
+were somehow bypassed. Tournament Control shows "🟢 Tournament Ready to
+Close" + a Close Round button only when this same condition is already
+true client-side (100% complete, zero outstanding reconciliations).
+
+### Manual test steps
+1. As organiser, start a round — confirm the banner appears for other
+   players within one page load/poll, showing their correct marker name.
+2. Dismiss the banner, reload — confirm it stays dismissed for that round.
+3. Confirm Scorecard in the bottom nav jumps directly into the active
+   round; with no active round, confirm it falls back to Home.
+4. On the scoring screen, tap the TOTAL tile on either card — confirm
+   Round Summary opens showing all holes, tap any row — confirm it jumps
+   to that hole and closes the summary.
+5. Create a mismatch, open Round Summary — confirm that hole shows 🔴 in
+   the compact list AND still appears in the detailed "Needs review"
+   section below with the actual score values.
+6. Complete every hole for every player in a test round (matching in
+   marker mode) — confirm Tournament Control shows "Ready to Close" and
+   pressing Close Round succeeds; confirm attempting to close early via a
+   direct API call is rejected with a 409, not just blocked by the UI.

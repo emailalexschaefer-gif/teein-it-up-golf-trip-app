@@ -17,10 +17,16 @@ import { usePathname } from 'next/navigation'
 
 interface NavItem { href: string; label: string; icon: string; match: (path: string) => boolean }
 
-function buildItems(tripId: string, isOrganiser: boolean): NavItem[] {
+function buildItems(tripId: string, isOrganiser: boolean, activeRoundId: string | null): NavItem[] {
   const base = `/trips/${tripId}`
+  const scorecardHref = activeRoundId ? `${base}/rounds/${activeRoundId}` : base
   const items: NavItem[] = [
-    { href: base, label: 'Home', icon: '🏠', match: (p) => p === base || p.startsWith(`${base}/rounds`) },
+    { href: base, label: 'Home', icon: '🏠', match: (p) => p === base },
+    // Highest-frequency destination during live play (players visit this
+    // for every hole, every round — far more often than any other
+    // destination), so it sits right after Home rather than being buried
+    // further down the bar.
+    { href: scorecardHref, label: 'Scorecard', icon: '⛳', match: (p) => p.startsWith(`${base}/rounds`) },
     { href: `${base}/leaderboard`, label: 'Leaderboard', icon: '🏆', match: (p) => p.startsWith(`${base}/leaderboard`) },
     { href: `${base}/sidegames`, label: 'Side Games', icon: '🎯', match: (p) => p.startsWith(`${base}/sidegames`) },
   ]
@@ -31,9 +37,9 @@ function buildItems(tripId: string, isOrganiser: boolean): NavItem[] {
   return items
 }
 
-export function TripBottomNav({ tripId, isOrganiser }: { tripId: string; isOrganiser: boolean }) {
+export function TripBottomNav({ tripId, isOrganiser, activeRoundId }: { tripId: string; isOrganiser: boolean; activeRoundId: string | null }) {
   const pathname = usePathname() ?? ''
-  const items = buildItems(tripId, isOrganiser)
+  const items = buildItems(tripId, isOrganiser, activeRoundId)
 
   return (
     <nav
@@ -77,9 +83,9 @@ export function TripBottomNav({ tripId, isOrganiser }: { tripId: string; isOrgan
   )
 }
 
-export function DesktopTripNav({ tripId, isOrganiser }: { tripId: string; isOrganiser: boolean }) {
+export function DesktopTripNav({ tripId, isOrganiser, activeRoundId }: { tripId: string; isOrganiser: boolean; activeRoundId: string | null }) {
   const pathname = usePathname() ?? ''
-  const items = buildItems(tripId, isOrganiser)
+  const items = buildItems(tripId, isOrganiser, activeRoundId)
 
   return (
     <div className="hidden md:flex" style={{

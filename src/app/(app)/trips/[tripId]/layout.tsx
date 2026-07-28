@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { TripBottomNav, DesktopTripNav } from '@/components/layout/TripBottomNav'
+import RoundStartBanner from '@/components/layout/RoundStartBanner'
 
 // Never cache — organiser status must always reflect the live membership
 // table, and this determines which nav items render.
@@ -24,11 +25,22 @@ export default async function TripScopedLayout({ params, children }: Props) {
 
   const isOrganiser = membership?.role === 'organiser'
 
+  // The active round, if any — used to make "Scorecard" in the bottom nav
+  // jump straight into live scoring, and to detect a just-started round for
+  // the notification banner. One lightweight query, reused by both.
+  const { data: activeRound } = await supabase
+    .from('rounds').select('id, name')
+    .eq('trip_id', tripId).eq('status', 'active')
+    .maybeSingle()
+
   return (
     <div style={{ minHeight: '100vh' }}>
-      <DesktopTripNav tripId={tripId} isOrganiser={isOrganiser} />
+      <DesktopTripNav tripId={tripId} isOrganiser={isOrganiser} activeRoundId={activeRound?.id ?? null} />
+      {activeRound && (
+        <RoundStartBanner tripId={tripId} roundId={activeRound.id} roundName={activeRound.name} />
+      )}
       {children}
-      <TripBottomNav tripId={tripId} isOrganiser={isOrganiser} />
+      <TripBottomNav tripId={tripId} isOrganiser={isOrganiser} activeRoundId={activeRound?.id ?? null} />
     </div>
   )
 }
