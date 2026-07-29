@@ -1378,3 +1378,161 @@ screen goal.
    unplayed hole.
 6. Confirm the hole header reads "HOLE 15" prominently with "Round 1" as
    a smaller subtitle.
+
+---
+
+## Sprint 5C Polish — My Events / My HQ / Moments / Avatars
+
+### Terminology renames (UI text only, no route/API changes)
+- Home page: added a "My Events" heading above the trip list. Hero
+  ("Run your golf trip like a pro" / "No admin chaos. Just great
+  experiences.") is **unchanged**, per the explicit instruction.
+- Bottom nav "Round HQ" → "My HQ" (route `/tournament` unchanged).
+- "Tournament running smoothly" → "Round running smoothly."
+- "Tournament Ready to Close" → "Round Ready to Close."
+- Loading/error text now says "My HQ," not "Tournament."
+- Internal code identifiers (`TournamentControl`, `TournamentData`) were
+  **not** renamed — that's a larger refactor touching every import site,
+  out of scope for a "purely UI terminology" change.
+
+### Moments — foundation only
+Added a Moments section inside My HQ with the exact empty-state copy
+specified ("No moments captured yet / Photos and highlights from this
+round will appear here") and a clearly-labeled "Capture a Moment —
+coming soon" pill, not a clickable/broken button. No upload wired up.
+
+### Profile avatar upload — new, isolated infrastructure
+- **New migration** `024_avatar_storage.sql`: creates a public `avatars`
+  Supabase Storage bucket (5MB limit, JPEG/PNG/WEBP only) with RLS
+  policies — public read (avatars are shown to other trip members), owner-
+  only insert/update/delete scoped to their own `{user_id}/` folder.
+  Does not touch any existing table.
+- `ProfileForm.tsx`: "Upload photo" / "Change photo" / "Remove" controls
+  added around the existing avatar display. Uploads directly from the
+  browser to Supabase Storage (the same client already used for saving
+  other profile fields), fixed filename per user with `upsert: true` so
+  re-uploading replaces rather than accumulating orphaned files, and a
+  cache-busting query param so the new image displays immediately.
+  Initials fallback is fully preserved — untouched code path when no
+  avatar is set.
+
+### My Golf — documented, not built
+`docs/MY_GOLF_ARCHITECTURE.md` — describes the future `moments` table
+shape, its RLS direction, and how existing tables (scorecards, leaderboard
+position, trip_groups) already map to what My Golf will eventually
+aggregate. No `my_golf` route or table created.
+
+### Manual test steps
+1. Confirm the dashboard shows the hero unchanged, then a "My Events"
+   heading above the trip list.
+2. Confirm the bottom nav says "My HQ," and My HQ's health banner/ready-
+   to-close text say "Round," not "Tournament."
+3. Open My HQ — confirm the Moments section shows the empty state and a
+   non-clickable "coming soon" pill.
+4. On Profile, upload a photo — confirm it displays immediately (no page
+   reload needed to see it), persists after a real page refresh, and that
+   re-uploading replaces it rather than leaving the old one behind in
+   storage. Confirm "Remove" reverts to the initials fallback.
+5. Confirm uploading a non-image file or an oversized file shows a clear
+   error, not a crash.
+
+---
+
+## Sprint Update — My HQ Experience Refinement
+
+### What was actually built (not just renamed)
+
+- **Event Health** — renamed from the health banner, now labeled and
+  positioned as the very first thing the organiser sees. Same computation
+  as before, just relabeled and given a proper heading.
+- **The Story** — genuinely rebuilt, not just renamed. The previous
+  Timeline was literally the 15 most recent confirmed scores (an activity
+  log). The Story now shows only milestones, computed by chronologically
+  replaying every real `entered_at` timestamp: lead changes (recalculating
+  the full ranking after every entry and detecting when the #1 position
+  changes hands), hole-in-ones (real `gross_score = 1`), score-review
+  moments (approximated at the later of the two conflicting entries'
+  timestamps — a real, reasoned approximation, not a guess), group
+  finishes, and round completion. Verified with 3 standalone logic tests
+  before shipping, including a case specifically checking that a player
+  staying in the lead the whole time does NOT generate false "lead
+  change" spam.
+- **Today's Highlights** — new, post-round only. Winner + margin, real
+  birdie/eagle/hole-in-one counts, and "biggest comeback" computed from
+  the same rank-replay (each player's worst-ever rank vs their final
+  rank). No Moments or Longest Drive references — that data doesn't
+  exist yet, and fabricating placeholder numbers here would be exactly
+  what the brief explicitly warns against.
+- **Leaderboard Snapshot** — new. Top 5 only, computed locally from data
+  already fetched for other purposes (not a second call to the
+  leaderboard route), with a "View Full Leaderboard" link. Never
+  duplicates the full board.
+- **Side Games Snapshot** — new, but honestly a placeholder: no side-game
+  data model exists yet, so this shows a real "not set up yet" state
+  linking to Side Games, not fabricated statuses.
+- **Live Statistics** — Pars/Bogeys swapped for Eagles/Hole-in-ones, per
+  the brief's own example list ("Birdies, Eagles, Hole-in-ones, Average
+  Stableford").
+- **Quick Actions** — added "Edit Groups" (links to the trip page, where
+  Groups already lives). "Publish Results" and "Message Players" were
+  deliberately **not** added — no handlers exist for either (checked
+  before deciding), and the brief is explicit about not building dead
+  buttons. Close Round and Start Round flows already existed from an
+  earlier pass and are unchanged.
+
+### Manual test steps
+1. Confirm "Event Health" is the first card, labeled correctly.
+2. Confirm The Story shows milestones only — not a hole-by-hole log —
+   during an active round with multiple players scoring.
+3. Deliberately create a lead change (a trailing player's total overtakes
+   the leader) — confirm exactly one "moves into first" entry appears,
+   not a flood of position-shuffle noise.
+4. Complete a round — confirm Today's Highlights appears with a real
+   winner/margin and real birdie/eagle counts, and is absent before the
+   round completes.
+5. Confirm Leaderboard Snapshot shows exactly 5 rows (or fewer with a
+   small player count) and "View Full Leaderboard" navigates correctly.
+6. Confirm Side Games Snapshot shows the honest placeholder and links to
+   Side Games.
+
+---
+
+## My HQ Refinement — Story Accuracy & Meaningful Milestones
+
+### What was refined
+
+**Lead-change detection.** The previous version replayed every entry in
+raw chronological (`entered_at`) order and recalculated the full ranking
+after each one — technically correct, but it compared players who had
+played different numbers of holes, so a player who simply entered scores
+faster could show as "leading" purely from entry timing, then get
+"overtaken" the moment a slower player's delayed entries came in. Fixed
+by comparing players only at recognized checkpoints (every 3rd hole, plus
+the final hole), and only among players who have reached that exact
+checkpoint. A lead-change milestone now only fires when two or more
+players are being compared at genuinely the same stage of play — never
+across players with a different number of holes completed.
+
+**Biggest Leaderboard Climb** (renamed from "Biggest Comeback"). Same
+fairness fix applied: worst-vs-final rank is now computed from checkpoint
+ranks (same holes-played basis at each), not raw chronological-replay
+ranks.
+
+**Verified, and fixed one real double-counting bug in the process:**
+- Hole-in-one: confirmed detected purely on `gross_score === 1`, never on
+  Stableford points or any derived value.
+- Eagle: confirmed calculated against each hole's actual `par` (works
+  identically for Par 3/4/5 — the formula `gross - par <= -2` doesn't
+  assume Par 5). While verifying this, found that a hole-in-one on a Par 3
+  (`1 - 3 = -2`) was satisfying the eagle condition too, double-counting
+  the same real event under two labels. Fixed: hole-in-ones are now
+  checked first and excluded from the eagle/birdie/par/bogey count
+  entirely, so each real event is represented by exactly one statistic.
+
+### Testing
+Wrote and ran 3 standalone logic tests before shipping, specifically
+including the exact scenario described in the brief (a player ahead on
+raw holes, another player's delayed entries pulling ahead) — confirmed
+it now produces zero spurious lead-change entries, a genuine
+checkpoint-to-checkpoint change is still correctly detected, and a player
+far behind on holes played is never used in any comparison at all.

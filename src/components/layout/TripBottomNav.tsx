@@ -31,7 +31,7 @@ function buildItems(tripId: string, isOrganiser: boolean, activeRoundId: string 
     { href: `${base}/sidegames`, label: 'Side Games', icon: '🎯', match: (p) => p.startsWith(`${base}/sidegames`) },
   ]
   if (isOrganiser) {
-    items.push({ href: `${base}/tournament`, label: 'Round HQ', icon: '🎛️', match: (p) => p.startsWith(`${base}/tournament`) })
+    items.push({ href: `${base}/tournament`, label: 'My HQ', icon: '🎛️', match: (p) => p.startsWith(`${base}/tournament`) })
   }
   items.push({ href: `${base}/chat`, label: 'Chat', icon: '💬', match: (p) => p.startsWith(`${base}/chat`) })
   return items

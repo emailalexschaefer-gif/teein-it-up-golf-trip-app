@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -29,10 +29,79 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
   const [errorMsg, setErrorMsg]     = useState('')
   const [emailNote, setEmailNote]   = useState('')
 
+  const [currentAvatarUrl, setCurrentAvatarUrl] = useState(avatarUrl)
+  const [avatarBusy, setAvatarBusy]             = useState(false)
+  const [avatarError, setAvatarError]           = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   const userColor    = avatarColor(userId)
   const userInitials = initials(name || '?')
 
   const emailChanged = email.trim().toLowerCase() !== authEmail.toLowerCase()
+
+  async function handleAvatarSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-selecting the same file later
+    if (!file) return
+
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setAvatarError('Please choose a JPEG, PNG, or WEBP image.')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarError('Image must be under 5MB.')
+      return
+    }
+
+    setAvatarBusy(true)
+    setAvatarError('')
+
+    const supabase = createClient()
+    const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg'
+    // Fixed filename per user (not timestamped) with upsert — re-uploading
+    // simply replaces the previous avatar rather than leaving old files
+    // behind in storage.
+    const path = `${userId}/avatar.${ext}`
+
+    const { error: uploadErr } = await supabase.storage.from('avatars').upload(path, file, { upsert: true, contentType: file.type })
+    if (uploadErr) {
+      setAvatarBusy(false)
+      setAvatarError(`Upload failed: ${uploadErr.message}`)
+      return
+    }
+
+    const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
+    // Cache-bust so the new image actually shows immediately instead of a
+    // browser-cached copy of the old file at the same URL.
+    const bustedUrl = `${urlData.publicUrl}?v=${Date.now()}`
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db: any = supabase
+    const { error: dbErr } = await db.from('profiles').update({ avatar_url: bustedUrl, updated_at: new Date().toISOString() }).eq('id', userId)
+    setAvatarBusy(false)
+    if (dbErr) {
+      setAvatarError(`Saved the image but couldn't update your profile: ${dbErr.message}`)
+      return
+    }
+    setCurrentAvatarUrl(bustedUrl)
+    router.refresh()
+  }
+
+  async function handleRemoveAvatar() {
+    setAvatarBusy(true)
+    setAvatarError('')
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db: any = supabase
+    const { error: dbErr } = await db.from('profiles').update({ avatar_url: null, updated_at: new Date().toISOString() }).eq('id', userId)
+    setAvatarBusy(false)
+    if (dbErr) {
+      setAvatarError(`Couldn't remove photo: ${dbErr.message}`)
+      return
+    }
+    setCurrentAvatarUrl(null)
+    router.refresh()
+  }
   const handicapVal  = noHcp ? null : (hcp === '' ? null : parseFloat(hcp))
 
   async function handleSave(e: React.FormEvent) {
@@ -101,11 +170,11 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
       </div>
 
       {/* Avatar */}
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
-        {avatarUrl ? (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 24 }}>
+        {currentAvatarUrl ? (
           <div style={{ position: 'relative', width: 72, height: 72, borderRadius: '50%', overflow: 'hidden',
             border: '3px solid #d9c9a3', boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }}>
-            <Image src={avatarUrl} alt={name} fill sizes="72px" className="object-cover" />
+            <Image src={currentAvatarUrl} alt={name} fill sizes="72px" className="object-cover" />
           </div>
         ) : (
           <div style={{
@@ -118,6 +187,47 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
           }}>
             {userInitials}
           </div>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          capture="user"
+          onChange={handleAvatarSelected}
+          style={{ display: 'none' }}
+        />
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={avatarBusy}
+            style={{
+              fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#1a4731',
+              background: 'none', border: 'none', cursor: avatarBusy ? 'default' : 'pointer',
+              textDecoration: 'underline', opacity: avatarBusy ? 0.5 : 1,
+            }}
+          >
+            {avatarBusy ? 'Working…' : currentAvatarUrl ? 'Change photo' : 'Upload photo'}
+          </button>
+          {currentAvatarUrl && (
+            <button
+              type="button"
+              onClick={handleRemoveAvatar}
+              disabled={avatarBusy}
+              style={{
+                fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600, color: '#9ca3af',
+                background: 'none', border: 'none', cursor: avatarBusy ? 'default' : 'pointer',
+                textDecoration: 'underline', opacity: avatarBusy ? 0.5 : 1,
+              }}
+            >
+              Remove
+            </button>
+          )}
+        </div>
+        {avatarError && (
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#dc2626', marginTop: 6, textAlign: 'center' }}>{avatarError}</p>
         )}
       </div>
 

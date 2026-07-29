@@ -13,15 +13,18 @@ interface GroupProgress {
   players: GroupPlayer[]
 }
 interface Alert { severity: 'red' | 'gold' | 'green' | 'grey'; text: string }
-interface TimelineEntry { text: string; at: string }
+interface StoryEntry { icon: string; text: string; at: string }
+interface LeaderboardSnapshotRow { position: number; name: string; totalPts: number; holesPlayed: number; finished: boolean }
 interface TournamentData {
   roundName: string; scoringFormat: string; roundStatus: string; totalHoles: number
   health: { level: 'green' | 'gold' | 'red'; text: string }
   summary: { players: number; groups: number; scoringNow: number; finishedCount: number; awaitingReconciliation: number; completionPct: number }
   groups: GroupProgress[]
   alerts: Alert[]
-  timeline: TimelineEntry[]
-  stats: { birdies: number; pars: number; bogeys: number; avgStableford: number; bestHole: { number: number; avgPts: number } | null; hardestHole: { number: number; avgPts: number } | null }
+  leaderboardSnapshot: LeaderboardSnapshotRow[]
+  story: StoryEntry[]
+  highlights: string[]
+  stats: { birdies: number; eagles: number; pars: number; bogeys: number; holeInOnes: number; avgStableford: number; bestHole: { number: number; avgPts: number } | null; hardestHole: { number: number; avgPts: number } | null }
 }
 
 const STATUS_META: Record<GroupProgress['status'], { icon: string; label: string; color: string; bg: string }> = {
@@ -85,13 +88,13 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
   }
 
   if (isLoading) {
-    return <div style={{ textAlign: 'center', padding: '40px 0', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>Loading Round HQ…</div>
+    return <div style={{ textAlign: 'center', padding: '40px 0', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>Loading My HQ…</div>
   }
   if (error || !data) {
     return (
       <div style={{ textAlign: 'center', padding: '32px 16px' }}>
         <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, marginBottom: 12 }}>
-          Couldn&apos;t load Round HQ data. It&apos;ll retry automatically.
+          Couldn&apos;t load My HQ data. It&apos;ll retry automatically.
         </p>
         <button
           onClick={() => refetch()}
@@ -114,10 +117,13 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
 
   return (
     <div>
-      {/* ── 2.1 Round HQ Health ───────────────────────────────────────── */}
+      {/* ── 1. Event Health ───────────────────────────────────────────── */}
       <div style={{ background: healthBg, border: `1.5px solid ${healthBorder}`, borderRadius: 14, padding: '14px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ fontSize: 22 }}>{healthIcon}</span>
-        <span style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#14532d' }}>{data.health.text}</span>
+        <div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8, color: '#9ca3af', textTransform: 'uppercase' }}>Event Health</div>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#14532d' }}>{data.health.text}</div>
+        </div>
       </div>
 
       {/* ── 2.5 Organiser Close Round — only when genuinely ready ───────── */}
@@ -125,7 +131,7 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
         <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 14, padding: '14px 16px', marginBottom: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <span style={{ fontSize: 18 }}>🟢</span>
-            <span style={{ fontFamily: 'var(--font-display)', fontSize: 14.5, fontWeight: 800, color: '#14532d' }}>Tournament Ready to Close</span>
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: 14.5, fontWeight: 800, color: '#14532d' }}>Round Ready to Close</span>
           </div>
           {closeError && (
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#dc2626', marginBottom: 8 }}>{closeError}</div>
@@ -145,7 +151,7 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
         </div>
       )}
 
-      {/* ── 2.2 Tournament Summary ────────────────────────────────────── */}
+      {/* ── 2.2 Round Summary ────────────────────────────────────── */}
       <div style={{ background: 'linear-gradient(135deg,#14532d,#1a6b3a)', borderRadius: 14, padding: '14px 16px', marginBottom: 14, boxShadow: '0 4px 18px rgba(20,83,45,0.25)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <span style={{ fontFamily: 'var(--font-display)', color: '#fff', fontSize: 16, fontWeight: 800 }}>{data.roundName}</span>
@@ -223,35 +229,81 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
         })}
       </div>
 
-      {/* ── 2.5 Tournament Timeline ───────────────────────────────────── */}
-      <SectionTitle>Timeline</SectionTitle>
+      {/* ── Today's Highlights — post-round only, real numbers only ────── */}
+      {data.highlights.length > 0 && (
+        <>
+          <SectionTitle>Today&apos;s Highlights</SectionTitle>
+          <div style={{ background: 'linear-gradient(135deg,#fdf3d9,#fbe8bc)', borderRadius: 14, border: '1px solid #e8c96a', padding: '14px 16px', marginBottom: 14 }}>
+            {data.highlights.map((h, i) => (
+              <div key={i} style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#5a4310', marginBottom: i < data.highlights.length - 1 ? 8 : 0 }}>
+                {h}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* ── Leaderboard Snapshot — top 5 only, never the full board ────── */}
+      <SectionTitle>Leaderboard Snapshot</SectionTitle>
+      <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 8, overflow: 'hidden' }}>
+        {data.leaderboardSnapshot.length === 0 && <EmptyNote>No scores yet.</EmptyNote>}
+        {data.leaderboardSnapshot.map((row, i) => (
+          <div key={row.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: i < data.leaderboardSnapshot.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
+            <span style={{ width: 20, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 13, color: row.position <= 3 ? '#a1791f' : '#9ca3af' }}>{row.position}</span>
+            <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, color: '#14532d' }}>{row.name}</span>
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af' }}>{row.finished ? 'Finished' : `Thru ${row.holesPlayed}`}</span>
+            <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 14, color: '#14532d' }}>{row.totalPts} pts</span>
+          </div>
+        ))}
+      </div>
+      <Link href={`/trips/${tripId}/leaderboard`} style={{ ...actionLinkStyle, textAlign: 'center', marginBottom: 14, display: 'block' }}>
+        View Full Leaderboard →
+      </Link>
+
+      {/* ── Side Games Snapshot — placeholder only, no data model exists
+          yet, so no fabricated statuses. Matches how Moments is handled:
+          a real, honest "not yet available" state, not a broken button. ── */}
+      <SectionTitle>Side Games Snapshot</SectionTitle>
+      <Link href={`/trips/${tripId}/sidegames`} style={{ display: 'block', background: '#f3f4f6', border: '1px dashed #d1d5db', borderRadius: 12, padding: '12px 14px', marginBottom: 14, textDecoration: 'none', textAlign: 'center' }}>
+        <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af' }}>Not set up for this round yet — tap to open Side Games</span>
+      </Link>
+
+      {/* ── The Story — milestones only, never every hole or every score.
+          Rebuilt from real entered_at timestamps (see the API route) —
+          lead changes, hole-in-ones, review moments, group finishes,
+          not an activity log. ─────────────────────────────────────────── */}
+      <SectionTitle>The Story</SectionTitle>
       <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 14, overflow: 'hidden' }}>
-        {data.timeline.length === 0 && <EmptyNote>No confirmed scores yet.</EmptyNote>}
-        {data.timeline.map((t, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 14px', borderBottom: i < data.timeline.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
-            <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#14532d' }}>{t.text}</span>
-            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', flexShrink: 0, marginLeft: 8 }}>{relativeTime(t.at)}</span>
+        {data.story.length === 0 && <EmptyNote>The story of the round will appear here as it unfolds.</EmptyNote>}
+        {data.story.map((s, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '9px 14px', borderBottom: i < data.story.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
+            <span style={{ fontSize: 14, flexShrink: 0 }}>{s.icon}</span>
+            <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#14532d' }}>{s.text}</span>
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', flexShrink: 0, marginLeft: 8 }}>{relativeTime(s.at)}</span>
           </div>
         ))}
       </div>
 
-      {/* ── 2.6 Quick Actions — only real, existing destinations ───────── */}
+      {/* ── Quick Actions — only real, existing destinations ───────────── */}
       <SectionTitle>Quick Actions</SectionTitle>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
         <Link href={`/trips/${tripId}/rounds/${roundId}/markers`} style={actionLinkStyle}>
           Review Marker Assignments →
+        </Link>
+        <Link href={`/trips/${tripId}`} style={actionLinkStyle}>
+          Edit Groups →
         </Link>
         <Link href={`/trips/${tripId}/leaderboard`} style={actionLinkStyle}>
           View Leaderboard →
         </Link>
       </div>
 
-      {/* ── 2.7 Live Statistics ───────────────────────────────────────── */}
+      {/* ── Live Statistics ───────────────────────────────────────────── */}
       <SectionTitle>Live Statistics</SectionTitle>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
         <StatCard label="Birdies" value={data.stats.birdies} />
-        <StatCard label="Pars" value={data.stats.pars} />
-        <StatCard label="Bogeys" value={data.stats.bogeys} />
+        <StatCard label="Eagles" value={data.stats.eagles} />
+        <StatCard label="Hole-in-ones" value={data.stats.holeInOnes} />
         <StatCard label="Avg Stableford" value={data.stats.avgStableford} />
         <StatCard label="Best Hole" value={data.stats.bestHole ? `H${data.stats.bestHole.number}` : '—'} sub={data.stats.bestHole ? `${data.stats.bestHole.avgPts} pts avg` : undefined} />
         <StatCard label="Hardest Hole" value={data.stats.hardestHole ? `H${data.stats.hardestHole.number}` : '—'} sub={data.stats.hardestHole ? `${data.stats.hardestHole.avgPts} pts avg` : undefined} />
@@ -262,6 +314,7 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 2 }}>Coming in Sprint 5D</div>
         </div>
         <div style={{ flex: 1, textAlign: 'center', padding: '10px 6px', borderRadius: 10, background: '#f3f4f6', border: '1px dashed #d1d5db' }}>
+
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af' }}>Nearest Pin</div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 2 }}>Coming in Sprint 5D</div>
         </div>
@@ -287,6 +340,27 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
             </div>
           )
         })}
+      </div>
+
+      {/* ── Moments — foundation only, per Stage 1 scope. Not wired to any
+          upload yet (no storage bucket exists in this project currently) —
+          shown as a clearly-labeled upcoming action, not a broken button. */}
+      <SectionTitle>Moments</SectionTitle>
+      <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', padding: '24px 16px', textAlign: 'center' }}>
+        <p style={{ fontSize: 28, marginBottom: 8 }}>📸</p>
+        <p style={{ fontFamily: 'var(--font-body)', color: '#14532d', fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
+          No moments captured yet
+        </p>
+        <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 12.5, lineHeight: 1.5, marginBottom: 14 }}>
+          Photos and highlights from this round will appear here.
+        </p>
+        <span style={{
+          display: 'inline-block', fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700,
+          color: '#a1791f', background: '#fdf3d9', border: '1px solid #e8c96a',
+          borderRadius: 16, padding: '5px 14px',
+        }}>
+          Capture a Moment — coming soon
+        </span>
       </div>
     </div>
   )

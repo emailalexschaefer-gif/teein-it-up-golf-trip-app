@@ -35,7 +35,7 @@ export default async function TournamentPage({ params }: Props) {
     <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '16px 16px 90px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <Link href={`/trips/${tripId}`} style={{ color: '#9ca3af', fontSize: 18, textDecoration: 'none' }}>←</Link>
-        <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>Round HQ</span>
+        <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>My HQ</span>
       </div>
 
       {!activeRound ? (
@@ -45,7 +45,7 @@ export default async function TournamentPage({ params }: Props) {
             No active round
           </p>
           <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, lineHeight: 1.5, marginBottom: 18 }}>
-            Round HQ is the organiser&apos;s live command centre for today&apos;s round.
+            My HQ is the organiser&apos;s live command centre for today&apos;s round.
             It fills in once a round begins.
           </p>
           <Link
