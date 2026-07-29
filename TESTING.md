@@ -1309,3 +1309,72 @@ true client-side (100% complete, zero outstanding reconciliations).
    marker mode) — confirm Tournament Control shows "Ready to Close" and
    pressing Close Round succeeds; confirm attempting to close early via a
    direct API call is rejected with a 409, not just blocked by the UI.
+
+---
+
+## Sprint 5C Polish & Organiser Experience Update
+
+### Root cause of the Round HQ loading blocker — found and fixed
+
+The tournament API route's `scorecards` query embedded
+`trip_members:player_id ( group_id )` as a PostgREST relationship join.
+No foreign key exists from `scorecards.player_id` to `trip_members` — it
+references `profiles` directly, and `trip_members` is a separate join
+table keyed by `(trip_id, profile_id)`. This is the **exact same class of
+bug** already found and fixed once earlier in this project (on the trip
+detail page's scorecards query) — reintroduced here in a different file.
+PostgREST throws a real error for a nonexistent embed, which surfaced as
+"Couldn't load tournament data."
+
+**Fix:** split into two separate queries (scorecards+profiles+
+score_entries, and trip_members for group_id) and merge in JS — identical
+pattern to the earlier fix, not a new approach.
+
+**Also added, per the explicit requirements:**
+- A real "No active round" state with an organiser action (link to
+  Rounds), shown whenever there's no round with `status = 'active'` —
+  replacing the previous silent fallback to showing a stale/completed
+  round's data.
+- A manual **Retry** button in `TournamentControl.tsx`, alongside React
+  Query's existing automatic retry — both now present, not one or the
+  other.
+
+### Rename — Tournament Control → Round HQ
+
+UI terminology only, no route/API changes: bottom nav label, page
+heading, loading/error text, and the "no active round" explanation.
+The route itself (`/trips/[tripId]/tournament`) is unchanged, per the
+explicit "no route changes required" instruction.
+
+### Round Summary redesign
+
+Full scorecard table: Hole / Par / Gross / Points columns, OUT and IN
+subtotal rows, TOTAL row, player name header. Status refined from 3
+states to the requested 4 (🟢 matched / 🔴 mismatch / 🟡 awaiting
+confirmation / ⚪ not scored — the previous version collapsed the last
+two into one "waiting" state). A success message appears when every hole
+is matched. All built from the same `rows`/`mySelf` data already computed
+for reconciliation — no new score calculation added, `calculateStableford`
+is still the only place points are computed.
+
+### Hole header simplified
+
+`SelfMarkerScoreShell.tsx`: "Round 1 — Hole 15 of 18" replaced with large
+"HOLE 15" + smaller "Round 1" subtitle, per the requested hierarchy. Also
+reduces banner height (padding 16/12→10/8), contributing to the compact-
+screen goal.
+
+### Manual test steps
+1. As organiser, open Round HQ with an active round — confirm it loads
+   real data (not an error) for the first time.
+2. As organiser with **no** active round, confirm the "No active round"
+   message and "Go to Rounds" action appear, not stale data or an error.
+3. Temporarily break connectivity — confirm both the automatic retry and
+   the manual Retry button work.
+4. Confirm the bottom nav shows "Round HQ," not "Tournament."
+5. Open Round Summary — confirm Hole/Par/Gross/Points columns, OUT/IN
+   subtotals matching hand-calculated sums, and correct status icons for
+   a matched hole, a deliberate mismatch, a half-entered hole, and an
+   unplayed hole.
+6. Confirm the hole header reads "HOLE 15" prominently with "Round 1" as
+   a smaller subtitle.

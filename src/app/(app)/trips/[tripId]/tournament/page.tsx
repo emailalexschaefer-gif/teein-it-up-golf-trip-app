@@ -30,28 +30,37 @@ export default async function TournamentPage({ params }: Props) {
     .order('play_date', { ascending: false })
 
   const activeRound = rounds?.find(r => r.status === 'active')
-  const round = activeRound ?? rounds?.[0]
 
   return (
     <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '16px 16px 90px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <Link href={`/trips/${tripId}`} style={{ color: '#9ca3af', fontSize: 18, textDecoration: 'none' }}>←</Link>
-        <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>Tournament Control</span>
+        <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>Round HQ</span>
       </div>
 
-      {!round ? (
-        <div style={{ textAlign: 'center', padding: '40px 16px', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>
-          No rounds yet — tournament control appears once a round begins.
+      {!activeRound ? (
+        <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', padding: '32px 20px', textAlign: 'center' }}>
+          <p style={{ fontSize: 32, marginBottom: 10 }}>⛳</p>
+          <p style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 16, fontWeight: 800, marginBottom: 8 }}>
+            No active round
+          </p>
+          <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, lineHeight: 1.5, marginBottom: 18 }}>
+            Round HQ is the organiser&apos;s live command centre for today&apos;s round.
+            It fills in once a round begins.
+          </p>
+          <Link
+            href={`/trips/${tripId}`}
+            style={{
+              display: 'inline-block', padding: '10px 20px', borderRadius: 10,
+              background: '#14532d', color: '#fff', fontFamily: 'var(--font-body)',
+              fontSize: 13.5, fontWeight: 700, textDecoration: 'none',
+            }}
+          >
+            Go to Rounds →
+          </Link>
         </div>
       ) : (
-        <div>
-          {!activeRound && (
-            <div style={{ marginBottom: 12, fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', textAlign: 'center' }}>
-              Showing {round.name} (not currently live)
-            </div>
-          )}
-          <TournamentControl tripId={tripId} roundId={round.id} roundStatus={round.status} />
-        </div>
+        <TournamentControl tripId={tripId} roundId={activeRound.id} roundStatus={activeRound.status} />
       )}
     </div>
   )

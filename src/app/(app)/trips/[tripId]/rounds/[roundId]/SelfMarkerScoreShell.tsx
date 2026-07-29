@@ -69,6 +69,38 @@ function splitByRole(entries: ScoreEntryRow[], holes: Hole[]): { self: CaptureMa
   return { self, marker }
 }
 
+function SummaryRow({ r, statusIcon, onClick }: {
+  r: { hole: Hole; status: string; gross: number | string | null; pts: number | null }
+  statusIcon: { icon: string; color: string }
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        width: '100%', display: 'flex', alignItems: 'center',
+        padding: '8px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
+        borderBottom: '1px solid #f3f4f1',
+      }}
+    >
+      <span style={{ width: 56, fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#14532d' }}>{r.hole.hole_number}</span>
+      <span style={{ width: 40, fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', textAlign: 'center' }}>{r.hole.par}</span>
+      <span style={{ width: 48, fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#14532d', textAlign: 'center' }}>{r.gross ?? '—'}</span>
+      <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#a1791f', textAlign: 'center' }}>{r.pts ?? '—'}</span>
+      <span style={{ width: 24, fontSize: 13, textAlign: 'right' }}>{statusIcon.icon}</span>
+    </button>
+  )
+}
+
+function SubtotalRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', padding: '7px 14px', background: '#f7f6f1', borderBottom: '1px solid #eceae3' }}>
+      <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#6b7280', letterSpacing: 0.5 }}>{label}</span>
+      <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 800, color: '#14532d' }}>{value} pts</span>
+    </div>
+  )
+}
+
 function statusColor(status: ComparisonStatus): string {
   switch (status) {
     case 'matched': return '#16a34a'
@@ -427,57 +459,79 @@ export default function SelfMarkerScoreShell({
       (PENDING.includes(r.mineStatus) || (r.partnerStatus !== null && PENDING.includes(r.partnerStatus)))
     )
 
-    // Per-hole points and a single combined status, for the compact
-    // Round Summary list — reuses calculateStableford() (the same function
-    // myRunningTotal already calls), not a second scoring calculation.
-    const summaryRows = holes.map(h => {
+    // Refine the 3-state summary into the 4 states the spec actually wants:
+    // 'not_started' (⚪ nothing entered at all) is meaningfully different
+    // from 'pending_marker'/'pending_self' (🟡 half-entered, awaiting the
+    // other side) — the previous version collapsed both into one "waiting"
+    // bucket. Same underlying compareCaptures() statuses, just displayed
+    // more precisely.
+    const NOT_STARTED: ComparisonStatus[] = ['not_started']
+    const detailedSummaryRows = holes.map(h => {
       const r = rows.find(row => row.hole.id === h.id)!
-      const overall: 'done' | 'review' | 'waiting' =
-        (r.mineStatus === 'mismatch' || r.partnerStatus === 'mismatch') ? 'review'
-        : (PENDING.includes(r.mineStatus) || (r.partnerStatus !== null && PENDING.includes(r.partnerStatus))) ? 'waiting'
-        : 'done'
+      const isMismatch = r.mineStatus === 'mismatch' || r.partnerStatus === 'mismatch'
+      const isNotStarted = !isMismatch && (
+        NOT_STARTED.includes(r.mineStatus) && (r.partnerStatus === null || NOT_STARTED.includes(r.partnerStatus))
+      )
+      const status: 'matched' | 'mismatch' | 'awaiting' | 'not_started' =
+        isMismatch ? 'mismatch' : isNotStarted ? 'not_started'
+        : (PENDING.includes(r.mineStatus) || (r.partnerStatus !== null && PENDING.includes(r.partnerStatus))) ? 'awaiting'
+        : 'matched'
       const myCapture = mySelf[h.hole_number] ?? null
-      const myHolePts = (myCapture && !myCapture.pickedUp && myCapture.grossScore !== null)
+      const gross = myCapture?.pickedUp ? 'P' : myCapture?.grossScore ?? null
+      const pts = (myCapture && !myCapture.pickedUp && myCapture.grossScore !== null)
         ? calculateStableford({ grossScore: myCapture.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp })
         : (myCapture?.pickedUp ? 0 : null)
-      return { hole: h, overall, myHolePts }
+      return { hole: h, status, gross, pts }
     })
+    const outHoles = detailedSummaryRows.filter(r => r.hole.hole_number <= 9)
+    const inHoles = detailedSummaryRows.filter(r => r.hole.hole_number > 9)
+    const sumPts = (rs: typeof detailedSummaryRows) => rs.reduce((s, r) => s + (r.pts ?? 0), 0)
+    const outTotal = sumPts(outHoles)
+    const inTotal = sumPts(inHoles)
+    const allMatched = detailedSummaryRows.every(r => r.status === 'matched')
+    const STATUS_ICON: Record<string, { icon: string; color: string }> = {
+      matched:      { icon: '🟢', color: '#16a34a' },
+      mismatch:     { icon: '🔴', color: '#dc2626' },
+      awaiting:     { icon: '🟡', color: '#a1791f' },
+      not_started:  { icon: '⚪', color: '#d1d5db' },
+    }
 
     return (
       <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '20px 16px 90px' }}>
-        <div style={{ textAlign: 'center', marginBottom: 16 }}>
+        <div style={{ textAlign: 'center', marginBottom: 4 }}>
           <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 20, fontWeight: 800 }}>Round Summary</div>
-          <div style={{ fontFamily: 'var(--font-body)', color: '#6b7280', fontSize: 13, marginTop: 4 }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d', marginTop: 4 }}>{myName}</div>
+          <div style={{ fontFamily: 'var(--font-body)', color: '#6b7280', fontSize: 12, marginTop: 2 }}>
             {rows.length - mismatches.length - pending.length} holes matched · {mismatches.length} need review{pending.length > 0 ? ` · ${pending.length} waiting` : ''}
           </div>
         </div>
 
-        {/* Compact tap-to-jump list — the primary navigation method during
-            reconciliation, replacing repeated hole-by-hole swiping. */}
-        <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden', marginBottom: 16 }}>
-          {summaryRows.map((r, i) => (
-            <button
-              key={r.hole.id}
-              onClick={() => { setHoleIdx(holes.indexOf(r.hole)); setShowReconciliation(false) }}
-              style={{
-                width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-                padding: '9px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
-                borderBottom: i < summaryRows.length - 1 ? '1px solid #f3f4f1' : 'none',
-              }}
-            >
-              <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#14532d', width: 56 }}>Hole {r.hole.hole_number}</span>
-              <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af' }}>
-                {r.myHolePts !== null ? `${r.myHolePts} pt${r.myHolePts === 1 ? '' : 's'}` : '—'}
-              </span>
-              <span style={{ fontSize: 13 }}>
-                {r.overall === 'done' && <span style={{ color: '#16a34a' }}>✓</span>}
-                {r.overall === 'review' && <span style={{ color: '#dc2626' }}>🔴</span>}
-                {r.overall === 'waiting' && <span style={{ color: '#a1791f' }}>🟡</span>}
-              </span>
-            </button>
+        {allMatched && (
+          <div style={{ textAlign: 'center', color: '#16a34a', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, margin: '10px 0 16px' }}>
+            ✓ Every hole matched — nothing to review
+          </div>
+        )}
+
+        {/* Full scorecard table — Hole / Par / Gross / Stableford / Status,
+            with OUT/IN/TOTAL subtotals. Tap any row to jump to that hole. */}
+        <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden', marginTop: allMatched ? 0 : 16, marginBottom: 16 }}>
+          <div style={{ display: 'flex', padding: '7px 14px', background: '#f7f6f1', borderBottom: '1px solid #eceae3' }}>
+            <span style={{ width: 56, fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af' }}>HOLE</span>
+            <span style={{ width: 40, fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textAlign: 'center' }}>PAR</span>
+            <span style={{ width: 48, fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textAlign: 'center' }}>GROSS</span>
+            <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textAlign: 'center' }}>PTS</span>
+            <span style={{ width: 24, fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textAlign: 'right' }}> </span>
+          </div>
+          {outHoles.map(r => (
+            <SummaryRow key={r.hole.id} r={r} statusIcon={STATUS_ICON[r.status]} onClick={() => { setHoleIdx(holes.indexOf(r.hole)); setShowReconciliation(false) }} />
           ))}
+          <SubtotalRow label="OUT" value={outTotal} />
+          {inHoles.map(r => (
+            <SummaryRow key={r.hole.id} r={r} statusIcon={STATUS_ICON[r.status]} onClick={() => { setHoleIdx(holes.indexOf(r.hole)); setShowReconciliation(false) }} />
+          ))}
+          {inHoles.length > 0 && <SubtotalRow label="IN" value={inTotal} />}
           <div style={{ display: 'flex', alignItems: 'center', padding: '11px 14px', background: '#fdf3d9', borderTop: '2px solid #e8c96a' }}>
-            <span style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 13.5, color: '#a1791f' }}>Total</span>
+            <span style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 13.5, color: '#a1791f' }}>TOTAL</span>
             <span style={{ flex: 1 }} />
             <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 17, color: '#a1791f' }}>{myRunningTotal} pts</span>
           </div>
@@ -559,11 +613,13 @@ export default function SelfMarkerScoreShell({
   // ── Main hole-scoring view ──────────────────────────────────────────────────
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#ffffff', minHeight: '100vh' }}>
-      <div style={{ padding: '16px 16px 12px', borderBottom: '2px solid #c9a84c' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 18 }}>🚩</span>
-          <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 17, fontWeight: 800 }}>
-            {round.name} — Hole {holeNum} of {holes.length}
+      <div style={{ padding: '10px 16px 8px', borderBottom: '2px solid #c9a84c' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 20, fontWeight: 800, letterSpacing: 0.3 }}>
+            HOLE {holeNum}
+          </span>
+          <span style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 12 }}>
+            {round.name}
           </span>
           {displaySyncLabel && <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-body)', fontSize: 10, color: '#6b7280' }}>{displaySyncLabel}</span>}
         </div>

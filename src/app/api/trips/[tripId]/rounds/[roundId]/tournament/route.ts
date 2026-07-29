@@ -1,7 +1,7 @@
 /**
  * GET /api/trips/[tripId]/rounds/[roundId]/tournament
  *
- * Organiser-facing aggregation for the Tournament Control Centre. Not a
+ * Organiser-facing aggregation for Round HQ. Not a
  * duplicate of the leaderboard route — that returns a ranked player list;
  * this returns group-level operational state (current hole, reconciliation
  * status, alerts) that the leaderboard was never meant to answer. Built on
@@ -22,7 +22,7 @@ interface ScoreEntryRow {
   is_no_return: boolean; capture_role: string; entered_at: string
 }
 interface ScorecardRow {
-  id: string; player_id: string; group_id: string | null; status: string
+  id: string; player_id: string; status: string
   profiles: { full_name: string } | null
   score_entries: ScoreEntryRow[]
 }
@@ -59,7 +59,6 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     .select(`
       id, player_id, status,
       profiles:player_id ( full_name ),
-      trip_members:player_id ( group_id ),
       score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_at )
     `)
     .eq('round_id', roundId)
@@ -69,6 +68,14 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     console.error('[tournament]', scRes.error)
     return NextResponse.json({ error: 'Could not load tournament data.' }, { status: 500 })
   }
+
+  // Separate query for group assignment — scorecards.player_id has no FK to
+  // trip_members (it references profiles directly), so this can't be
+  // embedded in the scorecards select above; merged in JS instead. This is
+  // the identical fix already applied earlier in this project for the same
+  // class of bug on the trip detail page.
+  const tmRes = await admin.from('trip_members').select('profile_id, group_id').eq('trip_id', tripId)
+  const groupIdByProfile = new Map<string, string | null>((tmRes.data ?? []).map((m: { profile_id: string; group_id: string | null }) => [m.profile_id, m.group_id]))
 
   // Build a hole_id -> hole_number lookup (score_entries reference hole_id,
   // not hole_number directly) so mismatch/stat logic below can key by
@@ -80,7 +87,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     hasMismatch: boolean; waitingForMarker: boolean; groupId: string | null
   }
 
-  const players: PlayerState[] = ((scRes.data ?? []) as (ScorecardRow & { trip_members: { group_id: string | null } | null })[]).map((sc) => {
+  const players: PlayerState[] = ((scRes.data ?? []) as ScorecardRow[]).map((sc) => {
     const selfByHole = new Map<number, ScoreEntryRow>()
     const markerByHole = new Map<number, ScoreEntryRow>()
     for (const e of sc.score_entries ?? []) {
@@ -107,7 +114,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       finished: holesPlayed >= totalHoles,
       hasMismatch,
       waitingForMarker,
-      groupId: sc.trip_members?.group_id ?? null,
+      groupId: groupIdByProfile.get(sc.player_id) ?? null,
     }
   })
 

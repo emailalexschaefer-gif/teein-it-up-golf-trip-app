@@ -54,7 +54,7 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
   const [closing, setClosing] = useState(false)
   const [closeError, setCloseError] = useState<string | null>(null)
 
-  const { data, isLoading, error, refetch } = useQuery<TournamentData>({
+  const { data, isLoading, error, refetch, isFetching } = useQuery<TournamentData>({
     queryKey: ['tournament', tripId, roundId],
     queryFn: async () => {
       const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/tournament`)
@@ -85,10 +85,27 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
   }
 
   if (isLoading) {
-    return <div style={{ textAlign: 'center', padding: '40px 0', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>Loading tournament control…</div>
+    return <div style={{ textAlign: 'center', padding: '40px 0', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>Loading Round HQ…</div>
   }
   if (error || !data) {
-    return <div style={{ textAlign: 'center', padding: '32px 16px', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>Couldn&apos;t load tournament data. It&apos;ll retry automatically.</div>
+    return (
+      <div style={{ textAlign: 'center', padding: '32px 16px' }}>
+        <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, marginBottom: 12 }}>
+          Couldn&apos;t load Round HQ data. It&apos;ll retry automatically.
+        </p>
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          style={{
+            padding: '8px 18px', borderRadius: 10, background: '#ffffff', border: '1.5px solid #d1d5db',
+            fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#14532d',
+            cursor: isFetching ? 'default' : 'pointer', opacity: isFetching ? 0.6 : 1,
+          }}
+        >
+          {isFetching ? 'Retrying…' : 'Retry'}
+        </button>
+      </div>
+    )
   }
 
   const healthBg = data.health.level === 'green' ? '#f0fdf4' : data.health.level === 'gold' ? '#fdf3d9' : '#fef2f2'
@@ -97,7 +114,7 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
 
   return (
     <div>
-      {/* ── 2.1 Tournament Health ─────────────────────────────────────── */}
+      {/* ── 2.1 Round HQ Health ───────────────────────────────────────── */}
       <div style={{ background: healthBg, border: `1.5px solid ${healthBorder}`, borderRadius: 14, padding: '14px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ fontSize: 22 }}>{healthIcon}</span>
         <span style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#14532d' }}>{data.health.text}</span>
