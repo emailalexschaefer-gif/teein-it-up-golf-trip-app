@@ -14,6 +14,8 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
 
 interface NavItem { href: string; label: string; icon: string; match: (path: string) => boolean }
 
@@ -40,6 +42,27 @@ function buildItems(tripId: string, isOrganiser: boolean, activeRoundId: string 
 export function TripBottomNav({ tripId, isOrganiser, activeRoundId }: { tripId: string; isOrganiser: boolean; activeRoundId: string | null }) {
   const pathname = usePathname() ?? ''
   const items = buildItems(tripId, isOrganiser, activeRoundId)
+  const [hasUnread, setHasUnread] = useState(false)
+
+  // Reuses the existing messages endpoint — no new API for this. No
+  // refetchInterval: checked on mount and on window focus only, per the
+  // explicit "do not introduce unnecessary polling" constraint.
+  const { data } = useQuery<{ messages: { created_at: string }[] }>({
+    queryKey: ['event-messages', tripId],
+    queryFn: async () => {
+      const res = await fetch(`/api/trips/${tripId}/messages`)
+      if (!res.ok) throw new Error('failed')
+      return res.json()
+    },
+    refetchOnWindowFocus: true,
+    staleTime: 30000,
+  })
+
+  useEffect(() => {
+    if (!data || data.messages.length === 0) return
+    const lastRead = window.localStorage.getItem(`chat-last-read-${tripId}`)
+    setHasUnread(!lastRead || data.messages[0].created_at > lastRead)
+  }, [data, tripId])
 
   return (
     <nav
@@ -65,7 +88,12 @@ export function TripBottomNav({ tripId, isOrganiser, activeRoundId }: { tripId: 
                 minHeight: 52, position: 'relative',
               }}
             >
-              <span style={{ fontSize: 20, lineHeight: 1, filter: active ? 'none' : 'grayscale(40%) opacity(0.7)' }}>{item.icon}</span>
+              <span style={{ fontSize: 20, lineHeight: 1, filter: active ? 'none' : 'grayscale(40%) opacity(0.7)', position: 'relative' }}>
+                {item.icon}
+                {item.label === 'Chat' && hasUnread && (
+                  <span style={{ position: 'absolute', top: -2, right: -4, width: 8, height: 8, borderRadius: '50%', background: '#dc2626', border: '1.5px solid #0f2d1c' }} />
+                )}
+              </span>
               <span style={{
                 fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: active ? 800 : 600,
                 color: active ? '#e8c96a' : 'rgba(245,230,184,0.45)',

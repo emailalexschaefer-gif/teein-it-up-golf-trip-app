@@ -12,15 +12,21 @@ interface GroupProgress {
   status: 'scoring' | 'waiting' | 'reconciliation' | 'finished' | 'needs_attention'
   players: GroupPlayer[]
 }
-interface Alert { severity: 'red' | 'gold' | 'green' | 'grey'; text: string }
+interface Alert { severity: 'red' | 'gold' | 'green' | 'grey'; kind: 'group'; text: string }
+interface MismatchAlert {
+  severity: 'red'; kind: 'mismatch'
+  playerName: string; markerName: string; groupName: string; groupId: string | null
+  hole: number; playerScore: string; markerScore: string; at: string
+}
 interface StoryEntry { icon: string; text: string; at: string }
 interface LeaderboardSnapshotRow { position: number; name: string; totalPts: number; holesPlayed: number; finished: boolean }
 interface TournamentData {
   roundName: string; scoringFormat: string; roundStatus: string; totalHoles: number
-  health: { level: 'green' | 'gold' | 'red'; text: string }
+  health: { level: 'green' | 'gold' | 'red'; text: string; topMismatch?: MismatchAlert }
   summary: { players: number; groups: number; scoringNow: number; finishedCount: number; awaitingReconciliation: number; completionPct: number }
   groups: GroupProgress[]
   alerts: Alert[]
+  mismatchAlerts: MismatchAlert[]
   leaderboardSnapshot: LeaderboardSnapshotRow[]
   story: StoryEntry[]
   highlights: string[]
@@ -54,6 +60,38 @@ function relativeTime(iso: string): string {
 export default function TournamentControl({ tripId, roundId, roundStatus }: { tripId: string; roundId: string; roundStatus: string }) {
   const router = useRouter()
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
+  const [notifyTarget, setNotifyTarget] = useState<MismatchAlert | null>(null)
+  const [notifyDraft, setNotifyDraft] = useState('')
+  const [notifySending, setNotifySending] = useState(false)
+  const [notifyError, setNotifyError] = useState('')
+  const [notifySent, setNotifySent] = useState(false)
+
+  function openNotify(alert: MismatchAlert) {
+    setNotifyTarget(alert)
+    setNotifyDraft(`${alert.groupName}: Hole ${alert.hole} has been flagged for score review. Please check the scores for ${alert.playerName} before results are finalised.`)
+    setNotifyError('')
+    setNotifySent(false)
+  }
+
+  async function sendNotify() {
+    if (!notifyTarget || !notifyDraft.trim()) return
+    setNotifySending(true)
+    setNotifyError('')
+    const res = await fetch(`/api/trips/${tripId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipientType: notifyTarget.groupId ? 'group' : 'all',
+        recipientGroupId: notifyTarget.groupId ?? undefined,
+        message: notifyDraft.trim(),
+      }),
+    })
+    const resData = await res.json().catch(() => ({}))
+    setNotifySending(false)
+    if (!res.ok) { setNotifyError(resData.error ?? 'Could not send notification.'); return }
+    setNotifySent(true)
+    setTimeout(() => setNotifyTarget(null), 1200)
+  }
   const [closing, setClosing] = useState(false)
   const [closeError, setCloseError] = useState<string | null>(null)
 
@@ -118,12 +156,34 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
   return (
     <div>
       {/* ── 1. Event Health ───────────────────────────────────────────── */}
-      <div style={{ background: healthBg, border: `1.5px solid ${healthBorder}`, borderRadius: 14, padding: '14px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: 22 }}>{healthIcon}</span>
-        <div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8, color: '#9ca3af', textTransform: 'uppercase' }}>Event Health</div>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#14532d' }}>{data.health.text}</div>
+      <div style={{ background: healthBg, border: `1.5px solid ${healthBorder}`, borderRadius: 14, padding: '14px 16px', marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 22 }}>{healthIcon}</span>
+          <div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8, color: '#9ca3af', textTransform: 'uppercase' }}>Event Health</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#14532d' }}>{data.health.text}</div>
+          </div>
         </div>
+        {data.health.topMismatch && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#14532d' }}>
+              {data.health.topMismatch.playerName} — Hole {data.health.topMismatch.hole}
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 8 }}>
+              {data.health.topMismatch.groupName} · Marker mismatch
+            </div>
+            <Link href={`/trips/${tripId}/rounds/${roundId}/markers`} style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#dc2626', textDecoration: 'none' }}>
+              Review now →
+            </Link>
+          </div>
+        )}
+        {!data.health.topMismatch && data.mismatchAlerts.length > 1 && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+            <a href="#alerts-section" style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#dc2626', textDecoration: 'none' }}>
+              View affected players →
+            </a>
+          </div>
+        )}
       </div>
 
       {/* ── 2.5 Organiser Close Round — only when genuinely ready ───────── */}
@@ -217,8 +277,34 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
       </div>
 
       {/* ── 2.4 Organiser Alerts ──────────────────────────────────────── */}
-      <SectionTitle>Alerts</SectionTitle>
+      <div id="alerts-section">
+        <SectionTitle>Alerts</SectionTitle>
+      </div>
       <div style={{ marginBottom: 14 }}>
+        {data.mismatchAlerts.map((m, i) => (
+          <div key={`mismatch-${i}`} style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 12, padding: '10px 14px', marginBottom: 8 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#dc2626', marginBottom: 4 }}>
+              Marker mismatch
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: '#14532d' }}>
+              {m.playerName} — Hole {m.hole}
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#374151', marginTop: 2 }}>
+              Player score: <strong>{m.playerScore}</strong> &nbsp; Marker score ({m.markerName}): <strong>{m.markerScore}</strong>
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+              {m.groupName}
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+              <Link href={`/trips/${tripId}/rounds/${roundId}/markers`} style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#dc2626', textDecoration: 'none' }}>
+                Review Score →
+              </Link>
+              <button onClick={() => openNotify(m)} style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#a1791f', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                Notify Group →
+              </button>
+            </div>
+          </div>
+        ))}
         {data.alerts.map((a, i) => {
           const c = ALERT_COLOR[a.severity]
           return (
@@ -228,6 +314,34 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           )
         })}
       </div>
+
+      {/* ── Notify Group composer — pre-populated, editable, per the
+          explicit flow: Notify Group -> composer -> Send/Cancel. ────────── */}
+      {notifyTarget && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-end' }}>
+          <div style={{ background: '#ffffff', borderRadius: '16px 16px 0 0', padding: 16, width: '100%' }}>
+            <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 15, fontWeight: 800, marginBottom: 8 }}>
+              Notify {notifyTarget.groupName}
+            </div>
+            <textarea
+              value={notifyDraft}
+              onChange={e => setNotifyDraft(e.target.value)}
+              rows={4}
+              style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 8, padding: 8, fontFamily: 'var(--font-body)', fontSize: 13, resize: 'vertical' }}
+            />
+            {notifyError && <p style={{ color: '#dc2626', fontSize: 11.5, marginTop: 6, fontFamily: 'var(--font-body)' }}>{notifyError}</p>}
+            {notifySent && <p style={{ color: '#16a34a', fontSize: 12, marginTop: 6, fontFamily: 'var(--font-body)', fontWeight: 700 }}>✓ Notification sent</p>}
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <button onClick={sendNotify} disabled={notifySending || notifySent || !notifyDraft.trim()} style={{ flex: 1, padding: 12, borderRadius: 10, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, cursor: 'pointer', opacity: notifySending || notifySent ? 0.6 : 1 }}>
+                {notifySending ? 'Sending…' : notifySent ? 'Sent ✓' : 'Send Notification'}
+              </button>
+              <button onClick={() => setNotifyTarget(null)} style={{ flex: 1, padding: 12, borderRadius: 10, background: '#f3f4f6', border: '1px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Today's Highlights — post-round only, real numbers only ────── */}
       {data.highlights.length > 0 && (

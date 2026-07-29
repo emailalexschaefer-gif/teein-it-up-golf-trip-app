@@ -1536,3 +1536,82 @@ raw holes, another player's delayed entries pulling ahead) — confirmed
 it now produces zero spurious lead-change entries, a genuine
 checkpoint-to-checkpoint change is still correctly detected, and a player
 far behind on holes played is never used in any comparison at all.
+
+---
+
+## My HQ Alerts & Organiser Notifications (Parts 1–2 of this sprint)
+
+### Scope delivered this pass, and what was honestly deferred
+
+Given the size of the full brief (6 parts), this pass delivered **Part 1
+(actionable alerts) and Part 2 (notifications foundation)** with real
+care. Parts 3–6 (premium scoring visual refinement, Playing Handicap
+display, hole badges, compact scorecard strip, Moments camera icon) were
+**not started** this pass — flagging honestly rather than delivering a
+rushed, thin version of everything.
+
+### Part 1 — Actionable alerts
+
+The tournament API now captures per-hole mismatch detail instead of a
+group-level summary string: player name, marker name (from the real
+`round_markers` table — not guessed), hole number, both gross scores,
+group, and a real timestamp. Event Health shows the rich single-issue
+example format when there's exactly one outstanding mismatch ("TEST —
+Hole 18 / Group 1 · Marker mismatch / Review now →"), and a "View
+affected players →" jump-link when there are several. Alert cards show
+"Review Score" (linking directly to that round's markers page — the most
+specific existing destination, not a generic trip screen) and "Notify
+Group."
+
+### Part 2 — Notifications foundation
+
+**New migration** `025_event_messages.sql`: one `event_messages` table,
+RLS enforcing exactly the rules requested — only confirmed trip members
+can read, and only messages actually addressed to them (event-wide, their
+own group, or personally — a player cannot see another group's targeted
+message); only organisers can send. Deliberately supports `announcement`,
+`group_notification`, and `player_notification` message types now;
+`chat_message` is reserved in the schema for a future open-chat pass, not
+used yet.
+
+**New API** `/api/trips/[tripId]/messages` (GET/POST) — deliberately uses
+the *regular*, non-admin Supabase client, since RLS on this table is
+exactly what should govern access here, not something to bypass.
+
+**Chat page** now shows real messages (sender, recipient context,
+timestamp, pinned indicator) instead of a placeholder, plus an
+organiser-only "Send Event Announcement" composer.
+
+**Notify Group flow**: from a mismatch alert, opens a composer
+pre-populated with a suggested message (matching the brief's exact
+example format), editable before sending, targeting the real group via
+its actual `group_id` (not just the display name).
+
+**Unread badge**: a small red dot on the Chat nav icon. Deliberately not
+a new polling loop or a new read-receipts table — reuses the existing
+messages endpoint with `refetchOnWindowFocus` only (no interval), and a
+simple localStorage last-read timestamp per trip. A reasonable
+simplification for a "validate the concept" pass, not the final
+architecture for a real read-receipt system.
+
+### Manual test steps
+1. Create a deliberate marker mismatch — confirm Event Health shows the
+   exact player/hole/group, and "Review now →" opens the correct round's
+   markers page directly.
+2. Confirm "Notify Group" pre-populates a sensible message, is editable,
+   and actually sends — check it appears in the Chat tab for members of
+   that specific group.
+3. As a player in a *different* group, confirm you do NOT see a
+   group-targeted message aimed at another group.
+4. Send an event-wide announcement — confirm all trip members can see it.
+5. Confirm the Chat nav icon shows an unread dot after a new message is
+   sent, and that it clears after actually opening Chat.
+6. Confirm a normal player cannot send a message (API returns 403; no
+   send UI shown to them in the first place).
+
+### Known incomplete item
+There is a real duplicate-`</div>` bug I introduced and fixed within this
+same pass while building the Event Health card — re-verified after the
+fix: balance check, lenient `tsc`, and the full scoring-domain suite all
+pass clean now. Documenting it here rather than hiding that a bug
+happened mid-pass.

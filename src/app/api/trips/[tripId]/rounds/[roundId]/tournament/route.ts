@@ -86,6 +86,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   interface PlayerState {
     playerId: string; name: string; holesPlayed: number; finished: boolean
     hasMismatch: boolean; waitingForMarker: boolean; groupId: string | null; totalPts: number
+    mismatchDetails: { hn: number; playerScore: string; markerScore: string; at: string }[]
   }
 
   const players: PlayerState[] = scorecards.map((sc) => {
@@ -100,13 +101,22 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     const holesPlayed = selfByHole.size
     let hasMismatch = false
     let waitingForMarker = false
+    const mismatchDetails: { hn: number; playerScore: string; markerScore: string; at: string }[] = []
     if (isMarkerMode) {
       for (const [hn, self] of selfByHole) {
         const marker = markerByHole.get(hn)
         if (!marker) { waitingForMarker = true; continue }
         const differs = self.is_no_return !== marker.is_no_return
           || (!self.is_no_return && self.gross_score !== marker.gross_score)
-        if (differs) hasMismatch = true
+        if (differs) {
+          hasMismatch = true
+          mismatchDetails.push({
+            hn,
+            playerScore: self.is_no_return ? 'No return' : String(self.gross_score),
+            markerScore: marker.is_no_return ? 'No return' : String(marker.gross_score),
+            at: self.entered_at > marker.entered_at ? self.entered_at : marker.entered_at,
+          })
+        }
       }
     }
     const totalPts = [...selfByHole.values()].reduce((s, e) => s + (e.stableford_pts ?? 0), 0)
@@ -117,10 +127,20 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       finished: holesPlayed >= totalHoles,
       hasMismatch,
       waitingForMarker,
+      mismatchDetails,
       groupId: groupIdByProfile.get(sc.player_id) ?? null,
       totalPts,
     }
   })
+
+  // Marker names, for the rich alert cards — round_markers links each
+  // player to whoever is marking them for this specific round.
+  const markersRes = await admin.from('round_markers').select('player_id, marker_player_id').eq('round_id', roundId)
+  const nameByProfileId = new Map<string, string>(players.map(p => [p.playerId, p.name]))
+  const markerNameByPlayerId = new Map<string, string>(
+    (markersRes.data ?? []).map((m: { player_id: string; marker_player_id: string }) => [m.player_id, nameByProfileId.get(m.marker_player_id) ?? 'Marker'])
+  )
+  const groupNameById = new Map<string, string>(((groupsRes.data ?? []) as { id: string; name: string }[]).map(g => [g.id, g.name]))
 
   // ── Leaderboard snapshot — top 5, reusing the same ranking rule the
   // leaderboard route uses (points desc, ties by fewer holes played) ──────
@@ -149,15 +169,38 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     }
   })
 
-  // ── Alerts (current actionable state, not a history log) ───────────────
-  const alerts: { severity: 'red' | 'gold' | 'green' | 'grey'; text: string }[] = []
-  for (const g of groups) {
-    if (g.status === 'reconciliation') alerts.push({ severity: 'red', text: `${g.groupName}: score mismatch needs review` })
-    if (g.status === 'needs_attention') alerts.push({ severity: 'red', text: `${g.groupName}: no scores entered yet` })
-    if (g.status === 'waiting') alerts.push({ severity: 'gold', text: `${g.groupName}: waiting on marker entries` })
-    if (g.status === 'finished') alerts.push({ severity: 'green', text: `${g.groupName}: finished, all scores matched` })
+  // ── Alerts (current actionable state, not a history log). Each mismatch
+  // now carries full identifying detail — player, marker, hole, both
+  // scores, group — rather than just a per-group summary string, so the
+  // organiser never has to go hunting for which score is the problem.
+  interface MismatchAlert {
+    severity: 'red'; kind: 'mismatch'
+    playerName: string; markerName: string; groupName: string; groupId: string | null
+    hole: number; playerScore: string; markerScore: string; at: string
   }
-  if (alerts.length === 0) alerts.push({ severity: 'green', text: 'No issues — round running smoothly' })
+  interface SimpleAlert { severity: 'red' | 'gold' | 'green' | 'grey'; kind: 'group'; text: string }
+  const mismatchAlerts: MismatchAlert[] = []
+  for (const p of players) {
+    for (const m of p.mismatchDetails) {
+      mismatchAlerts.push({
+        severity: 'red', kind: 'mismatch',
+        playerName: p.name,
+        markerName: markerNameByPlayerId.get(p.playerId) ?? 'Marker',
+        groupName: p.groupId ? (groupNameById.get(p.groupId) ?? 'Unassigned') : 'Unassigned',
+        groupId: p.groupId,
+        hole: m.hn, playerScore: m.playerScore, markerScore: m.markerScore, at: m.at,
+      })
+    }
+  }
+  mismatchAlerts.sort((a, b) => b.at.localeCompare(a.at))
+
+  const alerts: SimpleAlert[] = []
+  for (const g of groups) {
+    if (g.status === 'needs_attention') alerts.push({ severity: 'red', kind: 'group', text: `${g.groupName}: no scores entered yet` })
+    if (g.status === 'waiting') alerts.push({ severity: 'gold', kind: 'group', text: `${g.groupName}: waiting on marker entries` })
+    if (g.status === 'finished') alerts.push({ severity: 'green', kind: 'group', text: `${g.groupName}: finished, all scores matched` })
+  }
+  if (alerts.length === 0 && mismatchAlerts.length === 0) alerts.push({ severity: 'green', kind: 'group', text: 'No issues — round running smoothly' })
 
   // ── Live stats — real, from actual gross_score vs par ───────────────────
   let birdies = 0, eagles = 0, pars = 0, bogeys = 0, holeInOnes = 0, totalPts = 0
@@ -292,29 +335,11 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     }
   }
 
-  // Mismatch-detected milestones — approximated at the later of the two
-  // conflicting entries' timestamps, since that's the real moment the
-  // conflict became visible. Real timestamps, reasonably approximated
-  // moment, not fabricated.
-  if (isMarkerMode) {
-    for (const sc of scorecards) {
-      const selfByHole = new Map<number, ScoreEntryRow>()
-      const markerByHole = new Map<number, ScoreEntryRow>()
-      for (const e of sc.score_entries ?? []) {
-        const hn = holeNumberById.get(e.hole_id)
-        if (hn === undefined) continue
-        if (e.capture_role === 'self') selfByHole.set(hn, e)
-        else if (e.capture_role === 'marker') markerByHole.set(hn, e)
-      }
-      for (const [hn, self] of selfByHole) {
-        const marker = markerByHole.get(hn)
-        if (!marker) continue
-        const differs = self.is_no_return !== marker.is_no_return || (!self.is_no_return && self.gross_score !== marker.gross_score)
-        if (differs) {
-          const at = self.entered_at > marker.entered_at ? self.entered_at : marker.entered_at
-          story.push({ icon: '⚠️', text: `Score review required — Hole ${hn}, ${sc.profiles?.full_name ?? 'Player'}`, at })
-        }
-      }
+  // Mismatch-detected milestones — reuses mismatchDetails already computed
+  // above (no second pass over score_entries).
+  for (const p of players) {
+    for (const m of p.mismatchDetails) {
+      story.push({ icon: '⚠️', text: `Score review required — Hole ${m.hn}, ${p.name}`, at: m.at })
     }
   }
 
@@ -370,9 +395,12 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   const totalHolesPlayed = players.reduce((s, p) => s + p.holesPlayed, 0)
   const completionPct = totalHolesExpected > 0 ? Math.round((totalHolesPlayed / totalHolesExpected) * 100) : 0
 
-  let health: { level: 'green' | 'gold' | 'red'; text: string }
-  if (awaitingReconciliation > 0) health = { level: 'red', text: `${awaitingReconciliation} reconciliation${awaitingReconciliation === 1 ? '' : 's'} outstanding` }
-  else if (groups.some(g => g.status === 'waiting' || g.status === 'needs_attention')) {
+  let health: { level: 'green' | 'gold' | 'red'; text: string; topMismatch?: MismatchAlert }
+  if (mismatchAlerts.length === 1) {
+    health = { level: 'red', text: '1 score requires review', topMismatch: mismatchAlerts[0] }
+  } else if (mismatchAlerts.length > 1) {
+    health = { level: 'red', text: `${mismatchAlerts.length} scores require review` }
+  } else if (groups.some(g => g.status === 'waiting' || g.status === 'needs_attention')) {
     const n = groups.filter(g => g.status === 'waiting' || g.status === 'needs_attention').length
     health = { level: 'gold', text: `${n} group${n === 1 ? '' : 's'} need attention` }
   } else health = { level: 'green', text: 'Everything on track' }
@@ -393,6 +421,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     },
     groups,
     alerts,
+    mismatchAlerts,
     leaderboardSnapshot,
     story: story.slice(0, 10),
     highlights,

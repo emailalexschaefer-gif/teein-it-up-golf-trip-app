@@ -1,8 +1,10 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import EventMessages from '@/components/chat/EventMessages'
 
 export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 interface Props { params: Promise<{ tripId: string }> }
 
@@ -12,6 +14,11 @@ export default async function ChatPage({ params }: Props) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  const { data: membership } = await supabase
+    .from('trip_members').select('role')
+    .eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
+  const isOrganiser = membership?.role === 'organiser'
+
   return (
     <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '16px 16px 90px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
@@ -19,16 +26,9 @@ export default async function ChatPage({ params }: Props) {
         <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>Chat</span>
       </div>
 
-      {/* Placeholder only — not built yet, deliberately. */}
-      <div style={{ textAlign: 'center', padding: '48px 16px' }}>
-        <p style={{ fontSize: 36, marginBottom: 10 }}>💬</p>
-        <p style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 17, fontWeight: 800, marginBottom: 8 }}>
-          Chat — coming soon
-        </p>
-        <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, maxWidth: 300, margin: '0 auto', lineHeight: 1.5 }}>
-          Group chat, organiser announcements, and event notifications will live here in a future update.
-        </p>
-      </div>
+      {/* Announcements & targeted notifications — this pass's scope,
+          deliberately not a full open player-to-player chat yet. */}
+      <EventMessages tripId={tripId} isOrganiser={isOrganiser} />
     </div>
   )
 }
