@@ -51,7 +51,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     .limit(50)
 
   if (error) {
-    logAndMaskError('event-messages GET', error, { tripId })
+    logAndMaskError('event-messages GET', error, { tripId, userId: user.id })
     return NextResponse.json({ error: 'Messages are temporarily unavailable.' }, { status: 500 })
   }
 
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     // ("Could not send: Could not find the table...") straight to the
     // client. Fixed: full detail goes to logAndMaskError's console.error
     // only; the client only ever sees a generic, safe message.
-    logAndMaskError('event-messages POST', error, { tripId, recipientType, recipientGroupId, recipientUserId })
+    logAndMaskError('event-messages POST', error, { tripId, recipientType, recipientGroupId, recipientUserId, senderUserId: user.id })
     return NextResponse.json({ error: 'Notifications are temporarily unavailable. Please try again.' }, { status: 500 })
   }
 

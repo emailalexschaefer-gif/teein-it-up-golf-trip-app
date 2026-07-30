@@ -1688,3 +1688,63 @@ Scoring engine, Stableford calculations, marker logic, reconciliation,
 leaderboard rankings, group assignment, existing authentication — this
 pass only touched the messaging table/API/client error handling. 82/82
 scoring-domain tests still pass.
+
+---
+
+## Messaging Diagnostic Pass — No Speculative Fixes This Time
+
+Per the explicit instruction, this pass adds diagnostics only — no new
+schema changes, no new RLS, no guessed fix.
+
+### One theory ruled out with actual code evidence, not a guess
+
+The brief's strongest suspicion was that `trip_members.profile_id` might
+not equal `auth.uid()`. Checked against `001_profiles.sql` directly:
+`profiles.id` is `PRIMARY KEY REFERENCES auth.users(id)`, and the
+`handle_new_user()` trigger inserts every profile with `id = NEW.id` (the
+literal `auth.users.id`) at signup — so `profile_id = auth.uid()` is true
+by construction for every user, not an assumption. This exact comparison
+is also already what every other working RLS policy in this app relies on
+(`profiles`' own policy is `USING (auth.uid() = id)`; every trip/group/
+scoring policy compares `profile_id` to `auth.uid()` the same way). If
+this were broken, scoring, groups, and the leaderboard would already be
+failing for everyone — they aren't. This specific theory doesn't hold up
+against the schema as it actually exists.
+
+### New diagnostic endpoint
+
+**`GET /api/diagnostics/event-messages?tripId=<a trip you organise>`** —
+temporary, organiser-only (checked server-side against real trip
+membership, not just hidden from nav). Returns exactly the structured
+fields requested: project hostname (derived from the same env var the
+real app uses — never the anon/service-role key itself), auth state,
+profile ID, trip membership/organiser findings, and — the key piece — a
+real test read against `event_messages` through the exact same client
+path the production GET/POST routes use, reporting `tableReachable`,
+`errorCode`, `errorMessage`, `errorDetails`, `errorHint`. This distinguishes
+"table missing/not visible to PostgREST" (PGRST205) from "table exists
+but RLS denies" (42501) from other failure modes, using live evidence
+rather than another guess.
+
+**Must be removed after diagnosis** — noted directly in the file's own
+header comment as a reminder.
+
+### Logging
+
+Both GET and POST now log the exact fields requested — code, message,
+details, hint, plus tripId/userId (GET) or
+tripId/recipientType/recipientGroupId/recipientUserId/senderUserId
+(POST) — matching the brief's specified shape precisely, so whatever
+appears in Vercel's production logs after reproducing the error will be
+the exact evidence needed for the next, targeted fix.
+
+### What I did NOT do this pass, per the explicit instruction
+
+Did not touch the migration, RLS policies, or the messaging feature
+itself. Did not guess at a new root cause. The next step is genuinely
+data-dependent: hit the diagnostic endpoint against the live deployment,
+or check Vercel's logs after reproducing a failed send, and report back
+the exact `errorCode`/`projectHost`/`tableReachable` values.
+
+Confirmed unchanged: scoring, Stableford, marker, reconciliation,
+leaderboard, permissions. 82/82 scoring-domain tests still pass.
