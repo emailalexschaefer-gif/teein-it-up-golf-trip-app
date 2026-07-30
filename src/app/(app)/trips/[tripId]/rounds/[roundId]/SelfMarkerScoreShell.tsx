@@ -12,7 +12,44 @@ import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-interface Hole { id: string; hole_number: number; par: number; stroke_index: number }
+// Optional badge fields — deliberately NOT selected by the current holes
+// query, and no such columns exist in the database yet (checked before
+// adding this: migration 004 defines holes as just id/round_id/hole_
+// number/par/stroke_index). These are always undefined today, which is
+// exactly the point — the rendering below is real, working code that
+// will activate automatically once real Powerplay/side-game metadata
+// exists, rather than a fake badge shown regardless of data.
+interface Hole {
+  id: string; hole_number: number; par: number; stroke_index: number
+  is_powerplay?: boolean
+  side_game_type?: 'nearest_pin' | 'longest_drive' | 'straightest_drive' | null
+}
+
+const SIDE_GAME_BADGE: Record<string, { icon: string; label: string }> = {
+  nearest_pin: { icon: '🎯', label: 'Nearest the Pin' },
+  longest_drive: { icon: '💥', label: 'Longest Drive' },
+  straightest_drive: { icon: '↗', label: 'Straightest Drive' },
+}
+
+function HoleBadges({ hole }: { hole: Hole }) {
+  const badges: { icon: string; label: string }[] = []
+  if (hole.is_powerplay) badges.push({ icon: '⚡', label: 'Powerplay' })
+  if (hole.side_game_type && SIDE_GAME_BADGE[hole.side_game_type]) badges.push(SIDE_GAME_BADGE[hole.side_game_type])
+  if (badges.length === 0) return null
+  return (
+    <div style={{ display: 'flex', gap: 5, marginTop: 3 }}>
+      {badges.map(b => (
+        <span key={b.label} style={{
+          display: 'inline-flex', alignItems: 'center', gap: 3,
+          fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#a1791f',
+          background: '#fdf3d9', border: '1px solid #e8c96a', borderRadius: 10, padding: '2px 8px',
+        }}>
+          {b.icon} {b.label}
+        </span>
+      ))}
+    </div>
+  )
+}
 
 interface ScoreEntryRow {
   hole_id: string; gross_score: number | null; stableford_pts: number | null
@@ -101,6 +138,20 @@ function SubtotalRow({ label, value }: { label: string; value: number }) {
   )
 }
 
+function stripPtsColor(pts: number): string {
+  if (pts >= 4) return '#854d0e'
+  if (pts === 3) return '#14532d'
+  if (pts === 2) return '#1e3a5f'
+  return '#7a7260'
+}
+
+function stripPtsBackground(pts: number): string {
+  if (pts >= 4) return '#fef9c3'
+  if (pts === 3) return '#dcfce7'
+  if (pts === 2) return '#dbeafe'
+  return '#f3f4f6'
+}
+
 function statusColor(status: ComparisonStatus): string {
   switch (status) {
     case 'matched': return '#16a34a'
@@ -125,6 +176,19 @@ export default function SelfMarkerScoreShell({
   const [holes, setHoles] = useState<Hole[]>([])
   const [loadingHoles, setLoadingHoles] = useState(true)
   const [holeIdx, setHoleIdx] = useState(0)
+
+  // Reposition to the Scoring Anchor whenever (and only whenever) the
+  // active hole changes. useEffect's dependency array is the actual
+  // mechanism enforcing "only on hole change, never while editing/mid-
+  // interaction" — score edits, toasts, sync-status ticks, and every
+  // other state change in this component do not touch holeIdx, so they
+  // cannot trigger this effect. The hasHydratedRef guard skips the very
+  // first run (initial mount), so opening the page doesn't itself cause
+  // an unwanted scroll/jump before the golfer has done anything.
+  useEffect(() => {
+    if (!hasHydratedRef.current) { hasHydratedRef.current = true; return }
+    scoringAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [holeIdx])
   const [resumed, setResumed] = useState(false)
   const [showReconciliation, setShowReconciliation] = useState(false)
 
@@ -143,6 +207,15 @@ export default function SelfMarkerScoreShell({
   const [draftPartnerPickedUp, setDraftPartnerPickedUp] = useState(false)
 
   const [flash, setFlash] = useState(false)
+
+  // ── Scoring Anchor (Sprint 5G) ────────────────────────────────────────────
+  // The score-entry section is the permanent resting point for every hole
+  // transition. Future content (Pro Tips, AI Caddie, course info, etc.) can
+  // be inserted above or below this anchor later without changing this
+  // behavior — the anchor always resolves to "wherever the score-entry
+  // section currently is," not a fixed pixel position or "top of page."
+  const scoringAnchorRef = useRef<HTMLDivElement>(null)
+  const hasHydratedRef = useRef(false)
   const confirmingRef = useRef(false)
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -621,8 +694,94 @@ export default function SelfMarkerScoreShell({
           <span style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 12 }}>
             {round.name}
           </span>
+          {/* Camera placeholder — Part 6, position reserved only. No
+              upload logic, no Moments implementation. Inactive by design:
+              tapping it does nothing yet. */}
+          <span
+            aria-hidden="true"
+            title="Moments — coming soon"
+            style={{ fontSize: 14, opacity: 0.35, marginLeft: 2, cursor: 'default' }}
+          >
+            📷
+          </span>
           {displaySyncLabel && <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-body)', fontSize: 10, color: '#6b7280' }}>{displaySyncLabel}</span>}
         </div>
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a1791f', fontWeight: 700, marginTop: 2 }}>
+          Current Total: {myRunningTotal} pts
+        </div>
+        {hole && <HoleBadges hole={hole} />}
+      </div>
+
+      {/* ── Compact score strip — Part 2, the highest-value addition here.
+          Front 9 / Back 9 tiles, current hole highlighted, tap to jump
+          where existing scoring permissions already allow (setHoleIdx is
+          the same function the header/swipe navigation already uses — no
+          new navigation rule introduced). Shows MY confirmed self-entries
+          only, reusing calculateStableford() — the same function
+          myRunningTotal already calls, not a second calculation. ────────── */}
+      <div style={{ padding: '8px 16px 4px', borderBottom: '1px solid #eceae3' }}>
+        {(() => {
+          const front9 = holes.filter(h => h.hole_number <= 9)
+          const back9 = holes.filter(h => h.hole_number > 9)
+          const front9Pts = front9.reduce((s, h) => {
+            const c = mySelf[h.hole_number]
+            if (!c || c.pickedUp || c.grossScore === null) return s
+            return s + calculateStableford({ grossScore: c.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp })
+          }, 0)
+          const front9Done = front9.every(h => {
+            const c = mySelf[h.hole_number]
+            return !!c && (c.pickedUp || c.grossScore !== null)
+          })
+
+          function renderTile(h: Hole, idx: number) {
+            const c = mySelf[h.hole_number]
+            const isCurrent = idx === holeIdx
+            const hasScore = c && (c.pickedUp || c.grossScore !== null)
+            const pts = hasScore && !c!.pickedUp && c!.grossScore !== null
+              ? calculateStableford({ grossScore: c!.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp })
+              : null
+            const bg = isCurrent ? '#16a34a' : hasScore ? (pts !== null ? stripPtsBackground(pts) : '#fdf3d9') : '#f3f4f6'
+            const fg = isCurrent ? '#fff' : hasScore ? (pts !== null ? stripPtsColor(pts) : '#a1791f') : '#9ca3af'
+            return (
+              <button
+                key={h.id}
+                onClick={() => setHoleIdx(idx)}
+                style={{
+                  minWidth: 34, height: 40, borderRadius: 7, flexShrink: 0, cursor: 'pointer',
+                  background: bg, border: `1.5px solid ${isCurrent ? '#14532d' : '#e5e2d9'}`,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  transform: isCurrent ? 'scale(1.08)' : 'scale(1)', transition: 'transform 0.12s',
+                }}
+              >
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: fg }}>{h.hole_number}</span>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, fontWeight: 600, color: fg }}>
+                  {c?.pickedUp ? 'P' : c?.grossScore ?? '–'}
+                </span>
+              </button>
+            )
+          }
+
+          return (
+            <>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 0.6, color: front9Done ? '#16a34a' : '#9ca3af', marginBottom: 4 }}>
+                {front9Done ? `✓ FRONT 9 COMPLETE — ${front9Pts} PTS` : 'FRONT 9'}
+              </div>
+              <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 6 }}>
+                {front9.map((h) => renderTile(h, holes.indexOf(h)))}
+              </div>
+              {back9.length > 0 && (
+                <>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 0.6, color: '#9ca3af', marginBottom: 4 }}>
+                    BACK 9
+                  </div>
+                  <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 4 }}>
+                    {back9.map((h) => renderTile(h, holes.indexOf(h)))}
+                  </div>
+                </>
+              )}
+            </>
+          )
+        })()}
       </div>
 
       {toast && (
@@ -632,6 +791,13 @@ export default function SelfMarkerScoreShell({
       )}
 
       <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px 90px', background: '#faf9f6' }}>
+
+        {/* Scoring Anchor — the permanent resting point for every hole
+            transition. Everything from here down (score-entry card(s),
+            Confirm button) is what "returning to the anchor" means; future
+            Premium content sits above this div without needing this
+            component's behavior to change. */}
+        <div ref={scoringAnchorRef} />
 
         {currentMarkedByName && (
           <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 10, color: '#b0b6be', marginBottom: 6 }}>
@@ -710,12 +876,18 @@ function ScoreCard({
         <div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#a1791f', letterSpacing: 0.8 }}>{title}</div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 18, fontWeight: 800, color: '#14532d', lineHeight: 1.25 }}>
-            {name} <span style={{ color: '#b0b6be', fontWeight: 500, fontSize: 11.5 }}>(HC {hcp})</span>
+            {name}
+          </div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 500, color: '#b0b6be' }}>
+            Playing Handicap {hcp}
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#14532d', lineHeight: 1 }}>H{holeNum}</div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#9ca3af', marginTop: 2 }}>Par {par} · Index {si}</div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 600, color: strokes > 0 ? '#a1791f' : '#c3c8ce', marginTop: 1 }}>
+            {strokes === 0 ? 'No stroke received' : `Receives ${strokes} stroke${strokes === 1 ? '' : 's'}`}
+          </div>
           {status && (
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: statusColor(status), marginTop: 2 }}>
               {COMPARISON_LABEL[status]}

@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query'
 interface GroupPlayer { name: string; holesPlayed: number; finished: boolean; hasMismatch: boolean; waitingForMarker: boolean }
 interface GroupProgress {
   groupId: string; groupName: string; playerCount: number; currentHole: number
-  status: 'scoring' | 'waiting' | 'reconciliation' | 'finished' | 'needs_attention'
+  status: 'scoring' | 'waiting' | 'reconciliation' | 'finished' | 'finished_needs_review' | 'needs_attention'
   players: GroupPlayer[]
 }
 interface Alert { severity: 'red' | 'gold' | 'green' | 'grey'; kind: 'group'; text: string }
@@ -34,11 +34,12 @@ interface TournamentData {
 }
 
 const STATUS_META: Record<GroupProgress['status'], { icon: string; label: string; color: string; bg: string }> = {
-  scoring:          { icon: '🟢', label: 'Scoring',          color: '#16a34a', bg: '#dcfce7' },
-  waiting:          { icon: '🟡', label: 'Awaiting Marker',  color: '#a1791f', bg: '#fdf3d9' },
-  reconciliation:   { icon: '🟡', label: 'Reconciliation',   color: '#a1791f', bg: '#fdf3d9' },
-  needs_attention:  { icon: '🔴', label: 'Needs Attention',  color: '#dc2626', bg: '#fef2f2' },
-  finished:         { icon: '⚪', label: 'Finished',         color: '#6b7280', bg: '#f3f4f6' },
+  scoring:               { icon: '🟢', label: 'Scoring',                  color: '#16a34a', bg: '#dcfce7' },
+  waiting:               { icon: '🟡', label: 'Awaiting Marker',          color: '#a1791f', bg: '#fdf3d9' },
+  reconciliation:        { icon: '🔴', label: 'Review Required',          color: '#dc2626', bg: '#fef2f2' },
+  needs_attention:       { icon: '🔴', label: 'Needs Attention',          color: '#dc2626', bg: '#fef2f2' },
+  finished:              { icon: '⚪', label: 'Finished',                 color: '#6b7280', bg: '#f3f4f6' },
+  finished_needs_review: { icon: '🔴', label: 'Finished — Review Required', color: '#dc2626', bg: '#fef2f2' },
 }
 
 const ALERT_COLOR: Record<Alert['severity'], { text: string; bg: string; border: string }> = {
@@ -249,7 +250,7 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
                 <div style={{ flex: 1 }}>
                   <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14.5, color: '#14532d' }}>{g.groupName}</div>
                   <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginTop: 1 }}>
-                    {g.status === 'finished' ? 'Finished' : `Hole ${g.currentHole}`} · {g.playerCount} player{g.playerCount === 1 ? '' : 's'}
+                    {(g.status === 'finished' || g.status === 'finished_needs_review') ? 'Finished' : `Hole ${g.currentHole}`} · {g.playerCount} player{g.playerCount === 1 ? '' : 's'}
                   </div>
                 </div>
                 <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: meta.color, background: meta.bg, borderRadius: 12, padding: '4px 10px', whiteSpace: 'nowrap' }}>
@@ -443,13 +444,13 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
             <div key={g.groupId} style={{ display: 'flex', alignItems: 'center', padding: '9px 14px', borderBottom: i < data.groups.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
               <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#14532d' }}>{g.groupName}</span>
               <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280', width: 60, textAlign: 'center' }}>
-                {g.status === 'finished' ? '—' : `H${g.currentHole}`}
+                {(g.status === 'finished' || g.status === 'finished_needs_review') ? '—' : `H${g.currentHole}`}
               </span>
               <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: meta.color, width: 90, textAlign: 'center' }}>
                 {meta.icon} {meta.label}
               </span>
               <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', width: 40, textAlign: 'right' }}>
-                {g.status === 'finished' ? '✓' : ''}
+                {(g.status === 'finished' || g.status === 'finished_needs_review') ? '✓' : ''}
               </span>
             </div>
           )

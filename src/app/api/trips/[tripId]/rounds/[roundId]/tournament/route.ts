@@ -156,9 +156,15 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     const anyWaiting = members.some(p => p.waitingForMarker)
     const allFinished = members.length > 0 && members.every(p => p.finished)
 
-    let status: 'scoring' | 'waiting' | 'reconciliation' | 'finished' | 'needs_attention' = 'scoring'
-    if (allFinished) status = 'finished'
-    else if (anyMismatch) status = 'reconciliation'
+    let status: 'scoring' | 'waiting' | 'reconciliation' | 'finished' | 'finished_needs_review' | 'needs_attention' = 'scoring'
+    // Mismatch is checked FIRST, before 'finished' — this is the actual
+    // fix. Finishing every hole says nothing about whether reconciliation
+    // is resolved; a group can be fully played AND still have an
+    // unresolved mismatch, and the two are not mutually exclusive. The
+    // previous ordering checked allFinished first, so a finished-but-
+    // unreconciled group incorrectly showed as "all scores matched."
+    if (anyMismatch) status = allFinished ? 'finished_needs_review' : 'reconciliation'
+    else if (allFinished) status = 'finished'
     else if (anyWaiting) status = 'waiting'
     else if (active.length > 0 && active.every(p => p.holesPlayed === 0) && roundRes.data.status === 'active') status = 'needs_attention'
 
@@ -198,6 +204,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   for (const g of groups) {
     if (g.status === 'needs_attention') alerts.push({ severity: 'red', kind: 'group', text: `${g.groupName}: no scores entered yet` })
     if (g.status === 'waiting') alerts.push({ severity: 'gold', kind: 'group', text: `${g.groupName}: waiting on marker entries` })
+    if (g.status === 'finished_needs_review') alerts.push({ severity: 'red', kind: 'group', text: `${g.groupName}: finished — review required` })
     if (g.status === 'finished') alerts.push({ severity: 'green', kind: 'group', text: `${g.groupName}: finished, all scores matched` })
   }
   if (alerts.length === 0 && mismatchAlerts.length === 0) alerts.push({ severity: 'green', kind: 'group', text: 'No issues — round running smoothly' })
@@ -345,7 +352,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
   // Final group finished.
   for (const g of groups) {
-    if (g.status === 'finished' && g.players.length > 0) {
+    if ((g.status === 'finished' || g.status === 'finished_needs_review') && g.players.length > 0) {
       const lastEntry = holeEntries.filter(t => g.players.some(p => p.name === t.name)).sort((a, b) => b.at.localeCompare(a.at))[0]
       if (lastEntry) story.push({ icon: '🏁', text: `${g.groupName} finished`, at: lastEntry.at })
     }

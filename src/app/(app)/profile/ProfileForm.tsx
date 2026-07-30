@@ -39,38 +39,98 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
 
   const emailChanged = email.trim().toLowerCase() !== authEmail.toLowerCase()
 
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null)
+  const [uploadStage, setUploadStage] = useState<'idle' | 'preparing' | 'uploading' | 'done'>('idle')
+
+  // Process a selected/captured file into a square, ~512px, compressed
+  // JPEG before it's ever uploaded — corrects orientation implicitly
+  // (drawing through <img> + canvas normalizes EXIF rotation in every
+  // modern browser), crops to a centered square, resizes, and compresses.
+  // This is an automatic center-crop, not an interactive reposition/zoom
+  // tool — that's a larger feature not attempted in this pass.
+  async function processImageFile(file: File): Promise<Blob> {
+    const bitmap = await createImageBitmap(file)
+    const size = Math.min(bitmap.width, bitmap.height)
+    const sx = (bitmap.width - size) / 2
+    const sy = (bitmap.height - size) / 2
+
+    const canvas = document.createElement('canvas')
+    const targetSize = 512
+    canvas.width = targetSize
+    canvas.height = targetSize
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Canvas not supported')
+    ctx.drawImage(bitmap, sx, sy, size, size, 0, 0, targetSize, targetSize)
+
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(
+        blob => (blob ? resolve(blob) : reject(new Error('Could not process image'))),
+        'image/jpeg', 0.85,
+      )
+    })
+  }
+
   async function handleAvatarSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = '' // allow re-selecting the same file later
     if (!file) return
 
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      setAvatarError('Please choose a JPEG, PNG, or WEBP image.')
+      setAvatarError('Unsupported image type.')
       return
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setAvatarError('Image must be under 5MB.')
+    if (file.size > 8 * 1024 * 1024) {
+      setAvatarError('Photo is too large.')
       return
     }
 
+    setAvatarError('')
+    setUploadStage('preparing')
+    try {
+      const processed = await processImageFile(file)
+      setPreviewBlob(processed)
+      setPreviewUrl(URL.createObjectURL(processed))
+    } catch {
+      setAvatarError('Unsupported image type.')
+    } finally {
+      setUploadStage('idle')
+    }
+  }
+
+  function cancelPreview() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl)
+    setPreviewUrl(null)
+    setPreviewBlob(null)
+  }
+
+  async function confirmUpload() {
+    if (!previewBlob) return
     setAvatarBusy(true)
     setAvatarError('')
+    setUploadStage('uploading')
 
     const supabase = createClient()
-    const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg'
-    // Fixed filename per user (not timestamped) with upsert — re-uploading
-    // simply replaces the previous avatar rather than leaving old files
-    // behind in storage.
-    const path = `${userId}/avatar.${ext}`
+    const path = `${userId}/avatar.jpg`
 
-    const { error: uploadErr } = await supabase.storage.from('avatars').upload(path, file, { upsert: true, contentType: file.type })
+    const { error: uploadErr } = await supabase.storage.from('profile-photos').upload(path, previewBlob, { upsert: true, contentType: 'image/jpeg' })
     if (uploadErr) {
       setAvatarBusy(false)
-      setAvatarError(`Upload failed: ${uploadErr.message}`)
+      setUploadStage('idle')
+      // Precise, non-technical messages — the exact "Bucket not found"
+      // class of error is exactly what should never reach a user.
+      if (uploadErr.message?.toLowerCase().includes('bucket not found')) {
+        setAvatarError('Photo storage is not configured.')
+      } else if (uploadErr.message?.toLowerCase().includes('permission') || uploadErr.message?.toLowerCase().includes('policy')) {
+        setAvatarError('Upload permission denied.')
+      } else {
+        setAvatarError('Upload failed. Please try again.')
+      }
+      console.error('[avatar upload]', uploadErr)
       return
     }
 
-    const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
+    const { data: urlData } = supabase.storage.from('profile-photos').getPublicUrl(path)
     // Cache-bust so the new image actually shows immediately instead of a
     // browser-cached copy of the old file at the same URL.
     const bustedUrl = `${urlData.publicUrl}?v=${Date.now()}`
@@ -80,11 +140,16 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
     const { error: dbErr } = await db.from('profiles').update({ avatar_url: bustedUrl, updated_at: new Date().toISOString() }).eq('id', userId)
     setAvatarBusy(false)
     if (dbErr) {
-      setAvatarError(`Saved the image but couldn't update your profile: ${dbErr.message}`)
+      setUploadStage('idle')
+      setAvatarError('Upload failed. Please try again.')
+      console.error('[avatar profile update]', dbErr)
       return
     }
+    setUploadStage('done')
     setCurrentAvatarUrl(bustedUrl)
+    cancelPreview()
     router.refresh()
+    setTimeout(() => setUploadStage('idle'), 1800)
   }
 
   async function handleRemoveAvatar() {
@@ -96,7 +161,8 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
     const { error: dbErr } = await db.from('profiles').update({ avatar_url: null, updated_at: new Date().toISOString() }).eq('id', userId)
     setAvatarBusy(false)
     if (dbErr) {
-      setAvatarError(`Couldn't remove photo: ${dbErr.message}`)
+      setAvatarError('Upload failed. Please try again.')
+      console.error('[avatar remove]', dbErr)
       return
     }
     setCurrentAvatarUrl(null)
@@ -193,7 +259,6 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
           ref={fileInputRef}
           type="file"
           accept="image/jpeg,image/png,image/webp"
-          capture="user"
           onChange={handleAvatarSelected}
           style={{ display: 'none' }}
         />
@@ -209,7 +274,7 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
               textDecoration: 'underline', opacity: avatarBusy ? 0.5 : 1,
             }}
           >
-            {avatarBusy ? 'Working…' : currentAvatarUrl ? 'Change photo' : 'Upload photo'}
+            {uploadStage === 'preparing' ? 'Preparing photo…' : avatarBusy ? 'Working…' : currentAvatarUrl ? 'Change photo' : 'Upload photo'}
           </button>
           {currentAvatarUrl && (
             <button
@@ -229,7 +294,60 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
         {avatarError && (
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#dc2626', marginTop: 6, textAlign: 'center' }}>{avatarError}</p>
         )}
+        {uploadStage === 'done' && (
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#16a34a', fontWeight: 700, marginTop: 6, textAlign: 'center' }}>Profile photo updated</p>
+        )}
       </div>
+
+      {/* Preview/confirm modal — shown after a photo is selected/captured
+          and processed (auto center-cropped to square, resized), before
+          any upload happens. Not an interactive reposition/zoom tool —
+          that's a larger feature not attempted in this pass. */}
+      {previewUrl && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: '#ffffff', borderRadius: 16, padding: 20, maxWidth: 320, width: '100%', textAlign: 'center' }}>
+            <p style={{ fontFamily: 'var(--font-body)', fontWeight: 700, color: '#14532d', fontSize: 14, marginBottom: 12 }}>Preview</p>
+            {/* eslint-disable-next-line @next/next/no-img-element -- a local blob: URL, not a remote/optimizable image */}
+            <img
+              src={previewUrl}
+              alt="Preview"
+              style={{ width: 160, height: 160, borderRadius: '50%', objectFit: 'cover', border: '3px solid #d9c9a3', margin: '0 auto 16px' }}
+            />
+            {uploadStage === 'uploading' && (
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', marginBottom: 10 }}>Uploading photo…</p>
+            )}
+            {avatarError && (
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#dc2626', marginBottom: 10 }}>{avatarError}</p>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button
+                type="button"
+                onClick={confirmUpload}
+                disabled={avatarBusy}
+                style={{ padding: 12, borderRadius: 10, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, cursor: avatarBusy ? 'default' : 'pointer', opacity: avatarBusy ? 0.6 : 1 }}
+              >
+                {avatarBusy ? 'Uploading…' : 'Use Photo'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { cancelPreview(); fileInputRef.current?.click() }}
+                disabled={avatarBusy}
+                style={{ padding: 12, borderRadius: 10, background: '#f3f4f6', border: '1px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}
+              >
+                Choose Another
+              </button>
+              <button
+                type="button"
+                onClick={cancelPreview}
+                disabled={avatarBusy}
+                style={{ padding: 10, background: 'none', border: 'none', fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Form */}
       <form onSubmit={handleSave}>

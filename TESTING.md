@@ -1748,3 +1748,340 @@ the exact `errorCode`/`projectHost`/`tableReachable` values.
 
 Confirmed unchanged: scoring, Stableford, marker, reconciliation,
 leaderboard, permissions. 82/82 scoring-domain tests still pass.
+
+---
+
+## Messaging Read Fix — GET Query Rebuilt Without Embedded Relationships
+
+### Root cause, confirmed against this project's actual schema
+
+The GET handler's Supabase query used embedded relationship syntax
+(`sender:sender_user_id ( full_name )`, `recipient_group:recipient_group_id
+( name )`). Checked the actual table definition: `event_messages` has
+**two separate foreign keys into `profiles`** — `sender_user_id` and
+`recipient_user_id`. That's exactly the ambiguous-relationship scenario
+PostgREST can fail to resolve, even when the embed syntax explicitly
+names the column to disambiguate. This is the third time this specific
+class of bug has shown up in this project (previously: the trip detail
+page's scorecards query, and the tournament route's scorecards query) —
+both of those were fixed the same way, by splitting into separate queries
+and merging in application code, rather than relying on PostgREST's
+relationship inference.
+
+### The fix
+
+GET now selects only direct `event_messages` columns — no embeds at all.
+Sender name and group name are fetched via two separate, unambiguous
+queries (`profiles` by id, `trip_groups` by id) and merged into the
+response in application code. The response shape sent to the client is
+**unchanged** (`sender: { full_name }`, `recipient_group: { name } | null`)
+— `EventMessages.tsx` needed no changes to its data handling, only a
+wording tweak to the empty-state text.
+
+### Other items addressed from the same brief
+- Zero rows from the base query now returns `{ messages: [] }` explicitly
+  and immediately — never treated as an error.
+- POST now logs `event message inserted` with id/tripId/recipientType/
+  recipientGroupId after a successful insert, confirming the row exists
+  independently of whatever GET does.
+- Empty-state client text changed to "No messages yet. Organiser
+  announcements and group notifications will appear here." — distinct
+  from and never confused with the genuine-failure "Messages are
+  temporarily unavailable." + Try Again state (already correct from the
+  previous pass, verified still correctly separated).
+
+### Manual test steps
+1. Organiser sends a Group 1 notification — confirm POST succeeds (as
+   before) and the organiser can now see it in Chat (this was the actual
+   broken step).
+2. A Group 1 player opens Chat — confirms the message is visible.
+3. A player from a different group opens Chat — confirms it is NOT
+   visible.
+4. Send an event-wide announcement — confirm all members see it.
+5. Open Chat for a trip/round with zero messages — confirm "No messages
+   yet," not an error.
+6. Confirm sender name and group name display correctly (proving the
+   separate-query enrichment merged correctly).
+
+Confirmed unchanged: table creation, POST insert logic, scoring,
+Stableford, marker, reconciliation, leaderboard. 82/82 scoring-domain
+tests still pass.
+
+---
+
+## Player Experience Pass — Parts 7, 5, 2 (Parts 1/3/4/6/8 not attempted this pass)
+
+Given the scale of this brief (8 parts), this pass prioritized the items
+with the clearest correctness/functional value: **Part 7 (a real bug),
+Part 5 (a real broken feature), and Part 2 (small, contained)**. Parts
+1, 3, 4, 6, and 8 (full scoring-screen visual refinement, compact
+scorecard overview, Powerplay/side-game badges, Moments capture, and the
+cross-device mobile review) were **not started**. Flagging honestly
+rather than delivering thin, rushed versions of everything.
+
+### Part 7 — My HQ contradiction, root-caused and fixed
+
+Found the exact bug: `tournament/route.ts`'s group-status logic checked
+`allFinished` *before* `anyMismatch` in an if/else-if chain, so a group
+that had finished all holes but still had an unresolved mismatch
+incorrectly showed as plain `'finished'` — which the UI renders as "all
+scores matched." Fixed by checking `anyMismatch` first, and adding a
+genuinely new status (`finished_needs_review`) distinct from both
+`finished` and the in-progress `reconciliation` state, so the UI can say
+exactly "Finished — review required" rather than either the wrong
+all-matched message or the misleading in-progress wording. Updated the
+alert generation, the Story's group-finished milestone (still fires —
+finishing all holes is true regardless of reconciliation status), and
+the client's status-label map accordingly.
+
+**Tested properly, not just type-checked:** wrote 3 standalone logic
+tests, including the exact contradiction scenario (finished + mismatch
+together) — confirms it's never labeled plain "finished," a genuinely
+resolved group still shows correctly, and an in-progress mismatch stays
+distinct from a finished-but-unreviewed one.
+
+Also aligned terminology per the brief's explicit request: "Reconciliation"
+→ "Review Required" throughout status labels.
+
+### Part 5 — Profile photo pipeline, repaired
+
+**Root cause of "Bucket not found":** matches the exact recurring
+"migration never applied to production" pattern already seen multiple
+times in this project. Not a new class of bug.
+
+**What changed:**
+- Bucket renamed `avatars` → `profile-photos` per the explicit preference,
+  in both the numbered migration and a new standalone
+  `supabase/profile_photos_deploy.sql` (same pattern as the
+  `event_messages_deploy.sql` fix) — idempotent, includes the storage
+  schema-cache reload, and verification queries.
+- **Forced-camera bug fixed:** the hidden file input had `capture="user"`,
+  which forces mobile browsers straight to the camera. Removed entirely —
+  omitting `capture` lets the OS show its native "Take Photo / Choose
+  from Gallery / Cancel" picker, which is what the brief asked for
+  without needing a custom-built picker UI.
+- **Real image processing added:** every selected/captured photo is now
+  processed through a canvas before upload — center-cropped to a square,
+  resized to 512×512, compressed to JPEG (~0.85 quality). Drawing through
+  `createImageBitmap`/canvas also normalizes EXIF orientation implicitly.
+  **Honest scope limit:** this is an automatic center-crop, not an
+  interactive reposition/zoom tool — that's a materially larger feature
+  (drag/pinch gesture handling, a cropper UI) not attempted this pass.
+- **Preview step added:** the processed image is shown in a modal with
+  "Use Photo" / "Choose Another" / "Cancel" before any upload happens —
+  nothing uploads until confirmed.
+- **Precise error messages:** "Photo storage is not configured." (bucket
+  missing), "Upload permission denied.", "Unsupported image type.",
+  "Photo is too large.", "Upload failed. Please try again." — matching
+  the exact list requested, with full technical detail only in
+  `console.error`.
+
+### Part 2 — Playing Handicap terminology
+
+Checked the actual value being displayed in both scoring shells before
+changing anything: `hcp = activeCard?.playing_handicap` — already the
+real, applied scorecard value (not a profile default), computed earlier
+this session via `resolvePlayingHandicap`/rounding. Only the **label**
+was imprecise — `(HC 14)` and `Daily HCP 14` respectively. Both changed
+to "Playing Handicap 14," matching the brief's recommended display and
+made consistent between the two scoring shells. No value/calculation
+changed.
+
+### Manual test steps
+1. Deliberately create a group where all players finish but one hole has
+   an unresolved mismatch — confirm My HQ shows "Finished — Review
+   Required," never "all scores matched."
+2. Resolve the mismatch — confirm the group correctly returns to plain
+   "Finished."
+3. On mobile, tap "Upload photo" — confirm the native picker offers
+   camera AND gallery, not camera only.
+4. Select a photo — confirm a square preview appears before any upload,
+   with working Use Photo / Choose Another / Cancel.
+5. Confirm the uploaded photo displays immediately, persists after a
+   real page reload, and appears correctly in the header/leaderboard/etc.
+6. Confirm both scoring shells show "Playing Handicap N," not "HC N" or
+   "Daily HCP N."
+
+### Confirmed unchanged
+Stableford formula, handicap allocation engine, marker assignment logic,
+reconciliation resolution rules, leaderboard ranking, final-results
+calculations, messaging GET/POST, messaging RLS, trip membership logic.
+82/82 scoring-domain tests pass, plus 3/3 new status-priority logic
+tests for the Part 7 fix.
+
+---
+
+## Player Experience Pass — Honest Status Across 8 Parts
+
+Given the scale of this brief, here's exactly what's verified-complete
+from prior work, what was added this pass, and what's genuinely deferred.
+
+### Already correctly implemented (verified, not assumed)
+
+**Part 7 — My HQ consistency:** checked this thoroughly rather than
+re-fixing blindly. The API already has a distinct `finished_needs_review`
+status (red, "Finished — Review Required"), separate from plain
+`finished` (green, "all scores matched") — a group can never show both
+simultaneously, since `finished` is only reached when there is genuinely
+no mismatch. Event Health already checks `mismatchAlerts.length` before
+any group-status-based gold/green determination, so an unresolved
+mismatch anywhere always keeps Event Health red, regardless of other
+groups' status. Searched the whole codebase for the inconsistent
+terminology the brief warned about ("reconciliation outstanding", "score
+error", "mismatch pending", "review issue") — zero matches, already clean.
+
+**Part 5 (storage/bucket portion) — already fixed:** `profile_photos_
+deploy.sql` already exists, already correctly named throughout (bucket +
+all 4 RLS policies consistently say `profile-photos`, matching the actual
+upload code in `ProfileForm.tsx` exactly), already includes the schema-
+cache reload and verification queries. The file input no longer forces
+`capture=` — omitting it lets the OS show its native Camera/Gallery/Files
+chooser, which was the other explicit complaint.
+
+### Added this pass
+
+**Part 2 — stroke visibility:** "Playing Handicap {hcp}" was already
+displayed correctly, but "Receives N stroke(s)" / "No stroke received"
+was missing from the hole header in both scoring shells. Added to both,
+reusing the `strokes`/`strokesReceived` values already computed by the
+existing handicap-allocation logic — no new calculation.
+
+### Not attempted this pass, honestly
+
+**Part 1** (broader premium visual refinement beyond what's already
+shipped from earlier sprints), **Part 3** (compact scorecard overview —
+`ScoreSessionShell` already has a hole strip; `SelfMarkerScoreShell` does
+not), **Part 4** (Powerplay/side-game badges — no underlying data model
+exists for these yet, so real badges can't be built without fabricating
+data), **Part 6** (Moments capture — camera icon per hole, upload flow).
+Given how much of Parts 2/5/7 turned out to already be done, I prioritized
+verifying those thoroughly (not just claiming they were fine) over
+starting several more large, unverified pieces of new UI in the same pass.
+
+### Confirmed unchanged
+Stableford formula, handicap allocation engine, marker assignment,
+reconciliation resolution rules, leaderboard ranking, messaging GET/POST/
+RLS. 82/82 scoring-domain tests still pass.
+
+---
+
+## Sprint 5F — Premium Scoring Experience & UI Polish
+
+Scope: `SelfMarkerScoreShell.tsx` only this pass (the marker-mode shell,
+which was genuinely missing the compact strip that `ScoreSessionShell`
+already had). Pure presentation — no scoring/handicap/marker/
+reconciliation/leaderboard/My HQ/messaging logic touched.
+
+### Part 1 — Premium hole header
+Added "Current Total: N pts" (reuses `myRunningTotal`, already computed —
+no new calculation). "Playing Handicap {hcp}" and "Receives N stroke(s)"
+were already added in the previous pass. "Current Group" was **not**
+added — this component doesn't currently receive group-name data as a
+prop, and plumbing that through felt like more than a pure-presentation
+change belonged doing in the same pass as everything else here; flagging
+rather than fabricating a placeholder.
+
+### Part 2 — Compact score strip (the explicitly highest-priority item)
+Added Front 9 / Back 9 tiles to `SelfMarkerScoreShell` — current hole
+highlighted, gross score shown per tile, tap to jump (reuses the exact
+`setHoleIdx` function the existing header/swipe navigation already
+calls — no new navigation rule), Front 9 completion banner with the real
+total. Colors and layout deliberately match the pattern already
+established and shipped in `ScoreSessionShell`'s strip, not a new visual
+language. Uses `calculateStableford()` — the same function
+`myRunningTotal` already calls — for the per-tile points, not a second
+calculation.
+
+### Part 4 — Score confirmation
+Already existed from earlier work ("✓ Saved!" brief button-state flash).
+Verified, not re-built.
+
+### Part 5 — Special hole badges, genuinely inactive
+Checked the actual `holes` table schema (migration 004) before adding
+anything: no Powerplay or side-game columns exist. Added real, working
+badge-rendering code (`HoleBadges`) keyed off optional fields
+(`is_powerplay`, `side_game_type`) that the current holes query doesn't
+select and the database doesn't have — so this renders nothing today,
+by construction, not because of an added conditional flag. It will
+activate automatically once those columns are added, without needing
+this component touched again.
+
+### Part 6 — Camera placeholder
+A visually subtle, inert 📷 in the header (`opacity: 0.35`, no onClick,
+`aria-hidden`, title "Moments — coming soon"). Confirmed no upload logic,
+no state, no Moments implementation anywhere near it.
+
+### Not attempted this pass
+`ScoreSessionShell.tsx` already has its own compact strip and header
+info from earlier work — this pass focused on bringing
+`SelfMarkerScoreShell` up to the same standard rather than touching both.
+Broader Part 3/7/8/9 polish (typography/spacing refinement across every
+screen, full mobile-width review, landscape support) was not
+systematically audited this pass.
+
+### Confirmed unchanged
+Stableford calculations, handicap engine, marker logic, reconciliation,
+leaderboards, My HQ logic, messaging, database schema. 82/82
+scoring-domain tests still pass — same test suite, same results, only
+presentation code touched.
+
+---
+
+## Sprint 5G — Scoring Anchor & Final UX Refinement
+
+### Implementation
+
+Added to both `SelfMarkerScoreShell.tsx` and `ScoreSessionShell.tsx`:
+a `scoringAnchorRef` (an empty marker `<div>`) placed immediately before
+the score-entry section, and a `useEffect` depending only on `holeIdx`
+that calls `scoringAnchorRef.current?.scrollIntoView({ behavior: 'smooth',
+block: 'start' })` whenever it changes.
+
+### Why this satisfies "only on hole change, never mid-interaction"
+
+This isn't a rule I had to separately enforce — it falls out of how React
+`useEffect` dependency arrays work. All four transition paths (Next,
+Previous, hole-strip tap, auto-advance after save) already funnel through
+the same `setHoleIdx()` call — verified this directly for auto-advance
+before relying on it, rather than assuming. Score edits, toast
+notifications, sync-status changes, and every other state update in
+these components do not touch `holeIdx`, so they structurally cannot
+retrigger this effect. A `hasHydratedRef` guard skips the very first
+run, so simply opening the scoring page doesn't itself cause a scroll
+jump before the golfer has done anything.
+
+### Why no offset math was needed
+
+Checked the actual scroll-container architecture before implementing:
+in both shells, the hole header and compact score strip live *outside*
+the single `overflowY: 'auto'` scrollable region — they're rendered in
+the normal document flow above it, not as a sticky/fixed element
+overlapping the scrollable content. That means there's no sticky header
+to compensate for inside the scrollable area itself, so a plain
+`block: 'start'` scroll correctly surfaces the score-entry section (hole
+number, par, stroke index, playing handicap, strokes received, score
+controls, and the Confirm button, which sits directly below it) without
+needing measured-offset calculations. Flagging this architectural
+dependency explicitly: if the header layout changes to become sticky
+*inside* the scroll region in a future pass, this would need revisiting.
+
+### Future Premium content readiness
+
+The anchor is just an empty ref div in the existing DOM position —
+adding content (Pro Tips, AI Caddie, course notes, etc.) above it later
+means inserting JSX before this div; the anchor's behavior doesn't
+change, because it's defined by "where the score-entry section is," not
+a fixed layout position.
+
+### Not implemented
+Explicit keyboard-visibility detection (Part 3's "keyboard is visible"
+exclusion) — out of scope for reasonable effort without device testing;
+mitigated in practice since typing/interacting with score controls never
+changes `holeIdx`, so the effect can't fire mid-interaction regardless.
+
+### Confirmed unchanged
+Stableford calculations, handicap allocation, marker logic,
+reconciliation, leaderboards, My HQ, messaging, profile photo upload,
+database schema, side-game logic — this pass added two refs and two
+`useEffect` hooks, nothing else. 82/82 scoring-domain tests still pass,
+same suite, same results.

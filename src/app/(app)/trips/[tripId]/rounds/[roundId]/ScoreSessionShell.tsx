@@ -111,6 +111,17 @@ export default function ScoreSessionShell({
   const [scores, setScores]             = useState<ScoreMap>({})
   const [confirmed, setConfirmed]       = useState<ConfirmMap>({})
   const [holeIdx, setHoleIdx]           = useState(0) // 0-indexed into holes array, shared across the group
+
+  // Scoring Anchor (Sprint 5G) — same mechanism as SelfMarkerScoreShell:
+  // fires only on holeIdx change (Next/Previous/strip-tap/auto-advance all
+  // go through setHoleIdx), never on same-hole edits, skips the first
+  // mount so opening the page doesn't itself cause a jump.
+  const scoringAnchorRef = useRef<HTMLDivElement>(null)
+  const hasHydratedRef = useRef(false)
+  useEffect(() => {
+    if (!hasHydratedRef.current) { hasHydratedRef.current = true; return }
+    scoringAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [holeIdx])
   const [activeIdx, setActiveIdx]       = useState(0) // which group member's card is being entered
   const [activeGroupIdx, setActiveGroupIdx] = useState(initialGroupIdx ?? 0) // organiser only
   const [flash, setFlash]               = useState(false)
@@ -578,6 +589,10 @@ export default function ScoreSessionShell({
           )}
         </div>
 
+        {/* Scoring Anchor — the permanent resting point for every hole
+            transition, same role as in SelfMarkerScoreShell. */}
+        <div ref={scoringAnchorRef} />
+
         {/* ── Swipeable score entry card ─────────────────────────────────── */}
         <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ userSelect: 'none', WebkitUserSelect: 'none' as React.CSSProperties['WebkitUserSelect'] }}>
           <div style={{ margin: '0 16px 8px', borderRadius: 14, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 4px 18px rgba(0,0,0,0.09)', flexShrink: 0, overflow: 'hidden', position: 'relative' }}>
@@ -602,12 +617,15 @@ export default function ScoreSessionShell({
                 </div>
                 <div>
                   <div style={{ fontFamily: 'var(--font-body)', color: '#14532d', fontWeight: 800, fontSize: 18, lineHeight: 1.25 }}>{activeName}</div>
-                  <div style={{ fontFamily: 'var(--font-body)', color: '#b0b6be', fontSize: 11 }}>Daily HCP {hcp}</div>
+                  <div style={{ fontFamily: 'var(--font-body)', color: '#b0b6be', fontSize: 11 }}>Playing Handicap {hcp}</div>
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 16, fontWeight: 800, lineHeight: 1 }}>H{holeNum}</div>
                 <div style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 10.5 }}>Par {par} · Index {si}</div>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 600, color: strokesReceived > 0 ? '#a1791f' : '#c3c8ce', marginTop: 1 }}>
+                  {strokesReceived === 0 ? 'No stroke received' : `Receives ${strokesReceived} stroke${strokesReceived === 1 ? '' : 's'}`}
+                </div>
               </div>
             </div>
 

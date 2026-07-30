@@ -130,7 +130,7 @@ export default function EventMessages({ tripId, isOrganiser }: { tripId: string;
         <div style={{ textAlign: 'center', padding: '32px 16px' }}>
           <p style={{ fontSize: 32, marginBottom: 8 }}>💬</p>
           <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>
-            No announcements yet. Organiser messages and group notifications will appear here.
+            No messages yet. Organiser announcements and group notifications will appear here.
           </p>
         </div>
       )}
