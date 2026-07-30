@@ -1615,3 +1615,76 @@ same pass while building the Event Health card — re-verified after the
 fix: balance check, lenient `tsc`, and the full scoring-domain suite all
 pass clean now. Documenting it here rather than hiding that a bug
 happened mid-pass.
+
+---
+
+## Production Messaging Fix — event_messages Table Missing
+
+### What I can and can't verify from here
+
+**Cannot verify:** which Supabase project Vercel's production environment
+variables actually point to, or run SQL against your live database — no
+access to either from this sandbox. This has to be your manual step; see
+below.
+
+**Confirmed instead:** before writing anything, I checked this project's
+*actual* schema rather than trusting the brief's example policies at face
+value. `trip_members` uses `profile_id` (not `user_id`) and has no
+`status` column; there's no separate `group_members` table (group
+membership is `trip_members.group_id`). The brief's example SQL used
+placeholder names that don't match this project — copying it verbatim
+would have failed outright. My original `025_event_messages.sql` already
+used the correct real schema; I didn't need to redesign the RLS logic,
+only add what was genuinely missing.
+
+### What was added
+
+**`supabase/event_messages_deploy.sql`** — one complete, standalone,
+idempotent script (not a new numbered migration, since it doesn't change
+the design, just deploys/hardens the existing one). Combines the original
+table + RLS (unchanged logic) with: explicit named constraints (was
+inline/anonymous), two additional indexes on `recipient_group_id`/
+`recipient_user_id`, and — most likely the actual fix for "Could not find
+the table... in the schema cache" if the table already exists —
+`NOTIFY pgrst, 'reload schema';`, plus verification queries at the end.
+
+**API error handling** (`messages/route.ts`): found and fixed the actual
+leak — the POST handler was interpolating the raw Supabase error directly
+into the client response (`Could not send: ${error.message}`), which is
+exactly how "Could not find the table 'public.event_messages'..." reached
+the browser. Both GET and POST now log full detail (code, message,
+details, hint) server-side only, with explicit PGRST205 (missing-table)
+logging, and return only a generic, safe message to the client.
+
+**Client error handling** (`EventMessages.tsx`): the message-list error
+state now shows "Messages are temporarily unavailable." with a working
+"Try Again" button instead of a bare, unhelpful line. The composer error
+paths (both here and in `TournamentControl.tsx`'s Notify Group flow)
+already only ever display whatever the server sends — now safe by
+construction, since the server no longer sends raw errors.
+
+**Diagnostic health check** (`src/lib/diagnostics/eventMessagesHealth.ts`):
+moved out of the route file — Next.js route handlers only permit HTTP
+method exports plus a small config allow-list (`dynamic`, `revalidate`,
+etc.), and an arbitrary function export from `route.ts` risks a build
+error, not just a lint warning. Kept as a standalone utility, for manual
+use only, never called automatically.
+
+### Manual deployment steps required (cannot be done from here)
+
+1. In Vercel's dashboard, confirm `NEXT_PUBLIC_SUPABASE_URL`,
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` all
+   point at the same project, and confirm which project that actually is.
+2. Run `supabase/event_messages_deploy.sql` in that project's SQL editor.
+3. Run the three verification queries at the bottom of that same file —
+   confirm `to_regclass` returns `public.event_messages`, the column list
+   matches, and exactly 3 policies exist.
+4. Retest in the deployed app: organiser sends a group notification from
+   a mismatch alert → affected group sees it in Chat → an unrelated
+   group's player does not.
+
+### Confirmed unchanged
+Scoring engine, Stableford calculations, marker logic, reconciliation,
+leaderboard rankings, group assignment, existing authentication — this
+pass only touched the messaging table/API/client error handling. 82/82
+scoring-domain tests still pass.

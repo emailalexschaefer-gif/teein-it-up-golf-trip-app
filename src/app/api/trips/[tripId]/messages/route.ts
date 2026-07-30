@@ -17,6 +17,21 @@ export const revalidate = 0
 
 interface RouteProps { params: Promise<{ tripId: string }> }
 
+interface SupabaseErrorLike { code?: string; message: string; details?: string; hint?: string }
+
+// Never expose raw Supabase/PostgREST error text to the client — it can
+// leak schema/infrastructure detail ("Could not find the table... in the
+// schema cache") that means nothing useful to a user and everything to
+// someone probing the API. Full detail always goes to server logs only.
+function logAndMaskError(context: string, error: SupabaseErrorLike, extra?: Record<string, unknown>) {
+  console.error(`[${context}]`, {
+    code: error.code, message: error.message, details: error.details, hint: error.hint, ...extra,
+  })
+  if (error.code === 'PGRST205') {
+    console.error(`[${context}] event_messages table is missing or not visible to PostgREST. Check production migration and schema cache — see supabase/event_messages_deploy.sql.`)
+  }
+}
+
 export async function GET(_req: NextRequest, { params }: RouteProps) {
   const { tripId } = await params
   const supabase = await createClient()
@@ -36,8 +51,8 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     .limit(50)
 
   if (error) {
-    console.error('[event-messages GET]', error)
-    return NextResponse.json({ error: 'Could not load messages.' }, { status: 500 })
+    logAndMaskError('event-messages GET', error, { tripId })
+    return NextResponse.json({ error: 'Messages are temporarily unavailable.' }, { status: 500 })
   }
 
   return NextResponse.json({ messages: data ?? [] })
@@ -82,8 +97,12 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   }).select().single()
 
   if (error) {
-    console.error('[event-messages POST]', error)
-    return NextResponse.json({ error: `Could not send: ${error.message}` }, { status: 500 })
+    // This is the exact spot that was leaking raw Supabase error text
+    // ("Could not send: Could not find the table...") straight to the
+    // client. Fixed: full detail goes to logAndMaskError's console.error
+    // only; the client only ever sees a generic, safe message.
+    logAndMaskError('event-messages POST', error, { tripId, recipientType, recipientGroupId, recipientUserId })
+    return NextResponse.json({ error: 'Notifications are temporarily unavailable. Please try again.' }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true, sentMessage: data })

@@ -38,7 +38,7 @@ export default function EventMessages({ tripId, isOrganiser }: { tripId: string;
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
 
-  const { data, isLoading, error } = useQuery<{ messages: EventMessage[] }>({
+  const { data, isLoading, error, refetch } = useQuery<{ messages: EventMessage[] }>({
     queryKey: ['event-messages', tripId],
     queryFn: async () => {
       const res = await fetch(`/api/trips/${tripId}/messages`)
@@ -113,7 +113,19 @@ export default function EventMessages({ tripId, isOrganiser }: { tripId: string;
       )}
 
       {isLoading && <p style={{ textAlign: 'center', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>Loading…</p>}
-      {error && <p style={{ textAlign: 'center', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>Couldn&apos;t load messages.</p>}
+      {error && (
+        <div style={{ textAlign: 'center', padding: '24px 16px' }}>
+          <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, marginBottom: 10 }}>
+            Messages are temporarily unavailable.
+          </p>
+          <button
+            onClick={() => refetch()}
+            style={{ padding: '8px 18px', borderRadius: 10, background: '#ffffff', border: '1.5px solid #d1d5db', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#14532d', cursor: 'pointer' }}
+          >
+            Try Again
+          </button>
+        </div>
+      )}
       {data && data.messages.length === 0 && (
         <div style={{ textAlign: 'center', padding: '32px 16px' }}>
           <p style={{ fontSize: 32, marginBottom: 8 }}>💬</p>
