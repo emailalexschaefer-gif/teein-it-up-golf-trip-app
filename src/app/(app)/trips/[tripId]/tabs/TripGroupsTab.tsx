@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import React, { useState, useEffect } from 'react'
 import Image from 'next/image'
 import { initials, avatarColor, formatHandicap } from '@/lib/utils'
@@ -398,9 +399,11 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
                         <div className="flex-1 min-w-0">
                           {/* Name + HCP on same line */}
                           <div className="flex items-baseline gap-2 flex-wrap">
-                            <p style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: '#1a1a16', fontSize: 13 }}>
-                              {m.profiles?.full_name ?? 'Player'}
-                            </p>
+                            <Link href={`/trips/${trip.id}/players/${m.profile_id}`} style={{ textDecoration: 'none' }}>
+                              <p style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: '#1a1a16', fontSize: 13 }}>
+                                {m.profiles?.full_name ?? 'Player'}
+                              </p>
+                            </Link>
                             <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 600, color: hcpColor(m) }}>
                               {hcpLabel(m)}
                             </span>
@@ -514,9 +517,11 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
                 <PlayerAvatar member={m} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline gap-2 flex-wrap">
-                    <span style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: '#1a1a16', fontSize: 13 }}>
-                      {m.profiles?.full_name ?? 'Player'}
-                    </span>
+                    <Link href={`/trips/${trip.id}/players/${m.profile_id}`} style={{ textDecoration: 'none' }}>
+                      <span style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: '#1a1a16', fontSize: 13 }}>
+                        {m.profiles?.full_name ?? 'Player'}
+                      </span>
+                    </Link>
                     <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 600, color: hcpColor(m) }}>
                       {hcpLabel(m)}
                     </span>

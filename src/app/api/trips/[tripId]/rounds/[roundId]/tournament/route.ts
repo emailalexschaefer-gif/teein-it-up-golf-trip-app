@@ -145,7 +145,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   // ── Leaderboard snapshot — top 5, reusing the same ranking rule the
   // leaderboard route uses (points desc, ties by fewer holes played) ──────
   const ranked = [...players].sort((a, b) => b.totalPts - a.totalPts || b.holesPlayed - a.holesPlayed)
-  const leaderboardSnapshot = ranked.slice(0, 5).map((p, i) => ({ position: i + 1, name: p.name, totalPts: p.totalPts, holesPlayed: p.holesPlayed, finished: p.finished }))
+  const leaderboardSnapshot = ranked.slice(0, 5).map((p, i) => ({ position: i + 1, playerId: p.playerId, name: p.name, totalPts: p.totalPts, holesPlayed: p.holesPlayed, finished: p.finished }))
 
   // ── Group progress ──────────────────────────────────────────────────────
   const groups = ((groupsRes.data ?? []) as { id: string; name: string }[]).map((g) => {
@@ -171,7 +171,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     return {
       groupId: g.id, groupName: g.name, playerCount: members.length,
       currentHole, status,
-      players: members.map(p => ({ name: p.name, holesPlayed: p.holesPlayed, finished: p.finished, hasMismatch: p.hasMismatch, waitingForMarker: p.waitingForMarker })),
+      players: members.map(p => ({ playerId: p.playerId, name: p.name, holesPlayed: p.holesPlayed, finished: p.finished, hasMismatch: p.hasMismatch, waitingForMarker: p.waitingForMarker })),
     }
   })
 

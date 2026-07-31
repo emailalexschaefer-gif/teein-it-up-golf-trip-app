@@ -1,10 +1,12 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 interface EventMessage {
   id: string
+  sender_user_id: string
   message_type: string
   recipient_type: 'all' | 'group' | 'player'
   message: string
@@ -147,7 +149,9 @@ export default function EventMessages({ tripId, isOrganiser }: { tripId: string;
             </span>
           </div>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#14532d', lineHeight: 1.5 }}>{m.message}</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 4 }}>— {m.sender?.full_name ?? 'Organiser'}</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+            — <Link href={`/trips/${tripId}/players/${m.sender_user_id}`} style={{ color: 'inherit', textDecoration: 'underline' }}>{m.sender?.full_name ?? 'Organiser'}</Link>
+          </p>
         </div>
       ))}
     </div>

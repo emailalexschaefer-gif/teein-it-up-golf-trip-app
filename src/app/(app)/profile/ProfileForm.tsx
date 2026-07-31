@@ -14,11 +14,22 @@ interface Props {
   initialEmail: string
   initialHandicap: number | null
   avatarUrl: string | null
+  initialLocation: string
+  initialBio: string
+  initialOccupation: string
+  initialCompany: string
+  initialGolfClub: string
+  initialInterests: string[]
+  initialAskMeAbout: string
+  teeinItUpRole: string
 }
 
 type SaveState = 'idle' | 'saving' | 'success' | 'error'
 
-export default function ProfileForm({ userId, authEmail, initialName, initialEmail, initialHandicap, avatarUrl }: Props) {
+export default function ProfileForm({
+  userId, authEmail, initialName, initialEmail, initialHandicap, avatarUrl,
+  initialLocation, initialBio, initialOccupation, initialCompany, initialGolfClub, initialInterests, initialAskMeAbout, teeinItUpRole,
+}: Props) {
   const router = useRouter()
 
   const [name, setName]             = useState(initialName)
@@ -28,6 +39,23 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
   const [saveState, setSaveState]   = useState<SaveState>('idle')
   const [errorMsg, setErrorMsg]     = useState('')
   const [emailNote, setEmailNote]   = useState('')
+
+  // About Me (Sprint 5I)
+  const [location, setLocation]         = useState(initialLocation)
+  const [bio, setBio]                   = useState(initialBio)
+  const [occupation, setOccupation]     = useState(initialOccupation)
+  const [company, setCompany]           = useState(initialCompany)
+  const [golfClub, setGolfClub]         = useState(initialGolfClub)
+  const [interests, setInterests]       = useState<string[]>(initialInterests)
+  const [askMeAbout, setAskMeAbout]     = useState(initialAskMeAbout)
+
+  const INTEREST_OPTIONS = [
+    'Golf Trips', 'Business Networking', 'Charity Events', 'AFL', 'Cricket',
+    'Basketball', 'Fishing', 'Travel', 'Food & Wine', 'Fitness',
+  ]
+  function toggleInterest(tag: string) {
+    setInterests(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])
+  }
 
   const [currentAvatarUrl, setCurrentAvatarUrl] = useState(avatarUrl)
   const [avatarBusy, setAvatarBusy]             = useState(false)
@@ -176,6 +204,7 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
     if (!email.trim() || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
       setErrorMsg('A valid email is required'); setSaveState('error'); return
     }
+    if (bio.length > 200) { setErrorMsg('About Me must be 200 characters or fewer'); setSaveState('error'); return }
 
     setSaveState('saving')
     setErrorMsg('')
@@ -191,6 +220,13 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
       .update({
         full_name: name.trim(),
         handicap: handicapVal,
+        location: location.trim() || null,
+        bio: bio.trim() || null,
+        occupation: occupation.trim() || null,
+        company: company.trim() || null,
+        golf_club: golfClub.trim() || null,
+        interests,
+        ask_me_about: askMeAbout.trim() || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', userId)
@@ -299,6 +335,35 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
         )}
       </div>
 
+      {/* ── Identity Card — auto-populated summary, not a separate form.
+          Updates live from the same state the editable fields below use;
+          Role is server-computed from actual trip_members rows, not
+          user-editable. ────────────────────────────────────────────────── */}
+      <div style={{
+        background: 'linear-gradient(135deg,#14532d,#1a6b3a)', borderRadius: 14, padding: '16px 18px',
+        marginBottom: 20, boxShadow: '0 4px 18px rgba(20,83,45,0.2)', textAlign: 'center',
+      }}>
+        <div style={{ fontFamily: 'var(--font-display)', color: '#fff', fontSize: 17, fontWeight: 800 }}>
+          {name || 'Your name'}
+        </div>
+        {!noHcp && hcp && (
+          <div style={{ fontFamily: 'var(--font-body)', color: '#e8c96a', fontSize: 12.5, marginTop: 2 }}>
+            Playing Handicap: {hcp}
+          </div>
+        )}
+        {location && (
+          <div style={{ fontFamily: 'var(--font-body)', color: 'rgba(255,255,255,0.7)', fontSize: 12.5, marginTop: 2 }}>
+            {location}
+          </div>
+        )}
+        <div style={{
+          display: 'inline-block', marginTop: 8, fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700,
+          color: '#a1791f', background: '#fdf3d9', border: '1px solid #e8c96a', borderRadius: 12, padding: '3px 12px',
+        }}>
+          {teeinItUpRole}
+        </div>
+      </div>
+
       {/* Preview/confirm modal — shown after a photo is selected/captured
           and processed (auto center-cropped to square, resized), before
           any upload happens. Not an interactive reposition/zoom tool —
@@ -395,6 +460,95 @@ export default function ProfileForm({ userId, authEmail, initialName, initialEma
               />
               <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#7a7260' }}>No official handicap</span>
             </label>
+          </Field>
+
+          {/* Location */}
+          <Field label="Home location" hint="City/suburb — shown on your Identity Card.">
+            <input
+              type="text" value={location} maxLength={80}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLocation(e.target.value)}
+              placeholder="e.g. Melbourne, Victoria"
+              style={inputStyle}
+            />
+          </Field>
+
+        </div>
+
+        {/* ── About Me ─────────────────────────────────────────────────── */}
+        <div className="card p-5 space-y-4" style={{ marginTop: 16 }}>
+          <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#1a1a16', marginBottom: 2 }}>About Me</h2>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260' }}>Tell other golfers a little about yourself.</p>
+          </div>
+          <div>
+            <textarea
+              value={bio} maxLength={200} rows={4}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setBio(e.target.value)}
+              placeholder="Head of Marketing. Sandhurst member. Love golf trips, business networking and helping organise charity golf days."
+              style={{ ...inputStyle, resize: 'vertical', minHeight: 90 }}
+            />
+            <div style={{ textAlign: 'right', fontFamily: 'var(--font-body)', fontSize: 11, color: bio.length > 200 ? '#dc2626' : '#9ca3af', marginTop: 4 }}>
+              {bio.length}/200
+            </div>
+          </div>
+
+          <Field label="Occupation">
+            <input
+              type="text" value={occupation} maxLength={80}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOccupation(e.target.value)}
+              placeholder="e.g. Marketing Manager"
+              style={inputStyle}
+            />
+          </Field>
+
+          <Field label="Company / Organisation">
+            <input
+              type="text" value={company} maxLength={80}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCompany(e.target.value)}
+              placeholder="e.g. Nexans"
+              style={inputStyle}
+            />
+          </Field>
+
+          <Field label="Golf club">
+            <input
+              type="text" value={golfClub} maxLength={80}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setGolfClub(e.target.value)}
+              placeholder="e.g. Royal Melbourne"
+              style={inputStyle}
+            />
+          </Field>
+
+          <div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#3d3a2f', marginBottom: 8 }}>Interests</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {INTEREST_OPTIONS.map(tag => {
+                const active = interests.includes(tag)
+                return (
+                  <button
+                    type="button" key={tag} onClick={() => toggleInterest(tag)}
+                    style={{
+                      fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 600,
+                      padding: '6px 13px', borderRadius: 18, cursor: 'pointer',
+                      background: active ? '#14532d' : '#f8f4eb',
+                      color: active ? '#fff' : '#3d3a2f',
+                      border: active ? '1.5px solid #14532d' : '1.5px solid #e5ddc8',
+                    }}
+                  >
+                    {tag}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <Field label="Ask me about..." hint="A conversation starter, shown prominently on your profile.">
+            <input
+              type="text" value={askMeAbout} maxLength={60}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAskMeAbout(e.target.value)}
+              placeholder="e.g. Golf Trips, AFL, Property"
+              style={inputStyle}
+            />
           </Field>
 
         </div>

@@ -2169,3 +2169,51 @@ Stableford calculations, handicap allocation, marker logic,
 reconciliation rules, leaderboards, messaging architecture, My HQ
 architecture, database schema, side games, Moments, premium features.
 82/82 scoring-domain tests still pass, same suite.
+
+---
+
+## Sprint 5I — My Profile Enhancement ("About Me")
+
+### Already complete from a prior pass — verified, not rebuilt
+
+The migration (`026_profile_about_me.sql`), the Identity Card, About Me,
+Occupation/Company/Golf Club, Interests chips, Ask Me About, and a public
+profile view page (`trips/[tripId]/players/[profileId]`) already existed.
+Checked the migration's own reasoning before trusting it: it correctly
+identifies that the existing "Trip members can view each other" RLS
+policy already covers any new column added to `profiles` (RLS is
+per-row, not per-column) — no new policy needed or added, matching the
+"visible only to participants in the same event" default exactly.
+
+### Added this pass — wiring up "tap any name to view profile"
+
+Only the Leaderboard linked to player profiles so far. Added the same
+link pattern (`/trips/{tripId}/players/{profileId}`) to the remaining
+explicitly-listed surfaces:
+
+- **Groups** (`TripGroupsTab.tsx`) — both the assigned-players list and
+  unassigned-players list. Deliberately did **not** link the third
+  occurrence found in the same file — it turned out to be an interactive
+  "assign player to group" button (`onClick={() => assign(...)}`), not a
+  passive name display; nesting a profile link inside it would be
+  invalid HTML and would conflict with the assignment action.
+- **Chat** (`EventMessages.tsx`) — sender name on every message. Required
+  adding `sender_user_id` to the client-side interface (it was already
+  returned by the API, just not exposed to the component).
+- **My HQ** (`TournamentControl.tsx`) — Group Progress player names and
+  Leaderboard Snapshot player names. Required adding `playerId` to both
+  the API response and the client interfaces (name-only before).
+
+### Not wired up this pass
+Scorecards (the active scoring shells) — deliberately deferred. During
+live scoring, the player is looking at their own name and (in marker
+mode) their marker's name; adding navigation chrome to a screen this
+latency-sensitive felt like it worked against the Scoring Anchor
+philosophy from the last two sprints ("functionality remains more
+important than decorative complexity"). Worth a deliberate decision on
+whether this belongs on Round Summary instead, rather than me guessing.
+
+### Confirmed unchanged
+Existing profile functionality, scoring/handicap/marker/reconciliation
+logic, leaderboard ranking, messaging architecture. 82/82 scoring-domain
+tests still pass.

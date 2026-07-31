@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import Link from 'next/link'
 
 interface LeaderboardEntry {
   playerId: string
@@ -183,7 +184,7 @@ export default function LiveLeaderboard({
           </div>
         )}
         {visibleRows.map((row, i) => (
-          <LeaderboardRow key={row.playerId} row={row} movement={movements[row.playerId] ?? 'same'} isLast={i === visibleRows.length - 1 && !meOutsideTopThree} />
+          <LeaderboardRow key={row.playerId} row={row} movement={movements[row.playerId] ?? 'same'} isLast={i === visibleRows.length - 1 && !meOutsideTopThree} tripId={tripId} />
         ))}
 
         {/* Pinned "your position" row — only shown collapsed and only if
@@ -193,7 +194,7 @@ export default function LiveLeaderboard({
             <div style={{ padding: '4px 14px', fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, letterSpacing: 0.6, color: '#9ca3af', background: '#faf9f6', borderTop: '1px solid #eceae3', borderBottom: '1px solid #eceae3' }}>
               YOUR POSITION
             </div>
-            <LeaderboardRow row={meOutsideTopThree} movement={movements[meOutsideTopThree.playerId] ?? 'same'} isLast />
+            <LeaderboardRow row={meOutsideTopThree} movement={movements[meOutsideTopThree.playerId] ?? 'same'} isLast tripId={tripId} />
           </>
         )}
       </div>
@@ -215,9 +216,9 @@ export default function LiveLeaderboard({
   )
 }
 
-interface LeaderboardRowProps { row: LeaderboardEntry; movement: Movement; isLast: boolean }
+interface LeaderboardRowProps { row: LeaderboardEntry; movement: Movement; isLast: boolean; tripId: string }
 
-function LeaderboardRow({ row, movement, isLast }: LeaderboardRowProps) {
+function LeaderboardRow({ row, movement, isLast, tripId }: LeaderboardRowProps) {
   return (
     <div
       style={{
@@ -232,23 +233,25 @@ function LeaderboardRow({ row, movement, isLast }: LeaderboardRowProps) {
         {MEDAL[row.position] ?? row.position}
       </div>
 
-      <div style={{
-        width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-        background: 'radial-gradient(#e8c96a,#c9a84c)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 11,
-      }}>
-        {initialsOf(row.name)}
-      </div>
+      <Link href={`/trips/${tripId}/players/${row.playerId}`} style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, textDecoration: 'none' }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+          background: 'radial-gradient(#e8c96a,#c9a84c)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 11,
+        }}>
+          {initialsOf(row.name)}
+        </div>
 
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {row.name}{row.isCurrentUser ? ' (you)' : ''}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {row.name}{row.isCurrentUser ? ' (you)' : ''}
+          </div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af' }}>
+            {row.finished ? 'Finished' : row.holesPlayed > 0 ? `Thru ${row.holesPlayed}` : 'Not started'}
+          </div>
         </div>
-        <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af' }}>
-          {row.finished ? 'Finished' : row.holesPlayed > 0 ? `Thru ${row.holesPlayed}` : 'Not started'}
-        </div>
-      </div>
+      </Link>
 
       <div style={{ textAlign: 'right', flexShrink: 0 }}>
         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 17, color: '#14532d' }}>

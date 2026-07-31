@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 
-interface GroupPlayer { name: string; holesPlayed: number; finished: boolean; hasMismatch: boolean; waitingForMarker: boolean }
+interface GroupPlayer { playerId: string; name: string; holesPlayed: number; finished: boolean; hasMismatch: boolean; waitingForMarker: boolean }
 interface GroupProgress {
   groupId: string; groupName: string; playerCount: number; currentHole: number
   status: 'scoring' | 'waiting' | 'reconciliation' | 'finished' | 'finished_needs_review' | 'needs_attention'
@@ -19,7 +19,7 @@ interface MismatchAlert {
   hole: number; playerScore: string; markerScore: string; at: string
 }
 interface StoryEntry { icon: string; text: string; at: string }
-interface LeaderboardSnapshotRow { position: number; name: string; totalPts: number; holesPlayed: number; finished: boolean }
+interface LeaderboardSnapshotRow { position: number; playerId: string; name: string; totalPts: number; holesPlayed: number; finished: boolean }
 interface TournamentData {
   roundName: string; scoringFormat: string; roundStatus: string; totalHoles: number
   health: { level: 'green' | 'gold' | 'red'; text: string; topMismatch?: MismatchAlert }
@@ -262,7 +262,7 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
                 <div style={{ borderTop: '1px solid #eceae3' }}>
                   {g.players.map(p => (
                     <div key={p.name} style={{ display: 'flex', alignItems: 'center', padding: '8px 14px', borderBottom: '1px solid #f3f4f1' }}>
-                      <div style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 13, color: '#14532d', fontWeight: 600 }}>{p.name}</div>
+                      <Link href={`/trips/${tripId}/players/${p.playerId}`} style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 13, color: '#14532d', fontWeight: 600, textDecoration: 'none' }}>{p.name}</Link>
                       <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginRight: 8 }}>
                         {p.finished ? 'Finished' : `Thru ${p.holesPlayed}`}
                       </div>
@@ -365,7 +365,7 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
         {data.leaderboardSnapshot.map((row, i) => (
           <div key={row.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: i < data.leaderboardSnapshot.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
             <span style={{ width: 20, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 13, color: row.position <= 3 ? '#a1791f' : '#9ca3af' }}>{row.position}</span>
-            <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, color: '#14532d' }}>{row.name}</span>
+            <Link href={`/trips/${tripId}/players/${row.playerId}`} style={{ flex: 1, fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, color: '#14532d', textDecoration: 'none' }}>{row.name}</Link>
             <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af' }}>{row.finished ? 'Finished' : `Thru ${row.holesPlayed}`}</span>
             <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 14, color: '#14532d' }}>{row.totalPts} pts</span>
           </div>
