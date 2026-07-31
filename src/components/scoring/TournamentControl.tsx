@@ -173,7 +173,7 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 8 }}>
               {data.health.topMismatch.groupName} · Marker mismatch
             </div>
-            <Link href={`/trips/${tripId}/rounds/${roundId}/markers`} style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#dc2626', textDecoration: 'none' }}>
+            <Link href={`/trips/${tripId}/rounds/${roundId}?hole=${data.health.topMismatch.hole}`} style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#dc2626', textDecoration: 'none' }}>
               Review now →
             </Link>
           </div>
@@ -297,7 +297,7 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
               {m.groupName}
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-              <Link href={`/trips/${tripId}/rounds/${roundId}/markers`} style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#dc2626', textDecoration: 'none' }}>
+              <Link href={`/trips/${tripId}/rounds/${roundId}?hole=${m.hole}`} style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#dc2626', textDecoration: 'none' }}>
                 Review Score →
               </Link>
               <button onClick={() => openNotify(m)} style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#a1791f', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>

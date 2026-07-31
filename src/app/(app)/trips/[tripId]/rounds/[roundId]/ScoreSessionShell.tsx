@@ -117,10 +117,15 @@ export default function ScoreSessionShell({
   // go through setHoleIdx), never on same-hole edits, skips the first
   // mount so opening the page doesn't itself cause a jump.
   const scoringAnchorRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const hasHydratedRef = useRef(false)
   useEffect(() => {
     if (!hasHydratedRef.current) { hasHydratedRef.current = true; return }
-    scoringAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const container = scrollContainerRef.current
+    const anchor = scoringAnchorRef.current
+    if (!container || !anchor) return
+    const anchorTop = anchor.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
+    container.scrollTo({ top: Math.max(0, anchorTop - 8), behavior: 'smooth' })
   }, [holeIdx])
   const [activeIdx, setActiveIdx]       = useState(0) // which group member's card is being entered
   const [activeGroupIdx, setActiveGroupIdx] = useState(initialGroupIdx ?? 0) // organiser only
@@ -479,7 +484,7 @@ export default function ScoreSessionShell({
       )}
 
       {/* ── Scrollable body ────────────────────────────────────────────────── */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
+      <div ref={scrollContainerRef} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
 
         {/* ── Organiser: playing-group switcher ────────────────────────────── */}
         {allGroups && allGroups.length > 1 && (
@@ -540,21 +545,21 @@ export default function ScoreSessionShell({
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: '#16a34a', marginBottom: 4 }}>
             {front9Pts > 0 ? `✓ FRONT 9 — ${front9Pts} PTS` : ''}
           </div>
-          <div style={{ display: 'flex', gap: 3, overflowX: 'auto', marginBottom: 8 }}>
+          <div style={{ display: 'flex', gap: 3, marginBottom: 8 }}>
             {front9.map((h, i) => {
               const m = tileMeta(h)
               const isOn = i === holeIdx
               return (
                 <div key={h.id} onClick={() => setHoleIdx(i)} style={{
-                  minWidth: 32, height: 40, borderRadius: 6, flexShrink: 0, cursor: 'pointer',
+                  flex: '1 1 0', minWidth: 0, height: 36, borderRadius: 6, cursor: 'pointer',
                   background: isOn ? '#16a34a' : m.bg,
                   border: `1.5px solid ${isOn ? '#14532d' : '#e5e2d9'}`,
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  transform: isOn ? 'scale(1.1)' : 'scale(1)', transition: 'transform 0.12s',
+                  transform: isOn ? 'scale(1.06)' : 'scale(1)', transition: 'transform 0.12s',
                   boxShadow: isOn ? '0 4px 14px rgba(22,163,74,0.35)' : undefined,
                 }}>
-                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: isOn ? '#fff' : (m.color ?? '#6b7280') }}>{m.label}</div>
-                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 8, fontWeight: 600, color: isOn ? '#e8c96a' : (m.color ?? '#9ca3af') }}>{m.sub}</div>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: isOn ? '#fff' : (m.color ?? '#6b7280') }}>{m.label}</div>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 7.5, fontWeight: 600, color: isOn ? '#e8c96a' : (m.color ?? '#9ca3af') }}>{m.sub}</div>
                 </div>
               )
             })}
@@ -565,22 +570,22 @@ export default function ScoreSessionShell({
               <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: '#9ca3af', marginBottom: 4 }}>
                 BACK 9 — {isBack9 ? 'ENTERING NOW' : 'COMING UP'}
               </div>
-              <div style={{ display: 'flex', gap: 5, overflowX: 'auto', paddingRight: 16, WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>
+              <div style={{ display: 'flex', gap: 3 }}>
                 {back9.map((h, i) => {
                   const realIdx = i + 9
                   const m = tileMeta(h)
                   const isOn = realIdx === holeIdx
                   return (
                     <div key={h.id} onClick={() => setHoleIdx(realIdx)} style={{
-                      minWidth: 38, height: 50, borderRadius: 8, flexShrink: 0, cursor: 'pointer',
+                      flex: '1 1 0', minWidth: 0, height: 42, borderRadius: 7, cursor: 'pointer',
                       background: isOn ? '#16a34a' : m.bg,
                       border: `1.5px solid ${isOn ? '#14532d' : '#e5e2d9'}`,
                       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                      transform: isOn ? 'scale(1.1)' : 'scale(1)', transition: 'transform 0.12s',
+                      transform: isOn ? 'scale(1.06)' : 'scale(1)', transition: 'transform 0.12s',
                       boxShadow: isOn ? '0 4px 14px rgba(22,163,74,0.35)' : undefined,
                     }}>
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: isOn ? '#fff' : (m.color ?? '#6b7280') }}>{m.label}</div>
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 600, color: isOn ? '#e8c96a' : (m.color ?? '#9ca3af') }}>{m.sub}</div>
+                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: isOn ? '#fff' : (m.color ?? '#6b7280') }}>{m.label}</div>
+                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 8, fontWeight: 600, color: isOn ? '#e8c96a' : (m.color ?? '#9ca3af') }}>{m.sub}</div>
                     </div>
                   )
                 })}

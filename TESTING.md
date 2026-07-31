@@ -2085,3 +2085,87 @@ reconciliation, leaderboards, My HQ, messaging, profile photo upload,
 database schema, side-game logic — this pass added two refs and two
 `useEffect` hooks, nothing else. 82/82 scoring-domain tests still pass,
 same suite, same results.
+
+---
+
+## Sprint 5H — QA Fixes (Round 1)
+
+### Priority 1 — Profile photo "storage not configured"
+**Not a code bug — confirmed, not guessed.** The client already correctly
+translates a raw Supabase "Bucket not found" error into the friendly
+"Photo storage is not configured." message (verified in `ProfileForm.tsx`).
+Seeing that exact message is direct proof the raw error genuinely was
+"Bucket not found," which Supabase's Storage API only returns when the
+bucket id doesn't exist in that project. Same deployment gap as the
+`event_messages` saga — `profile_photos_deploy.sql` (already built,
+already verified correct: bucket name and all 4 RLS policies consistently
+say `profile-photos`, matching the upload code exactly) is the actual
+fix. No code change made here since none was needed.
+
+### Priority 2 — Scoring Anchor landing too low
+Replaced `scrollIntoView({ block: 'start' })` with a measured `scrollTop`
+calculation in both shells (`getBoundingClientRect()`-based, with an 8px
+top buffer) — exactly the fallback strategy Sprint 5G's own brief
+anticipated might be needed if `scrollIntoView` proved inconsistent.
+More deterministic across browsers than relying on the browser's own
+"align to nearest edge" heuristic.
+
+### Priority 3 & 8 — Hole strip clipping on Android
+Root cause: fixed pixel tile widths (34–38px) × 9 tiles + gaps exceeded
+common Android content widths (~344px after padding on a 360px-wide
+screen) — the math doesn't work out, not a rendering bug. Fixed by
+switching to `flex: '1 1 0'` tiles that divide available width equally
+across exactly 9 columns, in both shells' front-9 and back-9 strips —
+guarantees all 9 always fit on any screen width without needing a
+guessed pixel size or a scroll affordance, rather than picking a smaller
+number that might still fail on some device.
+
+### Priority 4 & 5 — Reconciliation navigation + anchor
+Added `?hole=N` deep-link support to `SelfMarkerScoreShell` (reads the
+URL param once `holes` data loads, jumps to that hole). "Review now" and
+"Review Score" in My HQ now link to
+`/trips/{tripId}/rounds/{roundId}?hole={the affected hole}` instead of
+the markers page. Traced through the effect ordering carefully before
+relying on it: the deep-link's `setHoleIdx()` call goes through the same
+`[holeIdx]`-dependent effect the Scoring Anchor already uses, so landing
+on the hole via deep-link automatically triggers the same repositioning
+— no separate special-case code needed. One honest caveat: the organiser
+can only actually *correct* the score if they're the player or marker
+for that scorecard (existing permission model, deliberately unchanged,
+per "do not change reconciliation rules") — this fix improves navigation
+target, not who can edit what.
+
+### Priority 6 — Immediate My HQ refresh
+After a successful score confirmation, `SelfMarkerScoreShell` now calls
+`queryClient.invalidateQueries()` on both the `tournament` and
+`leaderboard` query keys, rather than waiting for the 8s poll. Honest
+scope note: this helps within the same browser session (e.g. an
+organiser-who-is-also-playing resolving their own mismatch, a supported
+and common pattern in this app) — true cross-device instant push to a
+*different* organiser's separate session would need a realtime
+subscription, which is a materially bigger architectural change than
+this pass's scope ("prefer existing React Query cache invalidation").
+Round Summary corrections are automatically covered too, since editing a
+score there re-enters the same `confirmScore()` function — no separate
+handling needed.
+
+### Priority 7 — Manual chat messages failing
+Compared both call sites directly, line by line: `EventMessages.tsx`'s
+composer and `TournamentControl.tsx`'s Notify Group flow send an
+identical payload shape to the identical API route, differing only in
+`recipientType` ('all' vs 'group') and the absence/presence of a group
+id — both valid per the API's own validation and the database
+constraints. **I could not find a code-level difference that would
+explain one working and the other failing**, and per the explicit "do
+not guess" instruction, I did not invent a fix without evidence. Added
+message-length and a safe truncated content preview to the existing
+server-side error logging, so the next reproduction will show whether
+message content specifically is implicated. This needs a live
+reproduction + Vercel log check to actually resolve, which I cannot do
+from this sandbox.
+
+### Confirmed unchanged
+Stableford calculations, handicap allocation, marker logic,
+reconciliation rules, leaderboards, messaging architecture, My HQ
+architecture, database schema, side games, Moments, premium features.
+82/82 scoring-domain tests still pass, same suite.

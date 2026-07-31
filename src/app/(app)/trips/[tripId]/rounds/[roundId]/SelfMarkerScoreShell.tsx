@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'next/navigation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { calculateStableford } from '@/lib/scoring/stableford'
 import { getHandicapStrokesForHole } from '@/lib/scoring/strokeAllocation'
 import { compareCaptures, COMPARISON_LABEL, type ComparisonStatus, type CaptureValue } from '@/lib/scoring/comparison'
@@ -176,6 +177,23 @@ export default function SelfMarkerScoreShell({
   const [holes, setHoles] = useState<Hole[]>([])
   const [loadingHoles, setLoadingHoles] = useState(true)
   const [holeIdx, setHoleIdx] = useState(0)
+  const searchParams = useSearchParams()
+  const appliedDeepLinkRef = useRef(false)
+
+  // Deep-link support (Sprint 5H Priority 4/5): a "Review Now" link from
+  // My HQ can pass ?hole=N to land directly on the affected hole instead
+  // of always opening at Hole 1. Runs once, the first time `holes` is
+  // populated — guarded so it never re-fires and overrides the golfer's
+  // own subsequent navigation once they've started moving between holes.
+  useEffect(() => {
+    if (appliedDeepLinkRef.current || holes.length === 0) return
+    appliedDeepLinkRef.current = true
+    const targetHole = Number(searchParams?.get('hole'))
+    if (targetHole) {
+      const idx = holes.findIndex(h => h.hole_number === targetHole)
+      if (idx >= 0) setHoleIdx(idx)
+    }
+  }, [holes, searchParams])
 
   // Reposition to the Scoring Anchor whenever (and only whenever) the
   // active hole changes. useEffect's dependency array is the actual
@@ -187,7 +205,17 @@ export default function SelfMarkerScoreShell({
   // an unwanted scroll/jump before the golfer has done anything.
   useEffect(() => {
     if (!hasHydratedRef.current) { hasHydratedRef.current = true; return }
-    scoringAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const container = scrollContainerRef.current
+    const anchor = scoringAnchorRef.current
+    if (!container || !anchor) return
+    // Measured offset, not scrollIntoView — scrollIntoView's automatic
+    // "align to nearest edge" behavior was reported to land inconsistently
+    // low, clipping the top of the score card on some devices. This
+    // computes the anchor's position relative to the scroll container
+    // directly and sets scrollTop precisely, with a small top buffer (8px)
+    // so the card isn't flush against the very edge of the screen.
+    const anchorTop = anchor.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
+    container.scrollTo({ top: Math.max(0, anchorTop - 8), behavior: 'smooth' })
   }, [holeIdx])
   const [resumed, setResumed] = useState(false)
   const [showReconciliation, setShowReconciliation] = useState(false)
@@ -215,7 +243,9 @@ export default function SelfMarkerScoreShell({
   // behavior — the anchor always resolves to "wherever the score-entry
   // section currently is," not a fixed pixel position or "top of page."
   const scoringAnchorRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const hasHydratedRef = useRef(false)
+  const queryClient = useQueryClient()
   const confirmingRef = useRef(false)
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -460,6 +490,12 @@ export default function SelfMarkerScoreShell({
       }
       useSyncStore.getState().setPendingCount(await getPendingCount())
       void syncScoreQueue()
+      // Immediate refresh, not waiting for the next poll — matters most
+      // when the person confirming is also the organiser (a common setup
+      // in this app), so their own My HQ/leaderboard reflect the change
+      // right away rather than up to 8s later.
+      void queryClient.invalidateQueries({ queryKey: ['tournament', tripId, round.id] })
+      void queryClient.invalidateQueries({ queryKey: ['leaderboard', tripId, round.id] })
     } catch {
       showToast('Saved locally — will sync when online')
     }
@@ -747,14 +783,15 @@ export default function SelfMarkerScoreShell({
                 key={h.id}
                 onClick={() => setHoleIdx(idx)}
                 style={{
-                  minWidth: 34, height: 40, borderRadius: 7, flexShrink: 0, cursor: 'pointer',
+                  flex: '1 1 0', minWidth: 0, height: 36, borderRadius: 6, cursor: 'pointer',
                   background: bg, border: `1.5px solid ${isCurrent ? '#14532d' : '#e5e2d9'}`,
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  transform: isCurrent ? 'scale(1.08)' : 'scale(1)', transition: 'transform 0.12s',
+                  transform: isCurrent ? 'scale(1.06)' : 'scale(1)', transition: 'transform 0.12s',
+                  padding: 0,
                 }}
               >
-                <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: fg }}>{h.hole_number}</span>
-                <span style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, fontWeight: 600, color: fg }}>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: fg }}>{h.hole_number}</span>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: 8, fontWeight: 600, color: fg }}>
                   {c?.pickedUp ? 'P' : c?.grossScore ?? '–'}
                 </span>
               </button>
@@ -766,7 +803,12 @@ export default function SelfMarkerScoreShell({
               <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 0.6, color: front9Done ? '#16a34a' : '#9ca3af', marginBottom: 4 }}>
                 {front9Done ? `✓ FRONT 9 COMPLETE — ${front9Pts} PTS` : 'FRONT 9'}
               </div>
-              <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 6 }}>
+              {/* No overflowX/horizontal scroll here, deliberately — flex
+                  with flex-basis 0 divides the available width equally
+                  across exactly 9 tiles, so all nine always fit on any
+                  screen width without needing a guessed pixel size or a
+                  scroll affordance. */}
+              <div style={{ display: 'flex', gap: 3, marginBottom: 6 }}>
                 {front9.map((h) => renderTile(h, holes.indexOf(h)))}
               </div>
               {back9.length > 0 && (
@@ -774,7 +816,7 @@ export default function SelfMarkerScoreShell({
                   <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 0.6, color: '#9ca3af', marginBottom: 4 }}>
                     BACK 9
                   </div>
-                  <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 4 }}>
+                  <div style={{ display: 'flex', gap: 3, marginBottom: 4 }}>
                     {back9.map((h) => renderTile(h, holes.indexOf(h)))}
                   </div>
                 </>
@@ -790,7 +832,7 @@ export default function SelfMarkerScoreShell({
         </div>
       )}
 
-      <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px 90px', background: '#faf9f6' }}>
+      <div ref={scrollContainerRef} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px 90px', background: '#faf9f6' }}>
 
         {/* Scoring Anchor — the permanent resting point for every hole
             transition. Everything from here down (score-entry card(s),

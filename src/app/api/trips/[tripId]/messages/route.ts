@@ -135,7 +135,11 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   }).select().single()
 
   if (error) {
-    logAndMaskError('event-messages POST', error, { tripId, recipientType, recipientGroupId, recipientUserId, senderUserId: user.id })
+    logAndMaskError('event-messages POST', error, {
+      tripId, recipientType, recipientGroupId, recipientUserId, senderUserId: user.id,
+      messageLength: message.trim().length,
+      messagePreview: message.trim().slice(0, 40),
+    })
     return NextResponse.json({ error: 'Notifications are temporarily unavailable. Please try again.' }, { status: 500 })
   }
 
