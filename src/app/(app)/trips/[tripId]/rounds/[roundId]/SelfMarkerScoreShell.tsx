@@ -700,21 +700,55 @@ export default function SelfMarkerScoreShell({
           </div>
         )}
 
-        {mismatches.length === 0 && pending.length === 0 && (
-          <div style={{ textAlign: 'center', color: '#16a34a', fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, marginBottom: 16 }}>
-            ✓ All {holes.length} holes matched — ready to submit.
-          </div>
-        )}
+        {mismatches.length === 0 && pending.length === 0 && (() => {
+          // Future-ready result states (QA brief item 4) — only "waiting"
+          // is real today, since there's no results-publishing engine yet.
+          // Structured so a later pass can add 'finalising'/'published'
+          // without reworking this component, per the explicit
+          // "do not build a new results-publishing engine in this pass."
+          const resultState: 'waiting' | 'finalising' | 'published' = 'waiting'
+          return (
+            <div style={{ textAlign: 'center', marginBottom: 16 }}>
+              <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800, marginBottom: 6 }}>
+                Round Complete
+              </div>
+              <div style={{ fontFamily: 'var(--font-body)', color: '#374151', fontSize: 13.5, lineHeight: 1.6, marginBottom: 10 }}>
+                Your scoring is complete. All {holes.length} holes have been entered and verified.
+                {resultState === 'waiting' && <> Please wait while the organiser finalises the results. You&apos;ll be notified when the official results are published.</>}
+              </div>
+              <div style={{ color: '#16a34a', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, marginBottom: 16 }}>
+                ✓ All scores matched
+              </div>
+              <Link href={`/trips/${tripId}/leaderboard`} style={{
+                display: 'block', padding: 13, borderRadius: 10, marginBottom: 8,
+                background: '#14532d', color: '#fff', textDecoration: 'none',
+                fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14,
+              }}>
+                View Live Leaderboard
+              </Link>
+              <Link href={`/trips/${tripId}`} style={{
+                display: 'block', textAlign: 'center', fontFamily: 'var(--font-body)',
+                fontSize: 12.5, color: '#9ca3af', textDecoration: 'none',
+              }}>
+                Return to Event
+              </Link>
+            </div>
+          )
+        })()}
 
-        <button
-          onClick={() => setShowReconciliation(false)}
-          style={{ width: '100%', padding: 12, background: '#ffffff', border: '1.5px solid #d1d5db', borderRadius: 10, color: '#14532d', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, marginBottom: 10 }}
-        >
-          ← Back to scoring
-        </button>
-        <Link href={`/trips/${tripId}`} style={{ display: 'block', textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', textDecoration: 'none' }}>
-          Return to trip overview
-        </Link>
+        {(mismatches.length > 0 || pending.length > 0) && (
+          <>
+            <button
+              onClick={() => setShowReconciliation(false)}
+              style={{ width: '100%', padding: 12, background: '#ffffff', border: '1.5px solid #d1d5db', borderRadius: 10, color: '#14532d', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, marginBottom: 10 }}
+            >
+              ← Back to scoring
+            </button>
+            <Link href={`/trips/${tripId}`} style={{ display: 'block', textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', textDecoration: 'none' }}>
+              Return to trip overview
+            </Link>
+          </>
+        )}
       </div>
     )
   }
@@ -748,84 +782,6 @@ export default function SelfMarkerScoreShell({
         {hole && <HoleBadges hole={hole} />}
       </div>
 
-      {/* ── Compact score strip — Part 2, the highest-value addition here.
-          Front 9 / Back 9 tiles, current hole highlighted, tap to jump
-          where existing scoring permissions already allow (setHoleIdx is
-          the same function the header/swipe navigation already uses — no
-          new navigation rule introduced). Shows MY confirmed self-entries
-          only, reusing calculateStableford() — the same function
-          myRunningTotal already calls, not a second calculation. ────────── */}
-      <div style={{ padding: '8px 16px 4px', borderBottom: '1px solid #eceae3' }}>
-        {(() => {
-          const front9 = holes.filter(h => h.hole_number <= 9)
-          const back9 = holes.filter(h => h.hole_number > 9)
-          const front9Pts = front9.reduce((s, h) => {
-            const c = mySelf[h.hole_number]
-            if (!c || c.pickedUp || c.grossScore === null) return s
-            return s + calculateStableford({ grossScore: c.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp })
-          }, 0)
-          const front9Done = front9.every(h => {
-            const c = mySelf[h.hole_number]
-            return !!c && (c.pickedUp || c.grossScore !== null)
-          })
-
-          function renderTile(h: Hole, idx: number) {
-            const c = mySelf[h.hole_number]
-            const isCurrent = idx === holeIdx
-            const hasScore = c && (c.pickedUp || c.grossScore !== null)
-            const pts = hasScore && !c!.pickedUp && c!.grossScore !== null
-              ? calculateStableford({ grossScore: c!.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp })
-              : null
-            const bg = isCurrent ? '#16a34a' : hasScore ? (pts !== null ? stripPtsBackground(pts) : '#fdf3d9') : '#f3f4f6'
-            const fg = isCurrent ? '#fff' : hasScore ? (pts !== null ? stripPtsColor(pts) : '#a1791f') : '#9ca3af'
-            return (
-              <button
-                key={h.id}
-                onClick={() => setHoleIdx(idx)}
-                style={{
-                  flex: '1 1 0', minWidth: 0, height: 36, borderRadius: 6, cursor: 'pointer',
-                  background: bg, border: `1.5px solid ${isCurrent ? '#14532d' : '#e5e2d9'}`,
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  transform: isCurrent ? 'scale(1.06)' : 'scale(1)', transition: 'transform 0.12s',
-                  padding: 0,
-                }}
-              >
-                <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: fg }}>{h.hole_number}</span>
-                <span style={{ fontFamily: 'var(--font-body)', fontSize: 8, fontWeight: 600, color: fg }}>
-                  {c?.pickedUp ? 'P' : c?.grossScore ?? '–'}
-                </span>
-              </button>
-            )
-          }
-
-          return (
-            <>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 0.6, color: front9Done ? '#16a34a' : '#9ca3af', marginBottom: 4 }}>
-                {front9Done ? `✓ FRONT 9 COMPLETE — ${front9Pts} PTS` : 'FRONT 9'}
-              </div>
-              {/* No overflowX/horizontal scroll here, deliberately — flex
-                  with flex-basis 0 divides the available width equally
-                  across exactly 9 tiles, so all nine always fit on any
-                  screen width without needing a guessed pixel size or a
-                  scroll affordance. */}
-              <div style={{ display: 'flex', gap: 3, marginBottom: 6 }}>
-                {front9.map((h) => renderTile(h, holes.indexOf(h)))}
-              </div>
-              {back9.length > 0 && (
-                <>
-                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 0.6, color: '#9ca3af', marginBottom: 4 }}>
-                    BACK 9
-                  </div>
-                  <div style={{ display: 'flex', gap: 3, marginBottom: 4 }}>
-                    {back9.map((h) => renderTile(h, holes.indexOf(h)))}
-                  </div>
-                </>
-              )}
-            </>
-          )
-        })()}
-      </div>
-
       {toast && (
         <div style={{ position: 'fixed', top: 72, left: '50%', transform: 'translateX(-50%)', zIndex: 200, background: 'rgba(10,30,18,0.97)', border: '1px solid rgba(201,168,76,0.66)', borderRadius: 22, padding: '8px 18px' }}>
           <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#e8c96a', fontWeight: 700 }}>● {toast}</span>
@@ -833,6 +789,87 @@ export default function SelfMarkerScoreShell({
       )}
 
       <div ref={scrollContainerRef} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px 90px', background: '#faf9f6' }}>
+
+        {/* ── Compact score strip — Part 2, the highest-value addition here.
+            Moved inside the scrollable region, above the Scoring Anchor
+            (QA fix): previously this sat in fixed, always-visible chrome
+            above the scrollable area, eating vertical space and pushing
+            the actual scoring controls down/off-screen on short Android
+            viewports. Now it's the first thing in normal scroll flow —
+            scrolled away by default since the anchor lands below it, and
+            reachable by scrolling up, matching "default view = enter
+            scores, scroll up = review the round." Front 9 / Back 9 tiles,
+            current hole highlighted, tap to jump where existing scoring
+            permissions already allow (setHoleIdx is the same function the
+            header/swipe navigation already uses — no new navigation rule
+            introduced). Shows MY confirmed self-entries only, reusing
+            calculateStableford() — the same function myRunningTotal
+            already calls, not a second calculation. ────────────────────── */}
+        <div style={{ padding: '0 0 12px', borderBottom: '1px solid #eceae3', marginBottom: 12 }}>
+          {(() => {
+            const front9 = holes.filter(h => h.hole_number <= 9)
+            const back9 = holes.filter(h => h.hole_number > 9)
+            const front9Pts = front9.reduce((s, h) => {
+              const c = mySelf[h.hole_number]
+              if (!c || c.pickedUp || c.grossScore === null) return s
+              return s + calculateStableford({ grossScore: c.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp })
+            }, 0)
+            const front9Done = front9.every(h => {
+              const c = mySelf[h.hole_number]
+              return !!c && (c.pickedUp || c.grossScore !== null)
+            })
+
+            function renderTile(h: Hole, idx: number) {
+              const c = mySelf[h.hole_number]
+              const isCurrent = idx === holeIdx
+              const hasScore = c && (c.pickedUp || c.grossScore !== null)
+              const pts = hasScore && !c!.pickedUp && c!.grossScore !== null
+                ? calculateStableford({ grossScore: c!.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp })
+                : null
+              const bg = isCurrent ? '#16a34a' : hasScore ? (pts !== null ? stripPtsBackground(pts) : '#fdf3d9') : '#f3f4f6'
+              const fg = isCurrent ? '#fff' : hasScore ? (pts !== null ? stripPtsColor(pts) : '#a1791f') : '#9ca3af'
+              return (
+                <button
+                  key={h.id}
+                  onClick={() => setHoleIdx(idx)}
+                  style={{
+                    flex: '1 1 0', minWidth: 0, height: 36, borderRadius: 6, cursor: 'pointer',
+                    background: bg, border: `1.5px solid ${isCurrent ? '#14532d' : '#e5e2d9'}`,
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                    transform: isCurrent ? 'scale(1.06)' : 'scale(1)', transition: 'transform 0.12s',
+                    padding: 0,
+                  }}
+                >
+                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: fg }}>{h.hole_number}</span>
+                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 8, fontWeight: 600, color: fg }}>
+                    {c?.pickedUp ? 'P' : c?.grossScore ?? '–'}
+                  </span>
+                </button>
+              )
+            }
+
+            return (
+              <>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 0.6, color: front9Done ? '#16a34a' : '#9ca3af', marginBottom: 4 }}>
+                  {front9Done ? `✓ FRONT 9 COMPLETE — ${front9Pts} PTS` : 'FRONT 9'}
+                </div>
+                <div style={{ display: 'flex', gap: 3, marginBottom: 6 }}>
+                  {front9.map((h) => renderTile(h, holes.indexOf(h)))}
+                </div>
+                {back9.length > 0 && (
+                  <>
+                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 0.6, color: '#9ca3af', marginBottom: 4 }}>
+                      BACK 9
+                    </div>
+                    <div style={{ display: 'flex', gap: 3, marginBottom: 4 }}>
+                      {back9.map((h) => renderTile(h, holes.indexOf(h)))}
+                    </div>
+                  </>
+                )}
+              </>
+            )
+          })()}
+        </div>
 
         {/* Scoring Anchor — the permanent resting point for every hole
             transition. Everything from here down (score-entry card(s),

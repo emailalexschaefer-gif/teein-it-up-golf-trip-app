@@ -2276,3 +2276,167 @@ correct; they were just failing as a side effect of the missing column.
 ### Confirmed unchanged
 Scoring, Stableford, marker, reconciliation, leaderboard, messaging.
 82/82 scoring-domain tests still pass.
+
+---
+
+## Shareable Event Invitation
+
+### What changed
+`TripDetailClient.tsx`'s "Invite via link" button now generates a
+branded, personalized message (event name + real event-type phrasing)
+instead of sharing a bare URL. Uses the trip's actual `event_type`
+column (already reliably stored, with a fixed set of real values) to
+pick natural phrasing — "corporate golf event," "charity golf day,"
+"golf day," "social round" — rather than reusing the existing
+`EVENT_TYPE_OPTIONS` UI-chip labels as-is, since "Corporate Day" reads
+fine as a badge but not as a sentence. Falls back to "golf event" only
+when the type is null or unmapped, per the explicit instruction.
+
+Both paths now use the full message, not just the URL:
+- **Web Share API** (`navigator.share`): passes the branded text
+  separately from the URL, so share targets that support rich sharing
+  (WhatsApp, Messages, email) get both.
+- **Clipboard fallback**: copies the complete message (text + URL
+  together), not the bare link, with the exact confirmation text
+  requested ("Invitation copied — ready to share").
+
+Added supporting copy beneath the button, matching the suggested wording.
+The separate join-code backup method is unchanged.
+
+### Explicitly not touched
+The `/join/[code]` route, its auth flow, and the join-code backup method
+— per "do not modify the working join logic unless required to construct
+the share URL," and it wasn't required; only the message construction on
+the trip page changed.
+
+### Manual test steps (cannot be run from this sandbox — no device/browser
+access)
+1. Android: tap Invite via link — confirm the native share sheet opens
+   with the branded message and link both present, for WhatsApp and SMS.
+2. Cancel the share sheet — confirm no error/toast (a cancel isn't a
+   failure).
+3. Desktop (no Web Share support): confirm the clipboard fallback copies
+   the full message including the link, and the exact confirmation text
+   shows.
+4. Open the shared link as a new player — confirm signup still works and
+   lands them in the correct trip.
+5. Open the shared link as an existing player (already logged in) —
+   confirms the join flow still works.
+6. Confirm the message text changes appropriately for a different
+   `event_type` (e.g. create a charity_day trip and confirm the message
+   says "charity golf day").
+
+### Confirmed unchanged
+Join/auth logic, scoring, Stableford, marker, reconciliation, leaderboard,
+messaging. 82/82 scoring-domain tests still pass.
+
+---
+
+## QA & Workflow Fixes Consolidated
+
+### Item 1/2/3 — Scoring workspace resting position, Android fit, hole strip
+
+**Real structural bug found, not a tuning issue.** The compact score
+strip sat in fixed, always-visible chrome (alongside the hole header)
+*outside* the scrollable region entirely — eating a large, non-scrolling
+chunk of vertical space before the scoring cards even started, which is
+exactly why the resting position could land "too high or too low" and
+why the confirm button could be cut off on shorter Android viewports:
+there simply wasn't enough remaining height for the actual scoring
+workspace after two blocks of fixed chrome. Root cause confirmed by
+reading the actual JSX structure, not guessed.
+
+**Fix:** moved the entire compact strip to be the first thing *inside*
+the scrollable container, directly above the Scoring Anchor. Now:
+- The anchor's scroll lands the scoring cards at the top of the viewport
+  by default — the strip is scrolled away above it, exactly matching
+  "default view = enter scores, scroll up = review the round."
+- The fixed header above the scrollable area now only contains the
+  compact hole-number/total/badges line — freeing significant vertical
+  space back for the actual scoring cards on short viewports.
+- `ScoreSessionShell` was checked and already had this correct structure
+  (strip inside the scroll region, above its anchor) — no change needed
+  there; only `SelfMarkerScoreShell` had the bug.
+- The 9-tile flex-fill fix from the prior QA round (guarantees all 9
+  holes fit any screen width) is unchanged and still applies.
+
+Applied consistently: since this is a structural fix to where the strip
+and anchor sit, it automatically covers every entry path already wired
+to the anchor (initial load, Next/Previous, strip tap, auto-advance,
+reconciliation deep-link, My HQ deep-link, Round Summary return) — no
+per-path special-casing needed.
+
+### Item 4 — Round Completion messaging
+Replaced the ambiguous "ready to submit" message with the exact
+requested "Round Complete" state, "View Live Leaderboard" (primary) and
+"Return to Event" (secondary) actions. Structured with a `resultState`
+variable (`'waiting' | 'finalising' | 'published'`, only `'waiting'`
+implemented) so a later pass can add the other states without reworking
+this component — no publishing engine built, per the explicit
+instruction.
+
+### Item 5 — Shareable invitation
+Already completed and verified in the previous pass — no changes needed
+this round.
+
+### Item 6 — Manual player chat (the largest item this pass)
+**Root cause:** chat was never actually implemented as its own message
+type — every send, regardless of who sent it, went through the
+organiser-only INSERT policy and API check. An ordinary player's message
+was rejected before reaching the database, surfacing as a generic 500.
+
+**Fix, three parts:**
+- **New migration** `027_chat_participant_messages.sql` (+ matching
+  standalone deploy script) — adds a *second*, narrower INSERT policy:
+  any confirmed trip member may insert `message_type = 'chat_message'`
+  targeting `recipient_type = 'group'`, but only their *own* group
+  (checked via `trip_members.group_id`). The existing organiser policy
+  for announcements/notifications is completely untouched.
+- **API** (`messages/route.ts`): POST now branches on `messageType ===
+  'chat_message'` — chat gets its own permission path (any member, own
+  group only, server-side checked in addition to RLS) entirely separate
+  from the organiser path, which is unchanged. Error wording is now
+  differentiated: chat failures say "Message couldn't be sent. Please
+  try again."; organiser notification failures keep "Notifications are
+  temporarily unavailable." — never the wrong one for the wrong context.
+- **Client** (`EventMessages.tsx`, `chat/page.tsx`): a new chat composer
+  visible to *any* member with a group (not gated on `isOrganiser`),
+  fixed to "My Group" since no per-trip setting exists yet to enable
+  event-wide participant chat — matching "Everyone, only where enabled"
+  with nothing enabling it. Sends show immediately via
+  `queryClient.setQueryData` (the real returned row, not a fake temp
+  one), then a background invalidate keeps the list eventually
+  consistent with everyone else's messages — same real id in both, so no
+  duplicate ever appears. Each message now shows Chat/Announcement/
+  Notification as a kind label, addressing the "reserve 'notification'
+  wording for operational messages" requirement directly in the UI too.
+
+### Item 7, 8, 9 — My HQ review navigation, reconciliation anchor,
+immediate refresh
+Already completed and verified in the Sprint 5H pass — checked again
+this round to confirm still correct, no changes needed.
+
+### Item 10 — Profile deployment issues
+- **Schema/storage deployment scripts**: already exist from prior
+  passes (`profile_about_me_deploy.sql`, `profile_photos_deploy.sql`) —
+  still the correct, pending manual step.
+- **Query error handling — genuinely fixed this pass**: the profile
+  page's query previously ignored its own `error` field entirely,
+  silently treating a failed select (e.g. from a missing column) as a
+  blank profile. Now checked explicitly: full detail logged server-side,
+  friendly "Your profile couldn't be loaded. Please try again." shown to
+  the user instead of silently blank fields.
+- **Name fallback chain — extended to the full requested order**:
+  `profiles.full_name` → `user_metadata.full_name` → `user_metadata.name`
+  → neutral placeholder (only when all three are empty). Self-heals the
+  profiles row on recovery so this only needs to happen once per account.
+
+### Explicitly not touched, per item 11
+My HQ visual design, fonts, card styling, corner radiuses, shadows,
+Event Story, Moments/media uploads, Powerplays, side competitions, or
+navigation redesign.
+
+### Confirmed unchanged
+Stableford calculations, handicap allocation, marker pairings,
+reconciliation rules, leaderboard ranking, existing event permissions,
+join-link security. 82/82 scoring-domain tests still pass.

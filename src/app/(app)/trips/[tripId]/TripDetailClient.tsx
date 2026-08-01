@@ -191,12 +191,32 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
               }}
               onClick={async () => {
                 const url = `${window.location.origin}/join/${trip.invite_code}`
+                // Natural-language event-type phrasing for the invite
+                // message specifically — deliberately not reusing
+                // EVENT_TYPE_OPTIONS' labels ("Corporate Day") as-is,
+                // since those read as UI chips, not as something you'd
+                // say in a sentence ("corporate golf event" reads
+                // naturally; "Corporate Day" doesn't). Falls back to the
+                // universal "golf event" only when the type is null/
+                // unmapped, per the explicit instruction — every other
+                // real, known event_type gets its own real phrase.
+                const eventPhrase: Record<string, string> = {
+                  golf_trip: 'golf trip',
+                  corporate_day: 'corporate golf event',
+                  charity_day: 'charity golf day',
+                  golf_society: 'golf day',
+                  bucks_weekend: 'social round',
+                }
+                const phrase = (trip.event_type && eventPhrase[trip.event_type]) || 'golf event'
+                const shareText = `You've been invited to ${trip.name} with Teein' It Up! ⛳\n\nJoin the ${phrase} using the link below:`
+                const fullMessage = `${shareText}\n\n${url}`
+
                 if (navigator.share) {
-                  try { await navigator.share({ title: `Join ${trip.name}`, url }); toast('Shared!', 'success') }
+                  try { await navigator.share({ title: `Join ${trip.name}`, text: shareText, url }); toast('Shared!', 'success') }
                   catch { /* user cancelled */ }
                 } else {
-                  try { await navigator.clipboard.writeText(url); toast('Invitation link copied', 'success') }
-                  catch { toast('Could not copy link', 'error') }
+                  try { await navigator.clipboard.writeText(fullMessage); toast('Invitation copied — ready to share', 'success') }
+                  catch { toast('Could not copy invitation', 'error') }
                 }
               }}
             >
@@ -206,6 +226,10 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
                 color: '#0f2d1c', letterSpacing: 0.3,
               }}>Invite via link</span>
             </button>
+            <div style={{
+              fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.4)',
+              fontSize: 11, textAlign: 'center', marginTop: -4, marginBottom: 8,
+            }}>Share a ready-made invitation through WhatsApp, text, email or your favourite app.</div>
 
             {/* Divider */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>

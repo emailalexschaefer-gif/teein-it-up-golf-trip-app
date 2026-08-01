@@ -113,15 +113,35 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   if (!['all', 'group', 'player'].includes(recipientType ?? '')) {
     return NextResponse.json({ error: 'Invalid recipient type.' }, { status: 400 })
   }
+
+  const isChat = messageType === 'chat_message'
   const resolvedType = messageType ?? (recipientType === 'all' ? 'announcement' : recipientType === 'group' ? 'group_notification' : 'player_notification')
 
-  // Server-side organiser check — RLS enforces this too, but checking here
-  // first lets us return a clear error message instead of a bare RLS denial.
   const { data: membership } = await supabase
-    .from('trip_members').select('role')
+    .from('trip_members').select('role, group_id')
     .eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
-  if (membership?.role !== 'organiser') {
-    return NextResponse.json({ error: 'Only the organiser can send announcements or notifications.' }, { status: 403 })
+
+  if (isChat) {
+    // Ordinary participant chat — differentiated from organiser
+    // announcements/notifications per the explicit message-model
+    // requirement. Any confirmed trip member may send, but only to their
+    // own group (server-side check here, in addition to RLS, so a wrong
+    // attempt gets a clear reason rather than a bare denial). No "event-
+    // wide" option for participants yet — there's no per-trip setting to
+    // enable that, so only 'group' is accepted from chat sends.
+    if (!membership) return NextResponse.json({ error: 'You are not a member of this event.' }, { status: 403 })
+    if (recipientType !== 'group') {
+      return NextResponse.json({ error: 'Chat messages can only be sent to your group right now.' }, { status: 400 })
+    }
+    if (!membership.group_id || membership.group_id !== recipientGroupId) {
+      return NextResponse.json({ error: 'You can only message your own group.' }, { status: 403 })
+    }
+  } else {
+    // Announcements and targeted organiser notifications — unchanged
+    // behavior from before this pass, organiser-only.
+    if (membership?.role !== 'organiser') {
+      return NextResponse.json({ error: 'Only the organiser can send announcements or notifications.' }, { status: 403 })
+    }
   }
 
   const { data, error } = await supabase.from('event_messages').insert({
@@ -136,15 +156,20 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
 
   if (error) {
     logAndMaskError('event-messages POST', error, {
-      tripId, recipientType, recipientGroupId, recipientUserId, senderUserId: user.id,
+      tripId, recipientType, recipientGroupId, recipientUserId, senderUserId: user.id, messageType: resolvedType,
       messageLength: message.trim().length,
       messagePreview: message.trim().slice(0, 40),
     })
-    return NextResponse.json({ error: 'Notifications are temporarily unavailable. Please try again.' }, { status: 500 })
+    // Reserve "notification" wording for actual organiser notifications —
+    // an ordinary chat failure should never say "notification."
+    return NextResponse.json(
+      { error: isChat ? "Message couldn't be sent. Please try again." : 'Notifications are temporarily unavailable. Please try again.' },
+      { status: 500 },
+    )
   }
 
   console.log('event message inserted', {
-    id: data.id, tripId: data.trip_id, recipientType: data.recipient_type, recipientGroupId: data.recipient_group_id,
+    id: data.id, tripId: data.trip_id, recipientType: data.recipient_type, recipientGroupId: data.recipient_group_id, messageType: data.message_type,
   })
 
   return NextResponse.json({ ok: true, sentMessage: data })

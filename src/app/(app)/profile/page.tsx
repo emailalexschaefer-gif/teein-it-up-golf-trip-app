@@ -13,23 +13,42 @@ export default async function ProfilePage() {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db: any = supabase
-  const { data: profile } = await db
+  const { data: profile, error: profileError } = await db
     .from('profiles')
     .select('full_name, email, avatar_url, handicap, location, bio, occupation, company, golf_club, interests, ask_me_about')
     .eq('id', user.id)
     .single()
 
-  // Resilient name resolution (Sprint 5I QA Issue 1/4): profiles.full_name
-  // should already be populated at signup (both the signup and join-by-
-  // invite-code forms collect it, and the handle_new_user() trigger
-  // stores it) — but for an account created before that collection
-  // existed, or created directly rather than through either app flow,
-  // profiles.full_name can be genuinely empty even though the auth user's
-  // own metadata still has it. Fall back to that, and self-heal the
-  // profiles row so this only ever needs to happen once per account.
+  // Do NOT silently treat a failed query as a blank profile — this was
+  // the actual root cause of "email populated, name isn't" in the last QA
+  // round (a missing column made the whole select fail, and every field
+  // quietly fell back to empty since the error was never checked). Now
+  // surfaced explicitly: full detail logged server-side, a friendly
+  // message shown to the user instead of guessing at blank defaults.
+  if (profileError) {
+    console.error('[profile page] Could not load profile', {
+      code: profileError.code, message: profileError.message,
+      details: profileError.details, hint: profileError.hint,
+      userId: user.id,
+    })
+    return (
+      <div style={{ textAlign: 'center', padding: '48px 20px' }}>
+        <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 14 }}>
+          Your profile couldn&apos;t be loaded. Please try again.
+        </p>
+      </div>
+    )
+  }
+
+  // Resilient name resolution (Sprint 5I QA), full 4-step order:
+  // 1. profiles.full_name, 2. auth user_metadata.full_name, 3. auth
+  // user_metadata.name, 4. neutral fallback (handled by ProfileForm's own
+  // `{name || 'Your name'}`, only reached when steps 1-3 all come up
+  // empty). Self-heals the profiles row on step 2/3 so this only needs to
+  // happen once per account.
   let resolvedName: string = profile?.full_name ?? ''
   if (!resolvedName.trim()) {
-    const metaName = (user.user_metadata?.full_name as string | undefined)?.trim()
+    const metaName = ((user.user_metadata?.full_name ?? user.user_metadata?.name) as string | undefined)?.trim()
     if (metaName) {
       resolvedName = metaName
       await db.from('profiles').update({ full_name: metaName }).eq('id', user.id)
