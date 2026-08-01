@@ -19,6 +19,23 @@ export default async function ProfilePage() {
     .eq('id', user.id)
     .single()
 
+  // Resilient name resolution (Sprint 5I QA Issue 1/4): profiles.full_name
+  // should already be populated at signup (both the signup and join-by-
+  // invite-code forms collect it, and the handle_new_user() trigger
+  // stores it) — but for an account created before that collection
+  // existed, or created directly rather than through either app flow,
+  // profiles.full_name can be genuinely empty even though the auth user's
+  // own metadata still has it. Fall back to that, and self-heal the
+  // profiles row so this only ever needs to happen once per account.
+  let resolvedName: string = profile?.full_name ?? ''
+  if (!resolvedName.trim()) {
+    const metaName = (user.user_metadata?.full_name as string | undefined)?.trim()
+    if (metaName) {
+      resolvedName = metaName
+      await db.from('profiles').update({ full_name: metaName }).eq('id', user.id)
+    }
+  }
+
   // Teein' It Up Role — computed from actual trip_members rows across all
   // of this user's trips, not stored redundantly. A user who organises at
   // least one trip and also plays in at least one (possibly the same one)
@@ -38,7 +55,7 @@ export default async function ProfilePage() {
       <ProfileForm
         userId={user.id}
         authEmail={user.email ?? ''}
-        initialName={profile?.full_name ?? ''}
+        initialName={resolvedName}
         initialEmail={profile?.email ?? user.email ?? ''}
         initialHandicap={profile?.handicap ?? null}
         avatarUrl={profile?.avatar_url ?? null}

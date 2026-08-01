@@ -2217,3 +2217,62 @@ whether this belongs on Round Summary instead, rather than me guessing.
 Existing profile functionality, scoring/handicap/marker/reconciliation
 logic, leaderboard ranking, messaging architecture. 82/82 scoring-domain
 tests still pass.
+
+---
+
+## Sprint 5I QA — Profile Integration Fixes
+
+### Issue 1 & 4 — "Your name" placeholder / name not populated
+
+Traced this all the way through rather than just patching the symptom.
+The Identity Card's `{name || 'Your name'}` fallback is itself correct
+behavior for a genuinely-empty name — the real question was *why* name
+was empty when email wasn't. Checked the signup and join-by-invite-code
+forms and the `handle_new_user()` trigger: all three correctly collect
+and store `full_name` today, so a normal new signup shouldn't hit this.
+
+The likely explanation, and the one the fix addresses either way: the
+page's own profile query selects `ask_me_about` (Issue 3's column)
+alongside every other field in one `.select(...)` call, but **doesn't
+check the query's `error` field** — if that column doesn't exist in
+production, the entire select fails and `profile` comes back `null`,
+silently blanking every field it feeds. Email still displayed because it
+has its own separate fallback to `user.email` (from auth, not the
+profiles table); name had no equivalent fallback. That fully explains
+"email populated, name isn't" as a single root cause, not two.
+
+**Fix:** `page.tsx` now falls back to the authenticated user's own
+`user_metadata.full_name` when the profile's stored name is empty, and
+self-heals the `profiles` row so this only happens once per account —
+directly implementing the requested "initialise it from the auth profile
+where possible, then let the user edit it." This resolves the symptom
+immediately, and combined with actually running the migration (Issue 3),
+resolves the underlying cause too.
+
+### Issue 2 — Photo upload "storage not configured"
+Same conclusion as before, re-confirmed: this message is direct proof the
+`profile-photos` bucket doesn't exist in production. No code issue found
+or changed. `profile_photos_deploy.sql` (already built, already verified
+correct) is the fix.
+
+### Issue 3 — "Could not find the 'ask_me_about' column"
+Same deployment-gap pattern as `event_messages` and the storage bucket —
+migration 026 is correct but wasn't applied to the live database. Added
+**`supabase/profile_about_me_deploy.sql`** — a standalone, idempotent
+script (identical content to migration 026) plus `NOTIFY pgrst, 'reload
+schema'` and verification queries, matching the exact pattern already
+proven to work for the other two integration issues this session.
+
+### Issue 4 — Profile initialisation on first load
+Addressed by the same fix as Issue 1 above — the auth-metadata fallback
+covers "name should already be populated where possible." Email was
+already correctly populated via its own fallback. Once the migration
+above is applied, the full select will succeed and every other field
+(bio, occupation, company, golf_club, interests, ask_me_about) will load
+correctly from the database on refresh — no additional code change
+needed for those, since the existing query and prop-passing were already
+correct; they were just failing as a side effect of the missing column.
+
+### Confirmed unchanged
+Scoring, Stableford, marker, reconciliation, leaderboard, messaging.
+82/82 scoring-domain tests still pass.
