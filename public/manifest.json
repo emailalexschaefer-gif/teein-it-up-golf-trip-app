@@ -1,0 +1,15 @@
+{
+  "name": "Teein' It Up",
+  "short_name": "Teein' It Up",
+  "description": "Run your golf trip like a pro — live scoring, leaderboards, and event management.",
+  "display": "standalone",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "background_color": "#faf9f6",
+  "theme_color": "#0f2d1c",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

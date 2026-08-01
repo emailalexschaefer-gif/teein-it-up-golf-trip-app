@@ -2440,3 +2440,87 @@ navigation redesign.
 Stableford calculations, handicap allocation, marker pairings,
 reconciliation rules, leaderboard ranking, existing event permissions,
 join-link security. 82/82 scoring-domain tests still pass.
+
+---
+
+## Four Focused Fixes
+
+### 1. Profile deployment
+No code change — the deploy scripts already exist and are correct
+(`profile_about_me_deploy.sql`, `profile_photos_deploy.sql`). Re-stating
+plainly: these still need to be run against whichever Supabase project
+production actually points to. I cannot do this from this sandbox.
+
+### 2. Organiser event-wide announcements failing (group chat working)
+**A strong, evidence-based hypothesis, not a guess:** checked my own
+migration/deploy scripts and confirmed they consistently use `recipient_
+type IN ('all', 'group', 'player')`. But an *earlier* draft of guidance
+for this exact table (from several turns back in this project's history)
+used `'event'` as the recipient_type value instead of `'all'`. If that
+earlier version was ever run against production before my corrected
+script, the live constraint could still say
+`CHECK (recipient_type IN ('event','group','player'))` — which would
+reject `'all'` (organiser announcements) while still accepting `'group'`
+(ordinary chat), exactly matching the reported symptom. This also fits
+the observed error text: a 403 "Only the organiser can send..." was
+never seen (which would indicate a role-recognition problem) — only the
+generic masked failure, consistent with a database constraint violation
+during INSERT, not a permission check failing.
+
+**Fix:** added explicit detection and a detailed, actionable log message
+for Postgres error code `23514` (check constraint violation) pointing
+directly at this scenario. Added a prominent warning at the top of
+`event_messages_deploy.sql` explaining why re-running it is necessary
+even if group chat already works — it DROPs and re-ADDs the constraint
+with the correct `'all'` value, which resolves this exact mismatch if
+it's the cause.
+
+Also added the requested clear section labels: "Event Announcement ·
+organiser-only, sent to everyone" and "Group Chat · {group name}" —
+directly above their respective composers, so the two are visually
+unmistakable, not just functionally separated as they already were.
+
+Checked for a stale/duplicate composer calling an older API shape:
+confirmed only `EventMessages.tsx`, `TournamentControl.tsx`, and
+`TripBottomNav.tsx` call this endpoint, and all three use the current
+payload shape — no old code path found.
+
+### 3. Scoring workspace still too tall
+Compacted `ScoreCard` per the exact list requested, without changing
+colors, typography, or the visual design system:
+- Card header padding: 6px 14px → 5px 12px
+- Score number: 44px → 38px; gap below it: 6px → 3px
+- Plus/minus buttons: 48×48 → 44×44 (still comfortably above the 44px
+  minimum touch-target guideline)
+- Pick Up button: tighter padding, tighter margin above it
+- PAR/SHOTS/TOTAL tiles: padding 7px → 5px, numbers 15-16px → 14-15px
+- Gap between the two cards: 10px → 6px
+- Confirm Score button: padding 14→13, margin above 8→6
+
+### 4. PWA standalone installation
+Found no manifest existed at all — `appleWebApp` metadata was already
+present (iOS-specific), but nothing for Android/general PWA install.
+Added:
+- `public/manifest.json` — `"display": "standalone"`, correct `start_
+  url`/`scope`, theme/background colors, and properly-sized 192×192 and
+  512×512 icons generated from the existing brand icon.
+- Wired `manifest` and `icons` into the root layout's `Metadata` export.
+- Added `viewportFit: 'cover'` to the viewport config for correct
+  safe-area handling on notched devices when running standalone.
+
+**Honestly incomplete, not silently omitted:** did NOT add a service
+worker or a custom in-app "Install" banner/button — both are materially
+separate pieces of work from wiring up the manifest itself. Many mobile
+browsers will still offer "Add to Home Screen" from the manifest alone
+(without a service worker), but a service worker is required for the
+strictest installability criteria and any offline behavior. Also did not
+create a properly-padded "maskable" icon variant — reusing the existing
+icon under a `maskable` purpose claim without a safe-zone-padded source
+could result in a badly-cropped icon on Android home screens, so I
+limited the manifest to `purpose: "any"` only rather than claim support
+that isn't properly implemented.
+
+### Confirmed unchanged
+Stableford, handicap allocation, marker logic, reconciliation, group
+chat's own working path, leaderboard ranking, permissions. 82/82
+scoring-domain tests still pass.

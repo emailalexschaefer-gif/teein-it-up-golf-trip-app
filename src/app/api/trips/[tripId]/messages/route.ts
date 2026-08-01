@@ -41,6 +41,9 @@ function logAndMaskError(context: string, error: SupabaseErrorLike, extra?: Reco
   if (error.code === 'PGRST205') {
     console.error(`[${context}] event_messages table is missing or not visible to PostgREST. Check production migration and schema cache — see supabase/event_messages_deploy.sql.`)
   }
+  if (error.code === '23514') {
+    console.error(`[${context}] CHECK constraint violation. If this is on recipient_type for an 'all' send: an earlier draft of guidance for this table used 'event' as a recipient_type value instead of 'all' — if that version was ever run against this database before the corrected script, the live constraint may still say CHECK (recipient_type IN ('event','group','player')), which would reject 'all' while still accepting 'group' (exactly: group chat works, event-wide announcements don't). Re-run supabase/event_messages_deploy.sql, which DROPs and re-ADDs this constraint with the correct 'all' value — re-running is safe even if you believe it already ran once.`)
+  }
 }
 
 export async function GET(_req: NextRequest, { params }: RouteProps) {

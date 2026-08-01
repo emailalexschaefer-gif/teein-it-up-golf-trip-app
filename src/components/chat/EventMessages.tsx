@@ -130,6 +130,9 @@ export default function EventMessages({
     <div>
       {isOrganiser && (
         <div style={{ marginBottom: 12 }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#9ca3af', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Event Announcement · organiser-only, sent to everyone
+          </div>
           {!composing ? (
             <button
               onClick={() => setComposing(true)}
@@ -168,7 +171,7 @@ export default function EventMessages({
       {myGroupId && (
         <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid #eceae3', padding: 12, marginBottom: 16 }}>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#9ca3af', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Chat · {myGroupName ?? 'My Group'}
+            Group Chat · {myGroupName ?? 'My Group'}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <input

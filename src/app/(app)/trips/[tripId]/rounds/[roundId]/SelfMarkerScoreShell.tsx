@@ -906,7 +906,7 @@ export default function SelfMarkerScoreShell({
           onClick={confirmScore}
           disabled={!canConfirm || flash}
           style={{
-            width: '100%', padding: 14, marginTop: 8,
+            width: '100%', padding: 13, marginTop: 6,
             background: flash ? '#16a34a' : canConfirm ? 'linear-gradient(135deg,#2d7a52,#16a34a)' : '#e5e7eb',
             color: canConfirm || flash ? '#fff' : '#9ca3af', border: 'none', borderRadius: 10, fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-body)',
             cursor: canConfirm ? 'pointer' : 'not-allowed',
@@ -950,43 +950,43 @@ function ScoreCard({
   status: ComparisonStatus | null; onOpenSummary?: () => void
 }) {
   return (
-    <div style={{ borderRadius: 14, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 4px 18px rgba(0,0,0,0.09)', marginBottom: 10, overflow: 'hidden' }}>
-      <div style={{ background: '#f7f6f1', padding: '6px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #eceae3' }}>
+    <div style={{ borderRadius: 14, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 4px 18px rgba(0,0,0,0.09)', marginBottom: 6, overflow: 'hidden' }}>
+      <div style={{ background: '#f7f6f1', padding: '5px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #eceae3' }}>
         <div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#a1791f', letterSpacing: 0.8 }}>{title}</div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 18, fontWeight: 800, color: '#14532d', lineHeight: 1.25 }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 17, fontWeight: 800, color: '#14532d', lineHeight: 1.2 }}>
             {name}
           </div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 500, color: '#b0b6be' }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 500, color: '#b0b6be' }}>
             Playing Handicap {hcp}
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#14532d', lineHeight: 1 }}>H{holeNum}</div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#9ca3af', marginTop: 2 }}>Par {par} · Index {si}</div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 600, color: strokes > 0 ? '#a1791f' : '#c3c8ce', marginTop: 1 }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#14532d', lineHeight: 1 }}>H{holeNum}</div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#9ca3af', marginTop: 1 }}>Par {par} · Index {si}</div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 600, color: strokes > 0 ? '#a1791f' : '#c3c8ce', marginTop: 1 }}>
             {strokes === 0 ? 'No stroke received' : `Receives ${strokes} stroke${strokes === 1 ? '' : 's'}`}
           </div>
           {status && (
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: statusColor(status), marginTop: 2 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: statusColor(status), marginTop: 1 }}>
               {COMPARISON_LABEL[status]}
             </div>
           )}
         </div>
       </div>
 
-      <div style={{ padding: '10px 14px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <button onClick={() => onPick(-1)} style={{ width: 48, height: 48, borderRadius: 12, background: '#f7f6f1', border: '1.5px solid #e5e2d9', color: '#14532d', fontSize: 22 }}>−</button>
+      <div style={{ padding: '8px 12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <button onClick={() => onPick(-1)} style={{ width: 44, height: 44, borderRadius: 11, background: '#f7f6f1', border: '1.5px solid #e5e2d9', color: '#14532d', fontSize: 21, flexShrink: 0 }}>−</button>
           <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#d1d5db' : '#14532d', fontSize: 44, fontWeight: 800 }}>
+            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#d1d5db' : '#14532d', fontSize: 38, fontWeight: 800, lineHeight: 1 }}>
               {pickedUp ? 'P' : gross ?? '0'}
             </div>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280', marginTop: 6 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#6b7280', marginTop: 3 }}>
               {pickedUp ? '0 Points (pick-up)' : pts !== null ? `${pts} Point${pts === 1 ? '' : 's'}` : 'Par ' + par + ' · SI ' + si}
             </div>
           </div>
-          <button onClick={() => onPick(1)} style={{ width: 48, height: 48, borderRadius: 12, background: '#f7f6f1', border: '1.5px solid #e5e2d9', color: '#14532d', fontSize: 22 }}>+</button>
+          <button onClick={() => onPick(1)} style={{ width: 44, height: 44, borderRadius: 11, background: '#f7f6f1', border: '1.5px solid #e5e2d9', color: '#14532d', fontSize: 21, flexShrink: 0 }}>+</button>
         </div>
 
         {/* Pick Up — relocated here from the permanent tile row below, per
@@ -994,37 +994,37 @@ function ScoreCard({
             an action, not a status, so it reads better as a small secondary
             control near the score selector than as one-third of the
             PAR/SHOTS/TOTAL summary row. */}
-        <div style={{ textAlign: 'center', marginTop: 2 }}>
+        <div style={{ textAlign: 'center', marginTop: 1 }}>
           <button
             onClick={onTogglePickUp}
             style={{
-              fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700,
+              fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700,
               color: pickedUp ? '#a1791f' : '#6b7280',
               background: pickedUp ? '#fdf3d9' : '#f7f6f1',
               border: pickedUp ? '1px solid #e8c96a' : '1px solid #d5d1c7',
-              borderRadius: 20, padding: '4px 14px', cursor: 'pointer',
+              borderRadius: 20, padding: '3px 12px', cursor: 'pointer',
             }}
           >
             {pickedUp ? '✕ Picked up — tap to undo' : 'Pick up'}
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <button onClick={onPar} style={{ flex: 1, padding: '7px 4px', borderRadius: 8, background: gross === par && !pickedUp ? '#dcfce7' : '#eefbf2', border: gross === par && !pickedUp ? '1px solid #86efac' : '1px solid #dcf1e2', textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: gross === par && !pickedUp ? '#16a34a' : '#5a9c72' }}>PAR</div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#16a34a' }}>{par}</div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+          <button onClick={onPar} style={{ flex: 1, padding: '5px 4px', borderRadius: 8, background: gross === par && !pickedUp ? '#dcfce7' : '#eefbf2', border: gross === par && !pickedUp ? '1px solid #86efac' : '1px solid #dcf1e2', textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: gross === par && !pickedUp ? '#16a34a' : '#5a9c72' }}>PAR</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#16a34a' }}>{par}</div>
           </button>
-          <div style={{ flex: 1, textAlign: 'center', padding: '7px 4px', borderRadius: 8, background: '#f7f6f1', border: '1px solid #e5e2d9' }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: '#9ca3af' }}>SHOTS</div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, color: '#14532d', fontWeight: 700 }}>{strokes}</div>
+          <div style={{ flex: 1, textAlign: 'center', padding: '5px 4px', borderRadius: 8, background: '#f7f6f1', border: '1px solid #e5e2d9' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: '#9ca3af' }}>SHOTS</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, color: '#14532d', fontWeight: 700 }}>{strokes}</div>
           </div>
           <button
             onClick={onOpenSummary}
             disabled={!onOpenSummary}
-            style={{ flex: 1, textAlign: 'center', padding: '7px 4px', borderRadius: 8, background: '#fdf3d9', border: '1px solid #e8c96a', cursor: onOpenSummary ? 'pointer' : 'default' }}
+            style={{ flex: 1, textAlign: 'center', padding: '5px 4px', borderRadius: 8, background: '#fdf3d9', border: '1px solid #e8c96a', cursor: onOpenSummary ? 'pointer' : 'default' }}
           >
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: '#a1791f' }}>TOTAL</div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#a1791f' }}>{runningTotal}</div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: '#a1791f' }}>TOTAL</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#a1791f' }}>{runningTotal}</div>
           </button>
         </div>
       </div>

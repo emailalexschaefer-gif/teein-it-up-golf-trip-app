@@ -1,6 +1,17 @@
 -- =============================================================================
 -- event_messages_deploy.sql
 -- =============================================================================
+-- ⚠️ IMPORTANT — re-run this even if event_messages already exists and
+-- group chat is already working. An earlier draft of guidance for this
+-- table used 'event' as a recipient_type CHECK value instead of 'all'.
+-- If that earlier version was ever run against this database, the live
+-- constraint may still say CHECK (recipient_type IN ('event','group',
+-- 'player')) — which rejects 'all' (organiser event-wide announcements)
+-- while still accepting 'group' (ordinary group chat), producing exactly
+-- this symptom: group chat works, event-wide announcements fail with a
+-- generic error. This script DROPs and re-ADDs the constraint with the
+-- correct 'all' value, which fixes that mismatch if it's the cause.
+--
 -- Complete, standalone, idempotent deployment script for the event_messages
 -- table. Run this ONE file in the Supabase SQL Editor for whichever project
 -- the production Vercel app is actually connected to (see the note at the
