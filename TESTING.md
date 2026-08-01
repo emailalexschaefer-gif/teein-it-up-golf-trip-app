@@ -2524,3 +2524,59 @@ that isn't properly implemented.
 Stableford, handicap allocation, marker logic, reconciliation, group
 chat's own working path, leaderboard ranking, permissions. 82/82
 scoring-domain tests still pass.
+
+---
+
+## Visible Previous/Next Hole Controls + Profile Diagnosis
+
+### Previous/Next Hole controls
+Added directly beneath Confirm Score in both scoring shells, replacing
+the swipe-only hint text ("Swipe also works" now supplements the
+buttons rather than being the only guidance). Both call the exact same
+`setHoleIdx()` used by swipe and the compact strip — no new navigation
+mechanism, which means the Scoring Anchor (triggered on any `holeIdx`
+change) automatically covers these too, with zero special-casing needed.
+
+- Hole 1: Previous is disabled (greyed, non-interactive), not hidden —
+  its position stays stable so Next doesn't shift.
+- Final hole: Next Hole is replaced with "Round Summary →".
+  - `SelfMarkerScoreShell` (self+marker mode): opens the existing Round
+    Summary/reconciliation screen via `setShowReconciliation(true)` —
+    the natural "you're done" destination in this mode.
+  - `ScoreSessionShell` (group_scorer mode): links to the Leaderboard.
+    Noting this honestly rather than glossing over it — this mode has no
+    separate reconciliation/Round Summary screen (there's no self+marker
+    split to reconcile), so the Leaderboard is the closest equivalent
+    "you're done, here's where things stand" destination, not a literal
+    Round Summary page under a different label.
+- Swipe left/right still works unchanged in both.
+
+### Profile fetch — thorough internal consistency check, honest limits stated
+Per the explicit instruction not to treat the friendly error screen as
+the fix, I re-verified every column reference across the entire chain
+rather than re-asserting the same conclusion: `page.tsx`'s SELECT list,
+`ProfileForm.tsx`'s UPDATE payload, migration `026_profile_about_me.sql`,
+and `profile_about_me_deploy.sql` all reference the exact same 7 column
+names (`location`, `bio`, `occupation`, `company`, `golf_club`,
+`interests`, `ask_me_about`) with zero discrepancies found. Specifically
+checked for the "home_location" vs "location" naming this document once
+referenced — confirmed it was a paraphrase in that report, not a real
+mismatch in the code; every actual reference in this codebase uses
+`location` consistently.
+
+**What I can't do, stated plainly:** I have no access to Vercel's runtime
+logs or the live Supabase project from this sandbox, so I cannot produce
+the literal server-side error text myself. What I can confirm is that
+there is no internal code inconsistency left to find — if the failure
+persists, it is external (the migration hasn't actually been applied to
+whichever Supabase project is live, or PostgREST's schema cache hasn't
+picked it up). The existing server-side logging (added in the previous
+QA pass) already captures `code`/`message`/`details`/`hint` for exactly
+this query — checking Vercel's function logs after reproducing the
+failure, or running the three verification queries at the bottom of
+`profile_about_me_deploy.sql` directly in the Supabase SQL editor, are
+the two ways to get the actual root-cause evidence from here.
+
+### Confirmed unchanged
+Stableford, handicap allocation, marker logic, reconciliation, chat,
+leaderboard ranking. 82/82 scoring-domain tests still pass.

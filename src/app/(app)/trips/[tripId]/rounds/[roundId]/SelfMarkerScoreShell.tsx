@@ -915,8 +915,40 @@ export default function SelfMarkerScoreShell({
           {flash ? '✓ Saved!' : '✓ Confirm Score'}
         </button>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af' }}>
-          <span>Swipe to change holes</span>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <button
+            onClick={() => setHoleIdx(i => Math.max(0, i - 1))}
+            disabled={holeIdx === 0}
+            style={{
+              flex: 1, padding: 11, borderRadius: 10,
+              background: holeIdx === 0 ? '#f3f4f6' : '#ffffff',
+              border: '1.5px solid #d1d5db',
+              color: holeIdx === 0 ? '#c3c8ce' : '#14532d',
+              fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13,
+              cursor: holeIdx === 0 ? 'default' : 'pointer',
+            }}
+          >
+            ← Previous Hole
+          </button>
+          {holeIdx < holes.length - 1 ? (
+            <button
+              onClick={() => setHoleIdx(i => Math.min(holes.length - 1, i + 1))}
+              style={{ flex: 1, padding: 11, borderRadius: 10, background: '#ffffff', border: '1.5px solid #d1d5db', color: '#14532d', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+            >
+              Next Hole →
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowReconciliation(true)}
+              style={{ flex: 1, padding: 11, borderRadius: 10, background: '#14532d', border: 'none', color: '#fff', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+            >
+              Round Summary →
+            </button>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af' }}>
+          <span>Swipe also works</span>
           <span style={{ color: '#c9a84c', fontWeight: 700 }}>{myRunningTotal} pts</span>
         </div>
 

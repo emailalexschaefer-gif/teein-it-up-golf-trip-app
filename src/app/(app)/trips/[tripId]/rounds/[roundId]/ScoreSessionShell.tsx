@@ -691,8 +691,40 @@ export default function ScoreSessionShell({
             </div>
           </div>
 
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#9ca3af', textAlign: 'center', paddingTop: 4, paddingBottom: 2, letterSpacing: 0.3 }}>
-            Swipe left/right to change holes
+          <div style={{ padding: '0 16px 8px', display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => setHoleIdx(i => Math.max(0, i - 1))}
+              disabled={holeIdx === 0}
+              style={{
+                flex: 1, padding: 10, borderRadius: 10,
+                background: holeIdx === 0 ? '#f3f4f6' : '#ffffff',
+                border: '1.5px solid #d1d5db',
+                color: holeIdx === 0 ? '#c3c8ce' : '#14532d',
+                fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5,
+                cursor: holeIdx === 0 ? 'default' : 'pointer',
+              }}
+            >
+              ← Previous Hole
+            </button>
+            {holeIdx < holes.length - 1 ? (
+              <button
+                onClick={() => setHoleIdx(i => Math.min(holes.length - 1, i + 1))}
+                style={{ flex: 1, padding: 10, borderRadius: 10, background: '#ffffff', border: '1.5px solid #d1d5db', color: '#14532d', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}
+              >
+                Next Hole →
+              </button>
+            ) : (
+              <Link
+                href={`/trips/${tripId}/leaderboard`}
+                style={{ flex: 1, padding: 10, borderRadius: 10, background: '#14532d', border: 'none', color: '#fff', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, textAlign: 'center', textDecoration: 'none' }}
+              >
+                Round Summary →
+              </Link>
+            )}
+          </div>
+
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#9ca3af', textAlign: 'center', paddingTop: 2, paddingBottom: 2, letterSpacing: 0.3 }}>
+            Swipe also works
           </div>
         </div>
 
