@@ -759,19 +759,58 @@ export default function SelfMarkerScoreShell({
 
   // ── Main hole-scoring view ──────────────────────────────────────────────────
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#ffffff', minHeight: '100vh' }}>
+    <div style={{
+      flex: 1, display: 'flex', flexDirection: 'column', background: '#ffffff',
+      // 100dvh (not 100vh) so Chrome's expanding/collapsing address bar is
+      // accounted for. 64px matches AppNav's real, in-flow height (it's
+      // `sticky`, not `fixed`, so it genuinely reduces the space below it —
+      // TripBottomNav below is `fixed` and reserved for separately, via
+      // bottom padding on the workspace itself, not subtracted from height
+      // here). overflow:hidden on this outer level too — this is what
+      // actually stops ordinary page/document scrolling, not just the
+      // inner container.
+      height: 'calc(100dvh - 64px)',
+      overflow: 'hidden',
+    }}>
       {toast && (
         <div style={{ position: 'fixed', top: 72, left: '50%', transform: 'translateX(-50%)', zIndex: 200, background: 'rgba(10,30,18,0.97)', border: '1px solid rgba(201,168,76,0.66)', borderRadius: 22, padding: '8px 18px' }}>
           <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#e8c96a', fontWeight: 700 }}>● {toast}</span>
         </div>
       )}
       {displaySyncLabel && (
-        <div style={{ padding: '4px 16px 0', textAlign: 'right', fontFamily: 'var(--font-body)', fontSize: 10, color: '#9ca3af' }}>
+        <div style={{ flexShrink: 0, padding: '4px 16px 0', textAlign: 'right', fontFamily: 'var(--font-body)', fontSize: 10, color: '#9ca3af' }}>
           {displaySyncLabel}
         </div>
       )}
 
-      <div ref={scrollContainerRef} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px 90px', background: '#faf9f6' }}>
+      {/* Deliberate compact fallback (not a silent default): only engages
+          on genuinely short viewports or enlarged accessibility text,
+          where the fixed workspace truly cannot fit even the reduced
+          content. Standard phones never hit this — they get the fixed,
+          non-scrolling workspace below. */}
+      <style>{`
+        @media (max-height: 640px) {
+          .scoring-workspace-fixed { overflow-y: auto !important; height: auto !important; max-height: none !important; }
+        }
+      `}</style>
+
+      <div
+        ref={scrollContainerRef}
+        className={scorecardExpanded ? undefined : 'scoring-workspace-fixed'}
+        onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+        style={{
+          flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
+          overflowY: scorecardExpanded ? 'auto' : 'hidden',
+          // Collapsed: tight padding, with bottom padding sized to clear
+          // the fixed bottom nav (not subtracted from the height above,
+          // since that nav doesn't reduce document flow height — it
+          // overlays). Expanded: generous padding, since this becomes a
+          // normal scrolling view once the golfer has explicitly asked
+          // to review the round.
+          padding: scorecardExpanded ? '14px 16px 90px' : '8px 16px calc(64px + env(safe-area-inset-bottom, 0px))',
+          background: '#faf9f6',
+        }}
+      >
 
         {/* ── Compact score strip — collapsible (QA fix): collapsed by
             default on entering active scoring so it never competes with
@@ -796,16 +835,24 @@ export default function SelfMarkerScoreShell({
             onClick={() => {
               const willExpand = !scorecardExpanded
               setScorecardExpanded(willExpand)
-              // "Automatically reveal the active hole when expanded" — the
-              // strip renders above the anchor, so expanding it adds
-              // height above the current view; nudge the scroll up
-              // slightly so the newly-revealed active-hole tile is
-              // actually visible rather than just pushing content down
-              // off-screen above the viewport.
               if (willExpand) {
+                // "Automatically reveal the active hole when expanded" —
+                // the strip renders above the anchor, so expanding it
+                // adds height above the current view; nudge the scroll up
+                // slightly so the newly-revealed active-hole tile is
+                // actually visible rather than just pushing content down
+                // off-screen above the viewport.
                 requestAnimationFrame(() => {
                   scrollContainerRef.current?.scrollBy({ top: -140, behavior: 'smooth' })
                 })
+              } else {
+                // Collapsing: return immediately to the exact standard
+                // resting position, scroll position zero — not smooth,
+                // since this should feel instantaneous, matching "restore
+                // the fixed-height workspace" rather than an animated
+                // scroll back to a position that's about to become
+                // non-scrollable anyway.
+                scrollContainerRef.current?.scrollTo({ top: 0 })
               }
             }}
             style={{
@@ -957,20 +1004,6 @@ export default function SelfMarkerScoreShell({
             </button>
           )}
         </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af' }}>
-          <span>Swipe also works</span>
-          <span style={{ color: '#c9a84c', fontWeight: 700 }}>{myRunningTotal} pts</span>
-        </div>
-
-        {requiresMarker && holes.length > 0 && (
-          <button
-            onClick={() => setShowReconciliation(true)}
-            style={{ width: '100%', marginTop: 12, padding: 10, background: '#ffffff', border: '1.5px solid #c9a84c', borderRadius: 10, color: '#a1791f', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
-          >
-            Round Summary →
-          </button>
-        )}
 
         {isOrganiser && (
           <Link href={`/trips/${tripId}/rounds/${round.id}/markers`} style={{ display: 'block', textAlign: 'center', marginTop: 20, fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', textDecoration: 'none' }}>

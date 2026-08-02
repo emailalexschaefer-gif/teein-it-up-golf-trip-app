@@ -2946,3 +2946,72 @@ Stableford calculations, handicap allocation, scoring logic, marker
 reconciliation, leaderboard, chat permissions, organiser/player
 permissions, My Round, My HQ, notifications, database schema. 82/82
 scoring-domain tests still pass.
+
+---
+
+## Scoring Workspace Correction — Static Means No Vertical Movement
+
+### Root cause found — a real, concrete bug, not a spacing shortfall
+
+Went looking for why the page still had "two resting positions" rather
+than assuming it was purely a sizing problem, and found it: there was a
+**second, permanently-visible "Round Summary →" button** rendered below
+the Previous/Next row on every single hole (`{requiresMarker &&
+holes.length > 0 && (...)}`), left over from before the Previous/Next
+controls existed. That's real height being consumed on every hole,
+unconditionally — a genuine leftover bug, not a rounding error in the
+spacing pass. Removed it entirely, per the explicit instruction that
+Round Summary must not occupy permanent space during normal navigation.
+
+Also removed the "Swipe also works / {points} pts" hint row — not on the
+required fit-list, and the points total already displays inside each
+card's own TOTAL tile (avoiding the same "no duplicate information"
+issue this whole effort keeps circling back to).
+
+### The actual architectural fix
+
+Previously: `minHeight: '100vh'` on the outer container + `overflowY:
+'auto'` on the inner one — this is normal-document-flow sizing that lets
+the page grow to fit its content and scroll if it doesn't, exactly the
+"reduce content and hope it fits" pattern correctly called out as
+insufficient.
+
+Now: `height: 'calc(100dvh - 64px)'` (100dvh, not 100vh, so Chrome's
+address-bar show/hide is handled — 64px matches AppNav's real, in-flow
+height) with `overflow: 'hidden'` on **both** the outer container and the
+inner content area when collapsed. This is what actually, structurally
+prevents ordinary page scrolling — not a side effect of things happening
+to be short enough. `minHeight: 0` is applied at the flex levels
+involved, since that's the specific CSS mechanism that makes
+`overflow: hidden` actually work with flex children (without it, flex
+children can overflow their bounded parent regardless of the parent's
+own `overflow` setting — a common flexbox gotcha, checked and applied
+correctly here).
+
+**Deliberate compact fallback, not a silent default**: a `@media
+(max-height: 640px)` rule re-enables scrolling only for genuinely short
+viewports or enlarged accessibility text — standard phone heights never
+trigger it and get the fixed, non-scrolling workspace.
+
+**Explicit scroll-reset on collapse**: toggling the scorecard closed now
+calls `scrollTo({ top: 0 })` immediately (not animated) before the
+container becomes non-scrolling again, per "return to the exact standard
+resting position."
+
+### What I can't verify from here
+I cannot test this on the actual Android device from the screenshots —
+no device/browser access in this sandbox. My height budget (compact
+toggle + optional marked-by line + two compacted cards + Confirm Score +
+Previous/Next, roughly 450px of content) is a reasoned estimate against
+a typical ~600-700px available viewport after the header and bottom-nav
+clearance, not a measured fact. If it still doesn't fit on the specific
+device in the screenshots, that's the next thing to report back with
+exact numbers (viewport height, and how much is still being clipped) —
+the CSS mechanism is now correctly enforcing the fixed workspace either
+way, so any remaining gap would be a height-budget tuning issue, not a
+recurrence of the original architectural bug.
+
+### Confirmed unchanged
+Stableford, handicap allocation, marker comparison, reconciliation,
+leaderboard ranking, organiser/player permissions. 82/82 scoring-domain
+tests still pass.
