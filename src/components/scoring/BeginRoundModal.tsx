@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { getDefaultHoles, resolvePlayingHandicap } from '@/lib/scoring/defaultHoles'
 import type { HoleTemplate } from '@/lib/scoring/defaultHoles'
@@ -38,6 +38,16 @@ export default function BeginRoundModal({
 }: Props) {
   const router = useRouter()
   const [stage, setStage]   = useState<Stage>('review')
+  const modalScrollRef = useRef<HTMLDivElement>(null)
+
+  // Reset scroll position to the top whenever the active stage changes —
+  // covers opening the modal (first stage), moving forward, and moving
+  // backward. Without this, the modal could retain whatever scroll
+  // position the previous stage was left at, opening the new stage
+  // partway down instead of at its own heading/primary content.
+  useEffect(() => {
+    modalScrollRef.current?.scrollTo({ top: 0 })
+  }, [stage])
   const [holes, setHoles]   = useState<HoleTemplate[]>(() => getDefaultHoles(holeCount))
   const [error, setError]   = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
@@ -110,7 +120,7 @@ export default function BeginRoundModal({
       display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
       padding: '0 0 0 0',
     }}>
-      <div style={{
+      <div ref={modalScrollRef} style={{
         width: '100%', maxWidth: 480,
         background: '#f8f4eb',
         borderRadius: '20px 20px 0 0',

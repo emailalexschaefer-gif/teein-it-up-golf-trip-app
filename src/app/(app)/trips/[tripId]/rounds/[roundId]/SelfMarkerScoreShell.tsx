@@ -243,6 +243,12 @@ export default function SelfMarkerScoreShell({
   // behavior — the anchor always resolves to "wherever the score-entry
   // section currently is," not a fixed pixel position or "top of page."
   const scoringAnchorRef = useRef<HTMLDivElement>(null)
+  // Collapsed by default on entering active scoring, per the explicit
+  // "score first, review the round when needed" requirement. Plain
+  // component state — persists across hole-to-hole navigation within
+  // the same session (nothing resets it on holeIdx change), and doesn't
+  // need to survive logout/across devices, matching the stated scope.
+  const [scorecardExpanded, setScorecardExpanded] = useState(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const hasHydratedRef = useRef(false)
   const queryClient = useQueryClient()
@@ -709,15 +715,13 @@ export default function SelfMarkerScoreShell({
           const resultState: 'waiting' | 'finalising' | 'published' = 'waiting'
           return (
             <div style={{ textAlign: 'center', marginBottom: 16 }}>
-              <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800, marginBottom: 6 }}>
-                Round Complete
+              <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+              <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800, marginBottom: 10 }}>
+                Score Submitted
               </div>
-              <div style={{ fontFamily: 'var(--font-body)', color: '#374151', fontSize: 13.5, lineHeight: 1.6, marginBottom: 10 }}>
-                Your scoring is complete. All {holes.length} holes have been entered and verified.
-                {resultState === 'waiting' && <> Please wait while the organiser finalises the results. You&apos;ll be notified when the official results are published.</>}
-              </div>
-              <div style={{ color: '#16a34a', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, marginBottom: 16 }}>
-                ✓ All scores matched
+              <div style={{ fontFamily: 'var(--font-body)', color: '#374151', fontSize: 13.5, lineHeight: 1.6, marginBottom: 16 }}>
+                Your score has been successfully submitted.
+                {resultState === 'waiting' && <> We&apos;re now waiting for the remaining players to finish. The organiser will review any scoring discrepancies and publish the final leaderboard shortly. You&apos;ll automatically see the final results once they are declared.</>}
               </div>
               <Link href={`/trips/${tripId}/leaderboard`} style={{
                 display: 'block', padding: 13, borderRadius: 10, marginBottom: 8,
@@ -790,23 +794,51 @@ export default function SelfMarkerScoreShell({
 
       <div ref={scrollContainerRef} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px 90px', background: '#faf9f6' }}>
 
-        {/* ── Compact score strip — Part 2, the highest-value addition here.
-            Moved inside the scrollable region, above the Scoring Anchor
-            (QA fix): previously this sat in fixed, always-visible chrome
-            above the scrollable area, eating vertical space and pushing
-            the actual scoring controls down/off-screen on short Android
-            viewports. Now it's the first thing in normal scroll flow —
-            scrolled away by default since the anchor lands below it, and
-            reachable by scrolling up, matching "default view = enter
-            scores, scroll up = review the round." Front 9 / Back 9 tiles,
-            current hole highlighted, tap to jump where existing scoring
-            permissions already allow (setHoleIdx is the same function the
-            header/swipe navigation already uses — no new navigation rule
-            introduced). Shows MY confirmed self-entries only, reusing
-            calculateStableford() — the same function myRunningTotal
-            already calls, not a second calculation. ────────────────────── */}
-        <div style={{ padding: '0 0 12px', borderBottom: '1px solid #eceae3', marginBottom: 12 }}>
-          {(() => {
+        {/* ── Compact score strip — collapsible (QA fix): collapsed by
+            default on entering active scoring so it never competes with
+            the scoring workspace for space; expands on request via the
+            toggle button below. Collapsing/expanding never touches
+            holeIdx or any capture-map state, so entered scores and the
+            selected hole are untouched either way — this is purely a
+            visibility toggle, not a remount. Moved inside the scrollable
+            region, above the Scoring Anchor (an earlier QA fix):
+            previously this sat in fixed, always-visible chrome above the
+            scrollable area, eating vertical space and pushing the actual
+            scoring controls down/off-screen on short Android viewports.
+            Front 9 / Back 9 tiles, current hole highlighted, tap to jump
+            where existing scoring permissions already allow (setHoleIdx
+            is the same function the header/swipe navigation already
+            uses — no new navigation rule introduced). Shows MY confirmed
+            self-entries only, reusing calculateStableford() — the same
+            function myRunningTotal already calls, not a second
+            calculation. ────────────────────────────────────────────── */}
+        <div style={{ padding: '0 0 10px', borderBottom: '1px solid #eceae3', marginBottom: 12 }}>
+          <button
+            onClick={() => {
+              const willExpand = !scorecardExpanded
+              setScorecardExpanded(willExpand)
+              // "Automatically reveal the active hole when expanded" — the
+              // strip renders above the anchor, so expanding it adds
+              // height above the current view; nudge the scroll up
+              // slightly so the newly-revealed active-hole tile is
+              // actually visible rather than just pushing content down
+              // off-screen above the viewport.
+              if (willExpand) {
+                requestAnimationFrame(() => {
+                  scrollContainerRef.current?.scrollBy({ top: -140, behavior: 'smooth' })
+                })
+              }
+            }}
+            style={{
+              width: '100%', textAlign: 'center', padding: '7px 0', marginBottom: scorecardExpanded ? 10 : 0,
+              background: 'none', border: 'none', cursor: 'pointer',
+              fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#a1791f',
+            }}
+          >
+            {scorecardExpanded ? '▲ Hide Round Scorecard' : '▼ View Round Scorecard'}
+          </button>
+
+          {scorecardExpanded && (() => {
             const front9 = holes.filter(h => h.hole_number <= 9)
             const back9 = holes.filter(h => h.hole_number > 9)
             const front9Pts = front9.reduce((s, h) => {
@@ -996,10 +1028,12 @@ function ScoreCard({
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#14532d', lineHeight: 1 }}>H{holeNum}</div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#9ca3af', marginTop: 1 }}>Par {par} · Index {si}</div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 600, color: strokes > 0 ? '#a1791f' : '#c3c8ce', marginTop: 1 }}>
-            {strokes === 0 ? 'No stroke received' : `Receives ${strokes} stroke${strokes === 1 ? '' : 's'}`}
-          </div>
-          {status && (
+          {strokes > 0 && (
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 600, color: '#a1791f', marginTop: 1 }}>
+              Receives {strokes} stroke{strokes === 1 ? '' : 's'}
+            </div>
+          )}
+          {status && (status === 'matched' || status === 'mismatch') && (
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: statusColor(status), marginTop: 1 }}>
               {COMPARISON_LABEL[status]}
             </div>

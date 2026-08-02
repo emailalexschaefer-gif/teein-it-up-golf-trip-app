@@ -2,6 +2,8 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import TournamentControl from '@/components/scoring/TournamentControl'
+import PlayerRoundView from '@/components/scoring/PlayerRoundView'
+import MyRoundSummary from '@/components/scoring/MyRoundSummary'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -14,14 +16,12 @@ export default async function TournamentPage({ params }: Props) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Real permission guard, not just hiding the nav link — a player typing
-  // this URL directly must not reach organiser content, per the explicit
-  // "do not expose disabled organiser actions to normal players" instruction.
   const { data: membership } = await supabase
     .from('trip_members').select('role')
     .eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
+  if (!membership) redirect(`/trips/${tripId}`)
 
-  if (membership?.role !== 'organiser') redirect(`/trips/${tripId}`)
+  const isOrganiser = membership.role === 'organiser'
 
   const { data: rounds } = await supabase
     .from('rounds')
@@ -30,7 +30,40 @@ export default async function TournamentPage({ params }: Props) {
     .order('play_date', { ascending: false })
 
   const activeRound = rounds?.find(r => r.status === 'active')
+  const upcomingRound = rounds?.find(r => r.status === 'upcoming')
+  const completedRounds = (rounds ?? []).filter(r => r.status === 'completed')
+  // Players want the most relevant round regardless of active/upcoming/
+  // completed (matching PlayerHomeCard's same logic); organisers only
+  // ever look at the active round in My HQ, same as before this change.
+  const focusRound = activeRound ?? upcomingRound ?? completedRounds[completedRounds.length - 1]
 
+  // "Organiser who is also playing" — reuses the trip's existing
+  // organiser_is_playing flag (the same signal this app has used for
+  // this exact question since Sprint 5C.2), not a new per-round check.
+  const { data: tripRow } = await supabase.from('trips').select('organiser_is_playing').eq('id', tripId).maybeSingle()
+  const organiserIsPlaying = isOrganiser && (tripRow?.organiser_is_playing ?? false)
+
+  if (!isOrganiser) {
+    // ── Player: My Round ────────────────────────────────────────────────
+    return (
+      <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '16px 16px 90px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+          <Link href={`/trips/${tripId}`} style={{ color: '#9ca3af', fontSize: 18, textDecoration: 'none' }}>←</Link>
+          <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>My Round</span>
+        </div>
+        {!focusRound ? (
+          <div style={{ textAlign: 'center', padding: '40px 16px', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>
+            No rounds yet — your organiser hasn&apos;t set one up.
+          </div>
+        ) : (
+          <PlayerRoundView tripId={tripId} roundId={focusRound.id} roundStatus={focusRound.status} />
+        )}
+      </div>
+    )
+  }
+
+  // ── Organiser: My HQ (unchanged), plus a compact My Round section if
+  // this organiser is also playing ──────────────────────────────────────
   return (
     <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '16px 16px 90px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
@@ -60,7 +93,19 @@ export default async function TournamentPage({ params }: Props) {
           </Link>
         </div>
       ) : (
-        <TournamentControl tripId={tripId} roundId={activeRound.id} roundStatus={activeRound.status} />
+        <>
+          <TournamentControl tripId={tripId} roundId={activeRound.id} roundStatus={activeRound.status} />
+
+          {organiserIsPlaying && (
+            <div style={{ marginTop: 20 }}>
+              <div style={{ height: 1, background: '#eceae3', marginBottom: 16 }} />
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: '#a1791f', marginBottom: 8 }}>
+                My Round
+              </div>
+              <MyRoundSummary tripId={tripId} roundId={activeRound.id} roundStatus={activeRound.status} />
+            </div>
+          )}
+        </>
       )}
     </div>
   )

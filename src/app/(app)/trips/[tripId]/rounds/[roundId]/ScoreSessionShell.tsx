@@ -117,6 +117,7 @@ export default function ScoreSessionShell({
   // go through setHoleIdx), never on same-hole edits, skips the first
   // mount so opening the page doesn't itself cause a jump.
   const scoringAnchorRef = useRef<HTMLDivElement>(null)
+  const [scorecardExpanded, setScorecardExpanded] = useState(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const hasHydratedRef = useRef(false)
   useEffect(() => {
@@ -540,56 +541,80 @@ export default function ScoreSessionShell({
           </div>
         )}
 
-        {/* ── Hole strip ──────────────────────────────────────────────────── */}
+        {/* ── Hole strip — collapsible, collapsed by default (QA fix,
+            matching SelfMarkerScoreShell's identical treatment). ────────── */}
         <div style={{ padding: '10px 16px 6px', flexShrink: 0 }}>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: '#16a34a', marginBottom: 4 }}>
-            {front9Pts > 0 ? `✓ FRONT 9 — ${front9Pts} PTS` : ''}
-          </div>
-          <div style={{ display: 'flex', gap: 3, marginBottom: 8 }}>
-            {front9.map((h, i) => {
-              const m = tileMeta(h)
-              const isOn = i === holeIdx
-              return (
-                <div key={h.id} onClick={() => setHoleIdx(i)} style={{
-                  flex: '1 1 0', minWidth: 0, height: 36, borderRadius: 6, cursor: 'pointer',
-                  background: isOn ? '#16a34a' : m.bg,
-                  border: `1.5px solid ${isOn ? '#14532d' : '#e5e2d9'}`,
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  transform: isOn ? 'scale(1.06)' : 'scale(1)', transition: 'transform 0.12s',
-                  boxShadow: isOn ? '0 4px 14px rgba(22,163,74,0.35)' : undefined,
-                }}>
-                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: isOn ? '#fff' : (m.color ?? '#6b7280') }}>{m.label}</div>
-                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 7.5, fontWeight: 600, color: isOn ? '#e8c96a' : (m.color ?? '#9ca3af') }}>{m.sub}</div>
-                </div>
-              )
-            })}
-          </div>
+          <button
+            onClick={() => {
+              const willExpand = !scorecardExpanded
+              setScorecardExpanded(willExpand)
+              if (willExpand) {
+                requestAnimationFrame(() => {
+                  scrollContainerRef.current?.scrollBy({ top: -140, behavior: 'smooth' })
+                })
+              }
+            }}
+            style={{
+              width: '100%', textAlign: 'center', padding: '5px 0', marginBottom: scorecardExpanded ? 8 : 0,
+              background: 'none', border: 'none', cursor: 'pointer',
+              fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#a1791f',
+            }}
+          >
+            {scorecardExpanded ? '▲ Hide Round Scorecard' : '▼ View Round Scorecard'}
+          </button>
 
-          {back9.length > 0 && (
+          {scorecardExpanded && (
             <>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: '#9ca3af', marginBottom: 4 }}>
-                BACK 9 — {isBack9 ? 'ENTERING NOW' : 'COMING UP'}
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: '#16a34a', marginBottom: 4 }}>
+                {front9Pts > 0 ? `✓ FRONT 9 — ${front9Pts} PTS` : ''}
               </div>
-              <div style={{ display: 'flex', gap: 3 }}>
-                {back9.map((h, i) => {
-                  const realIdx = i + 9
+              <div style={{ display: 'flex', gap: 3, marginBottom: 8 }}>
+                {front9.map((h, i) => {
                   const m = tileMeta(h)
-                  const isOn = realIdx === holeIdx
+                  const isOn = i === holeIdx
                   return (
-                    <div key={h.id} onClick={() => setHoleIdx(realIdx)} style={{
-                      flex: '1 1 0', minWidth: 0, height: 42, borderRadius: 7, cursor: 'pointer',
+                    <div key={h.id} onClick={() => setHoleIdx(i)} style={{
+                      flex: '1 1 0', minWidth: 0, height: 36, borderRadius: 6, cursor: 'pointer',
                       background: isOn ? '#16a34a' : m.bg,
                       border: `1.5px solid ${isOn ? '#14532d' : '#e5e2d9'}`,
                       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                       transform: isOn ? 'scale(1.06)' : 'scale(1)', transition: 'transform 0.12s',
                       boxShadow: isOn ? '0 4px 14px rgba(22,163,74,0.35)' : undefined,
                     }}>
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: isOn ? '#fff' : (m.color ?? '#6b7280') }}>{m.label}</div>
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 8, fontWeight: 600, color: isOn ? '#e8c96a' : (m.color ?? '#9ca3af') }}>{m.sub}</div>
+                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: isOn ? '#fff' : (m.color ?? '#6b7280') }}>{m.label}</div>
+                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 7.5, fontWeight: 600, color: isOn ? '#e8c96a' : (m.color ?? '#9ca3af') }}>{m.sub}</div>
                     </div>
                   )
                 })}
               </div>
+
+              {back9.length > 0 && (
+                <>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: '#9ca3af', marginBottom: 4 }}>
+                    BACK 9 — {isBack9 ? 'ENTERING NOW' : 'COMING UP'}
+                  </div>
+                  <div style={{ display: 'flex', gap: 3 }}>
+                    {back9.map((h, i) => {
+                      const realIdx = i + 9
+                      const m = tileMeta(h)
+                      const isOn = realIdx === holeIdx
+                      return (
+                        <div key={h.id} onClick={() => setHoleIdx(realIdx)} style={{
+                          flex: '1 1 0', minWidth: 0, height: 42, borderRadius: 7, cursor: 'pointer',
+                          background: isOn ? '#16a34a' : m.bg,
+                          border: `1.5px solid ${isOn ? '#14532d' : '#e5e2d9'}`,
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                          transform: isOn ? 'scale(1.06)' : 'scale(1)', transition: 'transform 0.12s',
+                          boxShadow: isOn ? '0 4px 14px rgba(22,163,74,0.35)' : undefined,
+                        }}>
+                          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: isOn ? '#fff' : (m.color ?? '#6b7280') }}>{m.label}</div>
+                          <div style={{ fontFamily: 'var(--font-body)', fontSize: 8, fontWeight: 600, color: isOn ? '#e8c96a' : (m.color ?? '#9ca3af') }}>{m.sub}</div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>
@@ -628,9 +653,11 @@ export default function ScoreSessionShell({
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 16, fontWeight: 800, lineHeight: 1 }}>H{holeNum}</div>
                 <div style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 10.5 }}>Par {par} · Index {si}</div>
-                <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 600, color: strokesReceived > 0 ? '#a1791f' : '#c3c8ce', marginTop: 1 }}>
-                  {strokesReceived === 0 ? 'No stroke received' : `Receives ${strokesReceived} stroke${strokesReceived === 1 ? '' : 's'}`}
-                </div>
+                {strokesReceived > 0 && (
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 600, color: '#a1791f', marginTop: 1 }}>
+                    Receives {strokesReceived} stroke{strokesReceived === 1 ? '' : 's'}
+                  </div>
+                )}
               </div>
             </div>
 

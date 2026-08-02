@@ -15,15 +15,9 @@ export default async function ChatPage({ params }: Props) {
   if (!user) redirect('/login')
 
   const { data: membership } = await supabase
-    .from('trip_members').select('role, group_id')
+    .from('trip_members').select('role')
     .eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
   const isOrganiser = membership?.role === 'organiser'
-
-  let myGroupName: string | null = null
-  if (membership?.group_id) {
-    const { data: group } = await supabase.from('trip_groups').select('name').eq('id', membership.group_id).maybeSingle()
-    myGroupName = group?.name ?? null
-  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '16px 16px 90px' }}>
@@ -32,11 +26,11 @@ export default async function ChatPage({ params }: Props) {
         <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>Chat</span>
       </div>
 
-      {/* Announcements/notifications (organiser) and ordinary group chat
-          (any participant) — differentiated message model, per the
-          explicit requirement not to route chat through organiser
-          permissions. */}
-      <EventMessages tripId={tripId} isOrganiser={isOrganiser} myGroupId={membership?.group_id ?? null} myGroupName={myGroupName} />
+      {/* Announcements and organiser group notifications only — players
+          read, they don't reply. Group notifications are operational
+          broadcasts, not a group conversation thread (per explicit
+          product decision this pass). */}
+      <EventMessages tripId={tripId} isOrganiser={isOrganiser} />
     </div>
   )
 }

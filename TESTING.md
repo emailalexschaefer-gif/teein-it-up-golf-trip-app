@@ -2580,3 +2580,294 @@ the two ways to get the actual root-cause evidence from here.
 ### Confirmed unchanged
 Stableford, handicap allocation, marker logic, reconciliation, chat,
 leaderboard ranking. 82/82 scoring-domain tests still pass.
+
+---
+
+## Sprint 5 — Player Experience Flow (Role-Based UX)
+
+### What changed
+- **New `PlayerHomeCard.tsx`** — the streamlined player dashboard: trip
+  name, location, "Joined" status, own group name, tee time, scoring
+  format, and a single round-status action (waiting/start scoring/
+  complete). No Players/Groups/Rounds tabs, no setup tools anywhere in
+  it — matches "Join. Wait. Score. Review. Celebrate." exactly.
+- **`TripDetailClient.tsx`** now branches on role: organisers get the
+  existing full tab interface completely unchanged; players get
+  `PlayerHomeCard` instead.
+- **`page.tsx`** now fetches full group data (`id, name`) instead of
+  just a count — needed so the player dashboard can show their own
+  group's actual name, not just a count. No new table, just selecting an
+  existing column that wasn't being read before.
+- **Post-Hole-18 messaging** updated to this brief's new exact wording
+  ("Score Submitted... We're now waiting for the remaining players to
+  finish...") — the previous "Round Complete" wording from an earlier
+  pass is superseded.
+
+### A real bug caught and fixed during this same pass, not shipped
+My first attempt at the role branch placed the early return for players
+*before* several hook calls (`useState`, `useQueryClient`, etc.) further
+down the component — a genuine violation of React's Rules of Hooks
+(hooks must never be conditionally skipped). Caught this before
+finishing, not after: restructured so every hook in the component runs
+unconditionally first, and the role branch happens only after every hook
+call, so hook order is identical on every render regardless of role.
+Re-verified with a fresh balance check and lenient `tsc` pass after the
+fix.
+
+### Explicitly unchanged, per the instruction
+Stableford calculations, marker reconciliation, leaderboard ranking,
+side games, chat, notifications, and all underlying scoring/groups/
+database logic. This is a navigation/visibility change only — the
+organiser's full interface, and every screen it leads to, is byte-for-
+byte the same as before for organiser accounts.
+
+### Manual test steps
+1. Log in as a player (non-organiser) on a trip — confirm the dashboard
+   shows joined status, group, tee time, format, and round status, with
+   no Players/Groups/Rounds tabs visible anywhere.
+2. With no round yet — confirm "The organiser hasn't set up a round yet."
+3. With an upcoming round — confirm "Waiting for organiser to start
+   {round name}."
+4. With an active round — confirm the prominent "▶ Start Scoring" button
+   appears and correctly opens that round's scoring screen.
+5. Log in as the organiser on the same trip — confirm the full tab
+   interface (Overview/Players/Groups/Rounds) is completely unchanged.
+6. Complete a round as a player — confirm the new "Score Submitted"
+   wording appears exactly as specified.
+
+### Confirmed unchanged
+82/82 scoring-domain tests still pass — nothing about scoring, handicap,
+marker, or reconciliation logic was touched.
+
+---
+
+## Role-Based My HQ / My Round
+
+### Role detection
+Same signal used everywhere else this session: `trip_members.role` for
+"organiser vs player," and the trip's existing `organiser_is_playing`
+flag (established since Sprint 5C.2) for "is this organiser also
+playing" — no new role system, no new per-round check invented.
+
+### Navigation
+One destination, one route (`/trips/{tripId}/tournament`), label adapts:
+`isOrganiser ? 'My HQ' : 'My Round'`. Confirmed by reading the code, not
+assumed: this item was previously wrapped in `if (isOrganiser)` (hidden
+entirely from players); moved outside that conditional so both roles get
+the same nav slot with only the label and destination content differing.
+No second bottom-nav item added.
+
+### New API — reuses existing computation, doesn't duplicate it
+`GET /api/trips/[tripId]/rounds/[roundId]/my-round` — not organiser-
+gated, any trip member can call it for their own data. Explicitly reuses,
+rather than reimplements:
+- the `capture_role='self'` convention already established for
+  authoritative personal totals (leaderboard/tournament routes);
+- the same gross-vs-par diff logic for birdies/eagles (tournament route);
+- the same checkpoint-based ranking approach (tournament route's Story
+  section) for "current position" — scoped down to return only the
+  caller's own position and personal rank-change milestones, not the
+  full board or everyone's story.
+
+No second Stableford or ranking implementation was written.
+
+### New components
+- **`PlayerRoundView.tsx`** — the full player My Round experience:
+  status/next-action card, personal score snapshot, personal alerts
+  (own mismatches only), My Group (read-only), personal Golf Story.
+- **`MyRoundSummary.tsx`** — the *compact* organiser-also-playing
+  version. Deliberately a separate, smaller component reusing the same
+  `my-round` query (same query key, so React Query dedupes the request
+  if both were ever mounted at once) rather than reusing
+  `PlayerRoundView` wholesale — the brief was explicit that duplicating
+  the full player page inside My HQ was the wrong shape, and I initially
+  wired it up that way before catching and correcting it within this
+  same pass.
+
+### `tournament/page.tsx` — no more organiser-only redirect
+The previous `if (membership?.role !== 'organiser') redirect(...)` is
+gone — replaced with a role branch: players get `PlayerRoundView` under
+the "My Round" heading; organisers get the exact same `TournamentControl`
+as before (byte-for-byte unchanged) under "My HQ", with `MyRoundSummary`
+appended only when `organiser_is_playing` is true.
+
+### What players structurally cannot see, not just don't see
+`PlayerRoundView` never imports or renders anything from
+`TournamentControl` — Event Health, Group Progress (event-wide),
+organiser Alerts, the announcement composer, Close Round, and Publish
+Results cannot leak into the player experience because the component
+tree simply doesn't contain them, not because of a hidden flag.
+
+### Confirmed unchanged
+The organiser's `TournamentControl` rendering, scoring, Stableford,
+marker logic, reconciliation, leaderboard, chat, notifications, group
+assignments, organiser permissions. 82/82 scoring-domain tests still
+pass.
+
+### Manual test steps (all three role combinations)
+1. **Player only**: bottom nav says "My Round"; opening it shows status/
+   next-action, personal snapshot, personal alerts, group, story — no
+   organiser controls anywhere.
+2. **Organiser only** (not also playing): bottom nav still says "My HQ";
+   existing organiser workflow unchanged; no My Round section appears.
+3. **Organiser + player**: bottom nav says "My HQ"; full organiser
+   controls remain; a compact My Round section appears below Event
+   Health/Group Progress/etc., with Continue Scoring / View My Scorecard
+   links and a mismatch alert if one exists.
+4. Confirm a personal mismatch link opens the exact affected hole (reuses
+   the same `?hole=N` deep-link mechanism already built).
+
+---
+
+## Sprint 5 QA UX Fixes
+
+### 1 & 2 — Begin Round / Course Index centering
+Root cause: `BeginRoundModal.tsx`'s scrollable container never reset its
+scroll position when the `stage` changed — a single component already
+handles all three stages (`review`, `holes` [course/index setup],
+`confirm`), so one fix covers both items. Added a ref on the scrollable
+container plus a `useEffect` keyed on `stage` calling `scrollTo({top:0})`
+on every stage change, including the initial mount.
+
+### 3 — Collapsible horizontal scorecard
+Added to both scoring shells: collapsed by default on entering active
+scoring (`useState(false)`), a "▼ View Round Scorecard" / "▲ Hide Round
+Scorecard" toggle, and an auto-scroll nudge on expand so the newly-
+revealed active-hole tile is actually visible rather than pushing
+content off-screen above the viewport. Collapsing/expanding never
+touches `holeIdx` or capture-map state — it's purely a visibility
+toggle, so entered scores and the selected hole are untouched, and the
+collapsed/expanded state persists naturally across hole navigation
+within the session (nothing resets it).
+
+### 4 — Removed "No Stroke Received" text
+Changed from always-rendering conditional text to conditionally
+rendering the element itself — zero strokes now renders nothing at all,
+one/two+ strokes render "Receives N stroke(s)" as before. Applied to
+both the player's own card and the marker card, both scoring modes.
+Handicap allocation itself untouched — this only changed what text
+renders around an unchanged `strokes` value.
+
+### 5 — Removed passive "Waiting for marker" during active scoring
+The per-hole status label on the active ScoreCard now only renders for
+`matched` and `mismatch` — the two "meaningful" states per the explicit
+list. `pending_marker`/`pending_self`/`not_started` (all expected,
+normal mid-round states) no longer show a passive label. Deliberately
+left the Round Summary screen's own "waiting on marker entries for
+holes: X, Y" text unchanged — that's a screen the player navigates to
+on purpose to review status, not passive interruption during play, which
+is what this item was actually about.
+
+### 6 — Removed player group-chat composer
+Removed the "Group Chat" input/send entirely from `EventMessages.tsx`
+and the now-unused `myGroupId`/`myGroupName` prop plumbing from
+`chat/page.tsx`. Players now only read — organiser announcements and
+group notifications display with clear kind labels
+("Announcement"/"Notification"), no reply option. The organiser's
+composer and the My HQ Notify Group flow are completely untouched.
+Deliberately did **not** touch the database RLS policy that permits
+participant chat inserts (`027_chat_participant_messages.sql`) — the
+instruction was to stop the UI from *offering* the workflow and preserve
+historical rows, not to revoke the underlying permission; leaving it in
+place is the more conservative choice and avoids an unrequested schema
+change in a pass explicitly scoped to UX only.
+
+### 7 — Chat auto-updates while open
+Added `refetchInterval: 4000` (within the requested 3-5s range) to the
+messages query. React Query already pauses interval refetching when the
+tab isn't visible and stops entirely once the component unmounts (leaving
+Chat) — no extra visibility/mount bookkeeping needed for "stop polling
+when Chat isn't open." Added lightweight new-message handling: compares
+each fetch's newest message id to the previous one, and if the person
+has scrolled away from the top, shows a small "↑ New messages" pill
+instead of silently reordering content under them or auto-jumping them
+away from something they're reading.
+
+**Strategy chosen and why:** polling, not Supabase Realtime. The brief
+explicitly framed polling as the acceptable "preferred initial solution"
+for this QA stage and Realtime as optional only "if already configured
+and can be introduced safely" — no Realtime infrastructure exists yet in
+this project, so introducing it now would be exactly the "large realtime
+subsystem" the brief said not to start in this pass.
+
+### 8 — Composer clarity by role
+Direct consequence of item 6: players now see message history only,
+organisers see the announcement composer. Kind labels
+(Chat/Announcement/Notification) were already added in an earlier pass
+and remain.
+
+### 9 — Existing hole navigation preserved
+Previous/Next Hole buttons, swipe, and Round Summary on the final hole
+are untouched by the collapse feature — the toggle only affects the
+strip's own visibility, not `holeIdx`, so every navigation method
+continues to land at the Scoring Anchor exactly as before, with the
+scorecard remaining collapsed unless the user explicitly expands it.
+
+### Confirmed unchanged
+Stableford calculations, Playing Handicap allocation, score saving,
+marker comparison, reconciliation, leaderboard rankings, organiser
+permissions, player permissions, scorecard navigation, My Round, My HQ,
+invite/join flow. 82/82 scoring-domain tests still pass.
+
+---
+
+## Follow-up: Sprint 5 QA Feedback Actioned
+
+### Removed the new-message indicator, per explicit feedback
+Agreed this was the right call rather than defending it — the
+scroll-position tracking added real complexity I couldn't verify on a
+real device, for a feature explicitly flagged as "remove if it becomes
+fiddly." `EventMessages.tsx` now does a plain full-list refetch every 4s
+with no scroll tracking, no "New messages" pill, no wrapped scrollable
+sub-container. Polling itself (the actual requirement) is unchanged.
+Unread-message polish is now explicitly deferred to the Native Feel
+sprint, not silently dropped.
+
+### RLS/database permissions — confirmed untouched, no change made
+Agreed with keeping this out of a UX sprint. Re-checked: no migration or
+RLS policy was touched in this pass or the previous one.
+
+### Visual separation of message kinds
+Added exactly as suggested: 🟢 Announcement · {recipient}, 🔔
+Notification · {recipient}, 💬 Previous Conversation (for historical
+`chat_message` rows, no recipient sub-label since that composer no
+longer exists to generate new ones). Historical chat additionally gets
+a visibly muted treatment (grey background, no shadow, greyed message
+text) so it reads as archived rather than looking identical to live
+operational messages.
+
+### Collapse-state persistence — verified by tracing, not re-asserted
+Went back and grepped every reference to `setScorecardExpanded` in both
+scoring shells: it is called from exactly one place in each file — the
+toggle button's own `onClick`. Nothing in `confirmScore()`, the
+Previous/Next handlers, or the swipe handlers touches it. Since the
+component itself doesn't unmount between holes (only `holeIdx` changes
+within the same mounted instance), persistence across swipe/Previous/
+Next/Confirm Score was already guaranteed by ordinary React state
+behavior — confirmed with evidence rather than taken on faith.
+
+### Confirmed unchanged
+Stableford, handicap allocation, marker comparison, reconciliation,
+leaderboard ranking, organiser/player permissions, scorecard navigation.
+82/82 scoring-domain tests still pass.
+
+---
+
+## New-Message Indicator Restored
+
+Per explicit instruction: keep it in and evaluate in real use rather than
+remove it pre-emptively. Restored exactly what was removed last pass —
+scroll-position tracking (comparing each fetch's newest message id
+against the last one seen, showing a "↑ New messages" pill only when the
+person has scrolled away from the top) — combined with the kind-based
+visual separation (Announcement/Notification/Previous Conversation)
+added since.
+
+**Decision framework going forward, as agreed:** if it works well in
+real testing, it stays as part of Sprint 5. If it proves fiddly, it comes
+out — to be revisited properly during the Native Feel sprint instead of
+being carried as unresolved debt in this one.
+
+Confirmed unchanged: everything else from the prior two passes (removed
+player composer, collapsible scorecard, stroke text, passive marker
+notices, Begin Round centering). 82/82 scoring-domain tests still pass.

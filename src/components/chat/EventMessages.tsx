@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -29,36 +29,50 @@ function relativeTime(iso: string): string {
 }
 
 function recipientLabel(m: EventMessage): string {
-  if (m.recipient_type === 'all') return 'All players'
+  if (m.recipient_type === 'all') return 'Everyone'
   if (m.recipient_type === 'group') return m.recipient_group?.name ?? 'Group'
   return 'Direct message'
 }
 
-function kindLabel(m: EventMessage): string {
-  if (m.message_type === 'announcement') return 'Announcement'
-  if (m.message_type === 'group_notification' || m.message_type === 'player_notification') return 'Notification'
-  return 'Chat'
+// Visual differentiation by message kind (per explicit feedback): makes
+// it immediately obvious why some messages are read-only (announcements/
+// notifications) versus historical player chat from before the group-
+// reply composer was removed, rather than all three looking identical.
+type Kind = 'announcement' | 'notification' | 'historical_chat'
+
+function kindOf(m: EventMessage): Kind {
+  if (m.message_type === 'announcement') return 'announcement'
+  if (m.message_type === 'group_notification' || m.message_type === 'player_notification') return 'notification'
+  return 'historical_chat'
+}
+
+const KIND_META: Record<Kind, { icon: string; label: string; bg: string; border: string; labelColor: string }> = {
+  announcement:     { icon: '🟢', label: 'Announcement', bg: '#ffffff', border: '#eceae3', labelColor: '#16a34a' },
+  notification:     { icon: '🔔', label: 'Notification', bg: '#ffffff', border: '#eceae3', labelColor: '#a1791f' },
+  historical_chat:  { icon: '💬', label: 'Previous Conversation', bg: '#f7f6f1', border: '#e5e2d9', labelColor: '#9ca3af' },
 }
 
 export default function EventMessages({
-  tripId, isOrganiser, myGroupId, myGroupName,
-}: { tripId: string; isOrganiser: boolean; myGroupId: string | null; myGroupName: string | null }) {
+  tripId, isOrganiser,
+}: { tripId: string; isOrganiser: boolean }) {
   const queryClient = useQueryClient()
 
-  // Organiser announcement composer — unchanged from before this pass.
+  // Organiser announcement composer — unchanged.
   const [composing, setComposing] = useState(false)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
 
-  // Ordinary participant chat composer — new, available to any confirmed
-  // member, not gated on isOrganiser. Audience is fixed to "My Group" for
-  // now (no per-trip setting exists yet to enable event-wide participant
-  // chat), matching "Everyone, only where enabled" with nothing enabling
-  // it currently.
-  const [chatDraft, setChatDraft] = useState('')
-  const [chatSending, setChatSending] = useState(false)
-  const [chatError, setChatError] = useState('')
+  // Restored per explicit instruction: keep this in and evaluate it in
+  // real use — remove later only if it proves fiddly in practice, not
+  // pre-emptively. Tracks whether new messages have arrived while the
+  // person is scrolled away from the top, showing a subtle indicator
+  // rather than silently reordering content under them or yanking them
+  // away from something they're reading.
+  const [newSinceScroll, setNewSinceScroll] = useState(false)
+  const listTopRef = useRef<HTMLDivElement>(null)
+  const previousFirstIdRef = useRef<string | null>(null)
+  const isNearTopRef = useRef(true)
 
   const { data, isLoading, error, refetch } = useQuery<{ messages: EventMessage[] }>({
     queryKey: ['event-messages', tripId],
@@ -67,17 +81,38 @@ export default function EventMessages({
       if (!res.ok) throw new Error('Could not load messages.')
       return res.json()
     },
+    // Chat should feel live while open — 4s sits in the requested 3-5s
+    // range. React Query already pauses interval refetching when the tab
+    // isn't visible and stops entirely once this component unmounts
+    // (leaving Chat), so no extra visibility/mount bookkeeping is needed
+    // for "stop polling when Chat is not open."
+    refetchInterval: 4000,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     staleTime: 0,
   })
 
   // Mark as read once the list has actually loaded — this is what the
-  // bottom-nav unread dot checks against. A simple localStorage timestamp,
-  // not a new database table, since a per-user read-receipt table is more
-  // infrastructure than this pass's "validate the concept" scope needs.
+  // bottom-nav unread dot checks against.
   if (data && data.messages.length > 0 && typeof window !== 'undefined') {
     window.localStorage.setItem(`chat-last-read-${tripId}`, data.messages[0].created_at)
+  }
+
+  // New-message detection: compare this fetch's newest id to the last
+  // one we saw. If the person is scrolled away from the top, show a
+  // subtle indicator instead of silently reordering content under them.
+  useEffect(() => {
+    if (!data || data.messages.length === 0) return
+    const newestId = data.messages[0].id
+    if (previousFirstIdRef.current && previousFirstIdRef.current !== newestId && !isNearTopRef.current) {
+      setNewSinceScroll(true)
+    }
+    previousFirstIdRef.current = newestId
+  }, [data])
+
+  function handleScroll(e: React.UIEvent<HTMLDivElement>) {
+    isNearTopRef.current = e.currentTarget.scrollTop < 80
+    if (isNearTopRef.current) setNewSinceScroll(false)
   }
 
   async function handleSendAnnouncement() {
@@ -92,9 +127,6 @@ export default function EventMessages({
     const resData = await res.json().catch(() => ({}))
     setSending(false)
     if (!res.ok) { setSendError(resData.error ?? 'Could not send announcement.'); return }
-    // Show immediately, don't wait for the next fetch cycle. The
-    // subsequent invalidate below replaces this with the authoritative
-    // server list on its own schedule — same real id, so no duplicate.
     if (resData.sentMessage) {
       queryClient.setQueryData<{ messages: EventMessage[] }>(['event-messages', tripId], (old) =>
         old ? { messages: [{ ...resData.sentMessage, sender: { full_name: 'You' }, recipient_group: null }, ...old.messages] } : { messages: [resData.sentMessage] }
@@ -102,27 +134,6 @@ export default function EventMessages({
     }
     setDraft('')
     setComposing(false)
-    void queryClient.invalidateQueries({ queryKey: ['event-messages', tripId] })
-  }
-
-  async function handleSendChat() {
-    if (!chatDraft.trim() || !myGroupId) return
-    setChatSending(true)
-    setChatError('')
-    const res = await fetch(`/api/trips/${tripId}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recipientType: 'group', recipientGroupId: myGroupId, message: chatDraft.trim(), messageType: 'chat_message' }),
-    })
-    const resData = await res.json().catch(() => ({}))
-    setChatSending(false)
-    if (!res.ok) { setChatError(resData.error ?? "Message couldn't be sent. Please try again."); return }
-    if (resData.sentMessage) {
-      queryClient.setQueryData<{ messages: EventMessage[] }>(['event-messages', tripId], (old) =>
-        old ? { messages: [{ ...resData.sentMessage, sender: { full_name: 'You' }, recipient_group: myGroupName ? { name: myGroupName } : null }, ...old.messages] } : { messages: [resData.sentMessage] }
-      )
-    }
-    setChatDraft('')
     void queryClient.invalidateQueries({ queryKey: ['event-messages', tripId] })
   }
 
@@ -166,73 +177,69 @@ export default function EventMessages({
         </div>
       )}
 
-      {/* Ordinary participant chat — available to everyone with a group,
-          fixed audience "My Group" (no event-wide toggle exists yet). */}
-      {myGroupId && (
-        <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid #eceae3', padding: 12, marginBottom: 16 }}>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#9ca3af', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Group Chat · {myGroupName ?? 'My Group'}
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              value={chatDraft}
-              onChange={e => setChatDraft(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !chatSending) handleSendChat() }}
-              placeholder="Message your group…"
-              style={{ flex: 1, border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 10px', fontFamily: 'var(--font-body)', fontSize: 13 }}
-            />
-            <button
-              onClick={handleSendChat}
-              disabled={chatSending || !chatDraft.trim()}
-              style={{ padding: '8px 16px', borderRadius: 8, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: chatSending ? 'default' : 'pointer', opacity: chatSending || !chatDraft.trim() ? 0.6 : 1 }}
-            >
-              {chatSending ? '…' : 'Send'}
-            </button>
-          </div>
-          {chatError && <p style={{ color: '#dc2626', fontSize: 11.5, marginTop: 6, fontFamily: 'var(--font-body)' }}>{chatError}</p>}
-        </div>
+      {/* No player-facing composer here, deliberately — group notifications
+          and event announcements are operational broadcasts, not a group
+          conversation thread. Players read; only organisers send. */}
+
+      {newSinceScroll && (
+        <button
+          onClick={() => { listTopRef.current?.scrollIntoView({ behavior: 'smooth' }); setNewSinceScroll(false) }}
+          style={{
+            display: 'block', width: '100%', textAlign: 'center', padding: 8, borderRadius: 10, marginBottom: 8,
+            background: '#fdf3d9', border: '1px solid #e8c96a', color: '#a1791f',
+            fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+          }}
+        >
+          ↑ New messages
+        </button>
       )}
 
-      {isLoading && <p style={{ textAlign: 'center', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>Loading…</p>}
-      {error && (
-        <div style={{ textAlign: 'center', padding: '24px 16px' }}>
-          <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, marginBottom: 10 }}>
-            Messages are temporarily unavailable.
-          </p>
-          <button
-            onClick={() => refetch()}
-            style={{ padding: '8px 18px', borderRadius: 10, background: '#ffffff', border: '1.5px solid #d1d5db', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#14532d', cursor: 'pointer' }}
-          >
-            Try Again
-          </button>
-        </div>
-      )}
-      {data && data.messages.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '32px 16px' }}>
-          <p style={{ fontSize: 32, marginBottom: 8 }}>💬</p>
-          <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>
-            No messages yet. Announcements, notifications, and group chat will appear here.
-          </p>
-        </div>
-      )}
-      {data && data.messages.map(m => (
-        <div key={m.id} style={{
-          background: m.is_pinned ? '#fdf3d9' : '#ffffff',
-          border: m.is_pinned ? '1px solid #e8c96a' : '1px solid #eceae3',
-          borderRadius: 12, padding: '10px 14px', marginBottom: 8,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#a1791f' }}>
-              {m.is_pinned && '📌 '}{kindLabel(m)} · {recipientLabel(m)} · {relativeTime(m.created_at)}
-            </span>
+      <div ref={listTopRef} onScroll={handleScroll} style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+        {isLoading && <p style={{ textAlign: 'center', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>Loading…</p>}
+        {error && (
+          <div style={{ textAlign: 'center', padding: '24px 16px' }}>
+            <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, marginBottom: 10 }}>
+              Messages are temporarily unavailable.
+            </p>
+            <button
+              onClick={() => refetch()}
+              style={{ padding: '8px 18px', borderRadius: 10, background: '#ffffff', border: '1.5px solid #d1d5db', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#14532d', cursor: 'pointer' }}
+            >
+              Try Again
+            </button>
           </div>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#14532d', lineHeight: 1.5 }}>{m.message}</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
-            — <Link href={`/trips/${tripId}/players/${m.sender_user_id}`} style={{ color: 'inherit', textDecoration: 'underline' }}>{m.sender?.full_name ?? 'Organiser'}</Link>
-          </p>
-        </div>
-      ))}
+        )}
+        {data && data.messages.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '32px 16px' }}>
+            <p style={{ fontSize: 32, marginBottom: 8 }}>💬</p>
+            <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>
+              No messages yet. Announcements and group notifications will appear here.
+            </p>
+          </div>
+        )}
+        {data && data.messages.map(m => {
+          const kind = kindOf(m)
+          const meta = KIND_META[kind]
+          return (
+            <div key={m.id} style={{
+              background: m.is_pinned ? '#fdf3d9' : meta.bg,
+              border: `1px solid ${m.is_pinned ? '#e8c96a' : meta.border}`,
+              borderRadius: 12, padding: '10px 14px', marginBottom: 8,
+              boxShadow: kind === 'historical_chat' ? 'none' : '0 2px 8px rgba(0,0,0,0.05)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: meta.labelColor }}>
+                  {m.is_pinned && '📌 '}{meta.icon} {meta.label}{kind !== 'historical_chat' ? ` · ${recipientLabel(m)}` : ''} · {relativeTime(m.created_at)}
+                </span>
+              </div>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: kind === 'historical_chat' ? '#6b7280' : '#14532d', lineHeight: 1.5 }}>{m.message}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+                — <Link href={`/trips/${tripId}/players/${m.sender_user_id}`} style={{ color: 'inherit', textDecoration: 'underline' }}>{m.sender?.full_name ?? 'Organiser'}</Link>
+              </p>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

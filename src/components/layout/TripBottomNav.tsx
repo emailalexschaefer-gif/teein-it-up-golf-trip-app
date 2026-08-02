@@ -32,9 +32,9 @@ function buildItems(tripId: string, isOrganiser: boolean, activeRoundId: string 
     { href: `${base}/leaderboard`, label: 'Leaderboard', icon: '🏆', match: (p) => p.startsWith(`${base}/leaderboard`) },
     { href: `${base}/sidegames`, label: 'Side Games', icon: '🎯', match: (p) => p.startsWith(`${base}/sidegames`) },
   ]
-  if (isOrganiser) {
-    items.push({ href: `${base}/tournament`, label: 'My HQ', icon: '🎛️', match: (p) => p.startsWith(`${base}/tournament`) })
-  }
+  // Same nav position and route for both roles — label and destination
+  // content adapt by role instead of adding a second bottom-nav item.
+  items.push({ href: `${base}/tournament`, label: isOrganiser ? 'My HQ' : 'My Round', icon: '🎛️', match: (p) => p.startsWith(`${base}/tournament`) })
   items.push({ href: `${base}/chat`, label: 'Chat', icon: '💬', match: (p) => p.startsWith(`${base}/chat`) })
   return items
 }

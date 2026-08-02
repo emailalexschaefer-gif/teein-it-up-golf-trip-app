@@ -132,22 +132,24 @@ export default async function TripDetailPage({ params }: Props) {
     )
   }
 
-  // Fetch actual group count for initial render (so Overview shows correct count
-  // before the Groups tab is visited and onGroupsLoaded fires)
-  let initialGroupCount = 0
+  // Fetch actual groups (id + name) — used for the group count AND, for
+  // the new player dashboard, to look up the current user's own group
+  // name from their trip_members.group_id.
+  let fetchedGroups: { id: string; name: string }[] = []
   try {
     const groupsResult = await db
       .from('trip_groups')
-      .select('id', { count: 'exact', head: true })
+      .select('id, name')
       .eq('trip_id', tripId)
-    initialGroupCount = groupsResult.count ?? 0
+      .order('sort_order')
+    fetchedGroups = groupsResult.data ?? []
   } catch {
-    // trip_groups table may not exist yet — default to 0
+    // trip_groups table may not exist yet — default to empty
   }
 
   const sortedTrip: TripData = {
     ...rawTrip,
-    trip_groups: Array.from({ length: initialGroupCount }, (_, i) => ({ id: String(i) })),
+    trip_groups: fetchedGroups,
     rounds: [...(rawTrip.rounds ?? [])].sort(
       (a, b) => a.play_date.localeCompare(b.play_date)
     ),

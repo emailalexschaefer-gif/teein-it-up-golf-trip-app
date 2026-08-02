@@ -13,6 +13,7 @@ import type { TripStatus, TripRole } from '@/types/app'
 import TripOverviewTab from './tabs/TripOverviewTab'
 import TripPlayersTab  from './tabs/TripPlayersTab'
 import TripGroupsTab   from './tabs/TripGroupsTab'
+import PlayerHomeCard  from './PlayerHomeCard'
 import TripRoundsTab   from './tabs/TripRoundsTab'
 
 export interface MemberProfile { id: string; full_name: string; avatar_url: string | null; handicap?: number | null }
@@ -30,7 +31,7 @@ export interface TripData {
   location: string | null; start_date: string; end_date: string
   status: TripStatus; invite_code: string
   expected_players?: number; players_per_group?: number; organiser_is_playing?: boolean
-  trip_members: TripMemberRow[]; rounds: RoundRow[]; trip_groups?: Array<{ id: string }>
+  trip_members: TripMemberRow[]; rounds: RoundRow[]; trip_groups?: Array<{ id: string; name?: string }>
 }
 
 interface Props { trip: TripData; currentUserId: string; userRole: TripRole }
@@ -54,16 +55,30 @@ function workflowStep(status: TripStatus): number {
 }
 
 export default function TripDetailClient({ trip, currentUserId, userRole }: Props) {
+  const isOrganiser  = userRole === 'organiser'
+
+  // All hooks must run unconditionally, on every render, regardless of
+  // role — the early return for players below happens AFTER every hook
+  // call, never before, per React's Rules of Hooks.
   const toast        = useToast()
   const router       = useRouter()
   const updateStatus = useUpdateTripStatus()
-  const isOrganiser  = userRole === 'organiser'
   const [tab, setTab]            = useState<Tab>('overview')
   const queryClient = useQueryClient()
   // Initialise from server-fetched trip data so Overview is correct before Groups tab is visited
   const [actualGroupCount, setActualGroupCount] = useState<number>(
     Array.isArray(trip.trip_groups) ? trip.trip_groups.length : 0
   )
+
+  // Role-based experience (Sprint 5 — Player Experience Flow): a player
+  // should never see the organiser setup workflow (Overview/Players/
+  // Groups/Rounds tabs) — they get a streamlined status dashboard
+  // instead. Placed after every hook call above (never before), so
+  // nothing about hook order changes between an organiser's render and
+  // a player's — only the JSX returned differs.
+  if (!isOrganiser) {
+    return <PlayerHomeCard trip={trip} currentUserId={currentUserId} />
+  }
 
   const organiserIsPlaying = trip.organiser_is_playing ?? false
   const playerCount  = trip.trip_members.filter(m => m.role === 'player').length + (organiserIsPlaying ? 1 : 0)
