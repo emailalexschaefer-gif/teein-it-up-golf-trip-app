@@ -205,6 +205,13 @@ export default function SelfMarkerScoreShell({
   // an unwanted scroll/jump before the golfer has done anything.
   useEffect(() => {
     if (!hasHydratedRef.current) { hasHydratedRef.current = true; return }
+    // Collapsed mode: the workspace is already a fixed, bounded container
+    // (see the grid layout below) — there's nothing to scroll to, and
+    // calling scrollTo() here would be pointless at best and could cause
+    // visible jank at worst if it fires mid-transition. This is exactly
+    // the "if an old scoring-anchor effect still runs on holeIdx, disable
+    // it in collapsed mode" instruction.
+    if (!scorecardExpanded) return
     const container = scrollContainerRef.current
     const anchor = scoringAnchorRef.current
     if (!container || !anchor) return
@@ -216,7 +223,7 @@ export default function SelfMarkerScoreShell({
     // so the card isn't flush against the very edge of the screen.
     const anchorTop = anchor.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
     container.scrollTo({ top: Math.max(0, anchorTop - 8), behavior: 'smooth' })
-  }, [holeIdx])
+  }, [holeIdx]) // eslint-disable-line react-hooks/exhaustive-deps -- scorecardExpanded intentionally not a dep: checked as a runtime guard only, not a re-trigger reason (the toggle button's own onClick already handles the expand-nudge separately)
   const [resumed, setResumed] = useState(false)
   const [showReconciliation, setShowReconciliation] = useState(false)
 
@@ -266,7 +273,7 @@ export default function SelfMarkerScoreShell({
     // locking the body unconditionally would defeat the fallback's whole
     // purpose on genuinely short viewports, trapping content that the
     // fallback specifically exists to make reachable via scroll instead.
-    if (typeof window !== 'undefined' && window.matchMedia('(max-height: 750px)').matches) return
+    if (typeof window !== 'undefined' && window.matchMedia('(max-height: 620px)').matches) return
     const prevBodyOverflow = document.body.style.overflow
     const prevHtmlOverflow = document.documentElement.style.overflow
     document.body.style.overflow = 'hidden'
@@ -789,64 +796,83 @@ export default function SelfMarkerScoreShell({
     <div
       className="scoring-workspace-outer"
       style={{
-        flex: 1, display: 'flex', flexDirection: 'column', background: '#ffffff',
-        // 100dvh (not 100vh) so Chrome's expanding/collapsing address bar is
-        // accounted for. 64px matches AppNav's real, in-flow height (it's
-        // `sticky`, not `fixed`, so it genuinely reduces the space below it —
-        // TripBottomNav below is `fixed` and reserved for separately, via
-        // bottom padding on the workspace itself, not subtracted from height
-        // here). overflow:hidden on this outer level too — this is what
-        // actually stops ordinary page/document scrolling, not just the
-        // inner container. Also locked via document.body.style.overflow in
-        // the effect above — belt and suspenders, since relying on exact
-        // height-calc precision alone proved insufficient (confirmed by
-        // screenshots showing the whole page scrolling between two
-        // positions, not just this container).
-        height: scorecardExpanded ? 'auto' : 'calc(100dvh - 64px)',
+        display: 'flex', flexDirection: 'column', background: '#ffffff',
+        // Measured, not estimated: AppNav is Tailwind's h-16 (exactly
+        // 64px). TripBottomNav is minHeight:52 (content-box, so additive)
+        // + 8px/6px vertical padding + 2px top border ≈ 68px, before
+        // env(safe-area-inset-bottom) which is handled separately below.
+        ['--app-header-height' as string]: '64px',
+        ['--bottom-nav-height' as string]: '68px',
+        // 100svh (SMALL viewport height) as the authoritative baseline —
+        // not 100dvh alone. svh is, by spec, always the *smallest*
+        // possible viewport size regardless of whether Chrome's address
+        // bar is currently showing or hidden. Sizing against dvh (which
+        // can be LARGER when the bar is hidden) was the actual bug the
+        // screenshots exposed: the workspace fit fine with the bar
+        // hidden, then had no room to spare the moment it reappeared.
+        // svh guarantees the layout is correct for the worst case and
+        // simply has a little unused breathing room when more height
+        // happens to be available — never the other way around.
+        height: scorecardExpanded
+          ? 'auto'
+          : 'calc(100svh - var(--app-header-height) - var(--bottom-nav-height) - env(safe-area-inset-bottom, 0px))',
         overflow: scorecardExpanded ? 'visible' : 'hidden',
-      }}
+      } as React.CSSProperties}
     >
       {toast && (
         <div style={{ position: 'fixed', top: 72, left: '50%', transform: 'translateX(-50%)', zIndex: 200, background: 'rgba(10,30,18,0.97)', border: '1px solid rgba(201,168,76,0.66)', borderRadius: 22, padding: '8px 18px' }}>
           <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#e8c96a', fontWeight: 700 }}>● {toast}</span>
         </div>
       )}
-      {displaySyncLabel && (
-        <div style={{ flexShrink: 0, padding: '4px 16px 0', textAlign: 'right', fontFamily: 'var(--font-body)', fontSize: 10, color: '#9ca3af' }}>
-          {displaySyncLabel}
-        </div>
-      )}
 
-      {/* Deliberate compact fallback (not a silent default): only engages
-          on genuinely short viewports or enlarged accessibility text,
-          where the fixed workspace truly cannot fit even the reduced
-          content. Standard phones never hit this — they get the fixed,
-          non-scrolling workspace below. */}
+      {/* Deliberate compact fallback (not a silent default): standard
+          portrait phones never reach this — it exists only for
+          genuinely short viewports, landscape, or enlarged accessibility
+          text, where the fixed workspace truly cannot fit even the
+          reduced content. Reduce gaps first, padding second, decorative
+          text third, and only enable scrolling as the last resort — the
+          breakpoints below progressively compact before the final one
+          (620px) allows scrolling at all. */}
       <style>{`
-        @media (max-height: 750px) {
-          .scoring-workspace-fixed { overflow-y: auto !important; height: auto !important; max-height: none !important; }
+        @media (max-height: 800px) {
+          .scoring-card-header { padding: 4px 10px !important; }
+          .scoring-card-body { padding: 6px 10px !important; }
+        }
+        @media (max-height: 700px) {
+          .scoring-card-header { padding: 3px 8px !important; }
+          .scoring-card-body { padding: 5px 8px !important; }
+          .scoring-nav-row { margin-top: 6px !important; }
+        }
+        @media (max-height: 620px) {
           .scoring-workspace-outer { overflow: visible !important; height: auto !important; }
+          .scoring-workspace-fixed { overflow-y: auto !important; height: auto !important; max-height: none !important; }
         }
       `}</style>
 
+      {/* Collapsed: a genuine 3-row CSS grid, not a flex column that
+          merely happens to be bounded. Top row (auto): toggle + marked-
+          by. Middle row (minmax(0,1fr)): the two cards — minmax(0, ...)
+          is what lets this row shrink to fit the remaining space rather
+          than pushing the bottom row off-screen, the specific flexbox/
+          grid mechanism that makes "no vertical movement" actually hold.
+          Bottom row (auto): Confirm Score + Previous/Next, always
+          present and never displaced. Expanded: reverts to a normal
+          flex column that scrolls, since the golfer explicitly asked to
+          review the round. */}
       <div
         ref={scrollContainerRef}
         className={scorecardExpanded ? undefined : 'scoring-workspace-fixed'}
         onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
-        style={{
+        style={scorecardExpanded ? {
           flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
-          overflowY: scorecardExpanded ? 'auto' : 'hidden',
-          // Collapsed: tight padding, with bottom padding sized to clear
-          // the fixed bottom nav (not subtracted from the height above,
-          // since that nav doesn't reduce document flow height — it
-          // overlays). Expanded: generous padding, since this becomes a
-          // normal scrolling view once the golfer has explicitly asked
-          // to review the round.
-          padding: scorecardExpanded ? '14px 16px 90px' : '8px 16px calc(64px + env(safe-area-inset-bottom, 0px))',
-          background: '#faf9f6',
+          overflowY: 'auto', padding: '14px 16px 90px', background: '#faf9f6',
+        } : {
+          flex: 1, display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr) auto',
+          minHeight: 0, overflow: 'hidden',
+          padding: '6px 16px calc(6px + env(safe-area-inset-bottom, 0px))',
+          background: '#faf9f6', rowGap: 4,
         }}
       >
-
         {/* ── Compact score strip — collapsible (QA fix): collapsed by
             default on entering active scoring so it never competes with
             the scoring workspace for space; expands on request via the
@@ -865,7 +891,7 @@ export default function SelfMarkerScoreShell({
             self-entries only, reusing calculateStableford() — the same
             function myRunningTotal already calls, not a second
             calculation. ────────────────────────────────────────────── */}
-        <div style={{ padding: '0 0 10px', borderBottom: '1px solid #eceae3', marginBottom: 12 }}>
+        <div style={scorecardExpanded ? { padding: '0 0 10px', borderBottom: '1px solid #eceae3', marginBottom: 12 } : { gridRow: '1' }}>
           <button
             onClick={() => {
               const willExpand = !scorecardExpanded
@@ -891,13 +917,19 @@ export default function SelfMarkerScoreShell({
               }
             }}
             style={{
-              width: '100%', textAlign: 'center', padding: '7px 0', marginBottom: scorecardExpanded ? 10 : 0,
+              width: '100%', textAlign: 'center', padding: scorecardExpanded ? '7px 0' : '3px 0', marginBottom: scorecardExpanded ? 10 : 0,
               background: 'none', border: 'none', cursor: 'pointer',
               fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#a1791f',
             }}
           >
             {scorecardExpanded ? '▲ Hide Round Scorecard' : '▼ View Round Scorecard'}
           </button>
+
+          {!scorecardExpanded && currentMarkedByName && (
+            <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 9.5, color: '#b0b6be' }}>
+              Marked by {currentMarkedByName}
+            </div>
+          )}
 
           {scorecardExpanded && (() => {
             const front9 = holes.filter(h => h.hole_number <= 9)
@@ -962,21 +994,24 @@ export default function SelfMarkerScoreShell({
               </>
             )
           })()}
+
+          {scorecardExpanded && currentMarkedByName && (
+            <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 10, color: '#b0b6be', marginTop: 6 }}>
+              Marked by {currentMarkedByName}
+            </div>
+          )}
         </div>
 
         {/* Scoring Anchor — the permanent resting point for every hole
-            transition. Everything from here down (score-entry card(s),
-            Confirm button) is what "returning to the anchor" means; future
+            transition (expanded mode only; collapsed mode disables the
+            anchor-scroll effect entirely, per the explicit instruction,
+            since this fixed grid has nothing to scroll to). Future
             Premium content sits above this div without needing this
             component's behavior to change. */}
-        <div ref={scoringAnchorRef} />
-
-        {currentMarkedByName && (
-          <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 10, color: '#b0b6be', marginBottom: 6 }}>
-            Marked by {currentMarkedByName}
-          </div>
-        )}
-
+        <div
+          ref={scoringAnchorRef}
+          style={scorecardExpanded ? undefined : { gridRow: '2', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
+        >
         {/* ── Card 1: YOUR SCORE ─────────────────────────────────────────── */}
         <ScoreCard
           title="YOUR SCORE" name={myName} hcp={myHcp} par={par} si={si} strokes={myStrokes} holeNum={holeNum}
@@ -994,7 +1029,9 @@ export default function SelfMarkerScoreShell({
             status={partnerComparison} onOpenSummary={() => setShowReconciliation(true)}
           />
         )}
+        </div>
 
+        <div style={scorecardExpanded ? undefined : { gridRow: '3' }}>
         <button
           onClick={confirmScore}
           disabled={!canConfirm || flash}
@@ -1008,7 +1045,7 @@ export default function SelfMarkerScoreShell({
           {flash ? '✓ Saved!' : '✓ Confirm Score'}
         </button>
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <div className="scoring-nav-row" style={{ display: 'flex', gap: 8, marginTop: 10 }}>
           <button
             onClick={() => setHoleIdx(i => Math.max(0, i - 1))}
             disabled={holeIdx === 0}
@@ -1039,8 +1076,9 @@ export default function SelfMarkerScoreShell({
             </button>
           )}
         </div>
+        </div>
 
-        {isOrganiser && (
+        {scorecardExpanded && isOrganiser && (
           <Link href={`/trips/${tripId}/rounds/${round.id}/markers`} style={{ display: 'block', textAlign: 'center', marginTop: 20, fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', textDecoration: 'none' }}>
             Organiser: review marker assignments →
           </Link>
@@ -1062,7 +1100,7 @@ function ScoreCard({
 }) {
   return (
     <div style={{ borderRadius: 14, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 4px 18px rgba(0,0,0,0.09)', marginBottom: 6, overflow: 'hidden' }}>
-      <div style={{ background: '#f7f6f1', padding: '5px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #eceae3' }}>
+      <div className="scoring-card-header" style={{ background: '#f7f6f1', padding: '5px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #eceae3' }}>
         <div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#a1791f', letterSpacing: 0.8 }}>{title}</div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 17, fontWeight: 800, color: '#14532d', lineHeight: 1.2 }}>
@@ -1089,7 +1127,7 @@ function ScoreCard({
         </div>
       </div>
 
-      <div style={{ padding: '8px 12px' }}>
+      <div className="scoring-card-body" style={{ padding: '8px 12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <button onClick={() => onPick(-1)} style={{ width: 44, height: 44, borderRadius: 11, background: '#f7f6f1', border: '1.5px solid #e5e2d9', color: '#14532d', fontSize: 21, flexShrink: 0 }}>−</button>
           <div style={{ flex: 1, textAlign: 'center' }}>

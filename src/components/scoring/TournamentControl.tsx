@@ -457,26 +457,17 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
         })}
       </div>
 
-      {/* ── Moments — foundation only, per Stage 1 scope. Not wired to any
-          upload yet (no storage bucket exists in this project currently) —
-          shown as a clearly-labeled upcoming action, not a broken button. */}
-      <SectionTitle>Moments</SectionTitle>
-      <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', padding: '24px 16px', textAlign: 'center' }}>
-        <p style={{ fontSize: 28, marginBottom: 8 }}>📸</p>
-        <p style={{ fontFamily: 'var(--font-body)', color: '#14532d', fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
-          No moments captured yet
-        </p>
-        <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 12.5, lineHeight: 1.5, marginBottom: 14 }}>
-          Photos and highlights from this round will appear here.
-        </p>
-        <span style={{
-          display: 'inline-block', fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700,
-          color: '#a1791f', background: '#fdf3d9', border: '1px solid #e8c96a',
-          borderRadius: 16, padding: '5px 14px',
-        }}>
-          Capture a Moment — coming soon
-        </span>
-      </div>
+      {/* ── Event Story — Sprint 6. Merges the Golf Story milestones
+          already computed above ("The Story" section, unchanged) with
+          real captured Moments, chronologically. Golf Story records
+          scores/leader-changes/milestones; Event Story records people,
+          celebrations, and memories — two separate timelines that
+          combine here into one, per the brief's own product principle.
+          Moments are fetched once via their own query (not folded into
+          the tournament query), so this section can refresh
+          independently without recomputing the checkpoint-replay logic. */}
+      <SectionTitle>Event Story</SectionTitle>
+      <EventStorySection tripId={tripId} golfStory={data.story} />
     </div>
   )
 }
@@ -512,4 +503,59 @@ const actionLinkStyle: CSSProperties = {
   background: '#ffffff', border: '1.5px solid #d1d5db',
   fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: '#14532d',
   textDecoration: 'none',
+}
+
+interface Moment {
+  id: string; caption: string | null; hole_number: number | null; created_at: string
+  imageUrl: string | null; playerName: string
+}
+
+function EventStorySection({ tripId, golfStory }: { tripId: string; golfStory: StoryEntry[] }) {
+  const { data } = useQuery<{ moments: Moment[] }>({
+    queryKey: ['moments', tripId],
+    queryFn: async () => {
+      const res = await fetch(`/api/trips/${tripId}/moments`)
+      if (!res.ok) throw new Error('failed')
+      return res.json()
+    },
+    staleTime: 30000,
+  })
+
+  const momentEntries: StoryEntry[] = (data?.moments ?? []).map(m => ({
+    icon: '📷',
+    text: m.caption ? `${m.playerName}: ${m.caption}` : `${m.playerName} shared a photo`,
+    at: m.created_at,
+  }))
+
+  // Merge the two timelines and sort chronologically — Golf Story
+  // (scores/milestones) and Moments (people/memories) are computed
+  // independently, per the brief's own "two separate timelines" framing,
+  // and only combined here for display.
+  const combined = [...golfStory, ...momentEntries].sort((a, b) => b.at.localeCompare(a.at))
+
+  if (combined.length === 0) {
+    return (
+      <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', padding: '24px 16px', textAlign: 'center' }}>
+        <p style={{ fontSize: 28, marginBottom: 8 }}>📸</p>
+        <p style={{ fontFamily: 'var(--font-body)', color: '#14532d', fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
+          The story of the event will appear here
+        </p>
+        <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 12.5, lineHeight: 1.5 }}>
+          Round milestones and Moments captured in Chat will appear together, chronologically.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+      {combined.slice(0, 20).map((entry, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '9px 14px', borderBottom: i < Math.min(combined.length, 20) - 1 ? '1px solid #f3f4f1' : 'none' }}>
+          <span style={{ fontSize: 14, flexShrink: 0 }}>{entry.icon}</span>
+          <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#14532d' }}>{entry.text}</span>
+          <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', flexShrink: 0, marginLeft: 8 }}>{relativeTime(entry.at)}</span>
+        </div>
+      ))}
+    </div>
+  )
 }

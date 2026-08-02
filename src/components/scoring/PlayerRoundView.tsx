@@ -173,7 +173,57 @@ export default function PlayerRoundView({ tripId, roundId, roundStatus }: { trip
           </div>
         </>
       )}
+
+      {/* 6. My Moments — Sprint 6, Part 5. Only this player's own captured
+          Moments, thumbnail + caption + hole + time. A separate query
+          from the round-summary one above, since Moments can span the
+          whole trip, not just this round. */}
+      <MyMoments tripId={tripId} />
     </div>
+  )
+}
+
+function MyMoments({ tripId }: { tripId: string }) {
+  const { data: momentsData } = useQuery<{ moments: { id: string; caption: string | null; hole_number: number | null; created_at: string; imageUrl: string | null }[] }>({
+    queryKey: ['my-moments', tripId],
+    queryFn: async () => {
+      // This component only knows tripId/roundId, not its own user id —
+      // resolve it client-side first, then filter server-side via
+      // ?playerId= (the moments GET route already supports this filter),
+      // rather than fetching everyone's moments and filtering in the
+      // browser.
+      const { createClient } = await import('@/lib/supabase/client')
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return { moments: [] }
+      const res = await fetch(`/api/trips/${tripId}/moments?playerId=${user.id}`)
+      if (!res.ok) throw new Error('failed')
+      return res.json()
+    },
+    staleTime: 30000,
+  })
+
+  if (!momentsData || momentsData.moments.length === 0) return null
+
+  return (
+    <>
+      <SectionLabel>My Moments</SectionLabel>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {momentsData.moments.map(m => (
+          <div key={m.id} style={{ width: 104, background: '#ffffff', borderRadius: 10, border: '1px solid #eceae3', overflow: 'hidden' }}>
+            {m.imageUrl && (
+              // eslint-disable-next-line @next/next/no-img-element -- a
+              // signed Supabase Storage URL, not a static asset
+              <img src={m.imageUrl} alt="Moment" style={{ width: '100%', height: 80, objectFit: 'cover' }} />
+            )}
+            <div style={{ padding: '5px 6px' }}>
+              {m.hole_number && <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: '#a1791f' }}>Hole {m.hole_number}</div>}
+              {m.caption && <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#14532d', lineHeight: 1.3 }}>{m.caption}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
   )
 }
 

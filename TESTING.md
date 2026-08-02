@@ -3072,3 +3072,238 @@ that point would be a height-budget question, not this bug recurring.
 Stableford, handicap allocation, marker comparison, reconciliation,
 leaderboard ranking, organiser/player permissions. 82/82 scoring-domain
 tests still pass.
+
+---
+
+## Teein' It Up — Browser Scoring Viewport Fit
+
+### The exact outer element creating document overflow
+`body` (via its global `min-h-screen` Tailwind class) — confirmed in the
+previous pass, unchanged conclusion. No overflow control existed anywhere
+in the layout tree above this component.
+
+### Final viewport-height strategy
+`100svh` (small viewport height) as the sole authoritative baseline for
+the collapsed workspace — not `100dvh` alone, and not the `dvh` + `max-
+height: svh` combination the brief's own example showed (checked the
+math: since `dvh ≥ svh` always, a `max-height` set to the svh value would
+simply clamp dvh down to svh regardless, making the two-property version
+equivalent to just using svh directly — so the simpler single-property
+form was used, with the same effective result).
+
+```
+height: calc(100svh - var(--app-header-height) - var(--bottom-nav-height) - env(safe-area-inset-bottom, 0px))
+```
+
+svh is, by specification, always the smallest possible viewport size
+regardless of Chrome's address-bar state — this directly targets what
+the screenshots proved was the actual bug: the layout was sized against
+the larger (address-bar-hidden) case and had no margin when the smaller
+case was current.
+
+### Actual header/bottom-nav measurements (measured, not estimated)
+- `--app-header-height: 64px` — AppNav is Tailwind's `h-16`, an exact
+  value, not approximated.
+- `--bottom-nav-height: 68px` — measured from the actual rendered CSS:
+  `minHeight: 52` (content-box, so additive) + `8px`/`6px` vertical
+  padding + `2px` top border = 68px, before `env(safe-area-inset-bottom)`
+  which is added separately in the calc().
+
+### Spacing reductions made
+- Card header padding: `6px 12px` (already reduced from an earlier pass)
+  → progressively `5px 12px` (default) → `4px 10px` (≤800px) → `3px 8px`
+  (≤700px), via the new height-based media queries.
+- Card body padding: `8px 12px` → `6px 10px` (≤800px) → `5px 8px` (≤700px).
+- Toggle button padding tightened (`7px 0` expanded → `3px 0` collapsed).
+- "Marked by" text moved into the top grid row, shrunk further (10px →
+  9.5px), shown only once (previously risked showing near both the
+  toggle and the cards depending on state).
+- Grid `rowGap: 4` replaces the previous `marginBottom`/`borderBottom`
+  spacing between sections — tighter and centrally controlled rather than
+  scattered per-element margins.
+- Organiser's "review marker assignments" link now hidden entirely in
+  collapsed mode (not in the required fit-list, competed for row-3 space)
+  — still available when expanded.
+
+### Was visualViewport necessary?
+No — confirmed `100svh`/`100dvh` are the correct primitives for this and
+used them directly, per the brief's own instruction to only reach for
+`window.visualViewport` "after confirming pure svh/dvh does not solve the
+issue." Adding a resize-listener/JS-measured custom property would be
+more moving parts than the CSS units alone require.
+
+### Fallback threshold
+`620px` viewport height — below this, `.scoring-workspace-outer` and
+`.scoring-workspace-fixed` both revert to `overflow: visible`/`auto` and
+natural height, and the body-scroll-lock effect checks the identical
+`window.matchMedia('(max-height: 620px)')` threshold before locking, so
+the two mechanisms agree instead of contradicting each other (a real
+conflict caught and fixed in the previous pass, re-verified still correct
+here with the updated threshold). Two progressive compacting steps run
+first, before the fallback: `800px` (moderate padding reduction), `700px`
+(tighter padding + reduced nav-row margin) — reduce gaps/padding first,
+only allow scrolling as the last resort, per the explicit ordering
+requested.
+
+### Screenshots with URL bar visible/hidden, confirming fit
+Cannot produce these — no browser or device access in this sandbox. This
+is the one item in the requested completion report I cannot deliver;
+real-device testing against both browser-chrome states is necessary to
+confirm the exact fit, same limitation as every layout fix this session.
+
+### Architecture change also made: the anchor effect
+Per explicit instruction, the scroll-to-anchor effect (previously running
+on every `holeIdx` change, computing a `scrollTo()` position) now returns
+immediately when the scorecard is collapsed — there's nothing to scroll
+to in a bounded grid, and calling it anyway risked visible jank. It still
+runs normally when expanded, where the workspace is a genuine scrollable
+view.
+
+### Confirmed unchanged
+Stableford calculations, handicap allocation, score persistence, marker
+assignment, reconciliation, leaderboard, My Round, My HQ, chat,
+permissions, database schema. 82/82 scoring-domain tests still pass.
+
+---
+
+## Sprint 6 – Event Story & Moments
+
+### Database schema
+New migration `028_moments.sql` (+ matching `supabase/moments_deploy.sql`):
+- `public.moments` — trip_id, round_id (nullable), hole_number (nullable),
+  player_id, group_id (nullable), caption, image_path, audience
+  ('everyone'|'group'), created_at. RLS: read scoped to trip members and
+  actual audience (mirrors `event_messages`' own read policy shape);
+  insert open to any confirmed trip member for their own player_id/group
+  (deliberately NOT organiser-gated, per Part 7: "Players can capture
+  Moments"); delete restricted to uploader or organiser.
+- `event_messages.message_type` CHECK widened to include `'moment'`, plus
+  a new nullable `moment_id` FK — this is the mechanism that lets a
+  Moment appear in Chat without a second feed: a `moment`-type message
+  row points at the full Moments record, and Chat's existing read policy
+  (which doesn't care about message_type, only who a row is addressed to)
+  already covers it with zero additional policy.
+
+### Storage bucket
+`event-moments` — private (not public, unlike the avatars bucket, since
+Moments are event-scoped, not public profile images), 8MB limit, JPEG/
+PNG/WEBP only. Folder structure `{trip_id}/{round_id|'general'}/
+{player_id}/{filename}`, matching Part 9's spec exactly. RLS: read scoped
+to trip members (via `is_trip_member()` applied to the folder's trip_id
+segment), upload restricted to the player's own folder, delete restricted
+to the uploader.
+
+### API endpoints
+- `GET/POST /api/trips/[tripId]/moments` — list (with `?playerId=`/
+  `?roundId=` filters for My Moments / a specific round's Event Story)
+  and create. POST only stores metadata — the image itself is uploaded
+  directly to Storage by the client first (same two-step pattern already
+  proven for avatars), then this endpoint creates the `moments` row and
+  its linked `event_messages` row.
+- `GET /api/trips/[tripId]/messages` — extended (not replaced) to select
+  `moment_id` and enrich moment-type rows with a signed image URL and
+  hole number, via the same separate-query-merged-in-JS pattern already
+  established (not an embedded PostgREST relationship — `event_messages`
+  has multiple FKs into `profiles`, the exact ambiguity that broke this
+  route once before).
+
+### Files created
+`supabase/migrations/028_moments.sql`, `supabase/moments_deploy.sql`,
+`src/app/api/trips/[tripId]/moments/route.ts`,
+`src/components/moments/MomentCapture.tsx`.
+
+### Files modified
+`src/app/api/trips/[tripId]/messages/route.ts` (moment enrichment),
+`src/components/chat/EventMessages.tsx` (reinstated participant composer
++ Moment button + image rendering), `src/app/(app)/trips/[tripId]/
+chat/page.tsx` (restored group props, added active-round context),
+`src/components/scoring/TournamentControl.tsx` (real Event Story
+replacing the old placeholder), `src/components/scoring/
+PlayerRoundView.tsx` (new My Moments section).
+
+### A real gap found and resolved correctly, not glossed over
+The participant chat composer had been deliberately removed in an earlier
+UX-focused pass — a considered product decision at the time, not a bug.
+Checked why before reinstating it: Sprint 6 explicitly requires "Players
+can send Messages" again (Part 7), and Moments need to live inside an
+active Chat feed per "do not create a second chat feed." The underlying
+RLS permitting participant chat had correctly been left untouched in that
+earlier pass, so reinstating the UI required no new migration for the
+text-message half of this — only the Moment-specific pieces are new.
+
+### Upload workflow
+1. Select/capture a photo (plain `<input type="file">`, no custom camera).
+2. Client-side resize (max 1600px on the longest side, preserving aspect
+   ratio — deliberately not reusing the avatar pipeline's square-crop
+   logic, since Moments are golf photos, not avatars) + JPEG compression
+   (quality 0.82), via canvas — same normalizing-EXIF-through-canvas
+   principle as the avatar flow, separate function to avoid any risk to
+   that already-deployed, already-working code.
+3. Optional caption, audience choice (Everyone / My Group, group option
+   only shown if the player actually has a group).
+4. Upload directly to Storage, then POST metadata — creates both the
+   `moments` row and its linked `event_messages` row in one call.
+5. Appears immediately in Chat (optimistic `setQueryData`, same pattern
+   already used for text messages), in My Moments, and in Event Story.
+
+### Automatic metadata captured
+trip_id, round_id (or null if captured outside active scoring), hole_
+number (if provided), player_id (from the authenticated session, never
+asked), group_id (from actual trip membership), timestamp (`created_at`
+default), audience. Player name is resolved server-side for display, not
+stored redundantly on the moment itself.
+
+### Event Story implementation
+`EventStorySection` (new, inside `TournamentControl.tsx`) merges the
+already-existing Golf Story milestones (`data.story` — unchanged
+computation) with real Moments (own query, `staleTime: 30000`, so it can
+refresh independently of the Golf Story's own polling), sorted
+chronologically, capped at the 20 most recent combined entries. Replaces
+the old "Moments — coming soon" placeholder entirely, since Moments are
+real now.
+
+### My Moments implementation
+New `MyMoments` component inside `PlayerRoundView.tsx`, self-filtered via
+`?playerId=` (resolves the current user client-side first, since this
+component only knows tripId/roundId). Thumbnail grid: image, hole number,
+caption.
+
+### Permission model
+- Chat message send: any confirmed trip member → own group only
+  (`chat_message`); organiser → announcements (`all`) or targeted
+  notifications, unchanged from before this sprint.
+- Moment create: any confirmed trip member, for themselves, audience
+  Everyone or their own actual group only — enforced by RLS, not just the
+  UI (checked: the INSERT policy validates `group_id` against real
+  `trip_members` membership, not merely trusting the client's claim).
+- Moment read: trip members, filtered by audience + own uploads always
+  visible to the uploader regardless of audience.
+- Players cannot create announcements or organiser notifications —
+  unchanged, the organiser-only INSERT policy for those message types was
+  not touched.
+
+### Mobile screenshots
+Cannot produce these — no browser/device access in this sandbox, same
+limitation as every UI change this session. Real-device testing of the
+capture flow (camera vs. gallery selection, upload progress states,
+image orientation after capture) is a genuine gap until that happens.
+
+### Regression summary
+Did not touch: Stableford, handicap allocation, marker assignment,
+reconciliation, leaderboard ranking, My Round's existing sections beyond
+adding the new one, My HQ's existing sections beyond the Event Story
+swap, the existing organiser announcement/notification flow, invite/join
+flow. 82/82 scoring-domain tests pass, unchanged suite.
+
+### Explicitly out of scope this pass (confirmed, not silently dropped)
+Video, editing, likes/comments/reactions on Moments, albums, Memory
+Package export, AI photo selection, social media integration — none
+attempted, per the brief's own "out of scope" list. Also **not** added: a
+Moment-capture entry point directly on the active scoring screen. The
+brief's primary flow is explicitly "Chat → Moment," and the scoring
+viewport (100svh grid, body-scroll-lock) was only just stabilized after
+several rounds of real device-testing fixes — adding new UI there in the
+same pass as everything else in Sprint 6 felt like unnecessary risk to
+already-fragile, recently-fixed layout work. Worth a deliberate decision
+in a future pass, not something I want to have quietly decided against
+permanently.

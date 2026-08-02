@@ -58,7 +58,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   // relationship, ambiguous or not.
   const { data: messages, error } = await supabase
     .from('event_messages')
-    .select('id, trip_id, sender_user_id, message_type, recipient_type, recipient_group_id, recipient_user_id, message, is_pinned, created_at')
+    .select('id, trip_id, sender_user_id, message_type, recipient_type, recipient_group_id, recipient_user_id, message, is_pinned, created_at, moment_id')
     .eq('trip_id', tripId)
     .order('created_at', { ascending: false })
     .limit(50)
@@ -73,28 +73,52 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     return NextResponse.json({ messages: [] })
   }
 
-  // Step 2 — enrich with sender name and group name via separate,
-  // unambiguous queries, merged in application code.
+  // Step 2 — enrich with sender name, group name, and (for Sprint 6
+  // Moments) the linked moment's image + hole number, all via separate,
+  // unambiguous queries merged in application code — same reasoning as
+  // before: event_messages has multiple FKs into profiles, so an
+  // embedded PostgREST relationship here carries the same ambiguity risk
+  // already root-caused once.
   const senderIds = [...new Set(messages.map(m => m.sender_user_id).filter(Boolean))]
   const groupIds = [...new Set(messages.map(m => m.recipient_group_id).filter((id): id is string => !!id))]
+  const momentIds = [...new Set(messages.map(m => m.moment_id).filter((id): id is string => !!id))]
 
-  const [profilesRes, groupsRes] = await Promise.all([
+  const [profilesRes, groupsRes, momentsRes] = await Promise.all([
     senderIds.length > 0
       ? supabase.from('profiles').select('id, full_name').in('id', senderIds)
       : Promise.resolve({ data: [], error: null }),
     groupIds.length > 0
       ? supabase.from('trip_groups').select('id, name').in('id', groupIds)
       : Promise.resolve({ data: [], error: null }),
+    momentIds.length > 0
+      ? supabase.from('moments').select('id, image_path, hole_number, caption').in('id', momentIds)
+      : Promise.resolve({ data: [], error: null }),
   ])
 
   const nameBySenderId = new Map<string, string>((profilesRes.data ?? []).map((p: { id: string; full_name: string }) => [p.id, p.full_name]))
   const nameByGroupId = new Map<string, string>((groupsRes.data ?? []).map((g: { id: string; name: string }) => [g.id, g.name]))
+  const momentById = new Map<string, { image_path: string; hole_number: number | null; caption: string | null }>(
+    (momentsRes.data ?? []).map((mo: { id: string; image_path: string; hole_number: number | null; caption: string | null }) => [mo.id, mo])
+  )
 
-  const enriched = messages.map(m => ({
-    ...m,
-    sender: { full_name: nameBySenderId.get(m.sender_user_id) ?? 'Organiser' },
-    recipient_group: m.recipient_group_id ? { name: nameByGroupId.get(m.recipient_group_id) ?? 'Group' } : null,
+  // Signed URLs for any moment images — the bucket is private (trip-
+  // scoped, not public), so a plain public URL wouldn't work.
+  const signedUrlById = new Map<string, string | null>()
+  await Promise.all([...momentById.entries()].map(async ([id, mo]) => {
+    const { data: signed } = await supabase.storage.from('event-moments').createSignedUrl(mo.image_path, 3600)
+    signedUrlById.set(id, signed?.signedUrl ?? null)
   }))
+
+  const enriched = messages.map(m => {
+    const moment = m.moment_id ? momentById.get(m.moment_id) : null
+    return {
+      ...m,
+      sender: { full_name: nameBySenderId.get(m.sender_user_id) ?? 'Organiser' },
+      recipient_group: m.recipient_group_id ? { name: nameByGroupId.get(m.recipient_group_id) ?? 'Group' } : null,
+      momentImageUrl: moment ? signedUrlById.get(m.moment_id!) ?? null : null,
+      momentHoleNumber: moment?.hole_number ?? null,
+    }
+  })
 
   return NextResponse.json({ messages: enriched })
 }
