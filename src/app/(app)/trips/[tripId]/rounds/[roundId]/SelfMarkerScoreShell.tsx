@@ -760,35 +760,14 @@ export default function SelfMarkerScoreShell({
   // ── Main hole-scoring view ──────────────────────────────────────────────────
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#ffffff', minHeight: '100vh' }}>
-      <div style={{ padding: '10px 16px 8px', borderBottom: '2px solid #c9a84c' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 20, fontWeight: 800, letterSpacing: 0.3 }}>
-            HOLE {holeNum}
-          </span>
-          <span style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 12 }}>
-            {round.name}
-          </span>
-          {/* Camera placeholder — Part 6, position reserved only. No
-              upload logic, no Moments implementation. Inactive by design:
-              tapping it does nothing yet. */}
-          <span
-            aria-hidden="true"
-            title="Moments — coming soon"
-            style={{ fontSize: 14, opacity: 0.35, marginLeft: 2, cursor: 'default' }}
-          >
-            📷
-          </span>
-          {displaySyncLabel && <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-body)', fontSize: 10, color: '#6b7280' }}>{displaySyncLabel}</span>}
-        </div>
-        <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a1791f', fontWeight: 700, marginTop: 2 }}>
-          Current Total: {myRunningTotal} pts
-        </div>
-        {hole && <HoleBadges hole={hole} />}
-      </div>
-
       {toast && (
         <div style={{ position: 'fixed', top: 72, left: '50%', transform: 'translateX(-50%)', zIndex: 200, background: 'rgba(10,30,18,0.97)', border: '1px solid rgba(201,168,76,0.66)', borderRadius: 22, padding: '8px 18px' }}>
           <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#e8c96a', fontWeight: 700 }}>● {toast}</span>
+        </div>
+      )}
+      {displaySyncLabel && (
+        <div style={{ padding: '4px 16px 0', textAlign: 'right', fontFamily: 'var(--font-body)', fontSize: 10, color: '#9ca3af' }}>
+          {displaySyncLabel}
         </div>
       )}
 
@@ -921,7 +900,7 @@ export default function SelfMarkerScoreShell({
           title="YOUR SCORE" name={myName} hcp={myHcp} par={par} si={si} strokes={myStrokes} holeNum={holeNum}
           gross={draftMyGross} pickedUp={draftMyPickedUp} pts={myPts} runningTotal={myRunningTotal}
           onPick={d => pick('mine', d)} onPar={() => pickPar('mine')} onTogglePickUp={() => togglePickUp('mine')}
-          status={myComparison} onOpenSummary={() => setShowReconciliation(true)}
+          status={myComparison} onOpenSummary={() => setShowReconciliation(true)} hole={hole}
         />
 
         {/* ── Card 2: YOUR MARKER (the partner I mark) ──────────────────── */}
@@ -1006,12 +985,12 @@ export default function SelfMarkerScoreShell({
 // ── Score card sub-component ───────────────────────────────────────────────────
 
 function ScoreCard({
-  title, name, hcp, par, si, strokes, holeNum, gross, pickedUp, pts, runningTotal, onPick, onPar, onTogglePickUp, status, onOpenSummary,
+  title, name, hcp, par, si, strokes, holeNum, gross, pickedUp, pts, runningTotal, onPick, onPar, onTogglePickUp, status, onOpenSummary, hole,
 }: {
   title: string; name: string; hcp: number; par: number; si: number; strokes: number; holeNum: number
   gross: number | null; pickedUp: boolean; pts: number | null; runningTotal: number
   onPick: (delta: number) => void; onPar: () => void; onTogglePickUp: () => void
-  status: ComparisonStatus | null; onOpenSummary?: () => void
+  status: ComparisonStatus | null; onOpenSummary?: () => void; hole?: Hole | null
 }) {
   return (
     <div style={{ borderRadius: 14, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 4px 18px rgba(0,0,0,0.09)', marginBottom: 6, overflow: 'hidden' }}>
@@ -1033,6 +1012,7 @@ function ScoreCard({
               Receives {strokes} stroke{strokes === 1 ? '' : 's'}
             </div>
           )}
+          {hole && <HoleBadges hole={hole} />}
           {status && (status === 'matched' || status === 'mismatch') && (
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: statusColor(status), marginTop: 1 }}>
               {COMPARISON_LABEL[status]}

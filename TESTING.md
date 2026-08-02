@@ -2871,3 +2871,78 @@ being carried as unresolved debt in this one.
 Confirmed unchanged: everything else from the prior two passes (removed
 player composer, collapsible scorecard, stroke text, passive marker
 notices, Begin Round centering). 82/82 scoring-domain tests still pass.
+
+---
+
+## Sprint 5 QA – UX Polish (Round 2)
+
+Real screenshots made this pass concrete rather than speculative — each
+item below was diagnosed against an actual image, not assumed.
+
+### 1. Round Start notification positioning
+Screenshot confirmed the exact bug: the banner was a normal-flow element
+(`margin` not `position`), so it pushed the trip header down and visually
+overlapped it. Fixed: now `position: fixed`, anchored at
+`64px (AppNav's own height) + safe-area-inset-top + 8px`, fixed width
+(`calc(100% - 32px)`, max 480px) and fixed height (64px), `zIndex: 90`.
+Being fixed, it can no longer alter page layout by construction — the
+previous version's core problem.
+
+### 2 & 3. Begin Round / Hole Setup modals
+Both are the same modal component (`BeginRoundModal.tsx`) — Hole Setup is
+just its `'holes'` stage — so one fix addressed both explicitly-numbered
+items. Screenshots showed the header scrolling away and the bottom nav
+overlapping content with no visible action button. Restructured into a
+proper 3-part mobile modal: header (`flexShrink: 0`, never scrolls) →
+body (`flex: 1, overflowY: 'auto'`, the only scrolling region) → new
+persistent footer (`flexShrink: 0`, `env(safe-area-inset-bottom)` padding)
+holding whichever stage's primary/secondary buttons apply. Buttons were
+previously rendered inline at the end of each stage's own content
+(inside the scrolling area); they're now centralized in the footer and
+always visible regardless of scroll position.
+
+### 4. Static scoring workspace
+Screenshot (`Screenshot_20260802_182503`) showed exactly the redundant
+"HOLE 1 Round 1 📷 / Current Total: 0 pts" block sitting above the
+YOUR SCORE card, which already shows hole number, par, index, handicap,
+and strokes — confirming the "no duplicate information" complaint
+directly. Removed that block entirely.
+
+Deliberately did **not** switch the scroll container to `overflow:
+hidden` to force zero scrolling — the brief explicitly requires
+"if screen height is genuinely too small... allow controlled scrolling,
+never hide important controls." Kept `overflowY: 'auto'` as the safety
+net that requirement asks for, while removing the header block (and
+relying on the prior compact-card pass) to make scrolling *unnecessary*
+in the common case rather than *impossible* outright — hiding overflow
+risked silently clipping the Confirm button or Previous/Next row on a
+device where the collapsed content still doesn't quite fit, which would
+be worse than the scrolling it's meant to replace.
+
+The removed camera placeholder and hole badges weren't discarded outright
+— badges (genuinely inactive, no real Powerplay/side-game data exists
+yet, unchanged from before) were re-homed into the YOUR SCORE card's own
+header, next to the par/index/stroke text that already lives there,
+rather than left as orphaned dead code. The camera placeholder was
+removed per the explicit instruction and not relocated — Moments capture
+is Sprint 6 scope, not this pass's.
+
+### 5. General mobile layout review
+Given the scale of a fully exhaustive review, checked the one thing the
+screenshots specifically evidenced beyond items 1-4: confirmed
+`ScoreSessionShell.tsx` (the other scoring mode) does not have the same
+duplicated HOLE#/Round#/Total header pattern — so no equivalent removal
+was needed there. A broader systematic pass across every screen wasn't
+attempted beyond the four concrete, evidenced items above.
+
+### Moments — captured for Sprint 6, not built
+`docs/MOMENTS_SPRINT6_VISION.md` — connects the concept to the existing
+`event_messages.message_type` enum (a `moment` type would let Moments
+appear in Chat without a parallel display system) and the `moments`
+table design already sketched in `docs/MY_GOLF_ARCHITECTURE.md`.
+
+### Confirmed unchanged
+Stableford calculations, handicap allocation, scoring logic, marker
+reconciliation, leaderboard, chat permissions, organiser/player
+permissions, My Round, My HQ, notifications, database schema. 82/82
+scoring-domain tests still pass.

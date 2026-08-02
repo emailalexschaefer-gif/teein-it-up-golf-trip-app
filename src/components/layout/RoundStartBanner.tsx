@@ -52,18 +52,30 @@ export default function RoundStartBanner({
     <div
       onClick={() => router.push(scoringUrl)}
       style={{
-        margin: '10px 16px 0', padding: '12px 14px', borderRadius: 12,
+        position: 'fixed',
+        // 64px = AppNav's own sticky height (h-16), plus safe-area-inset-top
+        // for notched devices, plus an 8px gap so it doesn't sit flush
+        // against the header. Fixed positioning is what makes "never
+        // alter page layout" true — this was previously a normal-flow
+        // element that pushed the trip header down and visually
+        // overlapped it; now it floats independently of document flow.
+        top: 'calc(64px + env(safe-area-inset-top, 0px) + 8px)',
+        left: '50%', transform: 'translateX(-50%)',
+        width: 'calc(100% - 32px)', maxWidth: 480, height: 64,
+        zIndex: 90,
+        padding: '10px 14px', borderRadius: 12,
         background: 'linear-gradient(135deg,#14532d,#1a6b3a)',
-        border: '1.5px solid #e8c96a', boxShadow: '0 4px 16px rgba(20,83,45,0.25)',
+        border: '1.5px solid #e8c96a', boxShadow: '0 6px 20px rgba(0,0,0,0.3)',
         display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer',
+        boxSizing: 'border-box',
       }}
     >
       <span style={{ fontSize: 20, flexShrink: 0 }}>🟢</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: 'var(--font-body)', color: '#fff', fontWeight: 800, fontSize: 13.5 }}>
+      <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+        <div style={{ fontFamily: 'var(--font-body)', color: '#fff', fontWeight: 800, fontSize: 13.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {roundName} has started!
         </div>
-        <div style={{ fontFamily: 'var(--font-body)', color: 'rgba(255,255,255,0.75)', fontSize: 11.5, marginTop: 1 }}>
+        <div style={{ fontFamily: 'var(--font-body)', color: 'rgba(255,255,255,0.75)', fontSize: 11, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {data?.markedByName ? `Your marker is ${data.markedByName}. ` : ''}Tap to begin scoring →
         </div>
       </div>

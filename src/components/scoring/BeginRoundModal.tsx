@@ -118,17 +118,25 @@ export default function BeginRoundModal({
       position: 'fixed', inset: 0, zIndex: 100,
       background: 'rgba(15,45,28,0.85)', backdropFilter: 'blur(3px)',
       display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-      padding: '0 0 0 0',
     }}>
-      <div ref={modalScrollRef} style={{
+      {/* Proper mobile modal: fixed header, fixed footer, only the middle
+          scrolls. Previously the ENTIRE panel (header included) was one
+          scrolling region, so the header could scroll away and the
+          primary action buttons — rendered at the end of each stage's
+          own content — were wherever the scroll happened to leave them,
+          sometimes behind the bottom nav. Confirmed by screenshots
+          showing exactly that. */}
+      <div style={{
         width: '100%', maxWidth: 480,
         background: '#f8f4eb',
         borderRadius: '20px 20px 0 0',
-        maxHeight: '94vh', overflowY: 'auto',
+        maxHeight: 'calc(92vh - env(safe-area-inset-bottom, 0px))',
+        display: 'flex', flexDirection: 'column',
         boxShadow: '0 -8px 40px rgba(0,0,0,0.4)',
       }}>
-        {/* Header */}
+        {/* Header — fixed, never scrolls */}
         <div style={{
+          flexShrink: 0,
           background: 'linear-gradient(135deg, #0f2d1c, #1a4731)',
           borderBottom: '2px solid #c9a84c',
           padding: '20px 20px 16px',
@@ -149,7 +157,7 @@ export default function BeginRoundModal({
               fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.7)', fontSize: 13,
             }}>✕</button>
           </div>
-          {/* Stage progress dots */}
+          {/* Stage progress dots — fixed with the header */}
           <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
             {(['review', 'holes', 'confirm'] as Stage[]).map(s => (
               <div key={s} style={{
@@ -162,7 +170,8 @@ export default function BeginRoundModal({
           </div>
         </div>
 
-        <div style={{ padding: '20px' }}>
+        {/* Body — the ONLY scrollable region */}
+        <div ref={modalScrollRef} style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
 
           {/* ── Stage 1: Review ─────────────────────────────────────────── */}
           {stage === 'review' && (
@@ -242,13 +251,6 @@ export default function BeginRoundModal({
                   </div>
                 )
               })}
-
-              <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
-                <button type="button" onClick={() => setStage('holes')} style={btnStyle('secondary')}>
-                  Review Holes →
-                </button>
-                <button type="button" onClick={onClose} style={btnStyle('ghost')}>Cancel</button>
-              </div>
             </>
           )}
 
@@ -300,21 +302,6 @@ export default function BeginRoundModal({
                   </tbody>
                 </table>
               </div>
-
-              <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
-                <button type="button" onClick={() => setStage('confirm')} disabled={!canBegin} style={btnStyle(canBegin ? 'primary' : 'disabled')}>
-                  Review & Confirm →
-                </button>
-                <button type="button" onClick={() => setStage('review')} style={btnStyle('ghost')}>← Back</button>
-              </div>
-
-              {!canBegin && (
-                <Warning>
-                  {!hasGroups ? 'No playing groups exist.' :
-                    !allGroupsHavePlayers ? 'One or more groups have no players.' :
-                    !allPlayersHaveHandicap ? 'One or more players are missing a handicap.' : ''}
-                </Warning>
-              )}
             </>
           )}
 
@@ -347,19 +334,57 @@ export default function BeginRoundModal({
               ))}
 
               {error && <Warning>{error}</Warning>}
+            </>
+          )}
+        </div>
 
-              <div style={{ marginTop: 16, display: 'flex', gap: 8, flexDirection: 'column' }}>
-                <button
-                  type="button"
-                  onClick={starting ? undefined : handleBegin}
-                  disabled={starting}
-                  style={{ ...btnStyle(starting ? 'disabled' : 'gold'), cursor: starting ? 'not-allowed' : 'pointer' }}
-                >
-                  {starting ? 'Beginning round…' : 'Confirm & Begin Round'}
+        {/* Footer — fixed, never scrolls. Holds whichever stage's primary/
+            secondary actions apply, so they're always visible regardless
+            of how long the scrollable content above happens to be. */}
+        <div style={{
+          flexShrink: 0, padding: '14px 20px',
+          paddingBottom: 'calc(14px + env(safe-area-inset-bottom, 0px))',
+          borderTop: '1px solid #e8d9b8', background: '#f8f4eb',
+        }}>
+          {stage === 'review' && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" onClick={() => setStage('holes')} style={btnStyle('secondary')}>
+                Review Holes →
+              </button>
+              <button type="button" onClick={onClose} style={btnStyle('ghost')}>Cancel</button>
+            </div>
+          )}
+
+          {stage === 'holes' && (
+            <>
+              {!canBegin && (
+                <Warning>
+                  {!hasGroups ? 'No playing groups exist.' :
+                    !allGroupsHavePlayers ? 'One or more groups have no players.' :
+                    !allPlayersHaveHandicap ? 'One or more players are missing a handicap.' : ''}
+                </Warning>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: !canBegin ? 10 : 0 }}>
+                <button type="button" onClick={() => setStage('confirm')} disabled={!canBegin} style={btnStyle(canBegin ? 'primary' : 'disabled')}>
+                  Review & Confirm →
                 </button>
-                <button type="button" onClick={() => setStage('holes')} style={btnStyle('ghost')} disabled={starting}>← Edit holes</button>
+                <button type="button" onClick={() => setStage('review')} style={btnStyle('ghost')}>← Back</button>
               </div>
             </>
+          )}
+
+          {(stage === 'confirm' || stage === 'starting') && (
+            <div style={{ display: 'flex', gap: 8, flexDirection: 'column' }}>
+              <button
+                type="button"
+                onClick={starting ? undefined : handleBegin}
+                disabled={starting}
+                style={{ ...btnStyle(starting ? 'disabled' : 'gold'), cursor: starting ? 'not-allowed' : 'pointer' }}
+              >
+                {starting ? 'Beginning round…' : 'Confirm & Begin Round'}
+              </button>
+              <button type="button" onClick={() => setStage('holes')} style={btnStyle('ghost')} disabled={starting}>← Edit holes</button>
+            </div>
           )}
         </div>
       </div>
