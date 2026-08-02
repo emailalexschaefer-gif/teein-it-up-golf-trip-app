@@ -249,6 +249,33 @@ export default function SelfMarkerScoreShell({
   // the same session (nothing resets it on holeIdx change), and doesn't
   // need to survive logout/across devices, matching the stated scope.
   const [scorecardExpanded, setScorecardExpanded] = useState(false)
+
+  // Body/html scroll lock while collapsed — the actual fix for "the page
+  // has two resting positions." Setting overflow:hidden on this
+  // component's own container only stops scrolling *within* that
+  // container; it does nothing to prevent the outer page/body itself
+  // from being taller than the viewport and thus browser-scrollable if
+  // the real rendered height is even slightly off from the calc()
+  // height used below (100dvh handling varies across Chrome versions,
+  // and there's no way to guarantee pixel-perfect accuracy otherwise).
+  // Locking the page itself, the same pattern modals use, removes that
+  // failure mode entirely rather than depending on a precise measurement.
+  useEffect(() => {
+    if (scorecardExpanded) return
+    // Respect the same fallback threshold as the CSS media query above —
+    // locking the body unconditionally would defeat the fallback's whole
+    // purpose on genuinely short viewports, trapping content that the
+    // fallback specifically exists to make reachable via scroll instead.
+    if (typeof window !== 'undefined' && window.matchMedia('(max-height: 750px)').matches) return
+    const prevBodyOverflow = document.body.style.overflow
+    const prevHtmlOverflow = document.documentElement.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.documentElement.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prevBodyOverflow
+      document.documentElement.style.overflow = prevHtmlOverflow
+    }
+  }, [scorecardExpanded])
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const hasHydratedRef = useRef(false)
   const queryClient = useQueryClient()
@@ -759,19 +786,26 @@ export default function SelfMarkerScoreShell({
 
   // ── Main hole-scoring view ──────────────────────────────────────────────────
   return (
-    <div style={{
-      flex: 1, display: 'flex', flexDirection: 'column', background: '#ffffff',
-      // 100dvh (not 100vh) so Chrome's expanding/collapsing address bar is
-      // accounted for. 64px matches AppNav's real, in-flow height (it's
-      // `sticky`, not `fixed`, so it genuinely reduces the space below it —
-      // TripBottomNav below is `fixed` and reserved for separately, via
-      // bottom padding on the workspace itself, not subtracted from height
-      // here). overflow:hidden on this outer level too — this is what
-      // actually stops ordinary page/document scrolling, not just the
-      // inner container.
-      height: 'calc(100dvh - 64px)',
-      overflow: 'hidden',
-    }}>
+    <div
+      className="scoring-workspace-outer"
+      style={{
+        flex: 1, display: 'flex', flexDirection: 'column', background: '#ffffff',
+        // 100dvh (not 100vh) so Chrome's expanding/collapsing address bar is
+        // accounted for. 64px matches AppNav's real, in-flow height (it's
+        // `sticky`, not `fixed`, so it genuinely reduces the space below it —
+        // TripBottomNav below is `fixed` and reserved for separately, via
+        // bottom padding on the workspace itself, not subtracted from height
+        // here). overflow:hidden on this outer level too — this is what
+        // actually stops ordinary page/document scrolling, not just the
+        // inner container. Also locked via document.body.style.overflow in
+        // the effect above — belt and suspenders, since relying on exact
+        // height-calc precision alone proved insufficient (confirmed by
+        // screenshots showing the whole page scrolling between two
+        // positions, not just this container).
+        height: scorecardExpanded ? 'auto' : 'calc(100dvh - 64px)',
+        overflow: scorecardExpanded ? 'visible' : 'hidden',
+      }}
+    >
       {toast && (
         <div style={{ position: 'fixed', top: 72, left: '50%', transform: 'translateX(-50%)', zIndex: 200, background: 'rgba(10,30,18,0.97)', border: '1px solid rgba(201,168,76,0.66)', borderRadius: 22, padding: '8px 18px' }}>
           <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#e8c96a', fontWeight: 700 }}>● {toast}</span>
@@ -789,8 +823,9 @@ export default function SelfMarkerScoreShell({
           content. Standard phones never hit this — they get the fixed,
           non-scrolling workspace below. */}
       <style>{`
-        @media (max-height: 640px) {
+        @media (max-height: 750px) {
           .scoring-workspace-fixed { overflow-y: auto !important; height: auto !important; max-height: none !important; }
+          .scoring-workspace-outer { overflow: visible !important; height: auto !important; }
         }
       `}</style>
 

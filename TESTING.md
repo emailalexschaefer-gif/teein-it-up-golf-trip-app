@@ -3015,3 +3015,60 @@ recurrence of the original architectural bug.
 Stableford, handicap allocation, marker comparison, reconciliation,
 leaderboard ranking, organiser/player permissions. 82/82 scoring-domain
 tests still pass.
+
+---
+
+## The Real Bug — Whole-Page Scroll, Not Container Scroll
+
+The two screenshots (address bar hidden vs. showing) revealed the actual
+mechanism: the same content at two different scroll positions, one with
+"View Round Scorecard" scrolled out of view, the other with the PAR/
+SHOTS/TOTAL row's values clipped off. This confirmed the *entire page*
+was scrolling — not my component's own container.
+
+### Root cause
+`body` has a global `min-h-screen` (`min-height: 100vh`) class with
+**zero overflow control anywhere** in the layout tree. Setting
+`overflow: hidden` on my own component's div only prevents scrolling
+*within* that div — it does nothing to stop the outer page/body itself
+from becoming taller than the viewport and browser-scrollable, if my
+component's real rendered height is even slightly different from the
+`calc(100dvh - 64px)` I was relying on (dvh handling isn't pixel-perfect
+across Chrome versions, and there was no margin for error in the
+previous approach).
+
+### Fix
+Added a body/html scroll lock — the same standard pattern modals use —
+directly setting `document.body.style.overflow = 'hidden'` (and
+`documentElement`) while the scorecard is collapsed, restored on
+expand/unmount. This guarantees the page itself cannot scroll regardless
+of any imprecision in the height calculation, rather than depending on
+getting that calculation exactly right.
+
+### A conflict I found and fixed before it caused a new bug
+The short-viewport fallback (media query, previously 640px, raised to
+750px for a larger safety margin) only affected my *inner* scroll
+container — the *outer* wrapping div had its own separate fixed height +
+`overflow: hidden` that the media query didn't touch, meaning even in the
+"fallback" case content could still be clipped at the outer level. Fixed
+by applying the same class-based fallback to both levels. Then realized
+the *unconditional* body-lock would itself defeat that same fallback —
+locking the page while relying on a container fallback to make content
+scroll-reachable, while blocking the one thing (page scroll) that
+fallback might need, is a direct contradiction. Fixed by checking
+`window.matchMedia('(max-height: 750px)')` before locking, so the body
+lock and the container fallback now agree on the same threshold instead
+of working against each other.
+
+### What I still can't verify
+Real-device testing — whether the fixed workspace's content genuinely
+fits within a typical Android viewport at the 750px+ threshold, and
+whether the fallback correctly engages below it. The architectural fix
+(page can no longer scroll out from under the fixed workspace) is now
+correct regardless of exact content height; any remaining clipping at
+that point would be a height-budget question, not this bug recurring.
+
+### Confirmed unchanged
+Stableford, handicap allocation, marker comparison, reconciliation,
+leaderboard ranking, organiser/player permissions. 82/82 scoring-domain
+tests still pass.
