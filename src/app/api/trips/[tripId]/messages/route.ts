@@ -83,7 +83,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   const groupIds = [...new Set(messages.map(m => m.recipient_group_id).filter((id): id is string => !!id))]
   const momentIds = [...new Set(messages.map(m => m.moment_id).filter((id): id is string => !!id))]
 
-  const [profilesRes, groupsRes, momentsRes] = await Promise.all([
+  const [profilesRes, groupsRes, momentsRes, roleRes] = await Promise.all([
     senderIds.length > 0
       ? supabase.from('profiles').select('id, full_name').in('id', senderIds)
       : Promise.resolve({ data: [], error: null }),
@@ -93,10 +93,20 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     momentIds.length > 0
       ? supabase.from('moments').select('id, image_path, hole_number, caption').in('id', momentIds)
       : Promise.resolve({ data: [], error: null }),
+    // Real role, looked up from actual trip membership — never inferred
+    // from message_type. 'announcement' meaning "sent through the
+    // organiser-only path" is not the same claim as "this person is the
+    // organiser," even though in practice the two coincide today (only
+    // organisers can send that type) — showing the real, looked-up role
+    // keeps that distinction honest rather than collapsing into a guess.
+    senderIds.length > 0
+      ? supabase.from('trip_members').select('profile_id, role').eq('trip_id', tripId).in('profile_id', senderIds)
+      : Promise.resolve({ data: [], error: null }),
   ])
 
   const nameBySenderId = new Map<string, string>((profilesRes.data ?? []).map((p: { id: string; full_name: string }) => [p.id, p.full_name]))
   const nameByGroupId = new Map<string, string>((groupsRes.data ?? []).map((g: { id: string; name: string }) => [g.id, g.name]))
+  const roleBySenderId = new Map<string, string>((roleRes.data ?? []).map((rm: { profile_id: string; role: string }) => [rm.profile_id, rm.role]))
   const momentById = new Map<string, { image_path: string; hole_number: number | null; caption: string | null }>(
     (momentsRes.data ?? []).map((mo: { id: string; image_path: string; hole_number: number | null; caption: string | null }) => [mo.id, mo])
   )
@@ -113,7 +123,13 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     const moment = m.moment_id ? momentById.get(m.moment_id) : null
     return {
       ...m,
-      sender: { full_name: nameBySenderId.get(m.sender_user_id) ?? 'Organiser' },
+      // Honest fallback — 'Member' means "we couldn't resolve this name,"
+      // never a claim about who sent it. The previous fallback was
+      // literally the word 'Organiser', which read as determined identity
+      // rather than what it actually was: a failed lookup. That's the
+      // exact bug behind messages showing "— Organiser" regardless of
+      // who really sent them.
+      sender: { full_name: nameBySenderId.get(m.sender_user_id) ?? 'Member', role: roleBySenderId.get(m.sender_user_id) ?? null },
       recipient_group: m.recipient_group_id ? { name: nameByGroupId.get(m.recipient_group_id) ?? 'Group' } : null,
       momentImageUrl: moment ? signedUrlById.get(m.moment_id!) ?? null : null,
       momentHoleNumber: moment?.hole_number ?? null,
@@ -148,6 +164,19 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     .from('trip_members').select('role, group_id')
     .eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
 
+  // Step-by-step trace for the organiser announcement/notification path —
+  // added per explicit request to trace button → API → database rather
+  // than re-assert a theory. Logs the actual membership check result and
+  // the exact insert payload before the insert happens, so if this fails
+  // again, the logs show unambiguously whether it got past the permission
+  // check and what payload was actually sent to the database.
+  if (!isChat) {
+    console.log('[event-messages POST] organiser-path trace', {
+      tripId, userId: user.id, resolvedType, recipientType,
+      membershipFound: !!membership, membershipRole: membership?.role ?? null,
+    })
+  }
+
   if (isChat) {
     // Ordinary participant chat — differentiated from organiser
     // announcements/notifications per the explicit message-model
@@ -167,11 +196,12 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     // Announcements and targeted organiser notifications — unchanged
     // behavior from before this pass, organiser-only.
     if (membership?.role !== 'organiser') {
+      console.log('[event-messages POST] organiser-path trace: REJECTED at permission check', { tripId, userId: user.id, membershipRole: membership?.role ?? null })
       return NextResponse.json({ error: 'Only the organiser can send announcements or notifications.' }, { status: 403 })
     }
   }
 
-  const { data, error } = await supabase.from('event_messages').insert({
+  const insertPayload = {
     trip_id: tripId,
     sender_user_id: user.id,
     message_type: resolvedType,
@@ -179,7 +209,19 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     recipient_group_id: recipientType === 'group' ? recipientGroupId : null,
     recipient_user_id: recipientType === 'player' ? recipientUserId : null,
     message: message.trim(),
-  }).select().single()
+  }
+  if (!isChat) {
+    console.log('[event-messages POST] organiser-path trace: passed permission check, inserting', { insertPayload })
+  }
+
+  const { data, error } = await supabase.from('event_messages').insert(insertPayload).select().single()
+
+  if (!isChat) {
+    console.log('[event-messages POST] organiser-path trace: insert result', {
+      succeeded: !error, insertedId: data?.id ?? null,
+      errorCode: error?.code ?? null, errorMessage: error?.message ?? null,
+    })
+  }
 
   if (error) {
     logAndMaskError('event-messages POST', error, {

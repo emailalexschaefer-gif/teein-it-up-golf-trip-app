@@ -3307,3 +3307,127 @@ same pass as everything else in Sprint 6 felt like unnecessary risk to
 already-fragile, recently-fixed layout work. Worth a deliberate decision
 in a future pass, not something I want to have quietly decided against
 permanently.
+
+---
+
+## Testing Session Follow-up — 7 Issues Investigated
+
+### Critical 5 — Message identity bug: root cause found, not just symptoms fixed
+Traced exactly why "Hole in one" showed "— Organiser" regardless of who
+sent it: the API's name-lookup fallback was literally the word
+`'Organiser'`. That's not a role inference bug so much as a badly-worded
+fallback — it fires whenever the real name lookup returns nothing,
+presenting a lookup failure as if it were a determined identity. Fixed:
+- Fallback changed to `'Member'` — honest about being "we don't know,"
+  never a claim about who sent it.
+- Added a real role lookup from `trip_members` (never inferred from
+  `message_type`) alongside the name, so every message can now show
+  "Name · Organiser" or "Name · Player" using actual membership data.
+- Fixed both optimistic-update sites (chat composer and announcement
+  composer) to include the real, already-known role — `isOrganiser` is
+  itself derived from a genuine server-side membership lookup passed
+  down as a prop, not guessed.
+
+### Critical 1 & 2 / Priority 5 & 6 — Scoring cards and Round Summary compacted
+Per the explicit instruction to stop adjusting viewport CSS and shrink
+the UI itself: reduced score-card header/body padding, score number
+(38px→32px), +/- buttons (44px→38px, still tappable though below the
+44px ideal — an explicit tradeoff the brief itself suggested), PAR/SHOTS/
+TOTAL tiles, Confirm Score button, and the Previous/Next row — roughly
+10-15% shorter throughout, not by touching the fixed-height container
+logic from the previous pass. Round Summary: tightened heading spacing
+and, most impactful for "9 holes on one screen" specifically, each
+table row's padding (8px→6px vertical) — the highest-leverage single
+change given 9 rows compound.
+
+### Critical 3 — Reconciliation bug: investigated, could not confirm a code
+bug
+Compared the two independent implementations line by line —
+`compareCaptures()` (Round Summary) and the tournament route's inline
+mismatch check (My HQ) — and found them logically equivalent for the
+same underlying data. Checked the score-saving route's upsert logic
+(correctly updates in place by `(scorecard_id, hole_id, capture_role)`,
+never duplicates) and confirmed the `stableford_pts` trigger fires
+correctly `ON UPDATE OF gross_score`, not just insert. **Honest
+conclusion: I could not find a code-level bug causing these two views to
+disagree on identical data.** The screenshots' own timestamps (Round
+Summary showing hole 9 matched a full minute *before* My HQ showed a
+mismatch for the same hole) are actually consistent with the underlying
+score having been *changed again* in that window, rather than the same
+state being read two different ways — which the polling architecture
+would correctly reflect either way. To confirm or rule this out
+properly needs a repro where both screens are viewed within a few
+seconds of each other with no action in between — I didn't want to ship
+a fix for a bug I couldn't actually locate in the code.
+
+### Critical 2 & Major 6 — Announcements failing, Moments "Bucket not
+found"
+Both re-confirmed as the same deployment-gap pattern, not new code
+issues: checked whether the Moments migration (028) altered
+`event_messages` in a way that could newly break announcements — it
+correctly widens `message_type` to include `'moment'` without touching
+`recipient_type` at all, so my earlier `'event'`-vs-`'all'` constraint
+theory is unchanged and still the most likely explanation; re-running
+`event_messages_deploy.sql` remains the fix. The Moments bucket name
+(`event-moments`) is fully consistent between the upload code and both
+`028_moments.sql`/`moments_deploy.sql` — "Bucket not found" is the same
+signature as every other deployment gap this session, not a code bug.
+
+### Minor finding, flagged not fixed
+The later "Could not read image" error (a different failure than "Bucket
+not found," on a subsequent attempt) is a client-side image-decode
+failure in `MomentCapture.tsx`'s resize step — noted but not
+investigated further this pass, given the higher-confidence, more
+central deployment-gap findings took priority with the available time.
+
+### Confirmed unchanged
+Stableford, handicap allocation, marker comparison, reconciliation
+rules, leaderboard ranking, organiser/player permissions, the working
+group-chat send path. 82/82 scoring-domain tests still pass.
+
+---
+
+## Response to Pushback — Instrumentation, Not Assumptions
+
+### Priority 2 — Reconciliation pipeline instrumented
+Added logging on **both** sides of the comparison, matching field-for-
+field: server-side in the tournament route (every compared hole, not
+just mismatches — player gross, marker gross, both timestamps,
+comparison result, review flag) and client-side in the Round Summary
+screen (same fields, browser console). If My HQ and Round Summary ever
+disagree again, both logs can be compared directly for the exact same
+hole/player/moment, rather than inferring from screenshots taken minutes
+apart. Genuinely didn't find a bug on my first read-through — this
+doesn't reassert that conclusion, it makes the next occurrence provable
+either way.
+
+### Priority 3 — Organiser announcement path traced, not re-asserted
+Walked the actual path again — composer → API → membership check →
+insert — and added trace logging at each step: the membership lookup
+result before any branching, the exact insert payload right before it's
+sent, and the insert result (success/error code) right after. If
+`membershipRole` in the logs isn't `'organiser'` when it should be,
+that's the API/permissions path Made specifically pointed to. If it
+correctly shows `'organiser'` but the insert still fails, that confirms
+it's a database-level issue, not application logic — either way, the
+next occurrence will show exactly where the chain breaks instead of
+requiring another round of inference.
+
+### Priority 1 — Scoring cards trimmed a further ~10%
+Header padding, name/hole text sizes, body padding, score number
+(32px→28px), and +/- buttons (38px→34px) all reduced again. Flagging
+honestly: 34px buttons are now noticeably below the commonly-cited 44px
+"comfortable touch target" guideline — an explicit tradeoff in service of
+the fit requirement, not an oversight. Worth watching in real-device
+testing specifically for mis-taps, not just whether things fit.
+
+### Priority 4 (Moments) and 5 (identity) — acknowledged, not re-closed
+Agreed: Moments isn't being called complete, and the identity fix's
+`role` field is real (from `trip_members`, not inferred) — nothing
+further needed there this pass beyond what was already shipped.
+
+### Confirmed unchanged
+Stableford, handicap allocation, marker comparison logic itself (only
+logging was added around it, not any calculation), leaderboard ranking,
+permissions, the working group-chat path. 82/82 scoring-domain tests
+still pass.

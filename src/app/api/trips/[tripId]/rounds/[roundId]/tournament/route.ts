@@ -108,6 +108,20 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
         if (!marker) { waitingForMarker = true; continue }
         const differs = self.is_no_return !== marker.is_no_return
           || (!self.is_no_return && self.gross_score !== marker.gross_score)
+        // Reconciliation trace — per explicit request to instrument the
+        // pipeline rather than assume it's working. Logs every compared
+        // hole (not just mismatches), so if My HQ and the player's own
+        // Round Summary ever disagree again, this shows exactly what the
+        // database held at the moment this specific request ran, not an
+        // inference from two separate screenshots taken minutes apart.
+        console.log('[tournament reconciliation trace]', {
+          playerId: sc.player_id, playerName: sc.profiles?.full_name ?? 'Player', hole: hn,
+          playerGross: self.is_no_return ? 'no_return' : self.gross_score,
+          markerGross: marker.is_no_return ? 'no_return' : marker.gross_score,
+          playerEnteredAt: self.entered_at, markerEnteredAt: marker.entered_at,
+          comparisonResult: differs ? 'mismatch' : 'matched',
+          reviewFlag: differs,
+        })
         if (differs) {
           hasMismatch = true
           mismatchDetails.push({

@@ -14,7 +14,7 @@ interface EventMessage {
   message: string
   is_pinned: boolean
   created_at: string
-  sender: { full_name: string } | null
+  sender: { full_name: string; role: string | null } | null
   recipient_group: { name: string } | null
   momentImageUrl?: string | null
   momentHoleNumber?: number | null
@@ -93,7 +93,7 @@ export default function EventMessages({
     if (!res.ok) { setChatError(resData.error ?? "Message couldn't be sent. Please try again."); return }
     if (resData.sentMessage) {
       queryClient.setQueryData<{ messages: EventMessage[] }>(['event-messages', tripId], (old) =>
-        old ? { messages: [{ ...resData.sentMessage, sender: { full_name: 'You' }, recipient_group: myGroupName ? { name: myGroupName } : null }, ...old.messages] } : { messages: [resData.sentMessage] }
+        old ? { messages: [{ ...resData.sentMessage, sender: { full_name: 'You', role: isOrganiser ? 'organiser' : 'player' }, recipient_group: myGroupName ? { name: myGroupName } : null }, ...old.messages] } : { messages: [resData.sentMessage] }
       )
     }
     setChatDraft('')
@@ -166,7 +166,7 @@ export default function EventMessages({
     if (!res.ok) { setSendError(resData.error ?? 'Could not send announcement.'); return }
     if (resData.sentMessage) {
       queryClient.setQueryData<{ messages: EventMessage[] }>(['event-messages', tripId], (old) =>
-        old ? { messages: [{ ...resData.sentMessage, sender: { full_name: 'You' }, recipient_group: null }, ...old.messages] } : { messages: [resData.sentMessage] }
+        old ? { messages: [{ ...resData.sentMessage, sender: { full_name: 'You', role: 'organiser' }, recipient_group: null }, ...old.messages] } : { messages: [resData.sentMessage] }
       )
     }
     setDraft('')
@@ -306,7 +306,8 @@ export default function EventMessages({
               )}
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#14532d', lineHeight: 1.5 }}>{m.message}</p>
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
-                — <Link href={`/trips/${tripId}/players/${m.sender_user_id}`} style={{ color: 'inherit', textDecoration: 'underline' }}>{m.sender?.full_name ?? 'Organiser'}</Link>
+                — <Link href={`/trips/${tripId}/players/${m.sender_user_id}`} style={{ color: 'inherit', textDecoration: 'underline' }}>{m.sender?.full_name ?? 'Member'}</Link>
+                {m.sender?.role && <span style={{ color: '#c3c8ce' }}> · {m.sender.role === 'organiser' ? 'Organiser' : 'Player'}</span>}
               </p>
             </div>
           )
