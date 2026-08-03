@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import AppNav from '@/components/layout/AppNav'
 import SyncInitializer from '@/components/layout/SyncInitializer'
+import AuthCacheManager from '@/components/layout/AuthCacheManager'
 import React from 'react'
 import { ToastProvider } from '@/components/ui/Toast'
 
@@ -51,6 +52,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           {children}
         </main>
         <SyncInitializer />
+        <AuthCacheManager />
       </div>
     </ToastProvider>
   )

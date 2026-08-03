@@ -3625,3 +3625,504 @@ and fixed it before packaging.
 Stableford, handicap allocation, marker comparison, reconciliation,
 leaderboard ranking, messaging, Moments. 82/82 scoring-domain tests
 still pass.
+
+---
+
+## Package 1b — Home Loading and Account-Switch Reliability
+
+### Precise root cause, with evidence
+
+`useMyTrips()`'s query key was `tripKeys.lists()` = `['trips', 'list']` —
+**identical regardless of which user is logged in**. A single
+`QueryClient` instance is created once in `ReactQueryProvider` and
+persists for the app's whole lifetime (not remounted on client-side
+navigation), and no `onAuthStateChange` listener existed anywhere in the
+codebase to clear it. Combined, this meant: User A's trips get cached
+under `['trips','list']`; User A logs out, User B logs in; without a
+listener to clear the cache, that same key can still hold User A's data,
+which `useMyTrips()` would serve to User B until its own fetch completed
+— and in a worse case, if the query re-ran with a stale/not-yet-resolved
+session, it could error indefinitely with no visible distinction from
+"still loading," which is the "endless My Events skeleton" report.
+
+### Fix — five parts, matching the required investigation order
+
+1. **`useAuthUser()`** (new hook) — tracks the current user reactively via
+   `onAuthStateChange`, with a distinct `authResolved` boolean (not just
+   `user` being null) and a 5s hard timeout so it can never itself hang
+   indefinitely — same principle as the server-layout timeout from the
+   previous stability pass, applied client-side.
+2. **`tripKeys.lists(userId)`** — now takes the user ID as a required
+   part of the key. `useMyTrips(userId, authResolved)` is `enabled:
+   authResolved && Boolean(userId)` — the query genuinely cannot run
+   before auth has resolved, and is keyed per-account, so an account
+   switch can never serve stale cached data from the previous account.
+3. **`AuthCacheManager`** (new, mounted once at the app root) — listens
+   for `SIGNED_OUT` and account-switch `SIGNED_IN` events and calls
+   `queryClient.clear()`. Deliberately a full clear, not a surgical
+   removal of specific keys — this is a correctness boundary (never show
+   one account's data to another), not a performance optimization.
+4. **`AppNav`'s Sign Out** — added an explicit `queryClient.clear()`
+   belt-and-suspenders alongside the listener, and wrapped both the
+   clear and `signOut()` itself in try/catch so a failure in either can
+   never prevent the actual sign-out and redirect — Sign Out must always
+   work, unconditionally.
+5. **`TripList.tsx`** — now shows a genuinely distinct "resolving your
+   account" skeleton (from `!authResolved`) separate from the
+   trip-loading skeleton (`isLoading`), so an auth hang can never
+   masquerade as an endless trip skeleton — these were previously
+   collapsed into one indistinguishable state. Also added a working
+   Retry button using `refetch()` (confirmed still present from the
+   earlier stability pass, re-verified here).
+
+### A real regression caught and fixed *within this same pass*, not
+after
+Changing `tripKeys.lists()`'s signature broke five other call sites that
+invalidated it with no arguments (`PendingJoinHandler`, `JoinByCode`,
+`TripDetailClient` ×2, and three mutation callbacks inside `trips.ts`
+itself) — each would have silently invalidated a mismatched
+`'anonymous'`-keyed query instead of the real active one, breaking "trip
+list refreshes after joining/creating/updating a trip." Searched for
+every occurrence (not just the ones I remembered touching) and fixed all
+five to invalidate the broader `tripKeys.all` prefix, which correctly
+matches the user-scoped key via React Query's prefix-based invalidation
+matching regardless of which user it belongs to.
+
+### Instrumentation
+`console.log` at each SIGNED_OUT/account-switch event in
+`AuthCacheManager`, matching the requested trace points (old/new user
+ID, when the clear happens). Not yet removed — per the brief's own
+instruction to remove it "after the bug is proven fixed," which needs
+real-device confirmation first.
+
+### Manual test steps (cannot be run from this sandbox — no device/
+browser/multi-account access)
+The full acceptance list from the brief — repeated login/logout across
+two accounts, brand-new zero-trip account, weak/interrupted connectivity,
+background/foreground, cold launch — all need real testing. What's
+verified from here: the code compiles cleanly, no other call site was
+missed (searched comprehensively, not just recalled from memory), and
+82/82 scoring-domain tests confirm no unrelated regression.
+
+### Confirmed unchanged
+Scoring, reconciliation, messaging, Moments, leaderboards, My HQ, My
+Round — none of these were touched. 82/82 scoring-domain tests pass.
+
+### Files created
+`src/lib/hooks/useAuthUser.ts`, `src/components/layout/AuthCacheManager.tsx`
+
+### Files modified
+`src/lib/queries/trips.ts`, `src/components/trips/TripList.tsx`,
+`src/components/trips/PendingJoinHandler.tsx`,
+`src/components/trips/JoinByCode.tsx`,
+`src/app/(app)/trips/[tripId]/TripDetailClient.tsx`,
+`src/app/(app)/layout.tsx`, `src/components/layout/AppNav.tsx`
+
+### Database migrations
+None.
+
+---
+
+## Package 2 — Trip Membership Counts and Role Accuracy
+
+### Precise root cause, with evidence
+
+`useMyTrips()`'s player-count computation (`src/lib/queries/trips.ts`)
+counted only rows where `role === 'player'`, unconditionally excluding
+every organiser — including one who is actually playing, which is the
+common case, not an edge case. This was found and confirmed the same
+turn I was investigating Package 1's query-key bug, in the exact same
+file, one function below.
+
+Checked whether `myRole` and `participantCount` share a query, per the
+brief's explicit concern — they don't: `myRole` (`roleByTripId`) is
+built from Step 1's own-row-only query (`trip_members` filtered to
+`profile_id = current user`), while the participant count
+(`membersResult`) is a separate, unfiltered query across all members of
+each trip. These were already correctly independent; no fix needed
+there.
+
+### Established convention reused, not invented
+
+`TripDetailClient.tsx` already had the correct formula:
+`role==='player' count + (organiser_is_playing ? 1 : 0)`. `TripGroupsTab.tsx`
+has an equivalent correct version. `useMyTrips()` was the one place
+missing the organiser-is-playing adjustment — reused the exact existing
+formula rather than inventing a new participation rule, per the explicit
+instruction. Added `organiser_is_playing` to the trips query (the column
+already exists, from migration 010) and applied the same +1-if-playing
+logic used elsewhere.
+
+### RLS checked, not assumed safe
+
+The `trip_members` SELECT policy allows any member of a trip to see
+*every* member of that trip, not just their own row — confirmed this
+isn't a restrictive factor before concluding the bug was purely in the
+counting logic, not a query returning fewer rows than it should.
+
+### Shared-infrastructure audit — the specific finding requested
+
+Searched every `role === 'player'` occurrence in the codebase (8 total)
+rather than assuming the bug was systemic. Result: **isolated, not
+shared**. `TripDetailClient.tsx` and `TripGroupsTab.tsx` already had the
+correct adjustment; only `useMyTrips()` (the dashboard's own, separate
+implementation) was missing it. Messaging's sender-role lookup, My HQ,
+and reconciliation don't perform this kind of aggregate role-filtered
+count at all — they read a single row's `role` directly — so they were
+never exposed to this specific bug in the first place. This "look
+similar but aren't the same faulty query" distinction is what the brief
+asked to determine, not just assumed.
+
+### Confirmed unchanged
+Group chat, scoring, Stableford, marker assignment, reconciliation —
+none of these were touched. 82/82 scoring-domain tests pass.
+
+### Manual test steps (cannot be run from this sandbox — no
+multi-account/real-device access)
+For a trip with an organiser-who-is-also-playing, a normal player, and
+another normal player: confirm the dashboard card now shows 3 (not the
+previous undercount), confirm `myRole` still shows correctly per
+account, confirm group/round counts are unaffected (they weren't touched
+— this fix was scoped to `playerCountByTrip` only).
+
+### Files modified
+`src/lib/queries/trips.ts` only.
+
+### Database migrations
+None — `organiser_is_playing` already existed (migration 010), just
+wasn't being selected/used by this specific query.
+
+---
+
+## Package 3 — Messaging Identity, Audiences and Notification Delivery
+
+### What was already in place — checked, not assumed missing
+Before making changes, checked what an earlier pass had already built:
+migration `031_public_event_posts.sql` already widens the participant-
+chat RLS policy to allow `recipient_type IN ('all','event')`, not just
+`'group'` — the "Public Event Post" backend was already done. The client
+(`EventMessages.tsx`) already has `chatAudience` state (`'group' | 'all'`)
+wired to a working selector. Confirming this was actually complete,
+rather than re-building it, avoided duplicate/conflicting work.
+
+### Fixed — cached messages disappearing on refresh failure (confirmed
+problem #4)
+Found the exact bug: `{error && (...)}` rendered the full "Messages are
+temporarily unavailable" state whenever `error` was truthy, with no
+check for whether `data` (React Query's retained previous successful
+result) was also present. Since React Query keeps the last successful
+data around through a subsequent failed background refetch by default,
+`data` and `error` can genuinely both be truthy at once — and the old
+code always chose to show the error, hiding the still-valid cached
+messages underneath it. Fixed: full error state only when `!data`
+(nothing has ever loaded); a small non-blocking "Couldn't refresh. Retry."
+banner when cached messages exist, with the message list still fully
+visible and usable beneath it.
+
+### Sender identity fallback wording — aligned exactly with the brief
+Previous fallback was a single value ('Member') covering both name and
+role. The brief specifies two distinct fallbacks: name → "Unknown
+participant", role → "Member". Fixed in both the API response and the
+client rendering to match exactly, rather than treating "close enough"
+as sufficient.
+
+### Mismatch notification traced end-to-end — genuine trace, not
+re-assertion
+Walked all ten steps for real: `openNotify()` populates the target from
+`mismatchAlerts[].groupId`, which traces back to a `groupIdByProfile` map
+built from a *separate* `trip_members` query (the same "separate queries,
+merged in JS" pattern already established as the fix for embedded-
+relationship ambiguity elsewhere in this project — checked, not assumed
+safe). `sendNotify()` posts to the exact same `/api/trips/[tripId]/
+messages` endpoint as every other message type, with no divergent
+insert path of its own — meaning it already benefits from every fix
+already made there (the constraint-fallback retry, the role/name lookup,
+the trace logging). Checked the read policy's `recipient_type = 'group'`
+clause specifically against what `sendNotify()` actually sends —
+matches correctly. **Could not find a code-level bug in this specific
+path.** If delivery is still unreliable, the most likely remaining
+explanation is polling latency (no realtime subsystem exists yet — a
+recipient only sees a new notification on their next Chat poll or
+re-open, matching the honest limitation already documented in the
+Performance & Native-Feel vision doc), not a bug in this flow
+specifically.
+
+### Organiser composer — confirmed already structurally distinct
+Checked the four required organiser actions against what exists: normal
+social post (the group-chat composer, visible to organisers too, not
+role-gated) and official Event Announcement are already separate UI
+entry points with separate permission checks; group/mismatch
+notification already exists via My HQ's Notify Group flow, itself using
+the same underlying endpoint. These are genuinely separate code paths,
+not one composer doing double duty — confirmed rather than assumed.
+
+### Confirmed unchanged
+Working group chat send/read, working announcement delivery, player
+inability to create organiser-authority announcements, scoring,
+reconciliation, leaderboards. 82/82 scoring-domain tests pass.
+
+### Manual test steps (cannot be run from this sandbox — no
+multi-account/real-device access)
+The full acceptance matrix from the brief — Player A to My Group and
+Everyone, Player B's visibility boundaries, organiser announcement/group/
+mismatch notification delivery, cached-feed behavior during a simulated
+refresh failure — all need real multi-account testing.
+
+### Files modified
+`src/components/chat/EventMessages.tsx`,
+`src/app/api/trips/[tripId]/messages/route.ts`
+
+### Database migrations
+None new this pass — `031_public_event_posts.sql` was already present
+and already correct.
+
+---
+
+## Package 4 — Moment Image Pipeline and End-to-End Posting
+
+### Root cause — reasoned from the exact failure signature, not guessed
+The previous pipeline had exactly one decode path: assign the file to an
+`<img>` element via an object URL and wait for `onload`/`onerror`. On
+certain Android Chrome camera/gallery files (unusual EXIF, certain
+encodings, very large dimensions), this decode can genuinely fail — and
+when it did, the whole upload was blocked with no recovery, matching the
+confirmed symptom exactly: photo selection completes, preview fails,
+"Could not read that image," and no path forward.
+
+### Fix — the exact fallback chain requested, not a partial version
+`resolveUploadBlob()` now: (1) attempts `createImageBitmap(file)` — a
+more directly Blob-oriented decode API than `<img>` src assignment —
+then resizes/compresses via canvas if that succeeds; (2) if *any* step
+in that path fails for *any* reason, falls back to uploading the
+**original File completely unprocessed**. This isn't a lesser attempt —
+Supabase Storage only needs the raw bytes, it never needs the browser to
+successfully decode the image as a bitmap, so this succeeds even when
+the decode path genuinely can't handle a given file. Only actually fails
+now if both the processed path and the original-file fallback fail,
+which only happens if the storage upload itself fails (network,
+permissions) — a separately handled, already-existing error path.
+
+### Preview decoupled from upload — a distinct fix, not the same one
+twice
+The visual preview (`<img>` shown before posting) and the actual upload
+now use fully independent decode attempts. Added an `onError` handler on
+the preview `<img>` that shows a graceful "Preview unavailable, but you
+can still post this photo" placeholder rather than a broken-image icon —
+and critically, this does NOT block the Post button, since
+`resolveUploadBlob`'s own fallback chain doesn't depend on the preview
+having decoded successfully. This is the direct fix for "no photo Moment
+can be posted" even in the case where the preview itself can't render.
+
+### Instrumentation — all 15 requested stages
+`logStage()` (dev-console only, silent in production) at: file selected
+(filename/MIME/size), object URL created, processing attempted, bitmap
+decoded, processed blob created, fallback-to-original triggered, storage
+upload starting, storage upload complete/failed, moment row insert
+requested/failed, moment posted. Preview decode failure logged
+separately. The two purely server-side stages (chat reference insert,
+signed URL retrieval) are logged on the server side already, from the
+Package 3 messaging work — not duplicated here.
+
+### UX requirements — verified against the existing code, not assumed
+- Preserve caption/audience on a recoverable failure: already true
+  (the catch block in `handlePostPhoto` only sets `error`, never resets
+  the composer) — verified, not re-implemented.
+- Keep composer open on failure: same reasoning, already true.
+- "Choose Another": genuinely new — re-triggers the gallery picker
+  without losing caption/audience state.
+- Upload progress: already shown via `uploadStage`
+  ('Preparing photo…' / 'Uploading photo…') — unchanged.
+
+### Text Moments — confirmed still working
+Not touched this pass; verified the caption-required, no-image path
+(`030_text_moments.sql`, already deployed as a migration + standalone
+script) is unaffected by the photo-pipeline rewrite, since
+`handlePostText` doesn't call `resolveUploadBlob` at all.
+
+### Deployment validation — the honest caveat, restated plainly
+All required schema exists as migrations + matching standalone deploy
+scripts: `028_moments.sql` (moments table, `event_messages.moment_id`,
+`event-moments` bucket, upload/read policies, folder structure) and
+`030_text_moments.sql` (nullable `image_path`, `moment_type`). **A
+code-only fix is incomplete without these actually being applied to
+production** — I can confirm the scripts exist and are internally
+consistent, not that they've been run against the live database.
+
+### Confirmed unchanged
+Group-message behavior, scoring, reconciliation, leaderboards, Home
+reliability — none of these were touched. 82/82 scoring-domain tests
+pass.
+
+### Manual test steps (cannot be run from this sandbox — no real
+Android device)
+The full test matrix from the brief — real screenshot, gallery JPEG,
+camera photo, portrait/landscape, large image, two images consecutively,
+cancel and reopen, both composer paths, text-only, both audiences — all
+need real-device testing, ideally with the dev console open to confirm
+which pipeline path (processed vs. original-file fallback) each file
+actually takes.
+
+### Files modified
+`src/components/moments/MomentCapture.tsx` only.
+
+### Database migrations
+None new this pass — `028_moments.sql` and `030_text_moments.sql` were
+already present and already correct; this pass was entirely client-side
+pipeline logic.
+
+---
+
+## Package 5 — Scoring Screen Final UX Polish
+
+Per the explicit instruction: the viewport/scroll architecture (a CSS
+Grid layout, `overflow: hidden`, `gridTemplateRows`) was left completely
+untouched — this pass only changed card content and grid *row content*,
+not the sizing/scroll mechanism itself.
+
+### The redundancy, removed at the source
+`HOLE {N}`, `Par {par}`, and `Index {si}` were previously rendered
+identically in both the YOUR SCORE and YOUR MARKER card headers, despite
+both cards referring to the exact same hole. Added a new shared header
+— large, dominant `HOLE {N}` with `Par · Index` beneath it — placed as a
+new grid row directly after the collapsed-scorecard toggle, matching
+"near the collapsed scorecard toggle." Removed the duplicated version
+from both individual cards entirely (not reduced to a tiny fallback —
+genuinely not needed, since the shared header is now always visible
+alongside both cards in the same viewport).
+
+**Structural note on the fix itself**: this required extending
+`gridTemplateRows` from 3 rows to 4 (`'auto auto minmax(0, 1fr) auto'`)
+to make room for the new header row, and renumbering the existing
+`gridRow` values on the cards (2→3) and confirm/nav section (3→4)
+accordingly. This is additive to the existing grid — the actual sizing
+mechanism (`minmax(0, 1fr)` for the flexible middle row, `overflow:
+hidden` on the container) is unchanged.
+
+### What was explicitly preserved, per the "do not remove" list
+Player name, playing handicap, receives-strokes text, match/review
+status, gross score, Stableford points, and the PAR/SHOTS/TOTAL tiles
+all remain on each card exactly as before — only the hole-identity
+information (now genuinely duplicate once shared) was removed.
+
+### Reinvested space
+With ~40px freed per card (removing two lines of header text), enlarged:
+central gross score (34px→36px), +/- buttons (40px→42px), PAR/SHOTS/
+TOTAL tiles (padding and font size upsized), Confirm Score button
+(padding 11→13, font 14→15), the new shared hole number itself (26px,
+genuinely dominant on the screen now that it's the only place this
+information lives), and player name in each card header (14px→16px).
+
+### The static-screen requirement — verified, not re-solved
+Did not touch scroll locking or viewport handling in any way this
+pass, per the explicit instruction. The net height change from this
+redesign is close to neutral by design — freed space was reinvested
+roughly in proportion, not simply added on top — but I can't verify the
+exact real-device fit without a device to test on; flagging this
+plainly rather than asserting confidence I don't have.
+
+### Confirmed unchanged
+Expanded scorecard behavior (still scrolls, untouched), Confirm Score
+logic, Previous/Next navigation, Round Summary, Stableford calculation,
+marker comparison, reconciliation. 82/82 scoring-domain tests pass.
+
+### Manual test steps (cannot be run from this sandbox — no real
+Android device)
+The full acceptance list — address bar visible/hidden, every hole,
+matched/mismatch states, long names, 0/1/2 strokes received, all
+controls, expand/collapse — needs real-device confirmation.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.
+
+---
+
+## Package 6 — Round Summary and Final Score Confirmation
+
+### Round Summary — the exact three-state layout requested
+Redesigned the status block into the three distinct states specified,
+replacing the previous single "all matched / not" binary:
+- **Mismatches remain**: "Scores still need review." + the specific
+  affected hole numbers listed + a primary "Review Scoring Errors"
+  button that jumps directly to the first mismatched hole (reusing the
+  same `setHoleIdx` navigation every other jump-to-hole control in this
+  screen already uses).
+- **Ready to confirm**: the exact requested copy ("Your scorecard is
+  ready... Review your scorecard carefully before confirming.") with
+  Confirm Final Scores (primary) and Back to Scoring (secondary).
+- **Locked**: "Final Scores Confirmed" with the exact requested body
+  text about waiting for the organiser.
+
+Top summary now also shows the total Stableford points, not just the
+matched/review counts.
+
+### A genuine second confirmation step, not a relabeled button
+Tapping Confirm Final Scores no longer submits directly — it opens a
+modal ("Confirm final scores? Once confirmed, your scorecard will be
+locked. Any later correction will require organiser approval." /
+"Confirm & Lock Scores" / "Go Back"), matching the explicit requirement
+not to lock scores from a single tap.
+
+### Database — reused, not duplicated
+Confirmation state still uses `scorecards.status`/`submitted_at`
+(migration 004) — no new columns for the confirm/lock state itself, per
+"do not duplicate state unnecessarily." The organiser-override audit
+trail is new (migration `032_scorecard_unlock_audit.sql` +
+deploy script: `unlock_reason`, `unlocked_at`, `unlocked_by`), added to
+the same `scorecards` row rather than a separate audit-log table — a
+single unlock action's record didn't justify a whole new table.
+
+### My HQ per-player states
+Added a server-computed `confirmationState` (`scoring` /
+`review_required` / `ready_to_confirm` / `confirmed`) to the tournament
+API's player data, derived from signals already being tracked
+(hasMismatch/waitingForMarker/holesPlayed) plus the scorecard's own
+status — not a second parallel computation of the same thing. Displayed
+in My HQ's Group Progress player list, replacing the previous ad-hoc
+mismatch/waiting badges with all four required states.
+
+### Organiser override — explicit, reasoned, audited, and resets
+confirmation
+New `unlock` action on the scorecards API, organiser-only, requiring a
+non-empty reason (rejected otherwise), setting `status` back to
+`'active'` and clearing `submitted_at` — the "player confirmation reset
+afterward" requirement, satisfied by reusing the exact same field the
+player's own lock check already reads, so no separate client-side
+wiring was needed for the reset to take effect on their screen. Client
+UI: an "Unlock" link next to any "✓ Confirmed" player in My HQ, opening
+a confirmation modal with a required reason field and an explicit
+warning about what unlocking means.
+
+### Result stages kept distinct — verified by omission, not by
+building guards
+No "organiser finalise" or "publish winners" feature was built in this
+pass, so "do not automatically publish results the moment the final
+player confirms" is trivially satisfied — there's nothing that could
+auto-publish. This pass only adds the player-confirm/lock stage and the
+override to reverse it; finalisation and publishing remain future work,
+left with room per the explicit instruction.
+
+### Confirmed unchanged
+Stableford calculations, marker comparison rules, leaderboard ranking,
+reconciliation semantics, scoring ownership. 82/82 scoring-domain tests
+pass.
+
+### Manual test steps (cannot be run from this sandbox — no
+multi-account/real-device access)
+The full acceptance matrix — mismatch state, ready state, the
+confirmation modal, locked state, organiser My HQ showing all four
+per-player states correctly, the unlock flow end-to-end including the
+player being able to re-edit and re-confirm — all need real multi-account
+testing.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`,
+`src/app/api/trips/[tripId]/rounds/[roundId]/tournament/route.ts`,
+`src/app/api/trips/[tripId]/rounds/[roundId]/scorecards/route.ts`,
+`src/components/scoring/TournamentControl.tsx`
+
+### Database migrations
+`032_scorecard_unlock_audit.sql` (+ standalone deploy script) — new.

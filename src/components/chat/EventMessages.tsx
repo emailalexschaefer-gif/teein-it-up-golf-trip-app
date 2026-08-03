@@ -41,19 +41,21 @@ function recipientLabel(m: EventMessage): string {
 // participant chat (Part 7: "Players can send Messages") alongside the
 // new Moment type, on top of the existing announcement/notification
 // distinction.
-type Kind = 'announcement' | 'notification' | 'chat' | 'moment'
+type Kind = 'announcement' | 'notification' | 'chat' | 'publicPost' | 'moment'
 
 function kindOf(m: EventMessage): Kind {
   if (m.message_type === 'announcement') return 'announcement'
   if (m.message_type === 'group_notification' || m.message_type === 'player_notification') return 'notification'
   if (m.message_type === 'moment') return 'moment'
+  if (m.message_type === 'chat_message' && (m.recipient_type === 'all' || m.recipient_type === 'event')) return 'publicPost'
   return 'chat'
 }
 
 const KIND_META: Record<Kind, { icon: string; label: string; bg: string; border: string; labelColor: string }> = {
   announcement: { icon: '🟢', label: 'Announcement', bg: '#ffffff', border: '#eceae3', labelColor: '#16a34a' },
   notification: { icon: '🔔', label: 'Notification', bg: '#ffffff', border: '#eceae3', labelColor: '#a1791f' },
-  chat:         { icon: '💬', label: 'Chat', bg: '#ffffff', border: '#eceae3', labelColor: '#6b7280' },
+  chat:         { icon: '💬', label: 'Group Message', bg: '#ffffff', border: '#eceae3', labelColor: '#6b7280' },
+  publicPost:   { icon: '📣', label: 'Public Event Post', bg: '#ffffff', border: '#eceae3', labelColor: '#1e3a5f' },
   moment:       { icon: '📷', label: 'Moment', bg: '#fdf3d9', border: '#e8c96a', labelColor: '#a1791f' },
 }
 
@@ -71,29 +73,35 @@ export default function EventMessages({
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
 
-  // Reinstated participant chat composer (Sprint 6, Part 7: "Players can
-  // send Messages"). Fixed to "My Group" audience — same reasoning as
-  // before: no per-trip setting exists yet to enable event-wide
-  // participant chat.
+  // Participant chat composer (Sprint 6, Part 7: "Players can send
+  // Messages"). Now supports both "My Group" and "Everyone" — the
+  // event-wide restriction from an earlier pass is explicitly lifted per
+  // Package 3's requirement.
   const [chatDraft, setChatDraft] = useState('')
+  const [chatAudience, setChatAudience] = useState<'group' | 'all'>('group')
   const [chatSending, setChatSending] = useState(false)
   const [chatError, setChatError] = useState('')
 
   async function handleSendChat() {
-    if (!chatDraft.trim() || !myGroupId) return
+    if (!chatDraft.trim()) return
+    if (chatAudience === 'group' && !myGroupId) return
     setChatSending(true)
     setChatError('')
     const res = await fetch(`/api/trips/${tripId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recipientType: 'group', recipientGroupId: myGroupId, message: chatDraft.trim(), messageType: 'chat_message' }),
+      body: JSON.stringify({
+        recipientType: chatAudience,
+        recipientGroupId: chatAudience === 'group' ? myGroupId : undefined,
+        message: chatDraft.trim(), messageType: 'chat_message',
+      }),
     })
     const resData = await res.json().catch(() => ({}))
     setChatSending(false)
     if (!res.ok) { setChatError(resData.error ?? "Message couldn't be sent. Please try again."); return }
     if (resData.sentMessage) {
       queryClient.setQueryData<{ messages: EventMessage[] }>(['event-messages', tripId], (old) =>
-        old ? { messages: [{ ...resData.sentMessage, sender: { full_name: 'You', role: isOrganiser ? 'organiser' : 'player' }, recipient_group: myGroupName ? { name: myGroupName } : null }, ...old.messages] } : { messages: [resData.sentMessage] }
+        old ? { messages: [{ ...resData.sentMessage, sender: { full_name: 'You', role: isOrganiser ? 'organiser' : 'player' }, recipient_group: chatAudience === 'group' && myGroupName ? { name: myGroupName } : null }, ...old.messages] } : { messages: [resData.sentMessage] }
       )
     }
     setChatDraft('')
@@ -257,7 +265,10 @@ export default function EventMessages({
 
       <div ref={listTopRef} onScroll={handleScroll} style={{ maxHeight: '70vh', overflowY: 'auto' }}>
         {isLoading && <p style={{ textAlign: 'center', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>Loading…</p>}
-        {error && (
+        {/* Full error state — only when nothing has ever loaded. If cached
+            messages exist, a failed background refetch must never hide
+            them behind this; see the small banner below instead. */}
+        {error && !data && (
           <div style={{ textAlign: 'center', padding: '24px 16px' }}>
             <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, marginBottom: 10 }}>
               Messages are temporarily unavailable.
@@ -267,6 +278,19 @@ export default function EventMessages({
               style={{ padding: '8px 18px', borderRadius: 10, background: '#ffffff', border: '1.5px solid #d1d5db', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#14532d', cursor: 'pointer' }}
             >
               Try Again
+            </button>
+          </div>
+        )}
+        {/* Small, non-blocking banner — a background refresh failed, but
+            the cached messages below remain fully visible and usable. */}
+        {error && data && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', marginBottom: 8, borderRadius: 8, background: '#fef3c7', border: '1px solid #fde68a' }}>
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#92400e' }}>Couldn&apos;t refresh.</span>
+            <button
+              onClick={() => refetch()}
+              style={{ background: 'none', border: 'none', color: '#92400e', fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}
+            >
+              Retry
             </button>
           </div>
         )}
@@ -306,8 +330,8 @@ export default function EventMessages({
               )}
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#14532d', lineHeight: 1.5 }}>{m.message}</p>
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
-                — <Link href={`/trips/${tripId}/players/${m.sender_user_id}`} style={{ color: 'inherit', textDecoration: 'underline' }}>{m.sender?.full_name ?? 'Member'}</Link>
-                {m.sender?.role && <span style={{ color: '#c3c8ce' }}> · {m.sender.role === 'organiser' ? 'Organiser' : 'Player'}</span>}
+                — <Link href={`/trips/${tripId}/players/${m.sender_user_id}`} style={{ color: 'inherit', textDecoration: 'underline' }}>{m.sender?.full_name ?? 'Unknown participant'}</Link>
+                {m.sender?.role && <span style={{ color: '#c3c8ce' }}> · {m.sender.role === 'organiser' ? 'Organiser' : m.sender.role === 'player' ? 'Player' : 'Member'}</span>}
               </p>
             </div>
           )

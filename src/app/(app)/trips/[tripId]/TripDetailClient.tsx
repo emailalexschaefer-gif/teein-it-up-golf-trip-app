@@ -344,14 +344,14 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
         {tab === 'players' && (
           <TripPlayersTab
             trip={trip} currentUserId={currentUserId}
-            isOrganiser={isOrganiser} onRefresh={() => { router.refresh(); void queryClient.invalidateQueries({ queryKey: tripKeys.lists() }) }}
+            isOrganiser={isOrganiser} onRefresh={() => { router.refresh(); void queryClient.invalidateQueries({ queryKey: tripKeys.all }) }}
             onTabChange={(t) => setTab(t)}
           />
         )}
         {tab === 'groups' && (
           <TripGroupsTab
             trip={trip} isOrganiser={isOrganiser}
-            onRefresh={() => { router.refresh(); void queryClient.invalidateQueries({ queryKey: tripKeys.lists() }) }}
+            onRefresh={() => { router.refresh(); void queryClient.invalidateQueries({ queryKey: tripKeys.all }) }}
             onTabChange={(t) => setTab(t)}
             onGroupsLoaded={(count) => setActualGroupCount(count)}
           />

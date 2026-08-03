@@ -3,6 +3,7 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { useMyTrips } from '@/lib/queries/trips'
+import { useAuthUser } from '@/lib/hooks/useAuthUser'
 import TripCard from './TripCard'
 import type { TripSummary } from '@/types/app'
 
@@ -71,9 +72,25 @@ function TripCardSkeleton() {
 
 export default function TripList() {
   const [filter, setFilter] = useState<FilterTab>('active')
-  const { data: trips, isLoading, error, refetch, isFetching } = useMyTrips()
+  const { user, authResolved } = useAuthUser()
+  const { data: trips, isLoading, error, refetch, isFetching } = useMyTrips(user?.id, authResolved)
 
   const filtered   = filterTrips(trips ?? [], filter)
+
+  // Distinct from the trip-loading skeleton below — this is "we don't
+  // even know who you are yet," not "we know who you are and are
+  // fetching their trips." Collapsing these into one state was the root
+  // cause of the endless skeleton: if auth resolution stalled, the trip
+  // query's own isLoading would never meaningfully reflect that, since
+  // the query wasn't even allowed to start yet.
+  if (!authResolved) {
+    return (
+      <div className="space-y-3">
+        <div className="skeleton h-10 w-full rounded-xl" />
+        {[1, 2, 3].map(i => <TripCardSkeleton key={i} />)}
+      </div>
+    )
+  }
 
   if (isLoading) {
     return (

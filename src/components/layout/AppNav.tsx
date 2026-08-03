@@ -3,6 +3,7 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { GoldAvatar } from '@/components/ui/Avatar'
 import BrandLogo from '@/components/brand/BrandLogo'
@@ -10,13 +11,27 @@ import BrandLogo from '@/components/brand/BrandLogo'
 interface Props { userName: string; avatarUrl: string | null }
 
 export default function AppNav({ userName, avatarUrl }: Props) {
-  const router   = useRouter()
-  const supabase = createClient()
+  const router      = useRouter()
+  const supabase    = createClient()
+  const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
 
   async function handleSignOut() {
     setOpen(false)
-    await supabase.auth.signOut()
+    // Explicit cache clear here, in addition to AuthCacheManager's own
+    // SIGNED_OUT listener — belt and suspenders, not redundancy for its
+    // own sake: this guarantees stale data can't survive even in the
+    // narrow window before that listener's event fires. Wrapped so a
+    // failure here can never prevent sign-out itself — Sign Out must
+    // always work, full stop, regardless of anything else going wrong.
+    try { queryClient.clear() } catch { /* never let this block sign-out */ }
+    try {
+      await supabase.auth.signOut()
+    } catch {
+      // Even if signOut() itself throws, still navigate away — staying
+      // on a page that can no longer talk to Supabase is worse than a
+      // client-side redirect to /login regardless of the exact failure.
+    }
     router.push('/login')
     router.refresh()
   }

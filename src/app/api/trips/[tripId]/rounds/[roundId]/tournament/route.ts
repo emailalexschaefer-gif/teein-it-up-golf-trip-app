@@ -25,7 +25,7 @@ interface ScoreEntryRow {
   is_no_return: boolean; capture_role: string; entered_at: string
 }
 interface ScorecardRow {
-  id: string; player_id: string; status: string
+  id: string; player_id: string; status: string; submitted_at: string | null
   profiles: { full_name: string } | null
   score_entries: ScoreEntryRow[]
 }
@@ -60,7 +60,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
   const scRes = await admin.from('scorecards')
     .select(`
-      id, player_id, status,
+      id, player_id, status, submitted_at,
       profiles:player_id ( full_name ),
       score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_at )
     `)
@@ -87,6 +87,8 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     playerId: string; name: string; holesPlayed: number; finished: boolean
     hasMismatch: boolean; waitingForMarker: boolean; groupId: string | null; totalPts: number
     mismatchDetails: { hn: number; playerScore: string; markerScore: string; at: string }[]
+    confirmationState: 'scoring' | 'review_required' | 'ready_to_confirm' | 'confirmed'
+    submittedAt: string | null
   }
 
   const players: PlayerState[] = scorecards.map((sc) => {
@@ -134,6 +136,15 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       }
     }
     const totalPts = [...selfByHole.values()].reduce((s, e) => s + (e.stableford_pts ?? 0), 0)
+    // Per-player confirmation state for My HQ's state column — derived
+    // from signals already computed above (finished/hasMismatch/
+    // waitingForMarker) plus the scorecard's own status, not a second
+    // parallel computation of the same thing.
+    const confirmationState: 'scoring' | 'review_required' | 'ready_to_confirm' | 'confirmed' =
+      sc.status === 'completed' ? 'confirmed'
+      : hasMismatch ? 'review_required'
+      : (holesPlayed >= totalHoles && !waitingForMarker) ? 'ready_to_confirm'
+      : 'scoring'
     return {
       playerId: sc.player_id,
       name: sc.profiles?.full_name ?? 'Player',
@@ -144,6 +155,8 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       mismatchDetails,
       groupId: groupIdByProfile.get(sc.player_id) ?? null,
       totalPts,
+      confirmationState,
+      submittedAt: sc.submitted_at ?? null,
     }
   })
 
@@ -185,7 +198,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     return {
       groupId: g.id, groupName: g.name, playerCount: members.length,
       currentHole, status,
-      players: members.map(p => ({ playerId: p.playerId, name: p.name, holesPlayed: p.holesPlayed, finished: p.finished, hasMismatch: p.hasMismatch, waitingForMarker: p.waitingForMarker })),
+      players: members.map(p => ({ playerId: p.playerId, name: p.name, holesPlayed: p.holesPlayed, finished: p.finished, hasMismatch: p.hasMismatch, waitingForMarker: p.waitingForMarker, confirmationState: p.confirmationState, submittedAt: p.submittedAt })),
     }
   })
 

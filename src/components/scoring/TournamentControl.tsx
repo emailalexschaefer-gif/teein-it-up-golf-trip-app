@@ -4,9 +4,24 @@ import type { CSSProperties, ReactNode } from 'react'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 
-interface GroupPlayer { playerId: string; name: string; holesPlayed: number; finished: boolean; hasMismatch: boolean; waitingForMarker: boolean }
+interface GroupPlayer {
+  playerId: string; name: string; holesPlayed: number; finished: boolean; hasMismatch: boolean; waitingForMarker: boolean
+  confirmationState: 'scoring' | 'review_required' | 'ready_to_confirm' | 'confirmed'; submittedAt: string | null
+}
+
+// The four required per-player states for My HQ's player list, per the
+// explicit spec — 'waitingForMarker' collapses into 'Scoring' here (a
+// player still mid-round, whether or not their marker has caught up, is
+// still "Scoring" from the organiser's point of view; the distinct
+// "waiting" detail remains visible via holesPlayed/Thru N beside it).
+const CONFIRMATION_STATE_META: Record<GroupPlayer['confirmationState'], { label: string; color: string }> = {
+  scoring:          { label: 'Scoring', color: '#9ca3af' },
+  review_required:  { label: '⚠ Review required', color: '#dc2626' },
+  ready_to_confirm: { label: 'Ready to confirm', color: '#a1791f' },
+  confirmed:        { label: '✓ Confirmed', color: '#16a34a' },
+}
 interface GroupProgress {
   groupId: string; groupName: string; playerCount: number; currentHole: number
   status: 'scoring' | 'waiting' | 'reconciliation' | 'finished' | 'finished_needs_review' | 'needs_attention'
@@ -60,12 +75,33 @@ function relativeTime(iso: string): string {
 
 export default function TournamentControl({ tripId, roundId, roundStatus }: { tripId: string; roundId: string; roundStatus: string }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
   const [notifyTarget, setNotifyTarget] = useState<MismatchAlert | null>(null)
   const [notifyDraft, setNotifyDraft] = useState('')
   const [notifySending, setNotifySending] = useState(false)
   const [notifyError, setNotifyError] = useState('')
   const [notifySent, setNotifySent] = useState(false)
+  const [unlockTarget, setUnlockTarget] = useState<{ playerId: string; playerName: string } | null>(null)
+  const [unlockReason, setUnlockReason] = useState('')
+  const [unlockSending, setUnlockSending] = useState(false)
+  const [unlockError, setUnlockError] = useState('')
+
+  async function sendUnlock() {
+    if (!unlockTarget || !unlockReason.trim()) { setUnlockError('A reason is required.'); return }
+    setUnlockSending(true)
+    setUnlockError('')
+    const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/scorecards`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'unlock', playerId: unlockTarget.playerId, reason: unlockReason.trim() }),
+    })
+    const resData = await res.json().catch(() => ({}))
+    setUnlockSending(false)
+    if (!res.ok) { setUnlockError(resData.error ?? 'Could not unlock this scorecard.'); return }
+    setUnlockTarget(null)
+    void queryClient.invalidateQueries({ queryKey: ['tournament', tripId, roundId] })
+  }
 
   function openNotify(alert: MismatchAlert) {
     setNotifyTarget(alert)
@@ -266,8 +302,20 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
                       <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginRight: 8 }}>
                         {p.finished ? 'Finished' : `Thru ${p.holesPlayed}`}
                       </div>
-                      {p.hasMismatch && <span style={{ fontSize: 10, fontWeight: 700, color: '#dc2626' }}>⚠ mismatch</span>}
-                      {!p.hasMismatch && p.waitingForMarker && <span style={{ fontSize: 10, fontWeight: 700, color: '#a1791f' }}>waiting</span>}
+                      <span style={{
+                        fontSize: 10, fontWeight: 700,
+                        color: CONFIRMATION_STATE_META[p.confirmationState].color,
+                      }}>
+                        {CONFIRMATION_STATE_META[p.confirmationState].label}
+                      </span>
+                      {p.confirmationState === 'confirmed' && (
+                        <button
+                          onClick={() => { setUnlockTarget({ playerId: p.playerId, playerName: p.name }); setUnlockReason(''); setUnlockError('') }}
+                          style={{ marginLeft: 8, background: 'none', border: 'none', color: '#9ca3af', fontFamily: 'var(--font-body)', fontSize: 10, textDecoration: 'underline', cursor: 'pointer' }}
+                        >
+                          Unlock
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -337,6 +385,44 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
                 {notifySending ? 'Sending…' : notifySent ? 'Sent ✓' : 'Send Notification'}
               </button>
               <button onClick={() => setNotifyTarget(null)} style={{ flex: 1, padding: 12, borderRadius: 10, background: '#f3f4f6', border: '1px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Organiser unlock/override — explicit action, required reason,
+          confirmation warning, per Package 6's audit requirements. Resets
+          the player's confirmation on success (handled server-side). ── */}
+      {unlockTarget && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-end' }}>
+          <div style={{ background: '#ffffff', borderRadius: '16px 16px 0 0', padding: 16, width: '100%' }}>
+            <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 15, fontWeight: 800, marginBottom: 6 }}>
+              Unlock {unlockTarget.playerName}&apos;s scorecard?
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151', lineHeight: 1.5, marginBottom: 10 }}>
+              This player confirmed their final scores. Unlocking allows them to
+              make a correction, but they&apos;ll need to confirm again before
+              results can include their scorecard. This action is recorded.
+            </div>
+            <textarea
+              value={unlockReason}
+              onChange={e => setUnlockReason(e.target.value)}
+              placeholder="Reason for unlocking (required)"
+              rows={3}
+              style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 8, padding: 8, fontFamily: 'var(--font-body)', fontSize: 13, resize: 'vertical' }}
+            />
+            {unlockError && <p style={{ color: '#dc2626', fontSize: 11.5, marginTop: 6, fontFamily: 'var(--font-body)' }}>{unlockError}</p>}
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <button
+                onClick={sendUnlock}
+                disabled={unlockSending || !unlockReason.trim()}
+                style={{ flex: 1, padding: 12, borderRadius: 10, background: '#dc2626', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, cursor: unlockSending ? 'default' : 'pointer', opacity: unlockSending || !unlockReason.trim() ? 0.6 : 1 }}
+              >
+                {unlockSending ? 'Unlocking…' : 'Unlock Scorecard'}
+              </button>
+              <button onClick={() => setUnlockTarget(null)} disabled={unlockSending} style={{ flex: 1, padding: 12, borderRadius: 10, background: '#f3f4f6', border: '1px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
                 Cancel
               </button>
             </div>

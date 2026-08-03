@@ -5,43 +5,62 @@ import type { CSSProperties, ChangeEvent } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useQueryClient } from '@tanstack/react-query'
 
-// Resize to a max dimension (preserving aspect ratio — Moments are golf
-// photos, not avatars, so square-cropping would be wrong here) and
-// compress to JPEG. Draws through <img> + canvas, which normalizes EXIF
-// orientation in every modern browser, same principle as the avatar
-// pipeline but a deliberately separate function — Moments and avatars
-// have different shape requirements (natural aspect ratio vs. square),
-// and duplicating ~15 lines here is lower-risk than refactoring the
-// already-deployed, already-working avatar flow to share one.
-function processMomentImage(file: File, maxDimension = 1600): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    const url = URL.createObjectURL(file)
-    img.onload = () => {
-      URL.revokeObjectURL(url)
-      const scale = Math.min(1, maxDimension / Math.max(img.width, img.height))
-      const w = Math.round(img.width * scale)
-      const h = Math.round(img.height * scale)
-      const canvas = document.createElement('canvas')
-      canvas.width = w
-      canvas.height = h
-      const ctx = canvas.getContext('2d')
-      if (!ctx) { reject(new Error('Canvas not supported')); return }
-      ctx.drawImage(img, 0, 0, w, h)
-      canvas.toBlob(
-        (blob) => { if (blob) resolve(blob); else reject(new Error('Compression failed')) },
-        'image/jpeg', 0.82,
-      )
-    }
-    // "Could not read image" — was previously possible to trigger if a
-    // second photo was selected while an earlier preview's object URL
-    // hadn't been revoked yet (handleSelect didn't clean up the previous
-    // preview before creating a new one). Fixed below by always revoking
-    // any existing preview URL first. Kept the descriptive error message
-    // here too, in case a genuinely corrupt/unreadable file is selected.
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that image. Please try a different photo.')) }
-    img.src = url
-  })
+function logStage(stage: string, detail?: unknown) {
+  if (process.env.NODE_ENV !== 'production') {
+    // eslint-disable-next-line no-console
+    console.log(`[moment pipeline] ${stage}`, detail ?? '')
+  }
+}
+
+interface ResolvedUpload { blob: Blob; contentType: string; extension: string; usedOriginal: boolean }
+
+// The actual fix for "Could not read that image" blocking posting
+// entirely: previously, a single <img>+canvas decode path was the only
+// way to prepare an image, and if it failed for any reason (some Android
+// camera/gallery files genuinely fail to decode via <img> in Chrome —
+// unusual EXIF, certain encodings, very large dimensions), the whole
+// upload was blocked with no recovery. Now: attempt processing via
+// createImageBitmap (a more robust, more directly Blob-oriented decode
+// API than <img> src assignment) first: if it succeeds, compress and
+// resize as before. If it fails at ANY stage, fall back to uploading the
+// ORIGINAL FILE completely unprocessed — Supabase Storage only needs the
+// raw bytes, it never needs the browser to successfully decode the image
+// as a bitmap, so this succeeds even when the decode path can't handle
+// the file. Only actually fails if both the processed path AND this
+// original-file fallback fail (i.e. the storage upload itself fails,
+// handled separately in handlePostPhoto).
+async function resolveUploadBlob(file: File): Promise<ResolvedUpload> {
+  logStage('processing-attempted', { filename: file.name, mimeType: file.type, size: file.size })
+  try {
+    const bitmap = await createImageBitmap(file)
+    logStage('bitmap-decoded', { width: bitmap.width, height: bitmap.height })
+
+    const maxDimension = 1600
+    const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height))
+    const w = Math.round(bitmap.width * scale)
+    const h = Math.round(bitmap.height * scale)
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Canvas 2D context not available')
+    ctx.drawImage(bitmap, 0, 0, w, h)
+    bitmap.close()
+
+    const blob: Blob | null = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.82))
+    if (!blob) throw new Error('Compression produced no output')
+
+    logStage('processed-blob-created', { size: blob.size, width: w, height: h })
+    return { blob, contentType: 'image/jpeg', extension: 'jpg', usedOriginal: false }
+  } catch (err) {
+    logStage('processing-failed-falling-back-to-original', { error: err instanceof Error ? err.message : String(err) })
+    // Do not block a valid image solely because resizing/decoding
+    // failed. The original file's own MIME type determines the upload
+    // content-type and extension here, since we never got a chance to
+    // normalize it to JPEG.
+    const extension = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg'
+    return { blob: file, contentType: file.type || 'application/octet-stream', extension, usedOriginal: true }
+  }
 }
 
 interface Props {
@@ -62,6 +81,7 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
   const [stage, setStage] = useState<ComposerStage>('closed')
   const [previewFile, setPreviewFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewFailed, setPreviewFailed] = useState(false)
   const [caption, setCaption] = useState('')
   const [audience, setAudience] = useState<'everyone' | 'group'>('everyone')
   const [uploading, setUploading] = useState(false)
@@ -72,28 +92,36 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
     if (previewUrl) URL.revokeObjectURL(previewUrl)
     setPreviewFile(null)
     setPreviewUrl(null)
+    setPreviewFailed(false)
     setCaption('')
     setAudience('everyone')
     setError('')
     setStage('closed')
   }
 
+  function chooseAnother() {
+    galleryInputRef.current?.click()
+  }
+
   function handleSelect(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
+    logStage('file-selected', { filename: file.name, mimeType: file.type, size: file.size })
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
       setError('Please choose a JPEG, PNG, or WEBP image.')
       return
     }
     // Always revoke any existing preview URL before creating a new one —
-    // the actual fix for the "Could not read image" failure mode: picking
-    // a second photo used to leave the previous blob URL un-revoked,
-    // which could interfere with reading the new selection.
+    // fixes a real leak: picking a second photo without cancelling the
+    // first left the previous blob URL un-revoked.
     if (previewUrl) URL.revokeObjectURL(previewUrl)
     setError('')
+    setPreviewFailed(false)
     setPreviewFile(file)
-    setPreviewUrl(URL.createObjectURL(file))
+    const url = URL.createObjectURL(file)
+    logStage('object-url-created', { url })
+    setPreviewUrl(url)
     setStage('photoPreview')
   }
 
@@ -104,22 +132,29 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
     setUploadStage('preparing')
 
     try {
-      const compressed = await processMomentImage(previewFile)
+      const resolved = await resolveUploadBlob(previewFile)
 
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Not signed in.')
 
       setUploadStage('uploading')
+      logStage('storage-upload-starting', { usedOriginal: resolved.usedOriginal, size: resolved.blob.size })
       // Folder structure per the spec: trip-id/round-id/player-id/filename
       // — round-id falls back to 'general' when captured outside active
-      // scoring (e.g. from My Round rather than mid-hole).
-      const path = `${tripId}/${roundId ?? 'general'}/${user.id}/${Date.now()}.jpg`
-      const { error: uploadErr } = await supabase.storage.from('event-moments').upload(path, compressed, { contentType: 'image/jpeg' })
-      if (uploadErr) throw new Error(uploadErr.message)
+      // scoring (e.g. from My Round rather than mid-hole). Extension
+      // reflects whichever path actually produced the upload blob.
+      const path = `${tripId}/${roundId ?? 'general'}/${user.id}/${Date.now()}.${resolved.extension}`
+      const { error: uploadErr } = await supabase.storage.from('event-moments').upload(path, resolved.blob, { contentType: resolved.contentType })
+      if (uploadErr) {
+        logStage('storage-upload-failed', { message: uploadErr.message })
+        throw new Error(uploadErr.message)
+      }
+      logStage('storage-upload-complete', { path })
 
       await postMoment({ imagePath: path })
     } catch (err) {
+      logStage('post-failed', { error: err instanceof Error ? err.message : String(err) })
       setError(err instanceof Error ? err.message : "Moment couldn't be posted. Please try again.")
     } finally {
       setUploading(false)
@@ -141,6 +176,7 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
   }
 
   async function postMoment({ imagePath }: { imagePath?: string }) {
+    logStage('moment-row-insert-requested', { hasImage: !!imagePath, audience })
     const res = await fetch(`/api/trips/${tripId}/moments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -150,7 +186,11 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
       }),
     })
     const resData = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(resData.error ?? "Moment couldn't be posted. Please try again.")
+    if (!res.ok) {
+      logStage('moment-row-insert-failed', { error: resData.error })
+      throw new Error(resData.error ?? "Moment couldn't be posted. Please try again.")
+    }
+    logStage('moment-posted', { momentId: resData.moment?.id })
 
     void queryClient.invalidateQueries({ queryKey: ['event-messages', tripId] })
     void queryClient.invalidateQueries({ queryKey: ['moments', tripId] })
@@ -236,11 +276,29 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
 
       {stage === 'photoPreview' && (
         <div style={{ background: '#ffffff', border: '1px solid #eceae3', borderRadius: 12, padding: 12, marginTop: 8 }}>
-          {previewUrl && (
+          {previewUrl && !previewFailed && (
             // eslint-disable-next-line @next/next/no-img-element -- a
             // local blob: preview URL, not a remote image next/image can
             // optimize
-            <img src={previewUrl} alt="Preview" style={{ width: '100%', maxHeight: 260, objectFit: 'contain', borderRadius: 8, marginBottom: 8, background: '#f3f4f6' }} />
+            <img
+              src={previewUrl}
+              alt="Preview"
+              onError={() => { logStage('preview-decode-failed'); setPreviewFailed(true) }}
+              style={{ width: '100%', maxHeight: 260, objectFit: 'contain', borderRadius: 8, marginBottom: 8, background: '#f3f4f6' }}
+            />
+          )}
+          {previewFailed && (
+            // The preview couldn't be decoded for display, but this does
+            // NOT block posting — resolveUploadBlob has its own
+            // independent decode attempt, and falls back to the original
+            // file if that fails too, so the upload can still succeed
+            // even when this preview couldn't render.
+            <div style={{ padding: '24px 12px', textAlign: 'center', borderRadius: 8, marginBottom: 8, background: '#f3f4f6' }}>
+              <p style={{ fontSize: 28, marginBottom: 4 }}>🖼️</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af' }}>
+                Preview unavailable, but you can still post this photo.
+              </p>
+            </div>
           )}
           <input
             value={caption}
@@ -251,7 +309,7 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
           />
           {myGroupId && <AudiencePicker audience={audience} setAudience={setAudience} />}
           {error && <p style={{ color: '#dc2626', fontSize: 11.5, marginBottom: 8, fontFamily: 'var(--font-body)' }}>{error}</p>}
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
             <button
               type="button" onClick={handlePostPhoto} disabled={uploading}
               style={{ flex: 1, padding: 10, borderRadius: 8, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: uploading ? 'default' : 'pointer', opacity: uploading ? 0.6 : 1 }}
@@ -260,6 +318,9 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
             </button>
             <button type="button" onClick={resetAll} disabled={uploading} style={cancelButtonStyle}>Cancel</button>
           </div>
+          <button type="button" onClick={chooseAnother} disabled={uploading} style={{ width: '100%', padding: 8, background: 'none', border: 'none', color: '#9ca3af', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}>
+            Choose Another
+          </button>
         </div>
       )}
     </div>

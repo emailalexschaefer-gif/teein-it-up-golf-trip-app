@@ -18,11 +18,11 @@ import type { Database } from '@/types/database'
 type TripRow = Pick<
   Database['public']['Tables']['trips']['Row'],
   'id' | 'name' | 'description' | 'event_type' | 'location' | 'start_date' | 'end_date' | 'status' | 'logo_url' | 'invite_code'
-> & Partial<Pick<Database['public']['Tables']['trips']['Row'], 'expected_players' | 'players_per_group'>>
+> & Partial<Pick<Database['public']['Tables']['trips']['Row'], 'expected_players' | 'players_per_group' | 'organiser_is_playing'>>
 
 export const tripKeys = {
   all:     ['trips'] as const,
-  lists:   () => [...tripKeys.all, 'list'] as const,
+  lists:   (userId?: string) => [...tripKeys.all, 'list', userId ?? 'anonymous'] as const,
   detail:  (id: string) => [...tripKeys.all, 'detail', id] as const,
   members: (id: string) => [...tripKeys.all, id, 'members'] as const,
   rounds:  (id: string) => [...tripKeys.all, id, 'rounds'] as const,
@@ -46,16 +46,20 @@ interface JoinTripResult   { tripId: string; tripName: string; alreadyMember: bo
 
 // ─── useMyTrips ───────────────────────────────────────────────────────────────
 
-export function useMyTrips(): UseQueryResult<TripSummary[], Error> {
+export function useMyTrips(userId: string | undefined, authResolved: boolean): UseQueryResult<TripSummary[], Error> {
   return useQuery<TripSummary[], Error>({
-    queryKey: tripKeys.lists(),
+    queryKey: tripKeys.lists(userId),
+    // The query must not run until we actually know who's asking — this
+    // is what prevents it from ever running against a stale/missing
+    // session, and (combined with the user-scoped key above) means an
+    // account switch can never serve the previous account's cached data.
+    enabled: authResolved && Boolean(userId),
     queryFn: async (): Promise<TripSummary[]> => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db: any = createClient()
 
-      const authResult = await db.auth.getUser()
-      const user: { id: string } | null = authResult?.data?.user ?? null
-      if (!user) throw new Error('Not authenticated')
+      if (!userId) throw new Error('Not authenticated')
+      const user = { id: userId }
 
       // Step 1: Get the trip IDs and roles this user belongs to
       const memberResult = await db
@@ -75,7 +79,7 @@ export function useMyTrips(): UseQueryResult<TripSummary[], Error> {
       // Step 2: Get the trips — include ALL statuses (archived too, for the Archived tab)
       const tripsResult = await db
         .from('trips')
-        .select('id, name, description, event_type, location, start_date, end_date, status, logo_url, invite_code')
+        .select('id, name, description, event_type, location, start_date, end_date, status, logo_url, invite_code, organiser_is_playing')
         .in('id', tripIds)
 
       if (tripsResult.error) {
@@ -94,12 +98,28 @@ export function useMyTrips(): UseQueryResult<TripSummary[], Error> {
       ])
 
       // Build count maps
+      // Player count formula matches the one already established in
+      // TripDetailClient.tsx exactly — role='player' members, plus the
+      // organiser IF (and only if) they're marked as also playing for
+      // this specific trip. The previous version unconditionally
+      // excluded every organiser from the count regardless of whether
+      // they were actually playing, undercounting by 1 for any trip
+      // where the organiser participates — which is the common case,
+      // not an edge case.
+      const organiserPlayingByTrip: Record<string, boolean> = {}
+      for (const t of tripsData) organiserPlayingByTrip[t.id] = t.organiser_is_playing ?? false
+
       const playerCountByTrip: Record<string, number> = {}
       if (membersResult.data) {
         for (const m of membersResult.data) {
           if (m.role === 'player') {
             playerCountByTrip[m.trip_id] = (playerCountByTrip[m.trip_id] ?? 0) + 1
           }
+        }
+      }
+      for (const tripId of tripIds) {
+        if (organiserPlayingByTrip[tripId]) {
+          playerCountByTrip[tripId] = (playerCountByTrip[tripId] ?? 0) + 1
         }
       }
 
@@ -165,7 +185,7 @@ export function useUpdateTripStatus(): UseMutationResult<void, Error, UpdateStat
     },
     onSuccess: (_data: void, variables: UpdateStatusVars): void => {
       void queryClient.invalidateQueries({ queryKey: tripKeys.detail(variables.tripId) })
-      void queryClient.invalidateQueries({ queryKey: tripKeys.lists() })
+      void queryClient.invalidateQueries({ queryKey: tripKeys.all })
     },
   })
 }
@@ -189,7 +209,7 @@ export function useCreateTrip(): UseMutationResult<CreateTripResult, Error, Crea
       return res.json() as Promise<CreateTripResult>
     },
     onSuccess: (): void => {
-      void queryClient.invalidateQueries({ queryKey: tripKeys.lists() })
+      void queryClient.invalidateQueries({ queryKey: tripKeys.all })
     },
   })
 }
@@ -242,7 +262,7 @@ export function useJoinTrip(): UseMutationResult<JoinTripResult, Error, string> 
       return res.json() as Promise<JoinTripResult>
     },
     onSuccess: (): void => {
-      void queryClient.invalidateQueries({ queryKey: tripKeys.lists() })
+      void queryClient.invalidateQueries({ queryKey: tripKeys.all })
     },
   })
 }

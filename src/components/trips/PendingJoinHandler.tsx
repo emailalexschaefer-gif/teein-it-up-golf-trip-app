@@ -44,7 +44,7 @@ export default function PendingJoinHandler() {
       .then(async (res) => {
         const data = await res.json()
         if (res.ok || data.alreadyMember) {
-          void queryClient.invalidateQueries({ queryKey: tripKeys.lists() })
+          void queryClient.invalidateQueries({ queryKey: tripKeys.all })
           router.push(`/trips/${data.tripId}`)
         } else {
           console.error('[PendingJoinHandler] join failed:', data.error)

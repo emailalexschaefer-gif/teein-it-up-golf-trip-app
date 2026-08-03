@@ -31,7 +31,7 @@ export default function JoinByCode() {
     // Already a member is always a success — just navigate to the trip
     if (res.ok || data.alreadyMember) {
       setSuccess(true)
-      void queryClient.invalidateQueries({ queryKey: tripKeys.lists() })
+      void queryClient.invalidateQueries({ queryKey: tripKeys.all })
       router.push(`/trips/${data.tripId}`)
       return
     }

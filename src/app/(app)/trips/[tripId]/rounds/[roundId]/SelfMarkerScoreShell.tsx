@@ -230,6 +230,7 @@ export default function SelfMarkerScoreShell({
   const [showReconciliation, setShowReconciliation] = useState(false)
   const [submittingFinal, setSubmittingFinal] = useState(false)
   const [submitFinalError, setSubmitFinalError] = useState('')
+  const [showConfirmModal, setShowConfirmModal] = useState(false)
 
   async function submitFinalScores() {
     setSubmittingFinal(true)
@@ -247,6 +248,7 @@ export default function SelfMarkerScoreShell({
       // reflect the locked state.
       void queryClient.invalidateQueries({ queryKey: ['tournament', tripId, round.id] })
       void queryClient.invalidateQueries({ queryKey: ['leaderboard', tripId, round.id] })
+      setShowConfirmModal(false)
     } catch (err) {
       setSubmitFinalError(err instanceof Error ? err.message : "Couldn't finalise your scores. Please try again.")
     } finally {
@@ -700,6 +702,8 @@ export default function SelfMarkerScoreShell({
       not_started:  { icon: '⚪', color: '#d1d5db' },
     }
 
+    const grandTotal = outTotal + inTotal
+
     return (
       <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '12px 16px 90px' }}>
         <div style={{ textAlign: 'center', marginBottom: 2 }}>
@@ -708,55 +712,115 @@ export default function SelfMarkerScoreShell({
           <div style={{ fontFamily: 'var(--font-body)', color: '#6b7280', fontSize: 11, marginTop: 1 }}>
             {rows.length - mismatches.length - pending.length} holes matched · {mismatches.length} need review{pending.length > 0 ? ` · ${pending.length} waiting` : ''}
           </div>
+          <div style={{ fontFamily: 'var(--font-display)', color: '#a1791f', fontSize: 20, fontWeight: 800, marginTop: 6 }}>
+            {grandTotal} pts
+          </div>
         </div>
 
-        {allMatched && (
-          <div style={{ textAlign: 'center', color: '#16a34a', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, margin: '6px 0 10px' }}>
-            ✓ Every hole matched — nothing to review
+        {/* Status block — three distinct states per the exact spec:
+            mismatches remain, ready to confirm, or already locked. */}
+        {!allMatched && !isLocked && (
+          <div style={{ background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 12, padding: 14, marginTop: 10, marginBottom: 16 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#dc2626', marginBottom: 6 }}>
+              Scores still need review.
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7f1d1d', marginBottom: 10 }}>
+              Hole{mismatches.length === 1 ? '' : 's'}: {mismatches.map(m => m.hole.hole_number).join(', ')}
+            </div>
+            <button
+              onClick={() => {
+                const firstMismatchHole = mismatches[0]?.hole.hole_number
+                if (firstMismatchHole) {
+                  const idx = holes.findIndex(h => h.hole_number === firstMismatchHole)
+                  if (idx >= 0) setHoleIdx(idx)
+                }
+                setShowReconciliation(false)
+              }}
+              style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: '#dc2626', color: '#fff', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
+            >
+              Review Scoring Errors
+            </button>
           </div>
         )}
 
-        {/* Confirm Final Scores — locks the player's own scorecard via
-            the existing status/submitted_at columns (migration 004),
-            reusing them rather than adding a new flag. Deliberately does
-            NOT build organiser finalisation or a winners announcement
-            here — those are explicitly left for later, this only adds
-            the player-side lock they'd build on top of. */}
         {allMatched && !isLocked && (
-          <div style={{ background: '#ffffff', border: '1.5px solid #14532d', borderRadius: 12, padding: 14, marginBottom: 16, textAlign: 'center' }}>
+          <div style={{ background: '#ffffff', border: '1.5px solid #14532d', borderRadius: 12, padding: 14, marginTop: 10, marginBottom: 16, textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#14532d', marginBottom: 4 }}>
+              Your scorecard is ready.
+            </div>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151', marginBottom: 10, lineHeight: 1.5 }}>
-              Once you confirm, your scores for this round are final and can&apos;t be edited.
+              All holes are complete and matched. Review your scorecard carefully before confirming.
             </div>
             {submitFinalError && <p style={{ color: '#dc2626', fontSize: 11.5, marginBottom: 8, fontFamily: 'var(--font-body)' }}>{submitFinalError}</p>}
             <button
-              onClick={submitFinalScores}
-              disabled={submittingFinal}
+              onClick={() => setShowConfirmModal(true)}
               style={{
-                width: '100%', padding: 12, borderRadius: 10, border: 'none',
-                background: submittingFinal ? '#9ca3af' : 'linear-gradient(135deg,#2d7a52,#16a34a)',
-                color: '#fff', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14,
-                cursor: submittingFinal ? 'default' : 'pointer',
+                width: '100%', padding: 13, borderRadius: 10, border: 'none', marginBottom: 8,
+                background: 'linear-gradient(135deg,#2d7a52,#16a34a)',
+                color: '#fff', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: 'pointer',
               }}
             >
-              {submittingFinal ? 'Finalising…' : '✓ Confirm Final Scores'}
+              ✓ Confirm Final Scores
+            </button>
+            <button
+              onClick={() => setShowReconciliation(false)}
+              style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #d1d5db', background: '#ffffff', color: '#6b7280', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+            >
+              Back to Scoring
             </button>
           </div>
         )}
 
         {isLocked && (
-          <div style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 12, padding: 12, marginBottom: 16, textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#16a34a' }}>
-              ✓ Scores Finalised
+          <div style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 12, padding: 14, marginTop: 10, marginBottom: 16, textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#16a34a', marginBottom: 4 }}>
+              Final Scores Confirmed
             </div>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#6b7280', marginTop: 2 }}>
-              Your scorecard is locked. The organiser will publish final results once every player has finished.
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280', lineHeight: 1.5 }}>
+              Your scorecard is locked. Please wait while the organiser finalises the results and announces the winners.
+            </div>
+          </div>
+        )}
+
+        {/* Confirmation modal — a deliberate second step before locking,
+            per the explicit requirement not to lock scores from a single
+            tap. */}
+        {showConfirmModal && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(15,45,28,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+            <div style={{ background: '#ffffff', borderRadius: 14, padding: 20, maxWidth: 340, width: '100%' }}>
+              <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 16, fontWeight: 800, marginBottom: 8 }}>
+                Confirm final scores?
+              </div>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151', lineHeight: 1.5, marginBottom: 16 }}>
+                Once confirmed, your scorecard will be locked. Any later correction will require organiser approval.
+              </div>
+              {submitFinalError && <p style={{ color: '#dc2626', fontSize: 11.5, marginBottom: 10, fontFamily: 'var(--font-body)' }}>{submitFinalError}</p>}
+              <button
+                onClick={submitFinalScores}
+                disabled={submittingFinal}
+                style={{
+                  width: '100%', padding: 12, borderRadius: 10, border: 'none', marginBottom: 8,
+                  background: submittingFinal ? '#9ca3af' : 'linear-gradient(135deg,#2d7a52,#16a34a)',
+                  color: '#fff', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14,
+                  cursor: submittingFinal ? 'default' : 'pointer',
+                }}
+              >
+                {submittingFinal ? 'Finalising…' : 'Confirm & Lock Scores'}
+              </button>
+              <button
+                onClick={() => { setShowConfirmModal(false); setSubmitFinalError('') }}
+                disabled={submittingFinal}
+                style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #d1d5db', background: '#ffffff', color: '#6b7280', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+              >
+                Go Back
+              </button>
             </div>
           </div>
         )}
 
         {/* Full scorecard table — Hole / Par / Gross / Stableford / Status,
             with OUT/IN/TOTAL subtotals. Tap any row to jump to that hole. */}
-        <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden', marginTop: allMatched ? 0 : 16, marginBottom: 16 }}>
+        <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden', marginBottom: 16 }}>
           <div style={{ display: 'flex', padding: '7px 14px', background: '#f7f6f1', borderBottom: '1px solid #eceae3' }}>
             <span style={{ width: 56, fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af' }}>HOLE</span>
             <span style={{ width: 40, fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textAlign: 'center' }}>PAR</span>
@@ -960,7 +1024,7 @@ export default function SelfMarkerScoreShell({
           flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
           overflowY: 'auto', padding: '14px 16px 90px', background: '#faf9f6',
         } : {
-          flex: 1, display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr) auto',
+          flex: 1, display: 'grid', gridTemplateRows: 'auto auto minmax(0, 1fr) auto',
           minHeight: 0, overflow: 'hidden',
           padding: '6px 16px calc(6px + env(safe-area-inset-bottom, 0px))',
           background: '#faf9f6', rowGap: 4,
@@ -1095,6 +1159,25 @@ export default function SelfMarkerScoreShell({
           )}
         </div>
 
+        {/* Shared hole header — the actual Package 5 redesign. Previously
+            HOLE #/Par/Index were repeated identically on both score cards
+            even though they refer to the exact same hole; moved here,
+            once, outside both cards, and made visually dominant (large
+            hole number) since it's now the only place this information
+            lives. Collapsed-mode only, matching the toggle it sits next
+            to — the expanded scorecard already shows hole-by-hole detail
+            in its own table, so this doesn't duplicate there. */}
+        {!scorecardExpanded && (
+          <div style={{ gridRow: '2', textAlign: 'center', padding: '2px 0 4px' }}>
+            <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 26, fontWeight: 800, lineHeight: 1 }}>
+              HOLE {holeNum}
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 11.5, marginTop: 2 }}>
+              Par {par} · Index {si}
+            </div>
+          </div>
+        )}
+
         {/* Scoring Anchor — the permanent resting point for every hole
             transition (expanded mode only; collapsed mode disables the
             anchor-scroll effect entirely, per the explicit instruction,
@@ -1103,7 +1186,7 @@ export default function SelfMarkerScoreShell({
             component's behavior to change. */}
         <div
           ref={scoringAnchorRef}
-          style={scorecardExpanded ? undefined : { gridRow: '2', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
+          style={scorecardExpanded ? undefined : { gridRow: '3', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
         >
         {/* ── Card 1: YOUR SCORE ─────────────────────────────────────────── */}
         <ScoreCard
@@ -1124,14 +1207,14 @@ export default function SelfMarkerScoreShell({
         )}
         </div>
 
-        <div style={scorecardExpanded ? undefined : { gridRow: '3' }}>
+        <div style={scorecardExpanded ? undefined : { gridRow: '4' }}>
         <button
           onClick={confirmScore}
           disabled={!canConfirm || flash}
           style={{
-            width: '100%', padding: 11, marginTop: 4,
+            width: '100%', padding: 13, marginTop: 4,
             background: flash ? '#16a34a' : canConfirm ? 'linear-gradient(135deg,#2d7a52,#16a34a)' : '#e5e7eb',
-            color: canConfirm || flash ? '#fff' : '#9ca3af', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-body)',
+            color: canConfirm || flash ? '#fff' : '#9ca3af', border: 'none', borderRadius: 10, fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-body)',
             cursor: canConfirm ? 'pointer' : 'not-allowed',
           }}
         >
@@ -1193,10 +1276,10 @@ function ScoreCard({
 }) {
   return (
     <div style={{ borderRadius: 12, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 3px 14px rgba(0,0,0,0.08)', marginBottom: 4, overflow: 'hidden' }}>
-      <div className="scoring-card-header" style={{ background: '#f7f6f1', padding: '3px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #eceae3' }}>
+      <div className="scoring-card-header" style={{ background: '#f7f6f1', padding: '4px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #eceae3' }}>
         <div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, fontWeight: 700, color: '#a1791f', letterSpacing: 0.7 }}>{title}</div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 800, color: '#14532d', lineHeight: 1.1 }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 16, fontWeight: 800, color: '#14532d', lineHeight: 1.1 }}>
             {name}
           </div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 500, color: '#b0b6be' }}>
@@ -1204,27 +1287,25 @@ function ScoreCard({
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 800, color: '#14532d', lineHeight: 1 }}>H{holeNum}</div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: '#9ca3af', marginTop: 1 }}>Par {par} · Index {si}</div>
           {strokes > 0 && (
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8, fontWeight: 600, color: '#a1791f', marginTop: 1 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 600, color: '#a1791f' }}>
               Receives {strokes} stroke{strokes === 1 ? '' : 's'}
             </div>
           )}
           {hole && <HoleBadges hole={hole} />}
           {status && (status === 'matched' || status === 'mismatch') && (
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, fontWeight: 700, color: statusColor(status), marginTop: 1 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: statusColor(status), marginTop: 2 }}>
               {COMPARISON_LABEL[status]}
             </div>
           )}
         </div>
       </div>
 
-      <div className="scoring-card-body" style={{ padding: '7px 10px' }}>
+      <div className="scoring-card-body" style={{ padding: '8px 10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <button onClick={() => onPick(-1)} disabled={isLockedForSide} style={{ width: 40, height: 40, borderRadius: 10, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 18, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>−</button>
+          <button onClick={() => onPick(-1)} disabled={isLockedForSide} style={{ width: 42, height: 42, borderRadius: 10, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 19, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>−</button>
           <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#d1d5db' : '#14532d', fontSize: 34, fontWeight: 800, lineHeight: 1 }}>
+            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#d1d5db' : '#14532d', fontSize: 36, fontWeight: 800, lineHeight: 1 }}>
               {pickedUp ? 'P' : gross ?? '0'}
             </div>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#6b7280', marginTop: 2 }}>
@@ -1255,22 +1336,22 @@ function ScoreCard({
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: 5, marginTop: 4 }}>
-          <button onClick={onPar} disabled={isLockedForSide} style={{ flex: 1, padding: '4px 3px', borderRadius: 7, background: gross === par && !pickedUp ? '#dcfce7' : '#eefbf2', border: gross === par && !pickedUp ? '1px solid #86efac' : '1px solid #dcf1e2', textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 7.5, color: gross === par && !pickedUp ? '#16a34a' : '#5a9c72' }}>PAR</div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 800, color: '#16a34a' }}>{par}</div>
+        <div style={{ display: 'flex', gap: 5, marginTop: 5 }}>
+          <button onClick={onPar} disabled={isLockedForSide} style={{ flex: 1, padding: '5px 3px', borderRadius: 8, background: gross === par && !pickedUp ? '#dcfce7' : '#eefbf2', border: gross === par && !pickedUp ? '1px solid #86efac' : '1px solid #dcf1e2', textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8, color: gross === par && !pickedUp ? '#16a34a' : '#5a9c72' }}>PAR</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#16a34a' }}>{par}</div>
           </button>
-          <div style={{ flex: 1, textAlign: 'center', padding: '4px 3px', borderRadius: 7, background: '#f7f6f1', border: '1px solid #e5e2d9' }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 7.5, color: '#9ca3af' }}>SHOTS</div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 12.5, color: '#14532d', fontWeight: 700 }}>{strokes}</div>
+          <div style={{ flex: 1, textAlign: 'center', padding: '5px 3px', borderRadius: 8, background: '#f7f6f1', border: '1px solid #e5e2d9' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8, color: '#9ca3af' }}>SHOTS</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, color: '#14532d', fontWeight: 700 }}>{strokes}</div>
           </div>
           <button
             onClick={onOpenSummary}
             disabled={!onOpenSummary}
-            style={{ flex: 1, textAlign: 'center', padding: '4px 3px', borderRadius: 7, background: '#fdf3d9', border: '1px solid #e8c96a', cursor: onOpenSummary ? 'pointer' : 'default' }}
+            style={{ flex: 1, textAlign: 'center', padding: '5px 3px', borderRadius: 8, background: '#fdf3d9', border: '1px solid #e8c96a', cursor: onOpenSummary ? 'pointer' : 'default' }}
           >
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 7.5, color: '#a1791f' }}>TOTAL</div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 800, color: '#a1791f' }}>{runningTotal}</div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8, color: '#a1791f' }}>TOTAL</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#a1791f' }}>{runningTotal}</div>
           </button>
         </div>
       </div>

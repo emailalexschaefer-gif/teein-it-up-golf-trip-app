@@ -129,7 +129,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       // rather than what it actually was: a failed lookup. That's the
       // exact bug behind messages showing "— Organiser" regardless of
       // who really sent them.
-      sender: { full_name: nameBySenderId.get(m.sender_user_id) ?? 'Member', role: roleBySenderId.get(m.sender_user_id) ?? null },
+      sender: { full_name: nameBySenderId.get(m.sender_user_id) ?? 'Unknown participant', role: roleBySenderId.get(m.sender_user_id) ?? 'member' },
       recipient_group: m.recipient_group_id ? { name: nameByGroupId.get(m.recipient_group_id) ?? 'Group' } : null,
       momentImageUrl: moment ? signedUrlById.get(m.moment_id!) ?? null : null,
       momentHoleNumber: moment?.hole_number ?? null,
@@ -180,16 +180,17 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   if (isChat) {
     // Ordinary participant chat — differentiated from organiser
     // announcements/notifications per the explicit message-model
-    // requirement. Any confirmed trip member may send, but only to their
-    // own group (server-side check here, in addition to RLS, so a wrong
-    // attempt gets a clear reason rather than a bare denial). No "event-
-    // wide" option for participants yet — there's no per-trip setting to
-    // enable that, so only 'group' is accepted from chat sends.
+    // requirement. Any confirmed trip member may send either to their
+    // own group, or as a Public Event Post visible to everyone (social,
+    // explicitly not an official announcement — that distinction is
+    // message_type, not recipient_type, so both an organiser and a
+    // player can post something visible to "everyone," but only the
+    // organiser's is 'announcement').
     if (!membership) return NextResponse.json({ error: 'You are not a member of this event.' }, { status: 403 })
-    if (recipientType !== 'group') {
-      return NextResponse.json({ error: 'Chat messages can only be sent to your group right now.' }, { status: 400 })
+    if (recipientType !== 'group' && recipientType !== 'all') {
+      return NextResponse.json({ error: 'Chat messages can be sent to your group or to everyone.' }, { status: 400 })
     }
-    if (!membership.group_id || membership.group_id !== recipientGroupId) {
+    if (recipientType === 'group' && (!membership.group_id || membership.group_id !== recipientGroupId)) {
       return NextResponse.json({ error: 'You can only message your own group.' }, { status: 403 })
     }
   } else {

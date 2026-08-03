@@ -92,7 +92,10 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   if (authError || !user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
 
   const body = await req.json().catch(() => ({}))
-  if ((body as { action?: string }).action !== 'submit') {
+  const action = (body as { action?: string }).action
+
+  if (action === 'unlock') return handleUnlock(req, user.id, tripId, roundId, body)
+  if (action !== 'submit') {
     return NextResponse.json({ error: 'Unsupported action.' }, { status: 400 })
   }
 
@@ -147,5 +150,56 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     return NextResponse.json({ error: "Couldn't finalise your scores. Please try again." }, { status: 500 })
   }
 
+  return NextResponse.json({ ok: true })
+}
+
+/**
+ * Organiser override — unlocks a confirmed scorecard so its player can
+ * correct and re-submit. Requires an explicit, non-empty reason (this is
+ * a deliberate, audited action, not a casual toggle) and records who
+ * unlocked it and when, on the same scorecards row rather than a
+ * separate audit table (migration 032). Resets the player's confirmation
+ * state (status back to 'active', submitted_at cleared) so re-locking
+ * requires the player to genuinely re-confirm, not silently stay
+ * "confirmed" against corrected scores.
+ */
+async function handleUnlock(_req: NextRequest, userId: string, tripId: string, roundId: string, body: unknown) {
+  const { playerId, reason } = body as { playerId?: string; reason?: string }
+  if (!playerId) return NextResponse.json({ error: 'Missing player.' }, { status: 400 })
+  if (!reason || !reason.trim()) {
+    return NextResponse.json({ error: 'A reason is required to unlock a confirmed scorecard.' }, { status: 400 })
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin: any = createAdminClient()
+
+  const memberCheck = await admin.from('trip_members').select('role').eq('trip_id', tripId).eq('profile_id', userId).maybeSingle()
+  if (memberCheck.data?.role !== 'organiser') {
+    return NextResponse.json({ error: 'Only the organiser can unlock a confirmed scorecard.' }, { status: 403 })
+  }
+
+  const scorecardRes = await admin.from('scorecards').select('id, status').eq('round_id', roundId).eq('player_id', playerId).maybeSingle()
+  if (!scorecardRes.data) return NextResponse.json({ error: 'Scorecard not found.' }, { status: 404 })
+  if (scorecardRes.data.status !== 'completed') {
+    return NextResponse.json({ error: 'This scorecard is not currently locked.' }, { status: 422 })
+  }
+
+  const { error: unlockErr } = await admin
+    .from('scorecards')
+    .update({
+      status: 'active',
+      submitted_at: null,
+      unlock_reason: reason.trim(),
+      unlocked_at: new Date().toISOString(),
+      unlocked_by: userId,
+    })
+    .eq('id', scorecardRes.data.id)
+
+  if (unlockErr) {
+    console.error('[POST scorecards unlock]', unlockErr)
+    return NextResponse.json({ error: "Couldn't unlock this scorecard. Please try again." }, { status: 500 })
+  }
+
+  console.log('[scorecards unlock]', { tripId, roundId, playerId, unlockedBy: userId, reason: reason.trim() })
   return NextResponse.json({ ok: true })
 }
