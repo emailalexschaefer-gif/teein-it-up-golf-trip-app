@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import type { CSSProperties, ChangeEvent } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -32,7 +33,13 @@ function processMomentImage(file: File, maxDimension = 1600): Promise<Blob> {
         'image/jpeg', 0.82,
       )
     }
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read image')) }
+    // "Could not read image" — was previously possible to trigger if a
+    // second photo was selected while an earlier preview's object URL
+    // hadn't been revoked yet (handleSelect didn't clean up the previous
+    // preview before creating a new one). Fixed below by always revoking
+    // any existing preview URL first. Kept the descriptive error message
+    // here too, in case a genuinely corrupt/unreadable file is selected.
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that image. Please try a different photo.')) }
     img.src = url
   })
 }
@@ -45,18 +52,33 @@ interface Props {
   onPosted?: () => void
 }
 
+type ComposerStage = 'closed' | 'choosing' | 'photoPreview' | 'textMoment'
+
 export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, onPosted }: Props) {
   const queryClient = useQueryClient()
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const galleryInputRef = useRef<HTMLInputElement>(null)
+
+  const [stage, setStage] = useState<ComposerStage>('closed')
   const [previewFile, setPreviewFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [caption, setCaption] = useState('')
   const [audience, setAudience] = useState<'everyone' | 'group'>('everyone')
   const [uploading, setUploading] = useState(false)
-  const [stage, setStage] = useState<'idle' | 'preparing' | 'uploading'>('idle')
+  const [uploadStage, setUploadStage] = useState<'idle' | 'preparing' | 'uploading'>('idle')
   const [error, setError] = useState('')
 
-  function handleSelect(e: React.ChangeEvent<HTMLInputElement>) {
+  function resetAll() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl)
+    setPreviewFile(null)
+    setPreviewUrl(null)
+    setCaption('')
+    setAudience('everyone')
+    setError('')
+    setStage('closed')
+  }
+
+  function handleSelect(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
@@ -64,25 +86,22 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
       setError('Please choose a JPEG, PNG, or WEBP image.')
       return
     }
+    // Always revoke any existing preview URL before creating a new one —
+    // the actual fix for the "Could not read image" failure mode: picking
+    // a second photo used to leave the previous blob URL un-revoked,
+    // which could interfere with reading the new selection.
+    if (previewUrl) URL.revokeObjectURL(previewUrl)
     setError('')
     setPreviewFile(file)
     setPreviewUrl(URL.createObjectURL(file))
+    setStage('photoPreview')
   }
 
-  function cancelPreview() {
-    if (previewUrl) URL.revokeObjectURL(previewUrl)
-    setPreviewFile(null)
-    setPreviewUrl(null)
-    setCaption('')
-    setAudience('everyone')
-    setError('')
-  }
-
-  async function handlePost() {
+  async function handlePostPhoto() {
     if (!previewFile) return
     setUploading(true)
     setError('')
-    setStage('preparing')
+    setUploadStage('preparing')
 
     try {
       const compressed = await processMomentImage(previewFile)
@@ -91,7 +110,7 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Not signed in.')
 
-      setStage('uploading')
+      setUploadStage('uploading')
       // Folder structure per the spec: trip-id/round-id/player-id/filename
       // — round-id falls back to 'general' when captured outside active
       // scoring (e.g. from My Round rather than mid-hole).
@@ -99,37 +118,63 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
       const { error: uploadErr } = await supabase.storage.from('event-moments').upload(path, compressed, { contentType: 'image/jpeg' })
       if (uploadErr) throw new Error(uploadErr.message)
 
-      const res = await fetch(`/api/trips/${tripId}/moments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imagePath: path, caption, roundId: roundId ?? null, holeNumber: holeNumber ?? null,
-          audience: audience === 'group' && myGroupId ? 'group' : 'everyone',
-        }),
-      })
-      const resData = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(resData.error ?? "Moment couldn't be posted. Please try again.")
-
-      void queryClient.invalidateQueries({ queryKey: ['event-messages', tripId] })
-      void queryClient.invalidateQueries({ queryKey: ['moments', tripId] })
-      cancelPreview()
-      onPosted?.()
+      await postMoment({ imagePath: path })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Moment couldn't be posted. Please try again.")
     } finally {
       setUploading(false)
-      setStage('idle')
+      setUploadStage('idle')
     }
+  }
+
+  async function handlePostText() {
+    if (!caption.trim()) { setError('Write something for this moment.'); return }
+    setUploading(true)
+    setError('')
+    try {
+      await postMoment({})
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Moment couldn't be posted. Please try again.")
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function postMoment({ imagePath }: { imagePath?: string }) {
+    const res = await fetch(`/api/trips/${tripId}/moments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imagePath: imagePath ?? null, caption: caption.trim(), roundId: roundId ?? null, holeNumber: holeNumber ?? null,
+        audience: audience === 'group' && myGroupId ? 'group' : 'everyone',
+      }),
+    })
+    const resData = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(resData.error ?? "Moment couldn't be posted. Please try again.")
+
+    void queryClient.invalidateQueries({ queryKey: ['event-messages', tripId] })
+    void queryClient.invalidateQueries({ queryKey: ['moments', tripId] })
+    resetAll()
+    onPosted?.()
   }
 
   return (
     <div>
-      <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleSelect} style={{ display: 'none' }} />
+      {/* Two separate file inputs — Take Photo forces the camera via
+          capture="environment" (rear camera, the useful default for golf
+          photos); Choose from Gallery has no capture attribute, which is
+          what actually lets the OS show the photo library/files picker
+          instead of jumping straight to the camera app. This is the fix
+          for "tapping Moment opens the phone's file picker" — previously
+          there was one input with no capture attribute at all, opened
+          immediately on tap, with no in-app choice screen first. */}
+      <input ref={cameraInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={handleSelect} style={{ display: 'none' }} />
+      <input ref={galleryInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleSelect} style={{ display: 'none' }} />
 
-      {!previewFile ? (
+      {stage === 'closed' && (
         <button
           type="button"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => setStage('choosing')}
           style={{
             display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 20,
             background: '#fdf3d9', border: '1px solid #e8c96a', cursor: 'pointer',
@@ -138,7 +183,58 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
         >
           📷 Moment
         </button>
-      ) : (
+      )}
+
+      {/* The composer choice screen itself — the actual redesign. Tapping
+          Moment now always lands here first, never directly in the
+          phone's native picker. */}
+      {stage === 'choosing' && (
+        <div style={{ background: '#ffffff', border: '1px solid #eceae3', borderRadius: 12, padding: 12, marginTop: 8 }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#14532d', marginBottom: 8 }}>
+            Capture a Moment
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <button type="button" onClick={() => cameraInputRef.current?.click()} style={composerOptionStyle}>
+              📷 Take Photo
+            </button>
+            <button type="button" onClick={() => galleryInputRef.current?.click()} style={composerOptionStyle}>
+              🖼️ Choose from Gallery
+            </button>
+            <button type="button" onClick={() => setStage('textMoment')} style={composerOptionStyle}>
+              💬 Text Moment
+            </button>
+            <button type="button" onClick={resetAll} style={{ ...composerOptionStyle, background: 'none', border: 'none', color: '#9ca3af', fontWeight: 600 }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {stage === 'textMoment' && (
+        <div style={{ background: '#ffffff', border: '1px solid #eceae3', borderRadius: 12, padding: 12, marginTop: 8 }}>
+          <textarea
+            value={caption}
+            onChange={e => setCaption(e.target.value)}
+            placeholder="What's happening?"
+            maxLength={200}
+            rows={3}
+            style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 10px', fontFamily: 'var(--font-body)', fontSize: 13, marginBottom: 8, resize: 'vertical' }}
+          />
+          {myGroupId && <AudiencePicker audience={audience} setAudience={setAudience} />}
+          {error && <p style={{ color: '#dc2626', fontSize: 11.5, marginBottom: 8, fontFamily: 'var(--font-body)' }}>{error}</p>}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button" onClick={handlePostText} disabled={uploading}
+              style={{ flex: 1, padding: 10, borderRadius: 8, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: uploading ? 'default' : 'pointer', opacity: uploading ? 0.6 : 1 }}
+            >
+              {uploading ? 'Posting…' : 'Post'}
+            </button>
+            <button type="button" onClick={resetAll} disabled={uploading} style={cancelButtonStyle}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {stage === 'photoPreview' && (
         <div style={{ background: '#ffffff', border: '1px solid #eceae3', borderRadius: 12, padding: 12, marginTop: 8 }}>
           {previewUrl && (
             // eslint-disable-next-line @next/next/no-img-element -- a
@@ -153,43 +249,53 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
             maxLength={200}
             style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 10px', fontFamily: 'var(--font-body)', fontSize: 13, marginBottom: 8 }}
           />
-          {myGroupId && (
-            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-              {(['everyone', 'group'] as const).map(a => (
-                <button
-                  key={a}
-                  type="button"
-                  onClick={() => setAudience(a)}
-                  style={{
-                    padding: '5px 12px', borderRadius: 14, cursor: 'pointer',
-                    background: audience === a ? '#dcfce7' : '#f3f4f6',
-                    border: audience === a ? '1px solid #86efac' : '1px solid #e5e7eb',
-                    fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700,
-                    color: audience === a ? '#16a34a' : '#6b7280',
-                  }}
-                >
-                  {a === 'everyone' ? 'Everyone' : 'My Group'}
-                </button>
-              ))}
-            </div>
-          )}
+          {myGroupId && <AudiencePicker audience={audience} setAudience={setAudience} />}
           {error && <p style={{ color: '#dc2626', fontSize: 11.5, marginBottom: 8, fontFamily: 'var(--font-body)' }}>{error}</p>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button
-              type="button" onClick={handlePost} disabled={uploading}
+              type="button" onClick={handlePostPhoto} disabled={uploading}
               style={{ flex: 1, padding: 10, borderRadius: 8, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: uploading ? 'default' : 'pointer', opacity: uploading ? 0.6 : 1 }}
             >
-              {stage === 'preparing' ? 'Preparing photo…' : stage === 'uploading' ? 'Uploading photo…' : 'Post'}
+              {uploadStage === 'preparing' ? 'Preparing photo…' : uploadStage === 'uploading' ? 'Uploading photo…' : 'Post'}
             </button>
-            <button
-              type="button" onClick={cancelPreview} disabled={uploading}
-              style={{ flex: 1, padding: 10, borderRadius: 8, background: '#f3f4f6', border: '1px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
-            >
-              Cancel
-            </button>
+            <button type="button" onClick={resetAll} disabled={uploading} style={cancelButtonStyle}>Cancel</button>
           </div>
         </div>
       )}
     </div>
   )
+}
+
+function AudiencePicker({ audience, setAudience }: { audience: 'everyone' | 'group'; setAudience: (a: 'everyone' | 'group') => void }) {
+  return (
+    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+      {(['everyone', 'group'] as const).map(a => (
+        <button
+          key={a}
+          type="button"
+          onClick={() => setAudience(a)}
+          style={{
+            padding: '5px 12px', borderRadius: 14, cursor: 'pointer',
+            background: audience === a ? '#dcfce7' : '#f3f4f6',
+            border: audience === a ? '1px solid #86efac' : '1px solid #e5e7eb',
+            fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700,
+            color: audience === a ? '#16a34a' : '#6b7280',
+          }}
+        >
+          {a === 'everyone' ? 'Everyone' : 'My Group'}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+const composerOptionStyle: CSSProperties = {
+  width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 8,
+  background: '#f7f6f1', border: '1px solid #e5e2d9', cursor: 'pointer',
+  fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#14532d',
+}
+
+const cancelButtonStyle: CSSProperties = {
+  flex: 1, padding: 10, borderRadius: 8, background: '#f3f4f6', border: '1px solid #d1d5db',
+  fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer',
 }

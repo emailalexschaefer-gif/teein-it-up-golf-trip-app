@@ -61,6 +61,8 @@ interface ScorecardFull {
   id: string
   player_id: string
   playing_handicap: number
+  status: string
+  submitted_at: string | null
   profiles: { id: string; full_name: string; avatar_url: string | null } | null
   score_entries: ScoreEntryRow[]
 }
@@ -226,6 +228,31 @@ export default function SelfMarkerScoreShell({
   }, [holeIdx]) // eslint-disable-line react-hooks/exhaustive-deps -- scorecardExpanded intentionally not a dep: checked as a runtime guard only, not a re-trigger reason (the toggle button's own onClick already handles the expand-nudge separately)
   const [resumed, setResumed] = useState(false)
   const [showReconciliation, setShowReconciliation] = useState(false)
+  const [submittingFinal, setSubmittingFinal] = useState(false)
+  const [submitFinalError, setSubmitFinalError] = useState('')
+
+  async function submitFinalScores() {
+    setSubmittingFinal(true)
+    setSubmitFinalError('')
+    try {
+      const res = await fetch(`/api/trips/${tripId}/rounds/${round.id}/scorecards`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'submit' }),
+      })
+      const resData = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(resData.error ?? "Couldn't finalise your scores. Please try again.")
+      // Immediate refresh, matching the same pattern already used after a
+      // normal score confirmation — don't wait for the next poll to
+      // reflect the locked state.
+      void queryClient.invalidateQueries({ queryKey: ['tournament', tripId, round.id] })
+      void queryClient.invalidateQueries({ queryKey: ['leaderboard', tripId, round.id] })
+    } catch (err) {
+      setSubmitFinalError(err instanceof Error ? err.message : "Couldn't finalise your scores. Please try again.")
+    } finally {
+      setSubmittingFinal(false)
+    }
+  }
 
   // Four independent capture maps: my own self entries, the marker entries
   // made ON my card (by whoever marks me — read-only here), my partner's own
@@ -268,6 +295,11 @@ export default function SelfMarkerScoreShell({
   // Locking the page itself, the same pattern modals use, removes that
   // failure mode entirely rather than depending on a precise measurement.
   useEffect(() => {
+    // Round Summary is always a normal scrollable page — never lock the
+    // body while viewing it, regardless of the compact strip's collapsed/
+    // expanded state (that state belongs to the main scoring view, not
+    // this screen).
+    if (showReconciliation) return
     if (scorecardExpanded) return
     // Respect the same fallback threshold as the CSS media query above —
     // locking the body unconditionally would defeat the fallback's whole
@@ -282,7 +314,7 @@ export default function SelfMarkerScoreShell({
       document.body.style.overflow = prevBodyOverflow
       document.documentElement.style.overflow = prevHtmlOverflow
     }
-  }, [scorecardExpanded])
+  }, [scorecardExpanded, showReconciliation])
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const hasHydratedRef = useRef(false)
   const queryClient = useQueryClient()
@@ -340,6 +372,11 @@ export default function SelfMarkerScoreShell({
   const currentMy = liveData.myScorecard
   const currentMarked = liveData.markedScorecard
   const currentMarkedByName = liveData.markedByName
+  // Scores are locked once the player's own scorecard has been submitted
+  // — reuses the existing scorecards.status/submitted_at columns
+  // (migration 004), not a new flag.
+  const isLocked = currentMy?.status === 'completed'
+  const isPartnerLocked = currentMarked?.status === 'completed'
 
   // ── Load holes ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -470,23 +507,25 @@ export default function SelfMarkerScoreShell({
 
   function pick(which: 'mine' | 'partner', delta: number) {
     if (which === 'mine') {
+      if (isLocked) return
       setDraftMyGross(g => Math.max(0, Math.min(15, (g ?? 0) + delta)) || null)
       setDraftMyPickedUp(false)
     } else {
+      if (isPartnerLocked) return
       setDraftPartnerGross(g => Math.max(0, Math.min(15, (g ?? 0) + delta)) || null)
       setDraftPartnerPickedUp(false)
     }
   }
   function pickPar(which: 'mine' | 'partner') {
-    if (which === 'mine') { setDraftMyGross(par); setDraftMyPickedUp(false) }
-    else { setDraftPartnerGross(par); setDraftPartnerPickedUp(false) }
+    if (which === 'mine') { if (isLocked) return; setDraftMyGross(par); setDraftMyPickedUp(false) }
+    else { if (isPartnerLocked) return; setDraftPartnerGross(par); setDraftPartnerPickedUp(false) }
   }
   function togglePickUp(which: 'mine' | 'partner') {
-    if (which === 'mine') { setDraftMyPickedUp(p => !p); setDraftMyGross(null) }
-    else { setDraftPartnerGross(null); setDraftPartnerPickedUp(p => !p) }
+    if (which === 'mine') { if (isLocked) return; setDraftMyPickedUp(p => !p); setDraftMyGross(null) }
+    else { if (isPartnerLocked) return; setDraftPartnerGross(null); setDraftPartnerPickedUp(p => !p) }
   }
 
-  const canConfirm = (draftMyGross !== null || draftMyPickedUp)
+  const canConfirm = !isLocked && (draftMyGross !== null || draftMyPickedUp)
     && (!requiresMarker || !currentMarked || draftPartnerGross !== null || draftPartnerPickedUp)
 
   async function confirmScore() {
@@ -674,6 +713,44 @@ export default function SelfMarkerScoreShell({
         {allMatched && (
           <div style={{ textAlign: 'center', color: '#16a34a', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, margin: '6px 0 10px' }}>
             ✓ Every hole matched — nothing to review
+          </div>
+        )}
+
+        {/* Confirm Final Scores — locks the player's own scorecard via
+            the existing status/submitted_at columns (migration 004),
+            reusing them rather than adding a new flag. Deliberately does
+            NOT build organiser finalisation or a winners announcement
+            here — those are explicitly left for later, this only adds
+            the player-side lock they'd build on top of. */}
+        {allMatched && !isLocked && (
+          <div style={{ background: '#ffffff', border: '1.5px solid #14532d', borderRadius: 12, padding: 14, marginBottom: 16, textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151', marginBottom: 10, lineHeight: 1.5 }}>
+              Once you confirm, your scores for this round are final and can&apos;t be edited.
+            </div>
+            {submitFinalError && <p style={{ color: '#dc2626', fontSize: 11.5, marginBottom: 8, fontFamily: 'var(--font-body)' }}>{submitFinalError}</p>}
+            <button
+              onClick={submitFinalScores}
+              disabled={submittingFinal}
+              style={{
+                width: '100%', padding: 12, borderRadius: 10, border: 'none',
+                background: submittingFinal ? '#9ca3af' : 'linear-gradient(135deg,#2d7a52,#16a34a)',
+                color: '#fff', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14,
+                cursor: submittingFinal ? 'default' : 'pointer',
+              }}
+            >
+              {submittingFinal ? 'Finalising…' : '✓ Confirm Final Scores'}
+            </button>
+          </div>
+        )}
+
+        {isLocked && (
+          <div style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 12, padding: 12, marginBottom: 16, textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#16a34a' }}>
+              ✓ Scores Finalised
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#6b7280', marginTop: 2 }}>
+              Your scorecard is locked. The organiser will publish final results once every player has finished.
+            </div>
           </div>
         )}
 
@@ -1033,7 +1110,7 @@ export default function SelfMarkerScoreShell({
           title="YOUR SCORE" name={myName} hcp={myHcp} par={par} si={si} strokes={myStrokes} holeNum={holeNum}
           gross={draftMyGross} pickedUp={draftMyPickedUp} pts={myPts} runningTotal={myRunningTotal}
           onPick={d => pick('mine', d)} onPar={() => pickPar('mine')} onTogglePickUp={() => togglePickUp('mine')}
-          status={myComparison} onOpenSummary={() => setShowReconciliation(true)} hole={hole}
+          status={myComparison} onOpenSummary={() => setShowReconciliation(true)} hole={hole} isLockedForSide={isLocked}
         />
 
         {/* ── Card 2: YOUR MARKER (the partner I mark) ──────────────────── */}
@@ -1042,7 +1119,7 @@ export default function SelfMarkerScoreShell({
             title="YOUR MARKER" name={partnerName} hcp={partnerHcp} par={par} si={si} strokes={partnerStrokes} holeNum={holeNum}
             gross={draftPartnerGross} pickedUp={draftPartnerPickedUp} pts={partnerPts} runningTotal={partnerRunningTotal}
             onPick={d => pick('partner', d)} onPar={() => pickPar('partner')} onTogglePickUp={() => togglePickUp('partner')}
-            status={partnerComparison} onOpenSummary={() => setShowReconciliation(true)}
+            status={partnerComparison} onOpenSummary={() => setShowReconciliation(true)} isLockedForSide={isPartnerLocked}
           />
         )}
         </div>
@@ -1058,7 +1135,7 @@ export default function SelfMarkerScoreShell({
             cursor: canConfirm ? 'pointer' : 'not-allowed',
           }}
         >
-          {flash ? '✓ Saved!' : '✓ Confirm Score'}
+          {flash ? '✓ Saved!' : isLocked ? 'Scores Finalised' : '✓ Confirm Score'}
         </button>
 
         <div className="scoring-nav-row" style={{ display: 'flex', gap: 6, marginTop: 6 }}>
@@ -1107,12 +1184,12 @@ export default function SelfMarkerScoreShell({
 // ── Score card sub-component ───────────────────────────────────────────────────
 
 function ScoreCard({
-  title, name, hcp, par, si, strokes, holeNum, gross, pickedUp, pts, runningTotal, onPick, onPar, onTogglePickUp, status, onOpenSummary, hole,
+  title, name, hcp, par, si, strokes, holeNum, gross, pickedUp, pts, runningTotal, onPick, onPar, onTogglePickUp, status, onOpenSummary, hole, isLockedForSide,
 }: {
   title: string; name: string; hcp: number; par: number; si: number; strokes: number; holeNum: number
   gross: number | null; pickedUp: boolean; pts: number | null; runningTotal: number
   onPick: (delta: number) => void; onPar: () => void; onTogglePickUp: () => void
-  status: ComparisonStatus | null; onOpenSummary?: () => void; hole?: Hole | null
+  status: ComparisonStatus | null; onOpenSummary?: () => void; hole?: Hole | null; isLockedForSide?: boolean
 }) {
   return (
     <div style={{ borderRadius: 12, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 3px 14px rgba(0,0,0,0.08)', marginBottom: 4, overflow: 'hidden' }}>
@@ -1143,18 +1220,18 @@ function ScoreCard({
         </div>
       </div>
 
-      <div className="scoring-card-body" style={{ padding: '5px 8px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-          <button onClick={() => onPick(-1)} style={{ width: 34, height: 34, borderRadius: 9, background: '#f7f6f1', border: '1.5px solid #e5e2d9', color: '#14532d', fontSize: 16, flexShrink: 0 }}>−</button>
+      <div className="scoring-card-body" style={{ padding: '7px 10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <button onClick={() => onPick(-1)} disabled={isLockedForSide} style={{ width: 40, height: 40, borderRadius: 10, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 18, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>−</button>
           <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#d1d5db' : '#14532d', fontSize: 28, fontWeight: 800, lineHeight: 1 }}>
+            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#d1d5db' : '#14532d', fontSize: 34, fontWeight: 800, lineHeight: 1 }}>
               {pickedUp ? 'P' : gross ?? '0'}
             </div>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#6b7280', marginTop: 1 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#6b7280', marginTop: 2 }}>
               {pickedUp ? '0 Points (pick-up)' : pts !== null ? `${pts} Point${pts === 1 ? '' : 's'}` : 'Par ' + par + ' · SI ' + si}
             </div>
           </div>
-          <button onClick={() => onPick(1)} style={{ width: 34, height: 34, borderRadius: 9, background: '#f7f6f1', border: '1.5px solid #e5e2d9', color: '#14532d', fontSize: 16, flexShrink: 0 }}>+</button>
+          <button onClick={() => onPick(1)} disabled={isLockedForSide} style={{ width: 40, height: 40, borderRadius: 10, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 18, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>+</button>
         </div>
 
         {/* Pick Up — relocated here from the permanent tile row below, per
@@ -1165,6 +1242,7 @@ function ScoreCard({
         <div style={{ textAlign: 'center', marginTop: 0 }}>
           <button
             onClick={onTogglePickUp}
+            disabled={isLockedForSide}
             style={{
               fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700,
               color: pickedUp ? '#a1791f' : '#6b7280',
@@ -1178,7 +1256,7 @@ function ScoreCard({
         </div>
 
         <div style={{ display: 'flex', gap: 5, marginTop: 4 }}>
-          <button onClick={onPar} style={{ flex: 1, padding: '4px 3px', borderRadius: 7, background: gross === par && !pickedUp ? '#dcfce7' : '#eefbf2', border: gross === par && !pickedUp ? '1px solid #86efac' : '1px solid #dcf1e2', textAlign: 'center' }}>
+          <button onClick={onPar} disabled={isLockedForSide} style={{ flex: 1, padding: '4px 3px', borderRadius: 7, background: gross === par && !pickedUp ? '#dcfce7' : '#eefbf2', border: gross === par && !pickedUp ? '1px solid #86efac' : '1px solid #dcf1e2', textAlign: 'center' }}>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 7.5, color: gross === par && !pickedUp ? '#16a34a' : '#5a9c72' }}>PAR</div>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 800, color: '#16a34a' }}>{par}</div>
           </button>

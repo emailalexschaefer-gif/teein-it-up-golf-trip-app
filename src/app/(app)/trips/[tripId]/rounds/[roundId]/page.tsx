@@ -46,6 +46,7 @@ interface ScorecardRow {
   player_id: string
   playing_handicap: number
   status: string
+  submitted_at: string | null
   profiles: ScorecardProfile | null
   score_entries: ScoreEntryRow[]
 }
@@ -126,7 +127,7 @@ export default async function RoundScorePage({ params }: Props) {
   const allCardsRes = await admin
     .from('scorecards')
     .select(`
-      id, player_id, playing_handicap, status,
+      id, player_id, playing_handicap, status, submitted_at,
       profiles:player_id ( id, full_name, avatar_url ),
       score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_by )
     `)

@@ -214,7 +214,23 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     console.log('[event-messages POST] organiser-path trace: passed permission check, inserting', { insertPayload })
   }
 
-  const { data, error } = await supabase.from('event_messages').insert(insertPayload).select().single()
+  let { data, error } = await supabase.from('event_messages').insert(insertPayload).select().single()
+
+  // Compatibility fallback — an earlier draft of guidance for this table
+  // used 'event' as the recipient_type CHECK value instead of 'all'. If
+  // that version was ever run against this database before the corrected
+  // script, an 'all' insert fails with a 23514 constraint violation. This
+  // retries once with 'event' so an announcement can still succeed even
+  // if the deploy script hasn't been re-run yet. Read-side visibility for
+  // 'event' rows is handled by migration 029 (widens the SELECT policy to
+  // recognize 'event' as equivalent to 'all') — this insert fallback
+  // alone isn't sufficient without that, which is why both exist together.
+  if (error && error.code === '23514' && recipientType === 'all') {
+    console.log('[event-messages POST] organiser-path trace: \'all\' rejected by a constraint, retrying with \'event\' (stale-constraint compatibility fallback)')
+    const retryResult = await supabase.from('event_messages').insert({ ...insertPayload, recipient_type: 'event' }).select().single()
+    data = retryResult.data
+    error = retryResult.error
+  }
 
   if (!isChat) {
     console.log('[event-messages POST] organiser-path trace: insert result', {

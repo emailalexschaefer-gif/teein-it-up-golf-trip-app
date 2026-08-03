@@ -71,7 +71,7 @@ function TripCardSkeleton() {
 
 export default function TripList() {
   const [filter, setFilter] = useState<FilterTab>('active')
-  const { data: trips, isLoading, error } = useMyTrips()
+  const { data: trips, isLoading, error, refetch, isFetching } = useMyTrips()
 
   const filtered   = filterTrips(trips ?? [], filter)
 
@@ -91,6 +91,14 @@ export default function TripList() {
       <div className="rounded-card bg-red-50 border border-red-100 p-5 text-center space-y-2">
         <p className="text-sm font-semibold text-red-600">Couldn&apos;t load trips</p>
         <p className="text-xs text-red-400 font-mono break-all">{message}</p>
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="rounded-lg border border-red-200 bg-white px-4 py-1.5 text-xs font-semibold text-red-600"
+          style={{ opacity: isFetching ? 0.6 : 1 }}
+        >
+          {isFetching ? 'Retrying…' : 'Retry'}
+        </button>
       </div>
     )
   }

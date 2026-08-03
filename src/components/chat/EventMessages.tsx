@@ -9,7 +9,7 @@ interface EventMessage {
   id: string
   sender_user_id: string
   message_type: string
-  recipient_type: 'all' | 'group' | 'player'
+  recipient_type: 'all' | 'event' | 'group' | 'player'
   recipient_group_id: string | null
   message: string
   is_pinned: boolean
@@ -32,7 +32,7 @@ function relativeTime(iso: string): string {
 }
 
 function recipientLabel(m: EventMessage): string {
-  if (m.recipient_type === 'all') return 'Everyone'
+  if (m.recipient_type === 'all' || m.recipient_type === 'event') return 'Everyone'
   if (m.recipient_type === 'group') return m.recipient_group?.name ?? 'Group'
   return 'Direct message'
 }

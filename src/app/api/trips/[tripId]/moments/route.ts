@@ -56,8 +56,10 @@ export async function GET(req: NextRequest, { params }: RouteProps) {
   const nameByPlayerId = new Map<string, string>((profiles ?? []).map((p: { id: string; full_name: string }) => [p.id, p.full_name]))
 
   const enriched = await Promise.all(moments.map(async (m) => {
-    const { data: signed } = await supabase.storage.from('event-moments').createSignedUrl(m.image_path, 3600)
-    return { ...m, playerName: nameByPlayerId.get(m.player_id) ?? 'Player', imageUrl: signed?.signedUrl ?? null }
+    const imageUrl = m.image_path
+      ? (await supabase.storage.from('event-moments').createSignedUrl(m.image_path, 3600)).data?.signedUrl ?? null
+      : null
+    return { ...m, playerName: nameByPlayerId.get(m.player_id) ?? 'Player', imageUrl }
   }))
 
   return NextResponse.json({ moments: enriched })
@@ -74,7 +76,12 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     imagePath?: string; caption?: string; roundId?: string | null; holeNumber?: number | null; audience?: string
   }
 
-  if (!imagePath) return NextResponse.json({ error: 'Missing image.' }, { status: 400 })
+  // A Moment needs either a photo or a caption — a Text Moment (no
+  // image) must have something to actually show.
+  if (!imagePath && !caption?.trim()) {
+    return NextResponse.json({ error: 'Add a photo or write something for this moment.' }, { status: 400 })
+  }
+  const momentType = imagePath ? 'photo' : 'text'
   const resolvedAudience = audience === 'group' ? 'group' : 'everyone'
 
   const { data: membership } = await supabase
@@ -89,7 +96,8 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     player_id: user.id,
     group_id: resolvedAudience === 'group' ? membership.group_id : null,
     caption: caption?.trim() || null,
-    image_path: imagePath,
+    image_path: imagePath ?? null,
+    moment_type: momentType,
     audience: resolvedAudience,
   }).select().single()
 
@@ -104,7 +112,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   // via My Moments / Event Story) — logged, not silently swallowed, but
   // not rolled back either, since a missing chat entry is a lesser
   // failure than losing the photo itself.
-  const { error: msgErr } = await supabase.from('event_messages').insert({
+  const chatInsertPayload = {
     trip_id: tripId,
     sender_user_id: user.id,
     message_type: 'moment',
@@ -112,7 +120,14 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     recipient_group_id: resolvedAudience === 'group' ? membership.group_id : null,
     message: caption?.trim() || '📷 Moment',
     moment_id: moment.id,
-  })
+  }
+  let { error: msgErr } = await supabase.from('event_messages').insert(chatInsertPayload)
+  // Same compatibility fallback as the messages route — if 'all' is
+  // rejected by a stale recipient_type constraint, retry with 'event'.
+  if (msgErr && msgErr.code === '23514' && chatInsertPayload.recipient_type === 'all') {
+    const retry = await supabase.from('event_messages').insert({ ...chatInsertPayload, recipient_type: 'event' })
+    msgErr = retry.error
+  }
   if (msgErr) {
     console.error('[moments POST] chat-link insert failed (moment itself still saved)', { code: msgErr.code, message: msgErr.message, momentId: moment.id })
   }

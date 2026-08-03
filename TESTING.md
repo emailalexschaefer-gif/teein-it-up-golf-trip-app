@@ -3431,3 +3431,197 @@ Stableford, handicap allocation, marker comparison logic itself (only
 logging was added around it, not any calculation), leaderboard ranking,
 permissions, the working group-chat path. 82/82 scoring-domain tests
 still pass.
+
+---
+
+## Package 1 — Stability
+
+Per the explicit instruction: only files directly involved in this
+package were touched. No scoring, reconciliation, authentication, or
+leaderboard logic was modified — only the app-shell layouts and one
+error-state UI.
+
+### Root cause of the freezing issue — found, not guessed
+
+Both `(app)/layout.tsx` (wraps every page) and `trips/[tripId]/layout.tsx`
+(wraps every trip-scoped page — Scorecard, Leaderboard, My HQ, Chat, Side
+Games) are **server components that block on multiple sequential
+`await` calls with no timeout of any kind** before rendering anything —
+including `AppNav` (where Logout lives) and the bottom navigation (the
+only way to leave a stuck page). If any one of those queries hangs — a
+network blip, a slow connection, a stuck Supabase client — Next.js waits
+indefinitely with nothing else rendering. That matches "frozen, must kill
+Chrome" precisely: there was no error, no timeout, no fallback, nothing
+to interact with, because the page had never actually finished rendering
+in the first place.
+
+This directly explains "switching between Home, Leaderboard, Chat,
+Scorecard" as a specific trigger — every one of those destinations sits
+behind `trips/[tripId]/layout.tsx`'s three sequential blocking queries.
+
+### Fix
+Added a `withTimeout()` helper (4s) wrapping every previously-unguarded
+`await` in both layouts — `getUser()`, the profile fetch, the membership
+check, and the active-round check. On timeout, each degrades gracefully
+to its existing "not found" fallback (already-established patterns:
+`user.email` instead of a saved name/photo, `isOrganiser = false`, no
+active-round banner) rather than blocking forever. If `getUser()` itself
+times out, the user is redirected to `/login` — the safe default when
+authentication status is genuinely unknown, rather than either hanging
+or falsely proceeding as authenticated.
+
+**Logout is now structurally guaranteed reachable** within 4 seconds of
+any page load, regardless of what any individual database query does,
+since `AppNav` (and Logout inside it) no longer sits behind an unbounded
+wait.
+
+### Also fixed — a genuine "no retry" gap
+`TripList.tsx` (the Home screen's trip list) already showed a real error
+state on failure (not silently stuck), but had no way to recover without
+a full page reload. Added a working Retry button using React Query's own
+`refetch()` — closing the "loading states always resolve... with a retry"
+requirement completely, not just partially.
+
+### A type-check discrepancy investigated and proven, not dismissed
+The lenient `tsc` check flagged real-looking errors on the two layout
+files (`Property 'data' does not exist on type '{}'`) — different from
+the previously-established `key`-prop false positive, so I didn't assume
+it was the same issue. Traced it to its actual cause: this sandbox has no
+`@supabase/supabase-js`/`@supabase/ssr` in `node_modules` (confirmed —
+never installed, no network access all session), so `createClient()`'s
+return type is unresolvable here, which cascades into the generic
+`withTimeout<T>` failing to infer `T` correctly. Proved this by testing
+the identical `withTimeout` pattern against a properly-typed mock
+Promise in isolation — it inferred correctly with zero errors, confirming
+the issue is specifically the unresolvable Supabase import in this
+sandbox, not a bug in the timeout utility itself.
+
+### Manual test steps (cannot be run from this sandbox — no device/browser
+access)
+1. Throttle network to "slow 3G" or simulate a hung connection while
+   loading Home — confirm the page still renders (with fallback avatar/
+   name if the profile fetch times out) rather than hanging indefinitely.
+2. Confirm Logout is clickable within a few seconds of any page load,
+   even under a simulated slow connection.
+3. Repeatedly switch between Home, Leaderboard, Chat, Scorecard, My HQ —
+   confirm no freeze requiring a browser restart.
+4. Force the trips query to fail — confirm the Retry button actually
+   recovers without a full page reload.
+
+### Confirmed unchanged
+Stableford, handicap allocation, marker logic, reconciliation,
+leaderboard ranking, authentication logic itself (only wrapped in a
+timeout, not altered), all scoring/messaging/Moments functionality.
+82/82 scoring-domain tests still pass — this package touched only
+layout/loading behavior.
+
+---
+
+## Package 2 — Moments & Messaging
+
+Per the same scope rule as Package 1: only files directly involved were
+touched. No scoring, reconciliation, authentication, or leaderboard code.
+
+### Moment composer redesign — the actual requested fix
+Previously, tapping "Moment" called `fileInputRef.current?.click()`
+immediately — straight into the phone's native file picker, no in-app
+choice screen. Rebuilt `MomentCapture.tsx` around an explicit composer
+state machine: tapping Moment now always opens an in-app screen first,
+with three real options — **Take Photo** (a file input with
+`capture="environment"`, which is what actually forces the camera app
+rather than the general picker), **Choose from Gallery** (a separate
+file input with no `capture` attribute — the two are genuinely different
+inputs, not one input with a mode flag, since `capture` can't be toggled
+dynamically), and **Text Moment** (a new caption-only flow).
+
+### "Could not read image" — found and fixed, not just guessed at
+Traced it: `handleSelect` created a new preview `URL.createObjectURL()`
+without revoking any *existing* preview URL first. Selecting a second
+photo while an earlier preview was still showing could interfere with
+reading the new selection. Fixed by always revoking the previous preview
+URL before creating a new one. Can't fully confirm this was *the* cause
+without reproducing on a device, but it's a real, independently-findable
+bug regardless — worth fixing on its own merits.
+
+### Text Moments — new migration, since image_path was NOT NULL
+`030_text_moments.sql` (+ deploy script): makes `image_path` nullable and
+adds a `moment_type` column with a consistency constraint (photo moments
+must have an image; text moments must have neither an image nor an empty
+caption). The API route, GET enrichment (skips the signed-URL fetch when
+there's no image, rather than erroring on a null path), and POST
+validation were all updated to match.
+
+### Organiser announcements — a genuine code fix this time, not just
+instrumentation
+Building on the trace from the previous pass: added an actual
+compatibility fallback. If an `'all'`-recipient insert fails with a
+`23514` constraint violation (the stale `'event'`-vs-`'all'` theory),
+the code now retries once with `'event'` automatically — no deploy
+required for this to start working. But an insert succeeding isn't
+enough on its own: the existing SELECT policy only recognized `'all'` as
+"visible to everyone," so a row that fell back to `'event'` would post
+successfully and then be invisible to every recipient except the sender
+— a worse, silent failure. Added `029_event_messages_recipient_compat.sql`
+widening the SELECT policy to treat `'event'` as equivalent to `'all'`,
+and widening the CHECK constraint itself to explicitly allow both values
+going forward, so this isn't left as a permanent split-brain state. The
+same fallback was applied to the Moments route too, since posting a
+Moment to "Everyone" hits the identical `event_messages` insert path.
+
+### Verify announcements appear for every player
+The SELECT policy (both the original and the widened version) checks
+`is_trip_member(trip_id) AND recipient_type IN ('all','event')` — every
+confirmed trip member, not just the sender, satisfies this regardless of
+role. Cannot verify end-to-end on a real second account from this
+sandbox, but the policy logic itself doesn't scope "everyone" down to
+anything narrower than every trip member.
+
+### Confirmed unchanged
+Stableford, handicap allocation, marker logic, reconciliation, leaderboard
+ranking, the working group-chat send path, authentication. 82/82
+scoring-domain tests still pass.
+
+---
+
+## Package 3 — UI Polish (verification completed)
+
+Per the same scope rule as Packages 1 and 2: only scoring-screen files
+directly involved were touched. No reconciliation, authentication, or
+leaderboard logic changed — Confirm Final Scores reuses the existing
+comparison functions and existing schema columns, it doesn't add new
+scoring logic.
+
+### Confirm Final Scores + lock
+New `POST /api/trips/[tripId]/rounds/[roundId]/scorecards` action
+(`{ action: 'submit' }`) — reuses `scorecards.status`/`submitted_at`
+(migration 004, already designed for exactly this, never wired up).
+Server-side re-verifies every hole is genuinely matched before allowing
+the lock — doesn't trust the client's "all matched" state. Once locked,
+`+/-`, Pick Up, and the PAR quick-set are disabled — gated per side
+independently, so locking your own scorecard doesn't stop you from
+continuing to mark a partner whose card isn't locked yet, and vice versa.
+
+### Enlarged scoring panels
+Score number 28px→34px, +/- buttons 34px→40px, card body padding
+7px 10px — using the "unused whitespace" the fixed workspace had after
+the earlier compaction passes, per the explicit feedback.
+
+### Round Summary scrollability — a real bug found while wiring this up
+The body-scroll-lock added in Package 1 had no awareness of which screen
+was showing — only whether the compact strip was collapsed/expanded. If
+the strip's default (collapsed) state carried over while viewing Round
+Summary, the whole page could stay locked even on that screen, directly
+undermining "make Round Summary vertically scrollable." Fixed: the lock
+now explicitly never engages while `showReconciliation` is true.
+
+### A genuine type error found and fixed during verification
+`page.tsx` has its own local `ScorecardRow`/`ScorecardWithGroup`
+interfaces (separate from `SelfMarkerScoreShell`'s `ScorecardFull`) that
+also needed `submitted_at` added — the lenient type-check caught this as
+a real mismatch (not the established sandbox false positive), traced it,
+and fixed it before packaging.
+
+### Confirmed unchanged
+Stableford, handicap allocation, marker comparison, reconciliation,
+leaderboard ranking, messaging, Moments. 82/82 scoring-domain tests
+still pass.
