@@ -4126,3 +4126,136 @@ testing.
 
 ### Database migrations
 `032_scorecard_unlock_audit.sql` (+ standalone deploy script) — new.
+
+---
+
+## Bug 1 (only) — Round Summary / final-lock readiness contradiction
+
+**New process starting with this deployment**: one reproducible bug,
+minimum files, dedicated zip, wait for real-device confirmation before
+the next issue. Only one file was touched this deployment.
+
+### Root cause — precisely identified, not guessed
+
+`confirmScore()` updates the player's local capture state
+(`setMySelf(...)`) **synchronously**, immediately when a score is
+confirmed. The actual persistence to the server
+(`queueScoreEntry()` → `syncScoreQueue()`) happens separately and is
+explicitly **not awaited** (`void syncScoreQueue()`) — a deliberate,
+correct choice for offline-first behavior, but it means there's a real
+window where local state says "entered" before the server has actually
+received it.
+
+Round Summary's `allMatched` was computed purely from that local state.
+The server's own submit-readiness check (already correct, unchanged)
+queries `score_entries` directly from the database — authoritative, but
+necessarily a moment behind local state during that sync window. Tapping
+"Confirm" on the last hole and immediately viewing Round Summary is
+exactly the scenario where local state says 9/9 while the server still
+only has 8/9 persisted — the two systems were never actually
+contradicting each other about the same fact; they were reading two
+different facts (local intent vs. server-confirmed state) and both
+correctly reporting what they saw, which is precisely the trap the
+brief described.
+
+### Fix — one canonical readiness result, nothing else changed
+
+Added `isReadyToConfirm = allMatched && pendingCount === 0`, using the
+existing (already-present, already-reactive) `pendingCount` from
+`useSyncStore` — no new store, no new tracking mechanism. This single
+value now gates:
+- The "ready" display and the Confirm Final Scores button (previously
+  gated on `allMatched` alone).
+- A new, honest intermediate state — "Saving your scores… N still
+  syncing" — shown when every hole is locally matched but sync hasn't
+  caught up yet. This is the direct fix for the contradiction: the
+  client can no longer claim "ready" during exactly the window where it
+  previously did.
+- A defensive re-check inside `submitFinalScores()` itself, so even in
+  the narrow case where the modal was already open when sync catches up
+  or falls behind, the client gives an honest "still saving" message
+  rather than surfacing the server's generic rejection for a condition
+  the client already understands.
+
+The server's own submit-time validation was **not changed** — it was
+already correct and already the authoritative source; the bug was
+entirely that the client could show a readiness claim the server
+hadn't confirmed yet.
+
+### What was deliberately not touched
+No other messaging, scoring, Moments, or UI-polish changes. No other
+files. The mismatch-state and locked-state blocks are unchanged except
+for the new intermediate block inserted between them.
+
+### Confirmed unchanged
+Stableford, marker comparison, reconciliation, leaderboard ranking, the
+server-side submit validation logic itself. 82/82 scoring-domain tests
+pass.
+
+### Manual test steps (cannot be run from this sandbox — no real
+device)
+Confirm the last hole of a round and immediately open Round Summary on
+a slow/throttled connection — the summary should now show "Saving your
+scores…" rather than "ready," and should transition to "ready" only
+once `pendingCount` reaches 0. Confirm Final Scores should be genuinely
+unavailable during that window, not just cosmetically hidden.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.
+
+---
+
+## Scoring Screen UX Polish (UI only — dedicated deployment)
+
+Per the explicit instruction: 100% layout/styling, zero logic changes.
+Only one file touched, and 82/82 scoring-domain tests confirm the
+scoring/reconciliation/Stableford engine itself is untouched.
+
+### The actual fix — merged, not just shrunk again
+Previously (from the prior polish pass): "Marked by {name}" sat on its
+own centered line, and a separate dedicated block below it showed
+"HOLE {N} / Par · Index" — two distinct rows in the grid, together
+costing the ~60-80px specifically measured. Rather than shrinking that
+second block further (which had already been tried), it's now merged
+into the *first* row entirely: "Marked by {name}" left-aligned, "Hole
+{N}" (bold, large) with "Par · SI" beneath it, right-aligned, sharing
+one row. The grid template collapsed from 4 rows back to 3
+(`gridTemplateRows: 'auto minmax(0,1fr) auto'`), removing an entire row
+rather than compressing it.
+
+### Score entry is now genuinely the visual hero
+Using the space this reclaimed: score number 36px→44px, +/- buttons
+enlarged to 46px (also fixed a small inconsistency where the two
+buttons weren't quite the same size as each other). This directly
+targets "the biggest thing on screen should be the score number, not
+HOLE 9."
+
+### Confirmed still true, not re-verified from scratch
+Confirm Score remains full-width, green, and unconditionally rendered
+(not newly built — checked it was already correct before touching
+anything nearby). Previous/Next (or Previous/Round Summary) navigation
+remains equal-width and always visible — same reasoning.
+
+### What was explicitly not touched
+`confirmScore()`, the sync queue, `isReadyToConfirm` and the Bug 1 fix
+from the previous deployment, reconciliation comparison logic, the
+Stableford calculation, offline sync — none of these were touched, per
+the explicit instruction and confirmed by the unchanged domain test
+count.
+
+### Manual test steps (cannot be run from this sandbox — no real
+Android device)
+Confirm on a real phone: no clipping, no overlap, one-handed reachability
+for every control, and that the merged header row still reads clearly
+at a glance while walking between holes.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.

@@ -233,6 +233,14 @@ export default function SelfMarkerScoreShell({
   const [showConfirmModal, setShowConfirmModal] = useState(false)
 
   async function submitFinalScores() {
+    // Defensive re-check — the modal could theoretically stay open across
+    // a brief window where pendingCount changes; this gives a specific,
+    // honest message rather than surfacing the server's generic rejection
+    // for what is, on the client, a known and explainable condition.
+    if (useSyncStore.getState().pendingCount > 0) {
+      setSubmitFinalError('Still saving your scores — please wait a moment and try again.')
+      return
+    }
     setSubmittingFinal(true)
     setSubmitFinalError('')
     try {
@@ -695,6 +703,18 @@ export default function SelfMarkerScoreShell({
     const outTotal = sumPts(outHoles)
     const inTotal = sumPts(inHoles)
     const allMatched = detailedSummaryRows.every(r => r.status === 'matched')
+    // Bug 1 — the single canonical readiness result. allMatched alone
+    // only reflects local, per-hole comparison state; confirmScore()
+    // updates that local state synchronously, while the actual sync to
+    // the server (queueScoreEntry -> syncScoreQueue) is a separate,
+    // un-awaited operation that can still be in flight. The server's own
+    // submit check queries the database directly and correctly requires
+    // every hole to actually be persisted there — which is exactly why
+    // it could disagree with a client that had already moved on to
+    // showing "ready." Folding pendingCount into this one readiness
+    // value is what makes the summary, the button, and the server check
+    // agree: the client cannot claim ready while sync is still pending.
+    const isReadyToConfirm = allMatched && pendingCount === 0
     const STATUS_ICON: Record<string, { icon: string; color: string }> = {
       matched:      { icon: '🟢', color: '#16a34a' },
       mismatch:     { icon: '🔴', color: '#dc2626' },
@@ -743,7 +763,18 @@ export default function SelfMarkerScoreShell({
           </div>
         )}
 
-        {allMatched && !isLocked && (
+        {allMatched && !isReadyToConfirm && !isLocked && (
+          <div style={{ background: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: 12, padding: 14, marginTop: 10, marginBottom: 16, textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#a1791f', marginBottom: 4 }}>
+              Saving your scores…
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280' }}>
+              {pendingCount} score{pendingCount === 1 ? '' : 's'} still syncing. You&apos;ll be able to confirm once everything&apos;s saved.
+            </div>
+          </div>
+        )}
+
+        {isReadyToConfirm && !isLocked && (
           <div style={{ background: '#ffffff', border: '1.5px solid #14532d', borderRadius: 12, padding: 14, marginTop: 10, marginBottom: 16, textAlign: 'center' }}>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#14532d', marginBottom: 4 }}>
               Your scorecard is ready.
@@ -1024,7 +1055,7 @@ export default function SelfMarkerScoreShell({
           flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
           overflowY: 'auto', padding: '14px 16px 90px', background: '#faf9f6',
         } : {
-          flex: 1, display: 'grid', gridTemplateRows: 'auto auto minmax(0, 1fr) auto',
+          flex: 1, display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr) auto',
           minHeight: 0, overflow: 'hidden',
           padding: '6px 16px calc(6px + env(safe-area-inset-bottom, 0px))',
           background: '#faf9f6', rowGap: 4,
@@ -1082,9 +1113,19 @@ export default function SelfMarkerScoreShell({
             {scorecardExpanded ? '▲ Hide Round Scorecard' : '▼ View Round Scorecard'}
           </button>
 
-          {!scorecardExpanded && currentMarkedByName && (
-            <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 9.5, color: '#b0b6be' }}>
-              Marked by {currentMarkedByName}
+          {!scorecardExpanded && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '2px 2px 0' }}>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#b0b6be', paddingTop: 4 }}>
+                {currentMarkedByName ? `Marked by ${currentMarkedByName}` : ''}
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 22, fontWeight: 800, lineHeight: 1 }}>
+                  Hole {holeNum}
+                </div>
+                <div style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 11, marginTop: 1 }}>
+                  Par {par} · SI {si}
+                </div>
+              </div>
             </div>
           )}
 
@@ -1159,25 +1200,6 @@ export default function SelfMarkerScoreShell({
           )}
         </div>
 
-        {/* Shared hole header — the actual Package 5 redesign. Previously
-            HOLE #/Par/Index were repeated identically on both score cards
-            even though they refer to the exact same hole; moved here,
-            once, outside both cards, and made visually dominant (large
-            hole number) since it's now the only place this information
-            lives. Collapsed-mode only, matching the toggle it sits next
-            to — the expanded scorecard already shows hole-by-hole detail
-            in its own table, so this doesn't duplicate there. */}
-        {!scorecardExpanded && (
-          <div style={{ gridRow: '2', textAlign: 'center', padding: '2px 0 4px' }}>
-            <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 26, fontWeight: 800, lineHeight: 1 }}>
-              HOLE {holeNum}
-            </div>
-            <div style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 11.5, marginTop: 2 }}>
-              Par {par} · Index {si}
-            </div>
-          </div>
-        )}
-
         {/* Scoring Anchor — the permanent resting point for every hole
             transition (expanded mode only; collapsed mode disables the
             anchor-scroll effect entirely, per the explicit instruction,
@@ -1186,7 +1208,7 @@ export default function SelfMarkerScoreShell({
             component's behavior to change. */}
         <div
           ref={scoringAnchorRef}
-          style={scorecardExpanded ? undefined : { gridRow: '3', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
+          style={scorecardExpanded ? undefined : { gridRow: '2', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
         >
         {/* ── Card 1: YOUR SCORE ─────────────────────────────────────────── */}
         <ScoreCard
@@ -1207,7 +1229,7 @@ export default function SelfMarkerScoreShell({
         )}
         </div>
 
-        <div style={scorecardExpanded ? undefined : { gridRow: '4' }}>
+        <div style={scorecardExpanded ? undefined : { gridRow: '3' }}>
         <button
           onClick={confirmScore}
           disabled={!canConfirm || flash}
@@ -1301,18 +1323,18 @@ function ScoreCard({
         </div>
       </div>
 
-      <div className="scoring-card-body" style={{ padding: '8px 10px' }}>
+      <div className="scoring-card-body" style={{ padding: '7px 10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <button onClick={() => onPick(-1)} disabled={isLockedForSide} style={{ width: 42, height: 42, borderRadius: 10, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 19, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>−</button>
+          <button onClick={() => onPick(-1)} disabled={isLockedForSide} style={{ width: 46, height: 46, borderRadius: 11, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 21, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>−</button>
           <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#d1d5db' : '#14532d', fontSize: 36, fontWeight: 800, lineHeight: 1 }}>
+            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#d1d5db' : '#14532d', fontSize: 44, fontWeight: 800, lineHeight: 1 }}>
               {pickedUp ? 'P' : gross ?? '0'}
             </div>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#6b7280', marginTop: 2 }}>
               {pickedUp ? '0 Points (pick-up)' : pts !== null ? `${pts} Point${pts === 1 ? '' : 's'}` : 'Par ' + par + ' · SI ' + si}
             </div>
           </div>
-          <button onClick={() => onPick(1)} disabled={isLockedForSide} style={{ width: 40, height: 40, borderRadius: 10, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 18, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>+</button>
+          <button onClick={() => onPick(1)} disabled={isLockedForSide} style={{ width: 46, height: 46, borderRadius: 11, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 21, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>+</button>
         </div>
 
         {/* Pick Up — relocated here from the permanent tile row below, per
