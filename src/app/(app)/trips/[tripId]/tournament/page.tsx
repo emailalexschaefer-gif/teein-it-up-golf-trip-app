@@ -40,7 +40,7 @@ export default async function TournamentPage({ params }: Props) {
   // "Organiser who is also playing" — reuses the trip's existing
   // organiser_is_playing flag (the same signal this app has used for
   // this exact question since Sprint 5C.2), not a new per-round check.
-  const { data: tripRow } = await supabase.from('trips').select('organiser_is_playing, event_type').eq('id', tripId).maybeSingle()
+  const { data: tripRow } = await supabase.from('trips').select('organiser_is_playing').eq('id', tripId).maybeSingle()
   const organiserIsPlaying = isOrganiser && (tripRow?.organiser_is_playing ?? false)
 
   if (!isOrganiser) {
@@ -94,7 +94,7 @@ export default async function TournamentPage({ params }: Props) {
         </div>
       ) : (
         <>
-          <TournamentControl tripId={tripId} roundId={activeRound.id} roundStatus={activeRound.status} eventType={tripRow?.event_type ?? null} />
+          <TournamentControl tripId={tripId} roundId={activeRound.id} roundStatus={activeRound.status} />
 
           {organiserIsPlaying && (
             <div style={{ marginTop: 20 }}>

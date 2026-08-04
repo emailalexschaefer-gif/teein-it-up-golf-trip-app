@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import type { TripData, RoundRow } from '../TripDetailClient'
 import { WizardNav } from './TripOverviewTab'
 import BeginRoundModal from '@/components/scoring/BeginRoundModal'
@@ -136,28 +135,9 @@ interface RoundCardProps {
   key?: string
 }
 
-interface RoundResultPlayer { playerId: string; name: string; totalPts: number }
-interface RoundResultData { players: RoundResultPlayer[]; winners: RoundResultPlayer[]; isTie: boolean }
-
 function RoundCard({ round, index, tripId, canBegin, onBeginRound }: RoundCardProps) {
   const isLive      = round.status === 'active'
   const isCompleted = round.status === 'completed'
-
-  // Only fetch a result for completed rounds — live/upcoming rounds have
-  // no official result to show yet, and fetching per-card here (rather
-  // than one request per round in a loop with no caching) is reasonable
-  // since a trip's round count is small; React Query also dedupes/caches
-  // this if the same round appears elsewhere on the page.
-  const { data: result } = useQuery<RoundResultData>({
-    queryKey: ['round-result', tripId, round.id],
-    queryFn: async () => {
-      const res = await fetch(`/api/trips/${tripId}/rounds/${round.id}/result`)
-      if (!res.ok) throw new Error('Could not load result.')
-      return res.json()
-    },
-    enabled: isCompleted,
-    staleTime: 60_000,
-  })
 
   return (
     <div className="card overflow-hidden" style={{ borderColor: isLive ? '#86efac' : '#d9c9a3' }}>
@@ -230,28 +210,6 @@ function RoundCard({ round, index, tripId, canBegin, onBeginRound }: RoundCardPr
             >
               Continue Scoring →
             </a>
-          )}
-
-          {isCompleted && result && result.winners.length > 0 && (
-            <div style={{ background: '#f8f4eb', borderRadius: 8, padding: '8px 10px', marginBottom: 8 }}>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#1a4731', marginBottom: 2 }}>
-                {result.isTie
-                  ? `Joint winners: ${result.winners.map(w => w.name).join(' and ')} — ${result.winners[0].totalPts} pts`
-                  : `Winner: ${result.winners[0].name} — ${result.winners[0].totalPts} pts`}
-              </p>
-              {/* Compact rest-of-field summary — everyone else, sorted by
-                  points, not re-sorting winners back in since they're
-                  already called out above. */}
-              {result.players
-                .filter(p => !result.winners.some(w => w.playerId === p.playerId))
-                .sort((a, b) => b.totalPts - a.totalPts)
-                .slice(0, 3)
-                .map(p => (
-                  <p key={p.playerId} style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7a7260' }}>
-                    {p.name} — {p.totalPts} pts
-                  </p>
-                ))}
-            </div>
           )}
 
           {isCompleted && (

@@ -217,7 +217,6 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
                 // real, known event_type gets its own real phrase.
                 const eventPhrase: Record<string, string> = {
                   golf_trip: 'golf trip',
-                  social_golf: 'golf series',
                   corporate_day: 'corporate golf event',
                   charity_day: 'charity golf day',
                   golf_society: 'golf day',

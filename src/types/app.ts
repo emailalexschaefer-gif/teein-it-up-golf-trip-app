@@ -44,7 +44,6 @@ export const TRIP_STATUS_TRANSITIONS: Record<TripStatus, TripStatus[]> = {
 
 export const EVENT_TYPE_OPTIONS = [
   { value: 'golf_trip',     label: 'Golf Trip' },
-  { value: 'social_golf',   label: 'Social Golf' },
   { value: 'corporate_day', label: 'Corporate Day' },
   { value: 'charity_day',   label: 'Charity Day' },
   { value: 'golf_society',  label: 'Golf Society' },
