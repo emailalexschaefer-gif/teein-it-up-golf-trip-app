@@ -4544,3 +4544,102 @@ scenario from the screenshots.
 
 ### Database migrations
 None.
+
+---
+
+## Canonical Scoring-Mode State — Initialisation and Restoration Fixed
+
+Per the explicit instruction: state-and-layout lifecycle correction
+only. No changes to scoring calculations, Stableford, score persistence,
+sync queue, reconciliation, marker logic, final-score confirmation,
+database, or API routes — confirmed by 82/82 passing scoring-domain
+tests.
+
+### The exact root cause, confirmed by the screenshots
+Three separate mechanisms were racing to position the page:
+1. An anchor-scroll effect keyed on `holeIdx`, which **explicitly
+   skipped its own first run** ("so opening the page doesn't itself
+   cause an unwanted scroll/jump"). This was backwards — skipping the
+   first run is exactly why first entry could land wherever the page's
+   scroll position happened to already be (e.g. inherited from Round
+   Summary, per Images 4/5).
+2. A scroll lock that froze whatever position was current, but never
+   itself repositioned to the anchor.
+3. The collapse toggle's own separate `scrollTo` call, only triggered on
+   an explicit user tap.
+
+None of these ran on initial mount in a way that actively corrected the
+position — which is exactly why the correct layout only appeared after
+manually expanding and collapsing the strip (that interaction was the
+only path that happened to trigger #3).
+
+### The fix — one canonical effect, `useLayoutEffect`
+Consolidated all three into a single effect keyed on
+`[scorecardExpanded, showReconciliation, holeIdx]` — every state
+transition that can lead into or out of collapsed scoring mode now runs
+through the same code, so first mount, the collapse toggle, hole
+navigation while collapsed, and returning from Round Summary all
+resolve to the identical resting position, by construction rather than
+by coincidence.
+
+`useLayoutEffect` (not `useEffect`) is what actually eliminates the
+visible flash described in the brief: it fires synchronously after DOM
+mutations but before the browser paints, so the correct scroll position
+is already in place before anything becomes visible — rather than
+painting the wrong position first and correcting a frame later. The
+very first positioning uses `behavior: 'auto'` (instant) specifically
+so there's nothing to visibly animate on entry; subsequent hole-to-hole
+repositioning uses `'smooth'`, since a brief transition there is
+expected, not jarring.
+
+### Ordering preserved exactly as specified
+Within the effect: reposition to the anchor first, then lock — matching
+"restore the collapsed workspace to its intended scoring anchor... then
+lock scrolling."
+
+### Round Summary lifecycle — now provably correct, not just intended
+`showReconciliation` in the effect's own dependency array means the lock
+is released and normal scrolling restored the instant that state
+becomes true, before Round Summary's content renders — and returning to
+`false` re-enters collapsed mode through the same single code path,
+including a fresh instant reposition (not an inherited scroll offset
+from Round Summary).
+
+### Cleanup requirements — verified against the explicit list
+`document.body.style.overflow` and `document.documentElement.style.
+overflow`: restored in every branch's cleanup, unconditionally.
+Touch-action: the `touchmove` listener is added and removed within the
+same cleanup. Saved scroll position: not applicable — this version
+doesn't save/restore a scroll offset across states at all, it
+recalculates the anchor position fresh every time, which is a
+structurally simpler guarantee than saving and restoring a stale value
+would be.
+
+### Audit performed, not assumed clean
+Searched the entire file for every scroll/overflow-touching call after
+the consolidation. Found exactly one other: the expand-toggle's own
+`scrollBy` nudge (revealing the newly-visible strip content on expand),
+which is a distinct, deliberate UX detail the canonical effect doesn't
+handle (it only repositions when *entering* collapsed mode) — kept as
+the one intentional exception, not an oversight.
+
+### Confirmed unchanged
+Card layout, PAR/SHOTS/TOTAL tiles, the fixed action tray, the compact
+scoring header, Stableford, marker comparison, reconciliation, offline
+sync, confirmation logic. 82/82 scoring-domain tests pass.
+
+### Manual test steps (cannot be run from this sandbox — no real
+device)
+The full acceptance list: opening scoring from Home/My Round/Round
+Summary/a start notification must immediately show the correct layout
+with no tap required to fix it; collapse-after-expand must return
+pixel-for-pixel to the same state as initial entry; hole navigation
+while collapsed must preserve position; Round Summary must scroll
+normally with no lingering lock.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.

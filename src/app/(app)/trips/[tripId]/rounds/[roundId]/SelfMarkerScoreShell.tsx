@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -198,26 +198,6 @@ export default function SelfMarkerScoreShell({
     }
   }, [holes, searchParams])
 
-  // Reposition to the Scoring Anchor whenever (and only whenever) the
-  // active hole changes. useEffect's dependency array is the actual
-  // mechanism enforcing "only on hole change, never while editing/mid-
-  // interaction" — score edits, toasts, sync-status ticks, and every
-  // other state change in this component do not touch holeIdx, so they
-  // cannot trigger this effect. The hasHydratedRef guard skips the very
-  // first run (initial mount), so opening the page doesn't itself cause
-  // an unwanted scroll/jump before the golfer has done anything.
-  useEffect(() => {
-    if (!hasHydratedRef.current) { hasHydratedRef.current = true; return }
-    const anchor = scoringAnchorRef.current
-    if (!anchor) return
-    // The page itself scrolls now (normal document flow), not a nested
-    // container — so this targets window.scrollTo against the anchor's
-    // position in the document, not a container-relative scrollTop.
-    // AppNav is sticky at 64px, so the offset keeps the anchor clear of
-    // it rather than landing directly underneath.
-    const anchorTop = anchor.getBoundingClientRect().top + window.scrollY
-    window.scrollTo({ top: Math.max(0, anchorTop - 56), behavior: 'smooth' })
-  }, [holeIdx])
   const [resumed, setResumed] = useState(false)
   const [showReconciliation, setShowReconciliation] = useState(false)
 
@@ -300,25 +280,53 @@ export default function SelfMarkerScoreShell({
   // need to survive logout/across devices, matching the stated scope.
   const [scorecardExpanded, setScorecardExpanded] = useState(false)
 
-  // Document scroll lock while collapsed — reintroduced per explicit
-  // instruction, scoped narrowly to exactly this: no viewport-height
-  // calculations, no grid, no fixed card heights. The cards render at
-  // their natural height (unchanged from the previous pass); this only
-  // stops the *document itself* from scrolling while collapsed, which is
-  // what was letting Chrome's address bar show/hide and shift the
-  // available viewport mid-scoring. CSS overflow:hidden alone is known
-  // to be unreliable against touch-driven scroll on some mobile
-  // browsers, so a touchmove preventDefault is layered on as a backup —
-  // the same reasoning the original scroll-lock used, restored here for
-  // the same underlying problem.
-  useEffect(() => {
-    // The confirmed leak: this lock previously had no awareness of
-    // Round Summary, so if the player was in collapsed mode when they
-    // tapped "Round Summary," the lock stayed engaged — Round Summary
-    // inherited a scroll lock that was never meant for it. Both
-    // conditions must hold for the lock to apply: collapsed AND
-    // actively scoring (not viewing Round Summary).
-    if (scorecardExpanded || showReconciliation) return
+  // The single canonical scoring-mode positioning effect — replaces three
+  // previously-separate mechanisms that could race each other: an
+  // anchor-scroll effect keyed only on holeIdx (which explicitly skipped
+  // its own first run "to avoid an unwanted jump" — backwards, since
+  // skipping the first run is exactly why initial entry could land at
+  // whatever scroll position the page happened to have), a lock effect
+  // that only froze the current position without ever repositioning to
+  // the anchor, and the collapse toggle's own separate scrollTo call.
+  // One effect now owns positioning for every path into collapsed mode:
+  // first mount, the collapse toggle, hole navigation while collapsed,
+  // and returning from Round Summary — all resolve to the identical
+  // resting position, since they all run through the same code.
+  //
+  // useLayoutEffect (not useEffect) is what actually eliminates the
+  // visible flash: it fires synchronously after DOM mutations but before
+  // the browser paints, so the correct scroll position is already in
+  // place by the time anything becomes visible, rather than painting the
+  // wrong position first and correcting a frame later.
+  const isFirstPositionRef = useRef(true)
+  useLayoutEffect(() => {
+    if (scorecardExpanded || showReconciliation) {
+      // Expanded or Round Summary: normal document scrolling, no lock,
+      // no forced repositioning — the golfer explicitly asked to review
+      // the round, or is on a screen scoring focus mode was never meant
+      // to affect.
+      const prevBodyOverflow = document.body.style.overflow
+      const prevHtmlOverflow = document.documentElement.style.overflow
+      document.body.style.overflow = ''
+      document.documentElement.style.overflow = ''
+      return () => {
+        document.body.style.overflow = prevBodyOverflow
+        document.documentElement.style.overflow = prevHtmlOverflow
+      }
+    }
+
+    // Collapsed and actively scoring — this is "enter collapsed scoring
+    // mode." Reposition first, then lock, per the explicit ordering
+    // requirement. Instant (not smooth) on the very first run, since an
+    // animated correction would itself be the visible flash this is
+    // meant to eliminate; smooth for subsequent hole-to-hole navigation,
+    // where a brief transition is expected and not jarring.
+    const anchor = scoringAnchorRef.current
+    const targetTop = anchor
+      ? Math.max(0, anchor.getBoundingClientRect().top + window.scrollY - 56)
+      : 0
+    window.scrollTo({ top: targetTop, behavior: isFirstPositionRef.current ? 'auto' : 'smooth' })
+    isFirstPositionRef.current = false
 
     const prevBodyOverflow = document.body.style.overflow
     const prevHtmlOverflow = document.documentElement.style.overflow
@@ -329,18 +337,17 @@ export default function SelfMarkerScoreShell({
     document.addEventListener('touchmove', preventTouchScroll, { passive: false })
 
     // Unconditional restore on cleanup — covers the collapsed-to-
-    // expanded transition, navigating to Round Summary, and unmount/
-    // route-change alike, so the lock can never leak into My Round,
-    // Leaderboard, Chat, Round Summary, or any other page.
+    // expanded transition, navigating to Round Summary, hole changes,
+    // and unmount/route-change alike, so the lock can never leak into
+    // My Round, Leaderboard, Chat, Round Summary, or any other page.
     return () => {
       document.body.style.overflow = prevBodyOverflow
       document.documentElement.style.overflow = prevHtmlOverflow
       document.removeEventListener('touchmove', preventTouchScroll)
     }
-  }, [scorecardExpanded, showReconciliation])
+  }, [scorecardExpanded, showReconciliation, holeIdx])
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const hasHydratedRef = useRef(false)
   const queryClient = useQueryClient()
   const confirmingRef = useRef(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -1092,16 +1099,19 @@ export default function SelfMarkerScoreShell({
                 // adds height above the current view; nudge the scroll up
                 // slightly so the newly-revealed active-hole tile is
                 // actually visible rather than just pushing content down
-                // off-screen above the viewport.
+                // off-screen above the viewport. The canonical
+                // positioning effect doesn't handle this specific detail
+                // (it only repositions when *entering* collapsed mode),
+                // so it stays here rather than being folded in.
                 requestAnimationFrame(() => {
                   window.scrollBy({ top: -140, behavior: 'smooth' })
                 })
-              } else {
-                // Collapsing returns the player to the active scoring
-                // position, per the explicit requirement — the page's
-                // own scroll, not a nested container's.
-                window.scrollTo({ top: 0, behavior: 'auto' })
               }
+              // Collapsing: no scroll call needed here anymore — the
+              // canonical positioning effect reacts to scorecardExpanded
+              // changing and repositions to the anchor itself. Calling
+              // scrollTo here too would just be the exact "two effects
+              // racing to position the page" this consolidation removed.
             }}
             style={{
               width: '100%', textAlign: 'center', padding: scorecardExpanded ? '7px 0' : '3px 0', marginBottom: scorecardExpanded ? 10 : 0,
