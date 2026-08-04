@@ -4780,3 +4780,57 @@ only.
 
 ### Database migrations
 None.
+
+---
+
+## Duplicate Hole-Info Block Removed — the Actual Clipping Cause
+
+### Root cause — a genuine duplicate, not just insufficient padding
+Traced the "Hole 5 / Par 4 / SI 9 clipped at top" report to its exact
+source: there were **two separate copies** of the hole/par/SI display —
+the new simplified top header ("✕ Exit | Hole N / Par N · SI N"), and a
+second, larger (22px) copy left over from an earlier redesign pass, still
+rendering directly below the toggle button, immediately after the header.
+The second copy predates the new header entirely and was never removed
+when the header was added — it wasn't a spacing problem, it was
+genuinely redundant content competing for the same space the header
+occupies. Removed it, keeping only "Marked by {name}" from that row
+(information the new header doesn't show).
+
+### Margin adjustment, now that the actual cause is fixed
+Increased the scrollable content's top padding slightly (52px→56px) for
+a clean, consistent margin below the 44px fixed header — a minor
+adjustment on top of the real fix above, not a substitute for it.
+
+### Reclaimed space reinvested — ~8% larger
+Score number 48px→52px, both +/- buttons 48px→52px (font sized up to
+match) — within the 5-10% range requested, using space freed by removing
+the duplicate block.
+
+### What was explicitly not touched
+The expanded-mode horizontal strip and its own content (untouched,
+confirmed by direct inspection immediately after this edit) — the
+brief's own "test the expanded scorecard" priority needs real-device
+confirmation, which isn't something I can do from here, but the code
+path itself wasn't touched by this fix.
+
+### Confirmed unchanged
+Stableford, marker comparison, reconciliation, offline sync,
+confirmation logic, the canonical positioning/scroll-lock effect, the
+fixed header and action tray mechanisms. 82/82 scoring-domain tests
+pass.
+
+### Manual test steps (cannot be run from this sandbox — no real
+device)
+Confirm the hole info now renders once, cleanly, with no clipping or
+overlap. The expanded horizontal scorecard — sliding open, page becoming
+scrollable, both cards remaining visible, collapsing returning to this
+exact layout — is the priority item still needing real-device
+verification.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.

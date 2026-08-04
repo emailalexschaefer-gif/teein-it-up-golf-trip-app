@@ -1075,7 +1075,7 @@ export default function SelfMarkerScoreShell({
         ref={scrollContainerRef}
         onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
         style={{
-          padding: '52px 16px 100px',
+          padding: '56px 16px 100px',
           background: '#faf9f6',
         }}
       >
@@ -1131,19 +1131,9 @@ export default function SelfMarkerScoreShell({
             {scorecardExpanded ? '▲ Hide Round Scorecard' : '▼ View Round Scorecard'}
           </button>
 
-          {!scorecardExpanded && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '2px 2px 0' }}>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#b0b6be', paddingTop: 4 }}>
-                {currentMarkedByName ? `Marked by ${currentMarkedByName}` : ''}
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 22, fontWeight: 800, lineHeight: 1 }}>
-                  Hole {holeNum}
-                </div>
-                <div style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 11, marginTop: 1 }}>
-                  Par {par} · SI {si}
-                </div>
-              </div>
+          {!scorecardExpanded && currentMarkedByName && (
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#b0b6be', padding: '2px 2px 0' }}>
+              Marked by {currentMarkedByName}
             </div>
           )}
 
@@ -1360,16 +1350,16 @@ function ScoreCard({
 
       <div className="scoring-card-body" style={{ padding: '9px 12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <button onClick={() => onPick(-1)} disabled={isLockedForSide} style={{ width: 48, height: 48, borderRadius: 11, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 22, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>−</button>
+          <button onClick={() => onPick(-1)} disabled={isLockedForSide} style={{ width: 52, height: 52, borderRadius: 11, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 24, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>−</button>
           <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#d1d5db' : '#14532d', fontSize: 48, fontWeight: 800, lineHeight: 1 }}>
+            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#d1d5db' : '#14532d', fontSize: 52, fontWeight: 800, lineHeight: 1 }}>
               {pickedUp ? 'P' : gross ?? '0'}
             </div>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#6b7280', marginTop: 3 }}>
               {pickedUp ? '0 Points (pick-up)' : pts !== null ? `${pts} Point${pts === 1 ? '' : 's'}` : 'Par ' + par + ' · SI ' + si}
             </div>
           </div>
-          <button onClick={() => onPick(1)} disabled={isLockedForSide} style={{ width: 48, height: 48, borderRadius: 11, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 22, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>+</button>
+          <button onClick={() => onPick(1)} disabled={isLockedForSide} style={{ width: 52, height: 52, borderRadius: 11, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 24, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>+</button>
         </div>
 
         {/* Pick Up — relocated here from the permanent tile row below, per
