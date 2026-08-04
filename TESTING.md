@@ -4259,3 +4259,66 @@ only.
 
 ### Database migrations
 None.
+
+---
+
+## Scoring Screen Layout Fix — sizing mechanism replaced (UI only)
+
+Per the explicit instruction: layout/CSS only. No scoring, reconciliation,
+confirmation, sync, React Query, API, schema, or state-management code
+was touched. 82/82 scoring-domain tests confirm this.
+
+### Diagnosed from the actual screenshot, not guessed
+The screenshot showed two symptoms together that pointed to one cause: a
+tile clipped at the edge of a card, *and* a large block of empty space
+below the Confirm/nav row before the bottom tab bar. That combination —
+not just clipping, not just wasted space, both at once — is consistent
+with the container's calculated height not matching the real available
+space, in either direction depending on how far the estimate drifted
+from the actual viewport on that specific device/browser state.
+
+### The fix — removed the arithmetic, not adjusted it a third time
+The workspace had already gone through two rounds of height-calculation
+fixes this project (`100dvh` minus estimated header/nav pixels, then
+`100svh` minus the same). Both approaches depend on correctly estimating
+every ancestor's real height and subtracting precisely — any drift shows
+up as exactly what the screenshot showed. Replaced the calculation
+entirely: `position: fixed` with `top: 64` (AppNav) and
+`bottom: calc(68px + safe-area-inset-bottom)` (TripBottomNav), anchoring
+the workspace's edges directly to the real viewport rather than to an
+estimate of it. This is a more reliable mechanism for this exact
+pattern, not a different guess at the same numbers.
+
+### A dependency this change surfaced and fixed in the same pass
+The short-viewport fallback (`max-height: 620px`, lets genuinely short
+screens scroll instead of clip) previously worked by overriding `height:
+auto`. With `position: fixed` now setting `top`/`bottom` directly,
+`height: auto` alone would no longer be sufficient to let the page
+scroll normally — updated the fallback to also reset `position: static`
+in that case, so the safety net still actually works.
+
+### What was explicitly not touched
+The content hierarchy (toggle → merged hole header → cards → confirm →
+nav), card padding/sizing from the previous UI pass, the body-scroll-
+lock effect, and every piece of scoring/sync/state logic. This was
+narrowly the sizing mechanism.
+
+### Confirmed unchanged
+Scoring engine, Stableford calculation, reconciliation, confirmation
+logic, offline sync, React Query, API routes, database schema, state
+management. 82/82 scoring-domain tests pass.
+
+### Manual test steps (cannot be run from this sandbox — no real
+Android/iPhone device)
+The exact scenario from the screenshot — both cards, tiles, Confirm, and
+nav visible together with no clipping and no unexplained blank space —
+needs real-device confirmation across the browsers listed (Android
+Chrome, Samsung, Pixel, iPhone Safari) at the 700-900px viewport range
+specified.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.

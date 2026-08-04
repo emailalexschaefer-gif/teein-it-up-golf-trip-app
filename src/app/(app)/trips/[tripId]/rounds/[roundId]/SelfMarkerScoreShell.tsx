@@ -985,27 +985,26 @@ export default function SelfMarkerScoreShell({
       className="scoring-workspace-outer"
       style={{
         display: 'flex', flexDirection: 'column', background: '#ffffff',
-        // Measured, not estimated: AppNav is Tailwind's h-16 (exactly
-        // 64px). TripBottomNav is minHeight:52 (content-box, so additive)
-        // + 8px/6px vertical padding + 2px top border ≈ 68px, before
-        // env(safe-area-inset-bottom) which is handled separately below.
-        ['--app-header-height' as string]: '64px',
-        ['--bottom-nav-height' as string]: '68px',
-        // 100svh (SMALL viewport height) as the authoritative baseline —
-        // not 100dvh alone. svh is, by spec, always the *smallest*
-        // possible viewport size regardless of whether Chrome's address
-        // bar is currently showing or hidden. Sizing against dvh (which
-        // can be LARGER when the bar is hidden) was the actual bug the
-        // screenshots exposed: the workspace fit fine with the bar
-        // hidden, then had no room to spare the moment it reappeared.
-        // svh guarantees the layout is correct for the worst case and
-        // simply has a little unused breathing room when more height
-        // happens to be available — never the other way around.
-        height: scorecardExpanded
-          ? 'auto'
-          : 'calc(100svh - var(--app-header-height) - var(--bottom-nav-height) - env(safe-area-inset-bottom, 0px))',
+        // Fixed positioning, not a calculated height — this is the actual
+        // fix. A calculated height (100dvh/100svh minus header/nav pixel
+        // estimates) depends on getting every ancestor's real height
+        // exactly right, and any drift between the estimate and reality
+        // shows up as either clipped content or, as the screenshot
+        // showed, a block of leftover blank space the calculation didn't
+        // account for. Anchoring top/bottom directly to the viewport via
+        // position:fixed sidesteps the arithmetic entirely: the browser
+        // itself resolves the actual available space between AppNav and
+        // TripBottomNav, which is more reliable than any estimate this
+        // component could compute on its own.
+        position: scorecardExpanded ? 'static' : 'fixed',
+        top: scorecardExpanded ? 'auto' : 64, // AppNav's real height (Tailwind h-16)
+        left: scorecardExpanded ? 'auto' : 0,
+        right: scorecardExpanded ? 'auto' : 0,
+        // TripBottomNav: minHeight 52 + ~8px vertical padding + 2px top
+        // border ≈ 68px, plus its own safe-area-inset-bottom handling.
+        bottom: scorecardExpanded ? 'auto' : 'calc(68px + env(safe-area-inset-bottom, 0px))',
         overflow: scorecardExpanded ? 'visible' : 'hidden',
-      } as React.CSSProperties}
+      }}
     >
       {toast && (
         <div style={{ position: 'fixed', top: 72, left: '50%', transform: 'translateX(-50%)', zIndex: 200, background: 'rgba(10,30,18,0.97)', border: '1px solid rgba(201,168,76,0.66)', borderRadius: 22, padding: '8px 18px' }}>
@@ -1032,7 +1031,7 @@ export default function SelfMarkerScoreShell({
           .scoring-nav-row { margin-top: 6px !important; }
         }
         @media (max-height: 620px) {
-          .scoring-workspace-outer { overflow: visible !important; height: auto !important; }
+          .scoring-workspace-outer { position: static !important; overflow: visible !important; }
           .scoring-workspace-fixed { overflow-y: auto !important; height: auto !important; max-height: none !important; }
         }
       `}</style>
