@@ -1006,36 +1006,37 @@ export default function SelfMarkerScoreShell({
       className="scoring-workspace-outer"
       style={{ display: 'flex', flexDirection: 'column', background: '#ffffff', minHeight: '100vh' }}
     >
-      {/* Compact scoring focus header — replaces the full branded AppNav
-          during active scoring, per the explicit "scoring is its own
-          screen mode" requirement. Exit is always present and never
-          hidden; it navigates back to the trip's Home without discarding
-          anything queued (the offline sync queue is independent of this
-          navigation — nothing here touches it). Sticky at the top since
-          nothing else now occupies that space. */}
+      {/* Simplified scoring focus header — only the two things that
+          matter while standing on the fairway: a way out, and which
+          hole this is. Round name and sync-pending text removed
+          entirely (secondary information); sync status moves to a
+          small icon beside Confirm Score instead, where it's relevant
+          at the exact moment it matters. */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 30,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        height: 48, padding: '0 12px',
+        height: 44, padding: '0 14px',
         background: 'linear-gradient(135deg, #0f2d1c, #1a4731)',
         borderBottom: '2px solid #c9a84c',
       }}>
         <Link
           href={`/trips/${tripId}`}
-          style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#f5e6b8', textDecoration: 'none', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700 }}
+          style={{ color: '#f5e6b8', textDecoration: 'none', fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 700 }}
         >
-          ← Exit Scoring
+          ✕ Exit
         </Link>
-        <span style={{ color: '#f5e6b8', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, opacity: 0.85 }}>
-          {round.name}
-        </span>
-        <span style={{ color: 'rgba(245,230,184,0.6)', fontFamily: 'var(--font-body)', fontSize: 10.5, minWidth: 44, textAlign: 'right' }}>
-          {displaySyncLabel || ''}
-        </span>
+        <div style={{ textAlign: 'right', lineHeight: 1.15 }}>
+          <div style={{ color: '#f5e6b8', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700 }}>
+            Hole {holeNum}
+          </div>
+          <div style={{ color: 'rgba(245,230,184,0.65)', fontFamily: 'var(--font-body)', fontSize: 10 }}>
+            Par {par} · SI {si}
+          </div>
+        </div>
       </div>
 
       {toast && (
-        <div style={{ position: 'fixed', top: 56, left: '50%', transform: 'translateX(-50%)', zIndex: 200, background: 'rgba(10,30,18,0.97)', border: '1px solid rgba(201,168,76,0.66)', borderRadius: 22, padding: '8px 18px' }}>
+        <div style={{ position: 'fixed', top: 52, left: '50%', transform: 'translateX(-50%)', zIndex: 200, background: 'rgba(10,30,18,0.97)', border: '1px solid rgba(201,168,76,0.66)', borderRadius: 22, padding: '8px 18px' }}>
           <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#e8c96a', fontWeight: 700 }}>● {toast}</span>
         </div>
       )}
@@ -1062,11 +1063,29 @@ export default function SelfMarkerScoreShell({
           padding here is sized to clear the sticky action tray below
           (its own height plus the bottom nav it sits above), so the
           second scorecard is never hidden behind it. */}
+      {/* Two modes, not a spectrum of CSS states. Collapsed: the content
+          floats, vertically centered, within a fixed region bounded by
+          the header above and the action tray below — genuinely
+          anchored, not just stacked at the top with leftover space below
+          it. Nothing scrolls; overflow:hidden is safe here specifically
+          because the cards are already confirmed to fit within this
+          space (that's what the leftover blank space in earlier
+          screenshots was actually showing). Expanded: reverts entirely
+          to normal, unbounded document flow — the golfer explicitly
+          asked to review the round, so the page scrolls like any other
+          page. */}
       <div
         ref={scrollContainerRef}
         onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
-        style={{
-          padding: '8px 16px calc(96px + env(safe-area-inset-bottom, 0px))',
+        style={scorecardExpanded ? {
+          padding: '8px 16px 96px',
+          background: '#faf9f6',
+        } : {
+          position: 'fixed', left: 0, right: 0, top: 44,
+          bottom: 'calc(112px + env(safe-area-inset-bottom, 0px))',
+          display: 'flex', flexDirection: 'column',
+          overflow: 'hidden',
+          padding: '4px 16px 0',
           background: '#faf9f6',
         }}
       >
@@ -1209,15 +1228,21 @@ export default function SelfMarkerScoreShell({
           )}
         </div>
 
-        {/* Scoring Anchor — the permanent resting point for every hole
-            transition (expanded mode only; collapsed mode disables the
-            anchor-scroll effect entirely, per the explicit instruction,
-            since this fixed grid has nothing to scroll to). Future
-            Premium content sits above this div without needing this
-            component's behavior to change. */}
+        {/* Scoring Anchor — the permanent resting point every hole
+            transition returns to. In collapsed mode, this is also what
+            makes the cards "float" within the available space rather
+            than sitting flush at the top with leftover space below them
+            — flex:1 claims the remaining height after the toggle/
+            marked-by row above, and justifyContent:'center' centers the
+            two cards within it. Expanded mode is unaffected — normal
+            flow, no centering, since that content already fills more
+            than one screen and scrolling is expected there. */}
         <div
           ref={scoringAnchorRef}
-          style={{ display: 'flex', flexDirection: 'column' }}
+          style={scorecardExpanded
+            ? { display: 'flex', flexDirection: 'column' }
+            : { flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }
+          }
         >
         {/* ── Card 1: YOUR SCORE ─────────────────────────────────────────── */}
         <ScoreCard
@@ -1259,6 +1284,11 @@ export default function SelfMarkerScoreShell({
         padding: '8px 16px', background: '#faf9f6',
         borderTop: '1px solid #eceae3', zIndex: 20,
       }}>
+        {displaySyncLabel && (
+          <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#9ca3af', marginBottom: 4 }}>
+            {displaySyncLabel}
+          </div>
+        )}
         <button
           onClick={confirmScore}
           disabled={!canConfirm || flash}

@@ -4643,3 +4643,72 @@ only.
 
 ### Database migrations
 None.
+
+---
+
+## Two Behavioral Modes — Header Simplified, Cards Anchored (Not Filled)
+
+Per the explicit reframing: this is a behavioral-mode correction, not
+another CSS adjustment. Scoring calculations, Stableford, persistence,
+sync queue, reconciliation, marker logic, confirmation, database, and
+API routes — all untouched, confirmed by 82/82 passing scoring-domain
+tests.
+
+### Header simplified to exactly two things
+"✕ Exit" (left) and "Hole {N} / Par {N} · SI {N}" (right) — Round name
+and the "N score(s) pending" text removed entirely, since they were
+secondary information competing with the one thing that matters while
+standing on the fairway. Sync status moved to a small, conditionally-
+shown line directly above Confirm Score — visible exactly when there's
+something to report, not permanently occupying header space.
+
+### The actual fix for the leftover blank space — stopped trying to
+eliminate it, anchored around it instead
+The blank space below the cards in every "bad" screenshot was evidence,
+not a bug to paper over: the cards already fit comfortably in the
+available height. The fix wasn't to fill that space with more content or
+padding — it was to stop stacking the cards flush at the top and instead
+let them float, vertically centered, within the region bounded by the
+header above and the action tray below. The toggle/"Marked by" row stays
+pinned at the very top (immediately visible, unchanged position); only
+the cards section (`flex: 1, justifyContent: 'center'`) claims the
+remaining space and centers within it — matching "anchor the cards
+between top controls and bottom action tray, like iOS," without pushing
+the toggle away from the header.
+
+### Two modes, structurally distinct now
+**Collapsed**: the content region is `position: fixed`, bounded exactly
+between the header (44px) and the action tray (~112px + safe area),
+`overflow: hidden`. Nothing scrolls, by construction — this content
+no longer participates in normal document flow at all when collapsed,
+so there's structurally nothing for the page to scroll to, on top of the
+existing scroll-lock (kept as a secondary safety net, not the primary
+mechanism anymore). **Expanded**: completely unchanged from the
+previous deployment — normal, unbounded document flow, full page
+scroll, exactly as before.
+
+### What was explicitly not touched
+The canonical positioning `useLayoutEffect` from the previous
+deployment (still handles the scroll-lock and hole-to-hole repositioning
+as a defense-in-depth layer), Round Summary's own behavior, the compact
+scoring header's Exit/hide-chrome mechanism, card content (PAR/SHOTS/
+TOTAL, +/-, Pick Up), the action tray's buttons themselves.
+
+### Confirmed unchanged
+Stableford, marker comparison, reconciliation, offline sync,
+confirmation logic. 82/82 scoring-domain tests pass.
+
+### Manual test steps (cannot be run from this sandbox — no real
+device)
+Confirm the cards visually sit centered in the available space (not
+flush at the top with a gap below) across a few different holes/par
+values (card height varies slightly with content like stroke badges),
+and that expanding/collapsing still transitions cleanly between the two
+modes with no visible jump.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.
