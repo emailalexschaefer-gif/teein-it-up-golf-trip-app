@@ -4322,3 +4322,71 @@ only.
 
 ### Database migrations
 None.
+
+---
+
+## Scoring Screen — Viewport Architecture Replaced (UI only, final correction)
+
+Per the explicit instruction: the fixed-viewport approach (three
+iterations: `100dvh` calc, `100svh` calc, then whole-page `position:
+fixed`) is fully removed, not adjusted again. Layout/CSS only — 82/82
+scoring-domain tests confirm zero logic changes.
+
+### What changed
+- **Outer container**: no more `position: fixed`, no calculated height,
+  no `overflow: hidden`. Plain flex column, normal document flow.
+- **CSS Grid removed entirely** — `gridTemplateRows` and every `gridRow`
+  assignment deleted. The toggle/header row, the two scorecards, and
+  what was the confirm/nav row are no longer grid cells with allocated
+  heights; they render at their natural size in normal flow.
+- **Scorecards now render at full natural height** — nothing clips them,
+  since nothing is constraining their container's height anymore.
+- **New fixed action tray**, separate from the old whole-page fixed
+  container in kind, not just position: it only needs one small, stable
+  number (the bottom nav's ~68px height) to position itself — it never
+  needs to calculate the total viewport height by subtraction, which is
+  exactly the arithmetic that kept drifting wrong across three previous
+  attempts. Contains Confirm Score + Previous/Next (or Round Summary).
+- **Bottom padding on the scrolling content** sized to clear the tray, so
+  the second scorecard is never hidden behind it.
+- **Top row unchanged in content** — "Marked by {name}" left, "Hole {N} /
+  Par · SI" right — just no longer a grid cell.
+
+### A dependency this required updating, not left broken
+The scroll-to-anchor effect and the expand/collapse toggle's scroll
+handlers previously called `.scrollTo()`/`.scrollBy()` on the inner
+container div, back when *it* was the scrolling context. With the page
+itself now scrolling normally, that div is no longer scrollable, so
+those calls would have silently done nothing. Updated both to target
+`window.scrollTo()`/`window.scrollBy()` against the anchor's actual
+position in the document instead — same behavioral intent (return to
+the active scoring position on hole change or on collapse), correctly
+retargeted to the new architecture.
+
+### Removed, not left as dead code
+The body/html scroll-lock effect from the previous architecture (which
+existed specifically to compensate for viewport-height-calculation
+drift) is gone — it would have directly contradicted "the page may
+scroll normally," which is now the actual intended behavior, not a
+fallback case.
+
+### What was explicitly not touched
+Scoring, reconciliation, Stableford, offline sync, confirmation,
+navigation logic (only the scroll-*targeting*, i.e. which element gets
+`.scrollTo()` called on it, changed — not what triggers a scroll or
+when). 82/82 scoring-domain tests confirm this directly.
+
+### Manual test steps (cannot be run from this sandbox — no real
+device)
+The full acceptance list from the brief: no blank area above the cards,
+app header behaves normally, both cards render at natural full height,
+PAR/SHOTS/TOTAL never clipped, Confirm + nav stay visible while content
+scrolls behind them, expand/collapse still returns to the active scoring
+position — across Android Chrome, Samsung Internet, and Safari.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.
