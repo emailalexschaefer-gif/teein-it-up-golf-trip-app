@@ -285,12 +285,38 @@ export default function SelfMarkerScoreShell({
   // need to survive logout/across devices, matching the stated scope.
   const [scorecardExpanded, setScorecardExpanded] = useState(false)
 
-  // The body/html scroll lock that used to live here was part of the old
-  // fixed-viewport architecture (locking the page so a calculated-height
-  // container could simulate "no scrolling"). That approach has been
-  // replaced with normal document flow, so there is nothing to lock —
-  // the page scrolling normally is now the intended behavior, not a
-  // fallback to guard against.
+  // Document scroll lock while collapsed — reintroduced per explicit
+  // instruction, scoped narrowly to exactly this: no viewport-height
+  // calculations, no grid, no fixed card heights. The cards render at
+  // their natural height (unchanged from the previous pass); this only
+  // stops the *document itself* from scrolling while collapsed, which is
+  // what was letting Chrome's address bar show/hide and shift the
+  // available viewport mid-scoring. CSS overflow:hidden alone is known
+  // to be unreliable against touch-driven scroll on some mobile
+  // browsers, so a touchmove preventDefault is layered on as a backup —
+  // the same reasoning the original scroll-lock used, restored here for
+  // the same underlying problem.
+  useEffect(() => {
+    if (scorecardExpanded) return
+
+    const prevBodyOverflow = document.body.style.overflow
+    const prevHtmlOverflow = document.documentElement.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.documentElement.style.overflow = 'hidden'
+
+    const preventTouchScroll = (e: TouchEvent) => { e.preventDefault() }
+    document.addEventListener('touchmove', preventTouchScroll, { passive: false })
+
+    // Unconditional restore on cleanup — covers both the collapsed-to-
+    // expanded transition and unmount/route-change, so the lock can
+    // never leak into My Round, Leaderboard, Chat, or any other page.
+    return () => {
+      document.body.style.overflow = prevBodyOverflow
+      document.documentElement.style.overflow = prevHtmlOverflow
+      document.removeEventListener('touchmove', preventTouchScroll)
+    }
+  }, [scorecardExpanded])
+
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const hasHydratedRef = useRef(false)
   const queryClient = useQueryClient()

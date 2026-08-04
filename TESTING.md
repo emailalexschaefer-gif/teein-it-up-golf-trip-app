@@ -4390,3 +4390,73 @@ only.
 
 ### Database migrations
 None.
+
+---
+
+## Collapsed Scoring Screen — Document Scroll Lock (single-purpose deployment)
+
+Per the explicit instruction: only the collapsed-mode scroll behavior
+was touched. The natural-height cards, the fixed action tray, and every
+piece of scoring/Stableford/reconciliation/sync/confirmation logic from
+the previous deployment are unchanged — confirmed by 82/82 passing
+scoring-domain tests.
+
+### The precise, narrow fix
+A `useEffect` keyed on `scorecardExpanded`:
+- **Collapsed**: locks `document.body.style.overflow` and
+  `document.documentElement.style.overflow` to `'hidden'`, plus a
+  `touchmove` listener with `preventDefault()` as a backup — CSS
+  `overflow: hidden` alone is known to be unreliable against
+  touch-driven scroll on some mobile browsers, which is why both are
+  used together, matching the same reasoning the original (now
+  reintroduced) scroll lock used.
+- **Expanded**: the effect's cleanup runs, restoring the previous
+  overflow values and removing the touchmove listener — normal page
+  scrolling resumes, so the horizontal scorecard and hole-by-hole detail
+  remain reachable exactly as before.
+- **Unmount / route change**: the same cleanup function fires
+  unconditionally, regardless of which state was active — this is what
+  guarantees the lock can never leak into My Round, Leaderboard, Chat,
+  or any other page, per the explicit requirement.
+
+### Ordering — anchor position restored before the lock engages
+The collapse toggle already called `window.scrollTo({ top: 0 })`
+synchronously inside its own click handler, before
+`setScorecardExpanded(false)` triggers the re-render that this new
+effect runs after. That ordering — reposition first, lock second — was
+already correct from the previous pass and didn't need to change to
+satisfy this requirement; verified rather than assumed.
+
+### One thing checked and deliberately left as-is, not overlooked
+The separate anchor-scroll effect (fires on `holeIdx` change, e.g.
+Previous/Next Hole) is declared earlier in the component than
+`scorecardExpanded`, so it can't directly reference it without
+reordering hook declarations — a bigger, riskier change than this fix
+warranted. Left unconditional: calling `window.scrollTo()` while the
+page is already locked at its resting position is a redundant no-op in
+practice, not a functional problem, so reordering wasn't necessary to
+satisfy "resting position remains identical after Previous Hole, Next
+Hole and Confirm Score."
+
+### What was explicitly not touched
+Card layout, PAR/SHOTS/TOTAL tiles, the fixed action tray, scoring
+logic, Stableford, reconciliation, offline sync, final confirmation —
+none of these were modified. No new files; the scroll-lock lives
+entirely inside the one component already responsible for this screen,
+since a shared utility wasn't genuinely necessary for a single
+consumer.
+
+### Manual test steps (cannot be run from this sandbox — no real
+device)
+The six acceptance criteria from the brief: vertical swipe doesn't move
+anything while collapsed, address bar isn't triggered, resting position
+identical after Previous/Next/Confirm, expanding enables normal scroll,
+collapsing re-locks at the anchor, and leaving the page restores normal
+scrolling on My Round/Leaderboard/Chat.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.
