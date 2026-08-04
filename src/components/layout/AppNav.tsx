@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { GoldAvatar } from '@/components/ui/Avatar'
 import BrandLogo from '@/components/brand/BrandLogo'
+import { useScoringFocusStore } from '@/store/scoringFocusStore'
 
 interface Props { userName: string; avatarUrl: string | null }
 
@@ -15,6 +16,13 @@ export default function AppNav({ userName, avatarUrl }: Props) {
   const supabase    = createClient()
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
+  // Hidden entirely during active scoring — the dedicated scoring focus
+  // header (rendered by the scoring component itself) replaces this, per
+  // the explicit "scoring is its own screen mode" requirement. Round
+  // Summary and every other screen are unaffected, since the scoring
+  // component only sets this true for the active hole-entry view.
+  const scoringFocusActive = useScoringFocusStore(s => s.isActive)
+  if (scoringFocusActive) return null
 
   async function handleSignOut() {
     setOpen(false)

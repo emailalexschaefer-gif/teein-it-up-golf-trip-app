@@ -10,6 +10,7 @@ import { compareCaptures, COMPARISON_LABEL, type ComparisonStatus, type CaptureV
 import { queueScoreEntry, getPendingCount, getQueuedEntriesForScorecards } from '@/lib/db/dexie'
 import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
 import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
+import { useScoringFocusStore } from '@/store/scoringFocusStore'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -215,10 +216,24 @@ export default function SelfMarkerScoreShell({
     // AppNav is sticky at 64px, so the offset keeps the anchor clear of
     // it rather than landing directly underneath.
     const anchorTop = anchor.getBoundingClientRect().top + window.scrollY
-    window.scrollTo({ top: Math.max(0, anchorTop - 72), behavior: 'smooth' })
+    window.scrollTo({ top: Math.max(0, anchorTop - 56), behavior: 'smooth' })
   }, [holeIdx])
   const [resumed, setResumed] = useState(false)
   const [showReconciliation, setShowReconciliation] = useState(false)
+
+  // Scoring focus mode — signals AppNav/TripBottomNav to hide themselves
+  // while actively entering scores, restoring them for Round Summary and
+  // on unmount. This is the actual mechanism behind "scoring is its own
+  // screen mode": those components render outside this one's own
+  // subtree, so a shared store is what lets this reach them.
+  const setScoringFocusActive = useScoringFocusStore(s => s.setActive)
+  useEffect(() => {
+    setScoringFocusActive(!showReconciliation)
+    // Unconditional on unmount, regardless of which state was active —
+    // this is what guarantees the chrome always comes back when leaving
+    // the scoring page by any route (Exit, browser back, tab switch).
+    return () => setScoringFocusActive(false)
+  }, [showReconciliation, setScoringFocusActive])
   const [submittingFinal, setSubmittingFinal] = useState(false)
   const [submitFinalError, setSubmitFinalError] = useState('')
   const [showConfirmModal, setShowConfirmModal] = useState(false)
@@ -297,7 +312,13 @@ export default function SelfMarkerScoreShell({
   // the same reasoning the original scroll-lock used, restored here for
   // the same underlying problem.
   useEffect(() => {
-    if (scorecardExpanded) return
+    // The confirmed leak: this lock previously had no awareness of
+    // Round Summary, so if the player was in collapsed mode when they
+    // tapped "Round Summary," the lock stayed engaged — Round Summary
+    // inherited a scroll lock that was never meant for it. Both
+    // conditions must hold for the lock to apply: collapsed AND
+    // actively scoring (not viewing Round Summary).
+    if (scorecardExpanded || showReconciliation) return
 
     const prevBodyOverflow = document.body.style.overflow
     const prevHtmlOverflow = document.documentElement.style.overflow
@@ -307,15 +328,16 @@ export default function SelfMarkerScoreShell({
     const preventTouchScroll = (e: TouchEvent) => { e.preventDefault() }
     document.addEventListener('touchmove', preventTouchScroll, { passive: false })
 
-    // Unconditional restore on cleanup — covers both the collapsed-to-
-    // expanded transition and unmount/route-change, so the lock can
-    // never leak into My Round, Leaderboard, Chat, or any other page.
+    // Unconditional restore on cleanup — covers the collapsed-to-
+    // expanded transition, navigating to Round Summary, and unmount/
+    // route-change alike, so the lock can never leak into My Round,
+    // Leaderboard, Chat, Round Summary, or any other page.
     return () => {
       document.body.style.overflow = prevBodyOverflow
       document.documentElement.style.overflow = prevHtmlOverflow
       document.removeEventListener('touchmove', preventTouchScroll)
     }
-  }, [scorecardExpanded])
+  }, [scorecardExpanded, showReconciliation])
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const hasHydratedRef = useRef(false)
@@ -975,10 +997,38 @@ export default function SelfMarkerScoreShell({
   return (
     <div
       className="scoring-workspace-outer"
-      style={{ display: 'flex', flexDirection: 'column', background: '#ffffff' }}
+      style={{ display: 'flex', flexDirection: 'column', background: '#ffffff', minHeight: '100vh' }}
     >
+      {/* Compact scoring focus header — replaces the full branded AppNav
+          during active scoring, per the explicit "scoring is its own
+          screen mode" requirement. Exit is always present and never
+          hidden; it navigates back to the trip's Home without discarding
+          anything queued (the offline sync queue is independent of this
+          navigation — nothing here touches it). Sticky at the top since
+          nothing else now occupies that space. */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 30,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        height: 48, padding: '0 12px',
+        background: 'linear-gradient(135deg, #0f2d1c, #1a4731)',
+        borderBottom: '2px solid #c9a84c',
+      }}>
+        <Link
+          href={`/trips/${tripId}`}
+          style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#f5e6b8', textDecoration: 'none', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700 }}
+        >
+          ← Exit Scoring
+        </Link>
+        <span style={{ color: '#f5e6b8', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, opacity: 0.85 }}>
+          {round.name}
+        </span>
+        <span style={{ color: 'rgba(245,230,184,0.6)', fontFamily: 'var(--font-body)', fontSize: 10.5, minWidth: 44, textAlign: 'right' }}>
+          {displaySyncLabel || ''}
+        </span>
+      </div>
+
       {toast && (
-        <div style={{ position: 'fixed', top: 72, left: '50%', transform: 'translateX(-50%)', zIndex: 200, background: 'rgba(10,30,18,0.97)', border: '1px solid rgba(201,168,76,0.66)', borderRadius: 22, padding: '8px 18px' }}>
+        <div style={{ position: 'fixed', top: 56, left: '50%', transform: 'translateX(-50%)', zIndex: 200, background: 'rgba(10,30,18,0.97)', border: '1px solid rgba(201,168,76,0.66)', borderRadius: 22, padding: '8px 18px' }}>
           <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#e8c96a', fontWeight: 700 }}>● {toast}</span>
         </div>
       )}
@@ -1009,7 +1059,7 @@ export default function SelfMarkerScoreShell({
         ref={scrollContainerRef}
         onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
         style={{
-          padding: '8px 16px calc(150px + env(safe-area-inset-bottom, 0px))',
+          padding: '8px 16px calc(96px + env(safe-area-inset-bottom, 0px))',
           background: '#faf9f6',
         }}
       >
@@ -1185,19 +1235,17 @@ export default function SelfMarkerScoreShell({
         )}
       </div>
 
-      {/* Fixed scoring action tray — the actual architectural correction.
-          Unlike the previous whole-page fixed container (which needed to
-          calculate its own total height by subtracting header/nav
-          estimates from the viewport — the arithmetic that kept drifting
-          wrong), this tray only needs to know one small, stable number:
-          the bottom nav's own height. It never needs to know the total
-          viewport height at all, which is what makes it reliable
-          regardless of address bar state. The scrolling content above
-          has matching bottom padding so the second scorecard is never
-          hidden behind it. */}
+      {/* Fixed scoring action tray. Now that TripBottomNav is hidden
+          during active scoring (scoring focus mode), this sits directly
+          above the device safe area rather than needing to clear a
+          bottom nav that isn't there — the reclaimed space goes to the
+          scrollable content's reduced bottom padding above, not to more
+          whitespace. Its own position still doesn't depend on any
+          calculated total viewport height, which is what makes it
+          reliable regardless of address bar state. */}
       <div style={{
         position: 'fixed', left: 0, right: 0,
-        bottom: 'calc(68px + env(safe-area-inset-bottom, 0px))',
+        bottom: 'env(safe-area-inset-bottom, 0px)',
         padding: '8px 16px', background: '#faf9f6',
         borderTop: '1px solid #eceae3', zIndex: 20,
       }}>

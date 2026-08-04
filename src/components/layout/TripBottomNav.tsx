@@ -16,6 +16,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
+import { useScoringFocusStore } from '@/store/scoringFocusStore'
 
 interface NavItem { href: string; label: string; icon: string; match: (path: string) => boolean }
 
@@ -43,6 +44,7 @@ export function TripBottomNav({ tripId, isOrganiser, activeRoundId }: { tripId: 
   const pathname = usePathname() ?? ''
   const items = buildItems(tripId, isOrganiser, activeRoundId)
   const [hasUnread, setHasUnread] = useState(false)
+  const scoringFocusActive = useScoringFocusStore(s => s.isActive)
 
   // Reuses the existing messages endpoint — no new API for this. No
   // refetchInterval: checked on mount and on window focus only, per the
@@ -63,6 +65,11 @@ export function TripBottomNav({ tripId, isOrganiser, activeRoundId }: { tripId: 
     const lastRead = window.localStorage.getItem(`chat-last-read-${tripId}`)
     setHasUnread(!lastRead || data.messages[0].created_at > lastRead)
   }, [data, tripId])
+
+  // Hidden during active scoring — the dedicated scoring focus action
+  // tray replaces this. Round Summary and every other trip screen are
+  // unaffected.
+  if (scoringFocusActive) return null
 
   return (
     <nav
@@ -114,6 +121,8 @@ export function TripBottomNav({ tripId, isOrganiser, activeRoundId }: { tripId: 
 export function DesktopTripNav({ tripId, isOrganiser, activeRoundId }: { tripId: string; isOrganiser: boolean; activeRoundId: string | null }) {
   const pathname = usePathname() ?? ''
   const items = buildItems(tripId, isOrganiser, activeRoundId)
+  const scoringFocusActive = useScoringFocusStore(s => s.isActive)
+  if (scoringFocusActive) return null
 
   return (
     <div className="hidden md:flex" style={{

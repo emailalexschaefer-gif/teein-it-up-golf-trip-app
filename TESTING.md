@@ -4460,3 +4460,87 @@ only.
 
 ### Database migrations
 None.
+
+---
+
+## Dedicated Full-Screen Scoring Focus Mode
+
+Per the explicit instruction: UI-shell correction only. No changes to
+Stableford, score saving, offline queue, reconciliation, marker
+assignment, readiness logic, final-score confirmation, leaderboard
+calculations, or database schema — confirmed by 82/82 passing
+scoring-domain tests.
+
+### A confirmed bug found and fixed as part of this work, not separately
+Image 1's Round Summary showing "Saving your scores..." unable to
+scroll was traced to its exact mechanism: the document scroll lock
+(reintroduced last deployment) was keyed only on `scorecardExpanded`,
+with no awareness of `showReconciliation` (Round Summary). Since
+`scorecardExpanded` doesn't reset when navigating to Round Summary, a
+player who was in collapsed mode when they tapped "Round Summary"
+carried the lock straight into a screen it was never meant to affect.
+Fixed by adding `showReconciliation` to the lock's guard condition and
+its dependency array — both conditions now must hold (collapsed AND
+actively scoring) for the lock to engage.
+
+### The architecture — a shared store, not scroll-position heuristics
+`AppNav` and `TripBottomNav` render from parent layouts, outside the
+scoring component's own subtree — there's no direct way to "hide" them
+from inside that component via props or conditional rendering. Added a
+minimal Zustand store (`scoringFocusStore.ts`, one boolean) that the
+scoring component sets on mount/state-change and both nav components
+subscribe to, rendering nothing while active. This is the "route-aware
+or explicit scoring-mode layout behaviour" the brief asked for — an
+explicit signal, not an inference from scroll position, viewport size,
+or any other proxy.
+
+- **Active hole-entry**: `isActive = true` → AppNav and TripBottomNav
+  (both mobile and desktop versions) render nothing.
+- **Round Summary**: the same effect sets `isActive = false` the moment
+  `showReconciliation` becomes true — normal chrome returns immediately,
+  before Round Summary's own JSX even renders.
+- **Unmount (Exit, browser back, tab switch, any navigation away)**: the
+  effect's cleanup unconditionally sets `isActive = false`, regardless
+  of which state was active — this is what guarantees the chrome always
+  comes back, on every exit path, not just the ones explicitly tested.
+
+### New compact scoring header
+Replaces the branded AppNav while active: "← Exit Scoring" (permanently
+visible, navigates to the trip Home, doesn't touch the offline sync
+queue), the round name, and the existing sync-status label — 48px tall,
+sticky at the top since nothing else occupies that space now.
+
+### Reclaimed space actually used, not left as whitespace
+With TripBottomNav hidden during active scoring, the action tray no
+longer needs `bottom: calc(68px + safe-area)` to clear it — now sits
+directly above the safe-area inset. The scrolling content's bottom
+padding was reduced correspondingly (150px → 96px, matching only the
+tray's own height, not tray-plus-hidden-nav). The anchor-scroll offset
+was also adjusted (72px → 56px) to match the new 48px header replacing
+the old 64px AppNav.
+
+### What was explicitly not touched
+Card layout, PAR/SHOTS/TOTAL tiles, Round Summary's own content and
+table, Stableford, marker comparison, reconciliation, offline sync,
+confirmation logic, database schema. 82/82 scoring-domain tests confirm
+this directly.
+
+### Manual test steps (cannot be run from this sandbox — no real
+device)
+The full acceptance list: collapsed mode at holes 1/mid/9 showing no
+normal chrome with Exit visible and both cards+tiles+tray complete and
+motionless; expanded mode with the header still visible and controlled
+scrolling; Exit/Round Summary/Home all restoring normal chrome with no
+lingering lock, specifically re-testing the exact Round Summary scroll
+scenario from the screenshots.
+
+### Files created
+`src/store/scoringFocusStore.ts`
+
+### Files modified
+`src/components/layout/AppNav.tsx`,
+`src/components/layout/TripBottomNav.tsx`,
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+
+### Database migrations
+None.
