@@ -1013,7 +1013,7 @@ export default function SelfMarkerScoreShell({
           small icon beside Confirm Score instead, where it's relevant
           at the exact moment it matters. */}
       <div style={{
-        position: 'sticky', top: 0, zIndex: 30,
+        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 30,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         height: 44, padding: '0 14px',
         background: 'linear-gradient(135deg, #0f2d1c, #1a4731)',
@@ -1063,29 +1063,19 @@ export default function SelfMarkerScoreShell({
           padding here is sized to clear the sticky action tray below
           (its own height plus the bottom nav it sits above), so the
           second scorecard is never hidden behind it. */}
-      {/* Two modes, not a spectrum of CSS states. Collapsed: the content
-          floats, vertically centered, within a fixed region bounded by
-          the header above and the action tray below — genuinely
-          anchored, not just stacked at the top with leftover space below
-          it. Nothing scrolls; overflow:hidden is safe here specifically
-          because the cards are already confirmed to fit within this
-          space (that's what the leftover blank space in earlier
-          screenshots was actually showing). Expanded: reverts entirely
-          to normal, unbounded document flow — the golfer explicitly
-          asked to review the round, so the page scrolls like any other
-          page. */}
+      {/* One container, two views — not two different architectures.
+          Collapsed and expanded now share the exact same normal-flow
+          structure; the only things that differ are whether the strip's
+          expanded content renders (an accordion reveal, not a mode
+          switch) and whether document scroll is locked (handled by the
+          canonical positioning effect above, via body/html overflow —
+          not by removing this content from flow). Padding-top clears the
+          fixed header; padding-bottom clears the fixed tray. */}
       <div
         ref={scrollContainerRef}
         onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
-        style={scorecardExpanded ? {
-          padding: '8px 16px 96px',
-          background: '#faf9f6',
-        } : {
-          position: 'fixed', left: 0, right: 0, top: 44,
-          bottom: 'calc(112px + env(safe-area-inset-bottom, 0px))',
-          display: 'flex', flexDirection: 'column',
-          overflow: 'hidden',
-          padding: '4px 16px 0',
+        style={{
+          padding: '52px 16px 100px',
           background: '#faf9f6',
         }}
       >
@@ -1229,20 +1219,13 @@ export default function SelfMarkerScoreShell({
         </div>
 
         {/* Scoring Anchor — the permanent resting point every hole
-            transition returns to. In collapsed mode, this is also what
-            makes the cards "float" within the available space rather
-            than sitting flush at the top with leftover space below them
-            — flex:1 claims the remaining height after the toggle/
-            marked-by row above, and justifyContent:'center' centers the
-            two cards within it. Expanded mode is unaffected — normal
-            flow, no centering, since that content already fills more
-            than one screen and scrolling is expected there. */}
+            transition returns to, and the same simple normal-flow
+            wrapper in both collapsed and expanded modes now — no
+            special-cased centering, since both modes share the same
+            container structure. */}
         <div
           ref={scoringAnchorRef}
-          style={scorecardExpanded
-            ? { display: 'flex', flexDirection: 'column' }
-            : { flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }
-          }
+          style={{ display: 'flex', flexDirection: 'column' }}
         >
         {/* ── Card 1: YOUR SCORE ─────────────────────────────────────────── */}
         <ScoreCard
@@ -1375,18 +1358,18 @@ function ScoreCard({
         </div>
       </div>
 
-      <div className="scoring-card-body" style={{ padding: '7px 10px' }}>
+      <div className="scoring-card-body" style={{ padding: '9px 12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <button onClick={() => onPick(-1)} disabled={isLockedForSide} style={{ width: 46, height: 46, borderRadius: 11, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 21, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>−</button>
+          <button onClick={() => onPick(-1)} disabled={isLockedForSide} style={{ width: 48, height: 48, borderRadius: 11, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 22, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>−</button>
           <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#d1d5db' : '#14532d', fontSize: 44, fontWeight: 800, lineHeight: 1 }}>
+            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#d1d5db' : '#14532d', fontSize: 48, fontWeight: 800, lineHeight: 1 }}>
               {pickedUp ? 'P' : gross ?? '0'}
             </div>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#6b7280', marginTop: 2 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#6b7280', marginTop: 3 }}>
               {pickedUp ? '0 Points (pick-up)' : pts !== null ? `${pts} Point${pts === 1 ? '' : 's'}` : 'Par ' + par + ' · SI ' + si}
             </div>
           </div>
-          <button onClick={() => onPick(1)} disabled={isLockedForSide} style={{ width: 46, height: 46, borderRadius: 11, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 21, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>+</button>
+          <button onClick={() => onPick(1)} disabled={isLockedForSide} style={{ width: 48, height: 48, borderRadius: 11, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 22, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>+</button>
         </div>
 
         {/* Pick Up — relocated here from the permanent tile row below, per

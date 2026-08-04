@@ -4712,3 +4712,71 @@ only.
 
 ### Database migrations
 None.
+
+---
+
+## Unified Collapsed/Expanded Structure — Fixed the Sticky-Header Bug
+
+### A real bug found in the screenshots, not a preference
+Image 1 showed blank white space above the header instead of the header
+itself. Traced the actual mechanism: the header was `position: sticky`,
+which only works correctly relative to normal document flow and the
+current scroll position — but the previous deployment made the
+*content* `position: fixed` when collapsed, removing it from flow
+entirely and leaving the body with almost no natural height. If the
+document's scroll position was anything other than exactly 0 (e.g.
+inherited from a moment earlier), the sticky header — now with barely
+any flow context to stick relative to — could render below a stretch of
+blank space instead of at the top. Image 2 (expanded, still normal
+flow) didn't show this, which is what pinpointed the fixed-content
+change as the cause.
+
+### The fix — matches the explicit "two views of the same screen" model
+Header changed from `sticky` to `fixed` — pinned to the viewport
+unconditionally, with zero dependency on scroll position or document
+flow. Content reverted from mode-dependent (`position: fixed` when
+collapsed, normal flow when expanded) to **one single structure used by
+both modes** — normal flow, `padding-top` clearing the fixed header,
+`padding-bottom` clearing the fixed tray, identical in both states. The
+special-cased "float/center the cards" logic from the previous
+deployment was removed along with it, since it was solving a problem
+(anchoring within a bounded fixed region) that no longer exists once
+both modes share the same flow.
+
+This directly satisfies "make the collapsed state visually identical to
+the expanded state, except for the horizontal scorecard and the ability
+to scroll" — there is now structurally only one container, not two
+different architectures that happen to look similar.
+
+### Reclaimed space, reinvested
+With the blank-gap bug fixed, the toggle now renders directly below the
+header with no unnecessary space between them. Used part of that
+margin to enlarge score entry as requested: score number 44px→48px,
++/- buttons 46px→48px (also fixed a small inconsistency where they
+weren't quite matching each other), card body padding increased
+slightly.
+
+### What was explicitly kept, not touched
+Sync status above Confirm Score (the previous deployment's placement,
+confirmed good). Round Summary's behavior, the canonical positioning/
+scroll-lock effect (still runs the same way, now with less to do since
+the content it locks is back in normal flow rather than fixed), the
+compact score strip's own expand/collapse accordion behavior.
+
+### Confirmed unchanged
+Stableford, marker comparison, reconciliation, offline sync,
+confirmation logic. 82/82 scoring-domain tests pass.
+
+### Manual test steps (cannot be run from this sandbox — no real
+device)
+Specifically re-test the exact scenario from the screenshots: enter
+scoring, confirm a score, and check whether the header renders
+immediately and correctly (no blank space above it) regardless of prior
+scroll state — this was the precise failure mode being fixed.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.
