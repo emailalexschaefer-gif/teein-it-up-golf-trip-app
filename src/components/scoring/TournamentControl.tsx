@@ -35,6 +35,14 @@ interface MismatchAlert {
 }
 interface StoryEntry { icon: string; text: string; at: string }
 interface LeaderboardSnapshotRow { position: number; playerId: string; name: string; totalPts: number; holesPlayed: number; finished: boolean }
+interface SeasonSummaryData {
+  completedRoundsCount: number
+  standings: { playerId: string; name: string; wins: number }[]
+  averages: { playerId: string; name: string; average: number; roundsPlayed: number }[]
+  bestRound: { players: { playerId: string; name: string; pts: number; roundName: string }[]; pts: number } | null
+  latestResult: { roundId: string; roundName: string; winners: { playerId: string; name: string; totalPts: number }[]; isTie: boolean } | null
+}
+
 interface TournamentData {
   roundName: string; scoringFormat: string; roundStatus: string; totalHoles: number
   health: { level: 'green' | 'gold' | 'red'; text: string; topMismatch?: MismatchAlert }
@@ -73,7 +81,7 @@ function relativeTime(iso: string): string {
   return `${Math.floor(minutes / 60)}h ago`
 }
 
-export default function TournamentControl({ tripId, roundId, roundStatus }: { tripId: string; roundId: string; roundStatus: string }) {
+export default function TournamentControl({ tripId, roundId, roundStatus, eventType = null }: { tripId: string; roundId: string; roundStatus: string; eventType?: string | null }) {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
@@ -145,6 +153,22 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     staleTime: 0,
+  })
+
+  // Season Summary — Social Golf events only. Not polled like the live
+  // round data above; completed-round statistics don't change from
+  // second to second the way an active round's live state does, so a
+  // plain fetch-on-mount (refetched on window focus, like everything
+  // else here) is enough.
+  const { data: seasonSummary } = useQuery<SeasonSummaryData>({
+    queryKey: ['season-summary', tripId],
+    queryFn: async () => {
+      const res = await fetch(`/api/trips/${tripId}/season-summary`)
+      if (!res.ok) throw new Error('Could not load season summary.')
+      return res.json()
+    },
+    enabled: eventType === 'social_golf',
+    refetchOnWindowFocus: true,
   })
 
   async function handleClose() {
@@ -440,6 +464,52 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
                 {h}
               </div>
             ))}
+          </div>
+        </>
+      )}
+
+      {/* ── Season Summary — Social Golf events only, completed rounds only.
+          Uses the exact same result computation as the Rounds tab result
+          cards (getRoundResult/aggregateSeasonSummary) — one authoritative
+          source, not a second calculation. ─────────────────────────────── */}
+      {eventType === 'social_golf' && seasonSummary && seasonSummary.completedRoundsCount > 0 && (
+        <>
+          <SectionTitle>Season Summary</SectionTitle>
+          <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', padding: 14, marginBottom: 16 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 10 }}>
+              Rounds completed: {seasonSummary.completedRoundsCount}
+            </div>
+
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#a1791f', letterSpacing: 0.5, marginBottom: 4 }}>
+              STANDINGS
+            </div>
+            {seasonSummary.standings.map((s, i) => (
+              <div key={s.playerId} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontFamily: 'var(--font-body)', fontSize: 13 }}>
+                <span style={{ color: '#14532d', fontWeight: 700 }}>{i + 1}. {s.name}</span>
+                <span style={{ color: '#6b7280' }}>{s.wins} win{s.wins === 1 ? '' : 's'}</span>
+              </div>
+            ))}
+
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#a1791f', letterSpacing: 0.5, margin: '12px 0 4px' }}>
+              FORM
+            </div>
+            {seasonSummary.averages.map(a => (
+              <div key={a.playerId} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151' }}>
+                <span>{a.name} average</span>
+                <span>{a.average} pts</span>
+              </div>
+            ))}
+
+            {seasonSummary.bestRound && (
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151', marginTop: 8 }}>
+                Best round: {seasonSummary.bestRound.players.map(p => p.name).join(' and ')} — {seasonSummary.bestRound.pts} pts
+              </div>
+            )}
+            {seasonSummary.latestResult && (
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151', marginTop: 2 }}>
+                Latest {seasonSummary.latestResult.isTie ? 'result' : 'winner'}: {seasonSummary.latestResult.winners.map(w => w.name).join(' and ')} — {seasonSummary.latestResult.roundName}
+              </div>
+            )}
           </div>
         </>
       )}

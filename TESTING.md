@@ -4834,3 +4834,470 @@ only.
 
 ### Database migrations
 None.
+
+---
+
+## Spacing/Alignment Only — Larger Score Entry, Expanded-Mode Code Reviewed
+
+Per the explicit instruction: "the static scoring layout is now the
+baseline... only fix spacing/alignment." No components moved, no
+architecture touched. 82/82 scoring-domain tests confirm zero logic
+changes.
+
+### Confirmed the previous fix worked, from the new screenshots
+Image 1 shows the header rendering cleanly with no clipping and no
+duplicate — the earlier duplicate-block fix held. Image 2 (scrolled
+slightly) revealed the actual remaining opportunity: a substantial
+block of unused space between the cards and the fixed tray, confirming
+there was significantly more room to use than the previous, more modest
+enlargement took advantage of.
+
+### More substantial enlargement, using the confirmed space
+Score number 52px→60px, +/- buttons 52px→58px, card body padding
+9px/12px→14px/14px, PAR/SHOTS/TOTAL tile numbers 15px→17px (TOTAL
+specifically matched to PAR, which had drifted slightly smaller), Pick
+Up button and spacing loosened slightly, gap between the two cards
+increased. This is a more generous pass than the previous 8% bump,
+proportionate to how much space the screenshots actually showed was
+available.
+
+### Expanded-mode logic reviewed at the code level, not assumed safe
+Since real-device testing of the expanded scorecard isn't something I
+can do from this sandbox, read through the strip-rendering logic
+directly rather than leaving it unverified: hole-tile tap-to-jump
+(`setHoleIdx`), current-hole highlighting, and per-hole score/points
+display are all intact and untouched by this or the previous few
+deployments. The scroll-unlock effect correctly restores normal
+document scrolling when `scorecardExpanded` is true. This is a code
+review, not a substitute for the real-device test the brief specifically
+asked for.
+
+### Confirmed unchanged
+Stableford, marker comparison, reconciliation, offline sync,
+confirmation logic, the fixed header/tray, the canonical positioning
+effect, the expanded-mode strip's own logic. 82/82 scoring-domain tests
+pass.
+
+### Manual test steps (cannot be run from this sandbox — no real
+device)
+The priority item remains unchanged from last time: tap "View Round
+Scorecard" and confirm the strip slides open, the page becomes
+scrollable, both cards stay fully visible, and hiding it returns to
+exactly this static layout.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.
+
+---
+
+## Bug Fix — 9-Hole Stroke Index Selection (single-purpose deployment)
+
+### Two genuine occurrences of the "9 holes = SI 1-9" assumption found
+Searched every layer per the brief's explicit list. Found and fixed
+exactly two:
+
+1. **Hole Setup UI dropdown** (`BeginRoundModal.tsx`): the Stroke Index
+   `<select>` generated its options as
+   `Array.from({ length: holeCount }, ...)` — for a 9-hole round, this
+   only offered 1-9. Fixed to always generate 1-18, independent of
+   `holeCount`.
+2. **Round-start API validation** (`start/route.ts`): required the
+   sorted stroke indexes to equal exactly `[1, 2, ..., holeCount]` —
+   for a 9-hole round, this rejected any valid configuration that
+   wasn't coincidentally SI 1-9, including every real front/back-nine
+   split of a full course (the Sandhurst example: SI 16, 15, 11, 12
+   among others). Fixed to check only that the stroke indexes are
+   unique — preserving the duplicate-index protection, removing the
+   incorrect "must form a consecutive run starting at 1" requirement.
+   Individual range (1-18) was already enforced separately by the
+   existing Zod schema, unchanged.
+
+### Checked and confirmed already correct, not assumed
+- **Database constraint**: `CHECK (stroke_index BETWEEN 1 AND 18)` —
+  already independent of hole count, no schema change needed.
+- **Zod schema** in the same route: `z.number().int().min(1).max(18)` —
+  already correct.
+- **Default 9-hole hole-generation template**: still defaults to SI 1-9
+  as a generic starting point, same as before — this is an editable
+  placeholder the organiser reviews before confirming (per the file's
+  own existing comment), not a restriction, and is unrelated to the
+  actual bug (the dropdown *limiting* what can be selected, not what
+  the default happens to be).
+- **Stableford stroke-allocation formula**
+  (`getHandicapStrokesForHole`): searched every real call site in the
+  app and confirmed none of them pass `holesInRound` as `round.holes`
+  — every call site uses the default (18), which is the mathematically
+  correct behavior for stroke-index-based allocation regardless of how
+  many holes are actually being played (a stroke index always
+  represents a hole's difficulty ranking within a full 18-hole course,
+  even when playing only 9). Verified this precisely against all five
+  of the brief's own test scenarios by hand before writing any test
+  code — all five matched exactly using the existing default. This
+  layer needed no code fix, only regression test coverage.
+
+### Regression tests added
+Six new tests in `strokeAllocation.test.ts`, covering the brief's five
+specific handicap/SI scenarios individually plus a full run through the
+actual nine-hole Sandhurst configuration from the bug report, confirming
+no stroke-index value in that real course data throws or is rejected.
+88/88 scoring-domain tests pass (82 existing + 6 new).
+
+### What was explicitly not touched
+Hole count selection, pars, scoring-screen layout, reconciliation,
+marker assignments, leaderboard logic, the broader round-start flow
+beyond this one validation check, database schema (confirmed already
+correct rather than changed), the default 9-hole template values.
+
+### Manual test steps (cannot be run from this sandbox — no live
+Supabase/browser access)
+Enter the exact Sandhurst front-nine configuration in Hole Setup for a
+9-hole round, confirm it saves, reload the setup screen and confirm the
+values persist, start the round, and confirm scoring displays the
+correct SI per hole with correct stroke allocation.
+
+### Files modified
+`src/components/scoring/BeginRoundModal.tsx`,
+`src/app/api/trips/[tripId]/rounds/[roundId]/start/route.ts`,
+`src/lib/scoring/strokeAllocation.test.ts`
+
+### Database migrations
+None — schema was already correct.
+
+---
+
+## Playing Nine Selector — Front / Back / Custom (9-Hole Rounds)
+
+### Data model — no schema change needed, verified before building
+Checked `holes.hole_number CHECK (BETWEEN 1 AND 18)` first — already
+supports 10-18 regardless of round hole count, and the scoring shells
+already prioritize the real stored `hole.hole_number` over array
+position for display. This meant Playing Nine could be built as a pure
+UI/workflow layer over the existing data model — no new column, no
+migration. The selection itself isn't persisted as a separate concept;
+it's a Hole Setup convenience that determines what gets pre-filled, and
+the resulting `hole_number`/`par`/`stroke_index` values are the only
+thing actually saved, exactly as today.
+
+### Hole Setup changes
+- New **Playing Nine** selector (Front Nine / Back Nine / Custom),
+  shown only when `holeCount === 9` — 18-hole rounds are completely
+  unaffected, confirmed by the conditional gating on `holeCount`.
+- **Front Nine**: loads the existing 9-hole default template (holes
+  1-9) — unchanged behavior, now made explicit.
+- **Back Nine**: new template (`DEFAULT_9_BACK_HOLES`), derived directly
+  from the existing 18-hole template's own holes 10-18 rather than
+  inventing separate data — keeps real hole numbers (10-18, not
+  renumbered) and their own stroke index values.
+- **Custom**: the Hole column becomes an editable 1-18 selector (was
+  previously static, uneditable text) — starts from the Front Nine
+  template as a familiar baseline, fully editable including the hole
+  number itself.
+
+### A new risk introduced and closed in the same pass
+Making `hole_number` editable in Custom mode creates a real possibility
+of duplicate hole numbers, which would previously only surface as a raw
+database `(round_id, hole_number)` constraint violation. Added a
+matching uniqueness check to the round-start API, mirroring the
+stroke-index uniqueness check from the previous deployment, with a
+clear error message instead of a database error leaking through.
+
+### Found and fixed three more occurrences of positional hole-slicing —
+"everywhere in the app," actually checked
+Searched beyond the two files already touched by the previous Stroke
+Index fix, per the explicit "everywhere in the app" instruction:
+
+1. **`ScoreSessionShell.tsx`** (group_scorer mode) used
+   `holes.slice(0, 9)` / `holes.slice(9)` for front9/back9 splits and
+   Stableford point subtotals — for a Back-Nine-only round (all holes
+   numbered 10-18), this would have mislabeled every hole as "front
+   nine." Fixed to filter by `hole_number` instead of array position,
+   matching the pattern already used elsewhere in the app.
+2. **A more serious bug this exposed**: the back-nine tile grid computed
+   `realIdx = i + 9`, assuming back-nine tiles always start at original
+   array index 9 — true only when slicing positionally. For a
+   Back-Nine-only round, all 9 holes actually sit at indices 0-8, so
+   this would have pointed at the wrong (nonexistent) hole entirely.
+   Fixed to use `holes.indexOf(h)` — the actual array position — instead
+   of an assumed offset. Applied the same safer pattern to the front-
+   nine tiles too, removing an implicit assumption rather than relying
+   on it continuing to hold by coincidence.
+3. **Round Summary's OUT subtotal** (`SelfMarkerScoreShell.tsx`)
+   unconditionally rendered "OUT" even when there were zero front-nine
+   holes to show above it (a Back-Nine-only round) — while "IN" already
+   had the correct empty-check. Made "OUT" consistent with "IN."
+4. **The compact strip's FRONT 9 label** (`SelfMarkerScoreShell.tsx`)
+   had the same unconditional-header issue, fixed the same way.
+
+None of these were called out explicitly in the bug report, but they're
+the direct, predictable consequence of making Back Nine (and Custom,
+which can produce the same "all holes above 9" shape) a real, reachable
+configuration rather than a theoretical one — worth finding now rather
+than during Friday's actual test.
+
+### Regression tests added
+New `defaultHoles.test.ts` — six tests covering: Front/Back Nine
+templates cover the correct real hole-number ranges, Back Nine is
+genuinely derived from the 18-hole template (not separately invented
+data that could drift out of sync with it), Custom defaults to Front
+Nine as a baseline, both 9-hole templates individually satisfy
+hole-number and stroke-index uniqueness, and that the helper returns a
+fresh copy each call rather than a shared mutable reference (which would
+have caused Front/Back Nine selections to silently corrupt each other's
+data). 94/94 scoring-domain tests pass (88 previous + 6 new).
+
+### What was explicitly not built, per "Friday scope"
+No course database or lookup — Front/Back Nine load a generic template,
+same principle as the existing defaults, editable before confirming. No
+"course + tee colour" selector. No persisted "which nine" concept beyond
+the resulting hole data itself.
+
+### Confirmed unchanged
+18-hole round behavior (the selector is fully gated on `holeCount ===
+9`), Stableford calculations, marker comparison, reconciliation,
+leaderboard aggregation (already hole_number-based, not positional —
+checked, not assumed), database schema.
+
+### Manual test steps (cannot be run from this sandbox — no live
+Supabase/browser access)
+Configure a 9-hole round, select Back Nine, confirm holes 10-18 load
+with real course-style stroke indexes, save and reload to confirm
+persistence, start the round, and confirm scoring/reconciliation/
+leaderboard/round summary all display the real hole numbers (10-18)
+rather than 1-9.
+
+### Files created
+`src/lib/scoring/defaultHoles.test.ts`
+
+### Files modified
+`src/lib/scoring/defaultHoles.ts`,
+`src/components/scoring/BeginRoundModal.tsx`,
+`src/app/api/trips/[tripId]/rounds/[roundId]/start/route.ts`,
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`,
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/ScoreSessionShell.tsx`
+
+### Database migrations
+None — schema already supported the full 1-18 range independent of
+hole count.
+
+---
+
+## Social Golf MVP — Partial Delivery, Honestly Scoped
+
+This brief asked for five substantial, connected features across schema,
+API, and three separate UI surfaces (Rounds tab, My Round, My HQ), with
+33 acceptance criteria. Given the actual scope involved, I focused on
+building the **architectural foundation properly** — the shared,
+tested, authoritative result logic every other piece depends on — rather
+than spreading effort thinly across all five UI surfaces and risking
+shallow, unverified work everywhere. What follows is a precise account
+of what's genuinely done versus deferred, not a claim that this package
+is complete.
+
+### Architecture audit performed first, as instructed
+- `rounds.status` already includes `'completed'` in its CHECK constraint
+  — no schema change needed for the status values themselves.
+- An existing `close/route.ts` already implements 'active' → 'completed'
+  with server-side validation — the "missing counterpart to start" this
+  session built earlier. Confirmed it existed before writing anything
+  new, rather than duplicating it.
+- **A real gap found in that existing route**: it checked that self and
+  marker entries *existed* for every hole, but never checked they
+  *agreed* — a genuine unresolved mismatch could previously be closed
+  over. It also never checked `scorecards.status = 'completed'` (the
+  player's own final-confirmation lock from earlier work), so a round
+  could be closed before every player had actually confirmed. Fixed
+  both — this is the authoritative "Ready to Finalise" gate the brief
+  asks for, strengthened rather than rebuilt.
+- **A second real gap**: the existing organiser-unlock action reverted a
+  scorecard's own status but never touched the round's `status`, so an
+  already-completed round stayed marked completed even after a
+  correction was opened. Fixed — unlocking a scorecard now reverts the
+  round to `'active'` too, closing the exact gap the brief called out
+  ("ensure the round is no longer falsely presented as fully complete").
+
+### 1. Social Golf event type — done
+Added `'social_golf'` to the `event_type` CHECK constraint (additive
+migration, every existing value preserved exactly) and to the
+event-type selector UI. Deliberately did **not** collapse the existing
+`corporate_day`/`charity_day`/`golf_society`/`bucks_weekend`/`other`
+options into a single "Special Event" entry — that would have been a
+breaking UI change removing existing choices, which directly
+contradicts "preserve compatibility with existing events." Added
+`social_golf` to the invite-message wording map alongside the existing
+per-type phrases.
+
+### 2. Round lifecycle — server-side logic done, UI wording not
+The authoritative readiness/finalisation checks described above are
+real and tested at the code level (mismatch detection reuses the exact
+comparison already established in the tournament route). What's **not**
+done: relabeling the existing close action to "Finalise Round" in the
+UI, or building the specific confirmation modal copy the brief
+specifies. The server-side gate is the harder, higher-value half of
+this requirement; the button label and modal text are comparatively
+quick follow-up work.
+
+### 3. Rounds tab result cards — not implemented
+This needs a shared result renderer plus changes to whatever component
+currently renders the Rounds tab's round cards, using the new
+`getRoundResult()` helper. Not built this pass. The helper it would
+call is built and tested; the UI consuming it is not.
+
+### 4. My Round permanent record — not verified or changed
+Did not audit whether My Round currently redirects into live scoring
+after a round completes, or update its action button per the brief's
+"View Final Leaderboard, not Continue Scoring" requirement. Flagging
+this as genuinely unchecked, not "checked and found fine."
+
+### 5. My HQ Season Summary — done, backend and frontend
+This is the one feature with real, working, tested code end to end:
+- **`src/lib/scoring/roundResult.ts`** — `getRoundResult()` (per-round
+  winner/points, reusing the exact `capture_role='self'` pattern
+  already established in the leaderboard route) and
+  `aggregateSeasonSummary()`, a pure function taking already-computed
+  round results and producing standings, averages, best round, and
+  latest result. Pure and database-free specifically so it could be
+  unit-tested directly against the brief's own example data.
+- **`GET /api/trips/[tripId]/season-summary`** — one batched query
+  across all of an event's completed rounds (not one request per round
+  or per player), scoped to `trip_id` so one Social Golf series never
+  includes another series' or a different event's results.
+- **My HQ UI** — a new Season Summary section in `TournamentControl.tsx`,
+  rendered only when `event_type === 'social_golf'` and at least one
+  round is completed, showing standings, form (averages), best round,
+  and latest result.
+- **Regression tests**: eight new tests in `roundResult.test.ts`,
+  directly against the brief's exact example data (Round 1: Alex 20/
+  Dave 18, Round 2: Alex 17/Dave 21, Round 3: Alex 22/Dave 22 tied,
+  Round 4 upcoming/excluded) — confirmed via automated test, not manual
+  arithmetic, that the aggregation produces exactly: 3 completed rounds,
+  2 wins each (joint Round 3 counted for both), averages 19.67 and
+  20.33, best round 22 joint, latest result Round 3 tied. Also tested:
+  a single non-tied winner, a three-player round (confirming the logic
+  isn't structurally limited to two players), and zero completed rounds.
+
+### Regression tests — 102/102 pass (94 previous + 8 new)
+All previous scoring-domain tests (Stableford, stroke allocation,
+Playing Nine, Sandhurst SI values) continue to pass unchanged, confirmed
+by running the full suite, not assumed. No Social Golf event-membership
+or finalisation-blocking tests were added this pass — those would need
+either database mocking or a live Supabase connection this sandbox
+doesn't have; the pure-function tests above are what I could genuinely
+verify without one.
+
+### What genuinely needs field testing, stated plainly
+Everything database-dependent: the migration's actual application to
+production, event creation with the new type, multi-round membership
+persistence, the strengthened close-route validation against a real
+round, the unlock-reverts-round-status fix, and the Season Summary
+endpoint against real completed-round data. None of this was run
+against a live database from this sandbox.
+
+### Confirmed unchanged
+Stableford, marker comparison, existing 9/18-hole rounds, Front/Back
+Nine real hole numbers, existing leaderboard ordering, existing
+reconciliation logic. 102/102 scoring-domain tests pass.
+
+### Files created
+`src/lib/scoring/roundResult.ts`, `src/lib/scoring/roundResult.test.ts`,
+`src/app/api/trips/[tripId]/season-summary/route.ts`,
+`supabase/migrations/033_social_golf_event_type.sql` (+ deploy script)
+
+### Files modified
+`src/types/app.ts`,
+`src/app/(app)/trips/[tripId]/TripDetailClient.tsx`,
+`src/app/api/trips/[tripId]/rounds/[roundId]/close/route.ts`,
+`src/app/api/trips/[tripId]/rounds/[roundId]/scorecards/route.ts`,
+`src/components/scoring/TournamentControl.tsx`,
+`src/app/(app)/trips/[tripId]/tournament/page.tsx`
+
+### Database migrations
+`033_social_golf_event_type.sql` (+ standalone deploy script) — new.
+
+### Explicitly deferred, per the brief's own non-goals plus honest scope
+limits
+Rounds tab result cards, My Round completed-state audit, "Finalise
+Round" UI wording/confirmation modal, and every item in the brief's own
+non-goals list (analytics, streaks, achievements, matchplay, etc.).
+
+---
+
+## Social Golf MVP — Continuation
+
+### 3. Rounds tab result cards — now implemented
+Added a small per-round result endpoint
+(`GET /api/trips/[tripId]/rounds/[roundId]/result`), reusing the same
+`getRoundResult()` helper Season Summary already uses — the round's
+winner is computed identically everywhere, not recalculated a third
+time for this card. `RoundCard` now fetches this (only for completed
+rounds, via React Query with a 60s staleTime, so it's not refetched
+constantly) and displays winner-or-joint-winners, winning points, and a
+compact rest-of-field summary (up to 3 other players), above the
+existing "View Results" link — which was already correctly implemented
+and already pointed at the existing Round Summary route, confirmed by
+reading the code rather than assumed.
+
+**Deferred**: the distinct "Awaiting Scores" / "Ready to Finalise" card
+states with their own readiness messaging ("Waiting on 1 scorecard," "2
+mismatches require review"). The current round status enum only has
+upcoming/active/completed — surfacing the finer-grained states the
+brief describes would mean fetching live readiness data for every
+active round on the Rounds tab, which is more scope than this
+continuation covers.
+
+### 4. My Round — audited, found largely already correct
+This was flagged as "not verified" in the previous delivery. Actually
+audited it this time, and the finding is positive: "My Round" (for
+non-organiser players) is `PlayerRoundView.tsx`, driven by a status
+computed in `my-round/route.ts` that already correctly distinguishes
+`'active'` (shows "Continue Scoring") from `'complete'`/`'published'`
+(shows "View Live Leaderboard"/"View Final Results" instead) —
+confirmed directly in the route: `status = round.status === 'completed'
+? 'published' : 'complete'`. This already satisfies the brief's
+explicit requirement that a completed round never sends the player back
+into live scoring, and that they can reach the final leaderboard.
+
+The component also already surfaces a meaningful portion of the
+brief's "required completed-round content" list — position (`X/Y`),
+birdies, and best hole are all already present. Did not do a
+field-by-field audit against every item on the brief's list (front/
+back-nine totals, exact handicap display, group/marker names) — this
+is closer to correct than my earlier "not checked" flag implied, but
+I'm not claiming full parity with the brief's complete list either.
+
+### Regression tests
+No new automated tests this continuation — the Rounds tab and My Round
+changes/findings are UI-level and read-path verification respectively,
+not new pure-function logic like the Season Summary aggregation.
+102/102 scoring-domain tests still pass (unchanged from the previous
+delivery), confirming nothing here touched scoring logic.
+
+### Confirmed unchanged
+Everything from the previous delivery (Stableford, marker comparison,
+reconciliation, Playing Nine, Season Summary aggregation), plus the
+existing "View Results" link behavior and My Round's status-driven
+routing — both read and confirmed correct, not modified.
+
+### Manual test steps (cannot be run from this sandbox — no live
+Supabase/browser access)
+Complete a round and confirm the Rounds tab card shows the correct
+winner and points, matching what My HQ's Leaderboard Snapshot and
+Season Summary show for the same round — this is the actual test of
+"one authoritative source," since all three now call the same
+underlying helper.
+
+### Files created
+`src/app/api/trips/[tripId]/rounds/[roundId]/result/route.ts`
+
+### Files modified
+`src/app/(app)/trips/[tripId]/tabs/TripRoundsTab.tsx`
+
+### Still deferred, stated plainly
+Awaiting/Ready-to-Finalise round card states, "Finalise Round" UI
+wording and confirmation modal, full field-by-field audit of My Round's
+completed content against the brief's complete list, all Social Golf
+event-membership and finalisation-blocking regression tests requiring
+a live database.

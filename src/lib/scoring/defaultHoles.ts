@@ -49,6 +49,31 @@ export const DEFAULT_9_HOLES: HoleTemplate[] = [
   { hole_number: 9, par: 4, stroke_index: 6 },
 ]
 
+/**
+ * Back Nine default template — holes 10-18, retaining their real course
+ * hole numbers (not renumbered to 1-9) and their own stroke index
+ * values, exactly as a real course's back nine would have. Derived
+ * directly from DEFAULT_18_HOLES's own back-nine holes rather than a
+ * separately invented placeholder, so the two stay consistent with each
+ * other as the same underlying generic template. Same principle as the
+ * existing defaults: a starting point the organiser reviews and edits,
+ * not real course data.
+ */
+export const DEFAULT_9_BACK_HOLES: HoleTemplate[] = DEFAULT_18_HOLES.filter(h => h.hole_number > 9)
+
+export type PlayingNine = 'front' | 'back' | 'custom'
+
+/**
+ * Playing Nine selector helper — Front/Back load their respective
+ * generic templates (still fully editable); Custom starts from the
+ * Front Nine template as a baseline but is expected to have every field,
+ * including hole number, edited freely.
+ */
+export function getDefaultHolesForNine(nine: PlayingNine): HoleTemplate[] {
+  if (nine === 'back') return DEFAULT_9_BACK_HOLES.map(h => ({ ...h }))
+  return DEFAULT_9_HOLES.map(h => ({ ...h }))
+}
+
 export function getDefaultHoles(holeCount: 9 | 18): HoleTemplate[] {
   return holeCount === 9 ? DEFAULT_9_HOLES : DEFAULT_18_HOLES
 }

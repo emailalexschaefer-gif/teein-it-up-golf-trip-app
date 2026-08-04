@@ -184,10 +184,30 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     }, { status: 400 })
   }
 
-  const sortedSI = [...holes.map((h: { stroke_index: number }) => h.stroke_index)].sort((a: number, b: number) => a - b)
-  const siValid = sortedSI.every((si: number, i: number) => si === i + 1)
+  // Each hole must have a unique stroke index — this is the real
+  // requirement, and it's independent of hole count. A 9-hole round can
+  // legitimately use any 9 of the 18 possible stroke index values (e.g.
+  // the front nine of a full course, which need not be 1-9 at all —
+  // Sandhurst's front nine uses 16, 15, 11, 12 among others). The
+  // previous check required the sorted values to be exactly
+  // [1, 2, ..., holeCount], which rejected every valid front/back-nine
+  // configuration that wasn't coincidentally SI 1-9. Individual value
+  // range (1-18) is already enforced by the Zod schema above.
+  const siValues = holes.map((h: { stroke_index: number }) => h.stroke_index)
+  const siValid = new Set(siValues).size === siValues.length
   if (!siValid) {
-    return NextResponse.json({ error: `Each hole must have a unique stroke index from 1 to ${holeCount}.` }, { status: 400 })
+    return NextResponse.json({ error: 'Each hole must have a unique stroke index.' }, { status: 400 })
+  }
+
+  // Same reasoning for hole_number — Custom Playing Nine mode allows the
+  // organiser to edit hole numbers freely (e.g. constructing a custom
+  // combination), which the database's own (round_id, hole_number)
+  // unique constraint would otherwise only catch as a raw, unclear
+  // insert failure further down.
+  const holeNumbers = holes.map((h: { hole_number: number }) => h.hole_number)
+  const holeNumbersValid = new Set(holeNumbers).size === holeNumbers.length
+  if (!holeNumbersValid) {
+    return NextResponse.json({ error: 'Each hole must have a unique hole number.' }, { status: 400 })
   }
 
   // ── Fetch playing groups and members ───────────────────────────────────────

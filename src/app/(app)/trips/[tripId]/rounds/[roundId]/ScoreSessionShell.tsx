@@ -287,12 +287,12 @@ export default function ScoreSessionShell({
   }, [holes, confirmed])
 
   const confirmedPts = activeCard ? cardConfirmedPts(activeCard) : 0
-  const front9Pts = activeCard ? holes.slice(0, 9).reduce((sum, h) => {
+  const front9Pts = activeCard ? holes.filter(h => h.hole_number <= 9).reduce((sum, h) => {
     const g = scores[activeCard.id]?.[h.hole_number]
     if (!g || !confirmed[activeCard.id]?.[h.hole_number]) return sum
     return sum + calculateStableford({ grossScore: g, par: h.par, strokeIndex: h.stroke_index, playingHandicap: hcp })
   }, 0) : 0
-  const back9Pts = activeCard ? holes.slice(9).reduce((sum, h) => {
+  const back9Pts = activeCard ? holes.filter(h => h.hole_number > 9).reduce((sum, h) => {
     const g = scores[activeCard.id]?.[h.hole_number]
     if (!g || !confirmed[activeCard.id]?.[h.hole_number]) return sum
     return sum + calculateStableford({ grossScore: g, par: h.par, strokeIndex: h.stroke_index, playingHandicap: hcp })
@@ -439,9 +439,9 @@ export default function ScoreSessionShell({
     )
   }
 
-  const front9: Hole[] = holes.slice(0, 9)
-  const back9: Hole[]  = holes.slice(9)
-  const isBack9 = holeIdx >= 9
+  const front9: Hole[] = holes.filter(h => h.hole_number <= 9)
+  const back9: Hole[]  = holes.filter(h => h.hole_number > 9)
+  const isBack9 = (holes[holeIdx]?.hole_number ?? holeIdx + 1) > 9
   const activeName = activeCard.profiles?.full_name ?? 'Player'
 
   return (
@@ -565,28 +565,33 @@ export default function ScoreSessionShell({
 
           {scorecardExpanded && (
             <>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: '#16a34a', marginBottom: 4 }}>
-                {front9Pts > 0 ? `✓ FRONT 9 — ${front9Pts} PTS` : ''}
-              </div>
-              <div style={{ display: 'flex', gap: 3, marginBottom: 8 }}>
-                {front9.map((h, i) => {
-                  const m = tileMeta(h)
-                  const isOn = i === holeIdx
-                  return (
-                    <div key={h.id} onClick={() => setHoleIdx(i)} style={{
-                      flex: '1 1 0', minWidth: 0, height: 36, borderRadius: 6, cursor: 'pointer',
-                      background: isOn ? '#16a34a' : m.bg,
-                      border: `1.5px solid ${isOn ? '#14532d' : '#e5e2d9'}`,
-                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                      transform: isOn ? 'scale(1.06)' : 'scale(1)', transition: 'transform 0.12s',
-                      boxShadow: isOn ? '0 4px 14px rgba(22,163,74,0.35)' : undefined,
-                    }}>
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: isOn ? '#fff' : (m.color ?? '#6b7280') }}>{m.label}</div>
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 7.5, fontWeight: 600, color: isOn ? '#e8c96a' : (m.color ?? '#9ca3af') }}>{m.sub}</div>
-                    </div>
-                  )
-                })}
-              </div>
+              {front9.length > 0 && (
+                <>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: '#16a34a', marginBottom: 4 }}>
+                    {front9Pts > 0 ? `✓ FRONT 9 — ${front9Pts} PTS` : ''}
+                  </div>
+                  <div style={{ display: 'flex', gap: 3, marginBottom: 8 }}>
+                    {front9.map((h) => {
+                      const i = holes.indexOf(h)
+                      const m = tileMeta(h)
+                      const isOn = i === holeIdx
+                      return (
+                        <div key={h.id} onClick={() => setHoleIdx(i)} style={{
+                          flex: '1 1 0', minWidth: 0, height: 36, borderRadius: 6, cursor: 'pointer',
+                          background: isOn ? '#16a34a' : m.bg,
+                          border: `1.5px solid ${isOn ? '#14532d' : '#e5e2d9'}`,
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                          transform: isOn ? 'scale(1.06)' : 'scale(1)', transition: 'transform 0.12s',
+                          boxShadow: isOn ? '0 4px 14px rgba(22,163,74,0.35)' : undefined,
+                        }}>
+                          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: isOn ? '#fff' : (m.color ?? '#6b7280') }}>{m.label}</div>
+                          <div style={{ fontFamily: 'var(--font-body)', fontSize: 7.5, fontWeight: 600, color: isOn ? '#e8c96a' : (m.color ?? '#9ca3af') }}>{m.sub}</div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
 
               {back9.length > 0 && (
                 <>
@@ -594,8 +599,8 @@ export default function ScoreSessionShell({
                     BACK 9 — {isBack9 ? 'ENTERING NOW' : 'COMING UP'}
                   </div>
                   <div style={{ display: 'flex', gap: 3 }}>
-                    {back9.map((h, i) => {
-                      const realIdx = i + 9
+                    {back9.map((h) => {
+                      const realIdx = holes.indexOf(h)
                       const m = tileMeta(h)
                       const isOn = realIdx === holeIdx
                       return (

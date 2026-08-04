@@ -200,6 +200,18 @@ async function handleUnlock(_req: NextRequest, userId: string, tripId: string, r
     return NextResponse.json({ error: "Couldn't unlock this scorecard. Please try again." }, { status: 500 })
   }
 
+  // If the round had already been finalised, it can no longer honestly
+  // be presented as completed — one player's confirmation was just
+  // revoked, so the round must go through readiness and finalisation
+  // again. Best-effort: log but don't fail the unlock itself if this
+  // particular update has an issue, since the scorecard-level unlock
+  // (the primary action) already succeeded.
+  const roundRes = await admin.from('rounds').select('status').eq('id', roundId).maybeSingle()
+  if (roundRes.data?.status === 'completed') {
+    const { error: revertErr } = await admin.from('rounds').update({ status: 'active' }).eq('id', roundId)
+    if (revertErr) console.error('[POST scorecards unlock] could not revert round status after unlock', revertErr)
+  }
+
   console.log('[scorecards unlock]', { tripId, roundId, playerId, unlockedBy: userId, reason: reason.trim() })
   return NextResponse.json({ ok: true })
 }

@@ -2,8 +2,8 @@
 
 import React, { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { getDefaultHoles, resolvePlayingHandicap } from '@/lib/scoring/defaultHoles'
-import type { HoleTemplate } from '@/lib/scoring/defaultHoles'
+import { getDefaultHoles, getDefaultHolesForNine, resolvePlayingHandicap } from '@/lib/scoring/defaultHoles'
+import type { HoleTemplate, PlayingNine } from '@/lib/scoring/defaultHoles'
 
 interface Player {
   profile_id: string
@@ -49,6 +49,21 @@ export default function BeginRoundModal({
     modalScrollRef.current?.scrollTo({ top: 0 })
   }, [stage])
   const [holes, setHoles]   = useState<HoleTemplate[]>(() => getDefaultHoles(holeCount))
+  // Playing Nine — only meaningful for 9-hole rounds; 18-hole rounds are
+  // explicitly unaffected and never read this. Defaults to Front Nine
+  // per the explicit requirement (Custom/To Be Confirmed can come later).
+  const [playingNine, setPlayingNine] = useState<PlayingNine>('front')
+
+  function handlePlayingNineChange(nine: PlayingNine) {
+    setPlayingNine(nine)
+    // Custom starts from the current holes as-is (whatever was already
+    // there, likely the Front Nine template) so the organiser edits from
+    // a familiar starting point rather than a blank/reset table — Front
+    // and Back genuinely reload their own template, since those are
+    // meant to be complete, ready-to-use starting points.
+    if (nine !== 'custom') setHoles(getDefaultHolesForNine(nine))
+  }
+
   const [error, setError]   = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
 
@@ -106,7 +121,7 @@ export default function BeginRoundModal({
     }
   }
 
-  function updateHole(idx: number, field: 'par' | 'stroke_index', val: number) {
+  function updateHole(idx: number, field: 'hole_number' | 'par' | 'stroke_index', val: number) {
     setHoles((prev: HoleTemplate[]) => prev.map((h: HoleTemplate, i: number) => i === idx ? { ...h, [field]: val } : h))
   }
 
@@ -257,9 +272,43 @@ export default function BeginRoundModal({
           {/* ── Stage 2: Holes ──────────────────────────────────────────── */}
           {stage === 'holes' && (
             <>
+              {holeCount === 9 && (
+                <div style={{ marginBottom: 14 }}>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#7a5c00', letterSpacing: 0.5, marginBottom: 6, textTransform: 'uppercase' }}>
+                    Playing Nine
+                  </p>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {([
+                      { key: 'front' as PlayingNine, label: 'Front Nine' },
+                      { key: 'back' as PlayingNine, label: 'Back Nine' },
+                      { key: 'custom' as PlayingNine, label: 'Custom' },
+                    ]).map(opt => (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => handlePlayingNineChange(opt.key)}
+                        style={{
+                          flex: 1, padding: '8px 4px', borderRadius: 8,
+                          background: playingNine === opt.key ? '#1a4731' : '#f8f4eb',
+                          color: playingNine === opt.key ? '#e8c96a' : '#7a5c00',
+                          border: playingNine === opt.key ? '1.5px solid #1a4731' : '1px solid #e8d98a',
+                          fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div style={{ background: '#fdf8ee', border: '1px solid #e8d98a', borderRadius: 10, padding: '10px 14px', marginBottom: 14 }}>
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a5c00' }}>
-                  <strong>Default hole template loaded.</strong> Review and adjust each hole&apos;s par and stroke index to match your course before continuing.
+                  {holeCount === 9 && playingNine === 'back'
+                    ? <><strong>Back Nine loaded (holes 10-18).</strong> Real course hole numbers are kept — review and adjust par and stroke index to match your course before continuing.</>
+                    : holeCount === 9 && playingNine === 'custom'
+                    ? <><strong>Custom nine.</strong> Edit hole numbers, pars, and stroke indexes freely to match whatever holes are actually being played.</>
+                    : <><strong>Default hole template loaded.</strong> Review and adjust each hole&apos;s par and stroke index to match your course before continuing.</>}
                 </p>
               </div>
 
@@ -275,8 +324,22 @@ export default function BeginRoundModal({
                   </thead>
                   <tbody>
                     {holes.map((hole: HoleTemplate, idx: number) => (
-                      <tr key={hole.hole_number} style={{ background: idx % 2 === 0 ? '#f8f4eb' : '#ffffff' }}>
-                        <td style={{ padding: '6px', textAlign: 'center', fontWeight: 700, color: '#1a4731' }}>{hole.hole_number}</td>
+                      <tr key={idx} style={{ background: idx % 2 === 0 ? '#f8f4eb' : '#ffffff' }}>
+                        <td style={{ padding: '4px 2px', textAlign: 'center' }}>
+                          {holeCount === 9 && playingNine === 'custom' ? (
+                            <select
+                              value={hole.hole_number}
+                              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => updateHole(idx, 'hole_number', parseInt(e.target.value))}
+                              style={{ border: '1px solid #d9c9a3', borderRadius: 6, padding: '4px 6px', background: '#fff', fontFamily: 'var(--font-body)', fontSize: 13, width: 56, textAlign: 'center', fontWeight: 700, color: '#1a4731' }}
+                            >
+                              {Array.from({ length: 18 }, (_, i) => i + 1).map(n => (
+                                <option key={n} value={n}>{n}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span style={{ fontWeight: 700, color: '#1a4731' }}>{hole.hole_number}</span>
+                          )}
+                        </td>
                         <td style={{ padding: '4px 2px', textAlign: 'center' }}>
                           <select
                             value={hole.par}
@@ -292,7 +355,7 @@ export default function BeginRoundModal({
                             onChange={(e: React.ChangeEvent<HTMLSelectElement>) => updateHole(idx, 'stroke_index', parseInt(e.target.value))}
                             style={{ border: '1px solid #d9c9a3', borderRadius: 6, padding: '4px 6px', background: '#fff', fontFamily: 'var(--font-body)', fontSize: 13, width: 56, textAlign: 'center' }}
                           >
-                            {Array.from({ length: holeCount }, (_, i) => i + 1).map(si => (
+                            {Array.from({ length: 18 }, (_, i) => i + 1).map(si => (
                               <option key={si} value={si}>{si}</option>
                             ))}
                           </select>
