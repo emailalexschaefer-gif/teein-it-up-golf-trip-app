@@ -5082,3 +5082,60 @@ rather than 1-9.
 ### Database migrations
 None — schema already supported the full 1-18 range independent of
 hole count.
+
+---
+
+## Recovery — Scoring Layout Fix on the Restored Nine-Hole Baseline
+
+Built directly on the verified nine-hole stable baseline (see the
+Required Report below) — no Social Golf code present or reintroduced.
+Single-purpose: the scoring-screen momentum-scroll fix, nothing else.
+
+### Root cause of the real-device symptom
+The screenshots showed content clipped under the fixed header ("Playing
+Handicap 5" mostly hidden) with a matching excess gap at the bottom —
+both consistent with the page having scrolled down slightly despite the
+collapsed-mode lock that should prevent any scroll at all.
+
+The existing lock used `overflow: hidden` (body/html) plus a `touchmove`
+listener calling `preventDefault()`. Both are real, but neither stops a
+real device's *inertial/momentum* scroll — the browser's own
+continuation of a scroll after the finger lifts, during which no further
+`touchmove` events fire for `preventDefault()` to catch. A stray swipe
+(plausible during hole-navigation gestures) could leave the page
+mid-momentum, landing at a scrolled position `overflow: hidden` alone
+doesn't retroactively correct.
+
+### Fix
+Added `touch-action: none` on `document.body` and
+`document.documentElement` for the same duration as the existing lock —
+a distinct browser mechanism from `overflow` and `touchmove`, specifically telling the browser not to treat the page as pannable at
+all, closing the momentum-scroll gap. Restored in the same unconditional
+cleanup as the rest of the lock, so it can't leak into any other screen.
+
+Confirmed this doesn't interfere with the app's own swipe-to-navigate-
+holes gesture: `touch-action: none` only suppresses the browser's
+*native* panning/gesture handling, not custom JavaScript touch-event
+listeners, which is how that gesture is implemented.
+
+### What was explicitly not touched
+Card layout, header content, the fixed action tray, Stableford,
+reconciliation, sync, round lifecycle, course setup, event types, My HQ,
+My Round — matching the recovery brief's explicit scope. 94/94 tests
+pass, unchanged from the baseline count, confirming this is a CSS/
+browser-behavior fix with zero logic impact.
+
+### Manual test steps (cannot be run from this sandbox — no real
+device)
+The exact scenario from the screenshots: enter scoring, navigate between
+holes with a swipe gesture, and confirm the header and both cards remain
+fully visible with no clipping and no excess gap — specifically after a
+swipe, since that's the interaction most likely to trigger momentum
+scroll.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.

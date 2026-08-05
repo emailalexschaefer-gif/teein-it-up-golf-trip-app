@@ -330,8 +330,25 @@ export default function SelfMarkerScoreShell({
 
     const prevBodyOverflow = document.body.style.overflow
     const prevHtmlOverflow = document.documentElement.style.overflow
+    const prevBodyTouchAction = document.body.style.touchAction
+    const prevHtmlTouchAction = document.documentElement.style.touchAction
     document.body.style.overflow = 'hidden'
     document.documentElement.style.overflow = 'hidden'
+    // touch-action: none is a distinct, more robust mechanism from the
+    // touchmove listener below — that listener only blocks scroll while
+    // a touch is actively in progress. On real devices, a swipe (even a
+    // stray one, e.g. from the hole-navigation gesture) can leave the
+    // browser's own inertial/momentum scroll still running after the
+    // finger lifts, which touchmove's preventDefault does not stop since
+    // no further touchmove events fire during momentum. touch-action
+    // tells the browser not to treat this element as pannable at all,
+    // closing that gap. This is the actual mechanism behind the exact
+    // symptom seen on a real device: content clipped under the fixed
+    // header with a matching excess gap at the bottom — the page had
+    // scrolled down slightly despite overflow:hidden, consistent with
+    // momentum scroll the overflow lock alone didn't catch.
+    document.body.style.touchAction = 'none'
+    document.documentElement.style.touchAction = 'none'
 
     const preventTouchScroll = (e: TouchEvent) => { e.preventDefault() }
     document.addEventListener('touchmove', preventTouchScroll, { passive: false })
@@ -343,6 +360,8 @@ export default function SelfMarkerScoreShell({
     return () => {
       document.body.style.overflow = prevBodyOverflow
       document.documentElement.style.overflow = prevHtmlOverflow
+      document.body.style.touchAction = prevBodyTouchAction
+      document.documentElement.style.touchAction = prevHtmlTouchAction
       document.removeEventListener('touchmove', preventTouchScroll)
     }
   }, [scorecardExpanded, showReconciliation, holeIdx])
