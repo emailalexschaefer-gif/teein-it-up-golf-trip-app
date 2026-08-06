@@ -44,6 +44,25 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   ])
 
   const cardPlayerIds = new Set((cardsRes.data ?? []).map((c: { player_id: string }) => c.player_id))
+
+  // TEMPORARY diagnostic logging for the Friday scorecard investigation —
+  // every trip member discovered here, every scorecard player_id found,
+  // and specifically which members were filtered out below for lacking a
+  // scorecard. If a player appears in "allMembers" but also in
+  // "membersWithoutScorecards", the scorecard genuinely doesn't exist for
+  // them — confirming the bug is upstream in scorecard creation, not in
+  // this query.
+  console.log('[markers GET][diag] discovery', {
+    tripId, roundId,
+    allMembers: (membersRes.data ?? []).map((m: { profile_id: string; group_id: string | null; profiles: { full_name: string } | null }) => ({
+      profileId: m.profile_id, groupId: m.group_id, name: m.profiles?.full_name ?? null,
+    })),
+    scorecardPlayerIds: [...cardPlayerIds],
+    membersWithoutScorecards: (membersRes.data ?? [])
+      .filter((m: { profile_id: string }) => !cardPlayerIds.has(m.profile_id))
+      .map((m: { profile_id: string; profiles: { full_name: string } | null }) => ({ profileId: m.profile_id, name: m.profiles?.full_name ?? null })),
+  })
+
   const groups = (groupsRes.data ?? []).map((g: { id: string; name: string }) => ({
     groupId: g.id,
     groupName: g.name,

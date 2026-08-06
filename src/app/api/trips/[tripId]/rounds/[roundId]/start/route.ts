@@ -220,6 +220,15 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     return NextResponse.json({ error: 'Assign every player to a playing group before beginning.' }, { status: 422 })
   }
 
+  // TEMPORARY diagnostic logging for the Friday scorecard-investigation —
+  // shows exactly which groups exist server-side at the moment of
+  // starting, so a live test can confirm whether a specific player's
+  // group is actually present here.
+  console.log('[start-round][diag] groups discovered', {
+    roundId, tripId, groupCount: groupsRes.data.length,
+    groups: groupsRes.data.map((g: { id: string; name: string }) => ({ id: g.id, name: g.name })),
+  })
+
   const membersRes = await admin
     .from('trip_members')
     .select('profile_id, group_id, playing_handicap, profiles(handicap, full_name)')
@@ -236,6 +245,14 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     roundId, tripId, userId: user.id,
     memberCount: assignedMembers.length,
     holeCount: holes.length,
+    // TEMPORARY diagnostic detail for the Friday scorecard investigation —
+    // every discovered player and their group, individually, so a live
+    // test shows definitively whether a specific player was present in
+    // this query's results at the moment the round was started.
+    members: assignedMembers.map(m => ({
+      profileId: m.profile_id, groupId: m.group_id, name: m.profiles?.full_name ?? null,
+      hasTripHandicap: m.playing_handicap !== null, hasProfileHandicap: m.profiles?.handicap != null,
+    })),
   })
 
   if (assignedMembers.length === 0) {
@@ -368,6 +385,12 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     .from('scorecards')
     .upsert(scorecardRows, { onConflict: 'round_id,player_id' })
 
+  // TEMPORARY diagnostic logging for the Friday scorecard investigation —
+  // exactly which player_ids this insert attempted to write.
+  console.log('[start-round][diag] scorecards attempted', {
+    roundId, playerIds: scorecardRows.map((r: { player_id: string }) => r.player_id),
+  })
+
   if (cardsError) {
     console.error('[start-round] scorecards insert failed', {
       code: cardsError.code, message: cardsError.message,
@@ -387,6 +410,13 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     .select('id, player_id', { count: 'exact' })
     .eq('round_id', roundId)
     .eq('status', 'active')
+
+  // TEMPORARY diagnostic logging — exactly which player_ids the database
+  // reports back as actually having a scorecard for this round, so this
+  // can be compared directly against the "attempted" list above.
+  console.log('[start-round][diag] scorecards returned by verify query', {
+    roundId, playerIds: (verifyRes.data ?? []).map((r: { player_id: string }) => r.player_id),
+  })
 
   const actualScorecardCount = verifyRes.data?.length ?? 0
   if (actualScorecardCount !== scorecardRows.length) {

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -280,90 +280,26 @@ export default function SelfMarkerScoreShell({
   // need to survive logout/across devices, matching the stated scope.
   const [scorecardExpanded, setScorecardExpanded] = useState(false)
 
-  // The single canonical scoring-mode positioning effect — replaces three
-  // previously-separate mechanisms that could race each other: an
-  // anchor-scroll effect keyed only on holeIdx (which explicitly skipped
-  // its own first run "to avoid an unwanted jump" — backwards, since
-  // skipping the first run is exactly why initial entry could land at
-  // whatever scroll position the page happened to have), a lock effect
-  // that only froze the current position without ever repositioning to
-  // the anchor, and the collapse toggle's own separate scrollTo call.
-  // One effect now owns positioning for every path into collapsed mode:
-  // first mount, the collapse toggle, hole navigation while collapsed,
-  // and returning from Round Summary — all resolve to the identical
-  // resting position, since they all run through the same code.
-  //
-  // useLayoutEffect (not useEffect) is what actually eliminates the
-  // visible flash: it fires synchronously after DOM mutations but before
-  // the browser paints, so the correct scroll position is already in
-  // place by the time anything becomes visible, rather than painting the
-  // wrong position first and correcting a frame later.
+  // Simple, non-blocking scroll-to-anchor on hole change — gives a
+  // sensible resting position when navigating between holes, but never
+  // locks or prevents scrolling. The previous version of this effect
+  // also locked document scroll (overflow:hidden + touch-action:none)
+  // while collapsed; that's been removed entirely per the explicit
+  // instruction that every control must remain reachable on every phone
+  // size, confirmed by a real smaller/older phone where the lock
+  // combined with a bounded container clipped content with no way to
+  // reach it. The page must always be able to scroll normally now,
+  // regardless of mode.
   const isFirstPositionRef = useRef(true)
-  useLayoutEffect(() => {
-    if (scorecardExpanded || showReconciliation) {
-      // Expanded or Round Summary: normal document scrolling, no lock,
-      // no forced repositioning — the golfer explicitly asked to review
-      // the round, or is on a screen scoring focus mode was never meant
-      // to affect.
-      const prevBodyOverflow = document.body.style.overflow
-      const prevHtmlOverflow = document.documentElement.style.overflow
-      document.body.style.overflow = ''
-      document.documentElement.style.overflow = ''
-      return () => {
-        document.body.style.overflow = prevBodyOverflow
-        document.documentElement.style.overflow = prevHtmlOverflow
+  useEffect(() => {
+    if (!isFirstPositionRef.current && !scorecardExpanded && !showReconciliation) {
+      const anchor = scoringAnchorRef.current
+      if (anchor) {
+        const targetTop = Math.max(0, anchor.getBoundingClientRect().top + window.scrollY - 56)
+        window.scrollTo({ top: targetTop, behavior: 'smooth' })
       }
     }
-
-    // Collapsed and actively scoring — this is "enter collapsed scoring
-    // mode." Reposition first, then lock, per the explicit ordering
-    // requirement. Instant (not smooth) on the very first run, since an
-    // animated correction would itself be the visible flash this is
-    // meant to eliminate; smooth for subsequent hole-to-hole navigation,
-    // where a brief transition is expected and not jarring.
-    const anchor = scoringAnchorRef.current
-    const targetTop = anchor
-      ? Math.max(0, anchor.getBoundingClientRect().top + window.scrollY - 56)
-      : 0
-    window.scrollTo({ top: targetTop, behavior: isFirstPositionRef.current ? 'auto' : 'smooth' })
     isFirstPositionRef.current = false
-
-    const prevBodyOverflow = document.body.style.overflow
-    const prevHtmlOverflow = document.documentElement.style.overflow
-    const prevBodyTouchAction = document.body.style.touchAction
-    const prevHtmlTouchAction = document.documentElement.style.touchAction
-    document.body.style.overflow = 'hidden'
-    document.documentElement.style.overflow = 'hidden'
-    // touch-action: none is a distinct, more robust mechanism from the
-    // touchmove listener below — that listener only blocks scroll while
-    // a touch is actively in progress. On real devices, a swipe (even a
-    // stray one, e.g. from the hole-navigation gesture) can leave the
-    // browser's own inertial/momentum scroll still running after the
-    // finger lifts, which touchmove's preventDefault does not stop since
-    // no further touchmove events fire during momentum. touch-action
-    // tells the browser not to treat this element as pannable at all,
-    // closing that gap. This is the actual mechanism behind the exact
-    // symptom seen on a real device: content clipped under the fixed
-    // header with a matching excess gap at the bottom — the page had
-    // scrolled down slightly despite overflow:hidden, consistent with
-    // momentum scroll the overflow lock alone didn't catch.
-    document.body.style.touchAction = 'none'
-    document.documentElement.style.touchAction = 'none'
-
-    const preventTouchScroll = (e: TouchEvent) => { e.preventDefault() }
-    document.addEventListener('touchmove', preventTouchScroll, { passive: false })
-
-    // Unconditional restore on cleanup — covers the collapsed-to-
-    // expanded transition, navigating to Round Summary, hole changes,
-    // and unmount/route-change alike, so the lock can never leak into
-    // My Round, Leaderboard, Chat, Round Summary, or any other page.
-    return () => {
-      document.body.style.overflow = prevBodyOverflow
-      document.documentElement.style.overflow = prevHtmlOverflow
-      document.body.style.touchAction = prevBodyTouchAction
-      document.documentElement.style.touchAction = prevHtmlTouchAction
-      document.removeEventListener('touchmove', preventTouchScroll)
-    }
   }, [scorecardExpanded, showReconciliation, holeIdx])
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -1082,14 +1018,16 @@ export default function SelfMarkerScoreShell({
           padding here is sized to clear the sticky action tray below
           (its own height plus the bottom nav it sits above), so the
           second scorecard is never hidden behind it. */}
-      {/* One container, two views — not two different architectures.
-          Collapsed and expanded now share the exact same normal-flow
-          structure; the only things that differ are whether the strip's
-          expanded content renders (an accordion reveal, not a mode
-          switch) and whether document scroll is locked (handled by the
-          canonical positioning effect above, via body/html overflow —
-          not by removing this content from flow). Padding-top clears the
-          fixed header; padding-bottom clears the fixed tray. */}
+      {/* Always normal, scrollable document flow — collapsed and
+          expanded modes are now identical in mechanism. The previous
+          position:fixed + overflow:hidden bounded region for collapsed
+          mode was confirmed, on a real smaller/older phone, to clip
+          content with no way to reach it — exactly the failure mode a
+          fixed, non-scrollable region risks whenever content doesn't
+          fit the available height. Every control must be reachable on
+          every phone size, which a normal scrolling page guarantees
+          regardless of content height, screen size, or font scaling —
+          a static resting position is no longer worth that risk. */}
       <div
         ref={scrollContainerRef}
         onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
@@ -1232,10 +1170,10 @@ export default function SelfMarkerScoreShell({
         </div>
 
         {/* Scoring Anchor — the permanent resting point every hole
-            transition returns to, and the same simple normal-flow
-            wrapper in both collapsed and expanded modes now — no
-            special-cased centering, since both modes share the same
-            container structure. */}
+            transition returns to. Same simple normal-flow wrapper in
+            both modes now — cards render at their natural height and
+            the page scrolls if they don't fit, rather than being forced
+            into a fixed region that could clip them. */}
         <div
           ref={scoringAnchorRef}
           style={{ display: 'flex', flexDirection: 'column' }}
@@ -1345,7 +1283,7 @@ function ScoreCard({
   status: ComparisonStatus | null; onOpenSummary?: () => void; hole?: Hole | null; isLockedForSide?: boolean
 }) {
   return (
-    <div style={{ borderRadius: 12, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 3px 14px rgba(0,0,0,0.08)', marginBottom: 8, overflow: 'hidden' }}>
+    <div style={{ borderRadius: 12, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 3px 14px rgba(0,0,0,0.08)', marginBottom: 6, overflow: 'hidden' }}>
       <div className="scoring-card-header" style={{ background: '#f7f6f1', padding: '5px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #eceae3' }}>
         <div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, fontWeight: 700, color: '#a1791f', letterSpacing: 0.7 }}>{title}</div>
@@ -1371,18 +1309,18 @@ function ScoreCard({
         </div>
       </div>
 
-      <div className="scoring-card-body" style={{ padding: '14px 14px' }}>
+      <div className="scoring-card-body" style={{ padding: '9px 12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <button onClick={() => onPick(-1)} disabled={isLockedForSide} style={{ width: 58, height: 58, borderRadius: 13, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 26, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>−</button>
+          <button onClick={() => onPick(-1)} disabled={isLockedForSide} style={{ width: 50, height: 50, borderRadius: 12, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 22, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>−</button>
           <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#d1d5db' : '#14532d', fontSize: 60, fontWeight: 800, lineHeight: 1 }}>
+            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#d1d5db' : '#14532d', fontSize: 50, fontWeight: 800, lineHeight: 1 }}>
               {pickedUp ? 'P' : gross ?? '0'}
             </div>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#6b7280', marginTop: 5 }}>
               {pickedUp ? '0 Points (pick-up)' : pts !== null ? `${pts} Point${pts === 1 ? '' : 's'}` : 'Par ' + par + ' · SI ' + si}
             </div>
           </div>
-          <button onClick={() => onPick(1)} disabled={isLockedForSide} style={{ width: 58, height: 58, borderRadius: 13, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 26, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>+</button>
+          <button onClick={() => onPick(1)} disabled={isLockedForSide} style={{ width: 50, height: 50, borderRadius: 12, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 22, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>+</button>
         </div>
 
         {/* Pick Up — relocated here from the permanent tile row below, per
@@ -1407,18 +1345,18 @@ function ScoreCard({
         </div>
 
         <div style={{ display: 'flex', gap: 6, marginTop: 9 }}>
-          <button onClick={onPar} disabled={isLockedForSide} style={{ flex: 1, padding: '7px 4px', borderRadius: 8, background: gross === par && !pickedUp ? '#dcfce7' : '#eefbf2', border: gross === par && !pickedUp ? '1px solid #86efac' : '1px solid #dcf1e2', textAlign: 'center' }}>
+          <button onClick={onPar} disabled={isLockedForSide} style={{ flex: 1, padding: '5px 4px', borderRadius: 8, background: gross === par && !pickedUp ? '#dcfce7' : '#eefbf2', border: gross === par && !pickedUp ? '1px solid #86efac' : '1px solid #dcf1e2', textAlign: 'center' }}>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: gross === par && !pickedUp ? '#16a34a' : '#5a9c72' }}>PAR</div>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#16a34a' }}>{par}</div>
           </button>
-          <div style={{ flex: 1, textAlign: 'center', padding: '7px 4px', borderRadius: 8, background: '#f7f6f1', border: '1px solid #e5e2d9' }}>
+          <div style={{ flex: 1, textAlign: 'center', padding: '5px 4px', borderRadius: 8, background: '#f7f6f1', border: '1px solid #e5e2d9' }}>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: '#9ca3af' }}>SHOTS</div>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, color: '#14532d', fontWeight: 700 }}>{strokes}</div>
           </div>
           <button
             onClick={onOpenSummary}
             disabled={!onOpenSummary}
-            style={{ flex: 1, textAlign: 'center', padding: '7px 4px', borderRadius: 8, background: '#fdf3d9', border: '1px solid #e8c96a', cursor: onOpenSummary ? 'pointer' : 'default' }}
+            style={{ flex: 1, textAlign: 'center', padding: '5px 4px', borderRadius: 8, background: '#fdf3d9', border: '1px solid #e8c96a', cursor: onOpenSummary ? 'pointer' : 'default' }}
           >
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: '#a1791f' }}>TOTAL</div>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#a1791f' }}>{runningTotal}</div>

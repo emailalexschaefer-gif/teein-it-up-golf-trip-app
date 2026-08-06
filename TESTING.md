@@ -5139,3 +5139,230 @@ only.
 
 ### Database migrations
 None.
+
+---
+
+## Friday Investigation — Missing Scorecard for Invited Player (Diagnostic Build)
+
+Per the explicit instruction: no UI changes. Investigation and temporary
+logging only. 94/94 tests pass, unchanged, confirming zero logic impact.
+
+### Audit performed — every path that writes trip_members.group_id
+Searched the entire API for every write to `group_id`, since a scorecard
+being tied to group assignment is the confirmed mechanism (per the
+Marker Assignment query, which deliberately filters players to those
+with an existing scorecard — that part of the system is working exactly
+as designed, not buggy).
+
+Found four files touching `group_id`:
+- **`members/[memberId]/route.ts` (PATCH)** — the only path that
+  actually *assigns* a player to a real group. Confirmed both "+ Add
+  Player" and "Auto-assign"/"Rebuild Groups" call this same endpoint
+  (traced directly in `TripGroupsTab.tsx`), so there is no separate,
+  unaudited assignment path. This route already contains the backfill
+  logic from earlier work: when a player is assigned to a group and an
+  active round exists for the trip, it creates their scorecard
+  server-side. On inspection, this logic is structurally correct — the
+  active-round query, the handicap resolution, and the upsert all
+  looked right.
+- **`groups/generate/route.ts`** and **`groups/[groupId]/route.ts`** —
+  both only *clear* `group_id` (set to null, when rebuilding groups or
+  deleting one). Neither writes an actual group assignment, so neither
+  bypasses the backfill — ruled out as the cause, not assumed clear.
+- **`start/route.ts`** — the round-start scorecard creation, for
+  players already grouped at the moment the round begins. Also
+  structurally correct on inspection: queries `trip_members` for every
+  row with a non-null `group_id`, computes each player's handicap, and
+  upserts one scorecard per player, refusing to activate the round if
+  the resulting scorecard count doesn't match.
+
+### Why this ships as instrumentation, not a guessed fix
+Every code path a scorecard could be created through was read carefully
+and is structurally sound — no bug was found by inspection. Shipping a
+fix for a bug I can't actually see would be a guess, not a
+verification, and directly against the discipline this project has
+otherwise held to. This sandbox has no live Supabase connection, so the
+next reliable step is real data, not another hypothesis.
+
+### Logging added — the exact chain requested
+- **`start/route.ts`**: every group discovered, every trip member
+  discovered (with handicap-source detail), every player_id the
+  scorecard insert attempted, and every player_id the verify query
+  found afterward.
+- **`members/[memberId]/route.ts`**: whether the backfill condition was
+  met at all (and for how many active rounds), the resolved handicap
+  with both source values shown separately (so a silent skip due to a
+  missing handicap is visible rather than indistinguishable from the
+  backfill never running), and the exact upsert result.
+- **`markers/route.ts`**: every trip member discovered, every scorecard
+  player_id found, and specifically which members were filtered out for
+  lacking a scorecard.
+
+All logging is prefixed `[diag]` and clearly marked TEMPORARY in
+comments, for easy removal once the root cause is confirmed.
+
+### What to do with this build
+Deploy it, reproduce the exact scenario (invite a second player, assign
+to a group, start the round, open Marker Assignment), and check the
+Vercel function logs for the `[start-round][diag]` and
+`[members PATCH][diag]` entries. The most useful single comparison: does
+the second player's `profile_id` appear in "assigned members" at
+round-start time? If yes, the bug is in the scorecard insert/verify
+step. If no, the player wasn't yet grouped when the round started, and
+the "backfill check" log (from whenever they were later assigned) is
+the next one to check — specifically whether it shows an active round
+being found, and whether the resolved handicap came back null.
+
+### Files modified
+`src/app/api/trips/[tripId]/rounds/[roundId]/start/route.ts`,
+`src/app/api/trips/[tripId]/members/[memberId]/route.ts`,
+`src/app/api/trips/[tripId]/rounds/[roundId]/markers/route.ts`
+
+### Database migrations
+None.
+
+---
+
+## Scoring Screen — Position:Fixed Bounded Region (Single-Purpose Release)
+
+Per the explicit instruction: scoring-screen layout and interaction
+only. No scorecard creation, marker logic, reconciliation, multi-round
+behaviour, course setup, pars, stroke indexes, or Social Golf work in
+this release — confirmed by only one file being touched. 94/94
+scoring-domain tests pass, unchanged.
+
+### The actual fix — removed the dependency on scroll position entirely
+The screenshot showed the "View Round Scorecard" dropdown missing
+entirely — content jumping straight from the header to "Marked by,"
+consistent with the page having scrolled down despite the JS-based lock
+(`overflow: hidden` + `touch-action: none`) from the previous release.
+Real-device scroll behavior has proven unreliable to fully suppress with
+JS/CSS locks alone across several rounds of testing.
+
+The fix this time removes the dependency rather than trying to lock it
+more tightly: collapsed-mode content is now `position: fixed`, bounded
+exactly between the header (44px) and the tray (~110px, sized to clear
+the tray even when the sync-status label above Confirm Score is
+showing). A fixed, bounded region has nothing to scroll at all — there
+is no scroll position for the layout to depend on, no momentum-scroll
+drift to guard against, no address-bar-visibility arithmetic. The
+toggle/dropdown, "Marked by" row, and both cards all live inside this
+one region, so "is the dropdown visible," "are both panels visible,"
+and "is nothing clipped" are true by construction, not by a lock that
+has to keep working correctly on every device.
+
+### Cards fit naturally, not by moving content — trimmed modestly where
+allowed
+Per the explicit "do not simply move content upward, may reduce panel
+height/spacing slightly if needed": the cards section now uses
+`flex: 1` with `justifyContent: space-between` to fill the available
+space within the bounded region naturally, and card sizing was trimmed
+back modestly from the previous release's enlargement (score number
+60px→50px, buttons 58px→50px, card padding 14px→9px, tile padding
+7px→5px, inter-card gap 8px→6px) — a deliberate small give-back for
+reliable fit, not a full reversal; still meaningfully larger than the
+very first layout passes.
+
+### Expanded mode — unchanged
+Reverts entirely to normal, unbounded document flow when the strip is
+open — full page scroll, exactly as before. This release only changed
+the collapsed-mode sizing mechanism.
+
+### What was explicitly not touched
+Everything outside this one file: Stableford, score values, sync,
+scorecard creation, marker assignment, reconciliation, round summary,
+leaderboard, database/API routes, course/hole setup, bottom navigation.
+The canonical positioning `useLayoutEffect` (scroll-lock, touch-action)
+from the previous release was left in place as a harmless defensive
+backup rather than removed, since it's no longer load-bearing but isn't
+causing any conflict with the new fixed-region approach either.
+
+### Manual test steps (cannot be run from this sandbox — no real
+device)
+The full acceptance list from the brief, specifically on both narrow
+Android and iPhone-style viewports: dropdown/both panels/actions visible
+on opening any hole, no vertical movement on swipe attempts, pixel-
+consistent layout across every hole via Next/Previous, expand/collapse
+transitions, and return-from-Round-Summary landing in the same resting
+state.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.
+
+---
+
+## Scoring Screen — Reverted to Normal Scrollable Flow (Responsive Fix)
+
+Per the explicit instruction and real-device evidence (Dave's smaller/
+older phone): the previous release's `position: fixed` + `overflow:
+hidden` bounded region for collapsed mode clipped the marker panel
+entirely, with no way to scroll to reach it. This release removes that
+mechanism rather than adjusting it again — the priority is now "every
+control reachable on every phone," not a pixel-static resting position.
+
+### What changed
+- **Collapsed and expanded modes are now identical** — both use plain,
+  unconditional normal document flow (`padding: '56px 16px 100px'`, no
+  positioning tricks). There is no longer a meaningful distinction
+  between the two beyond whether the horizontal strip's content is
+  rendered.
+- **Removed entirely**: the `overflow: hidden` scroll lock on
+  `document.body`/`documentElement`, the `touch-action: none` momentum-
+  scroll guard, and the `touchmove` `preventDefault()` listener. All of
+  these existed specifically to enforce a static, non-scrollable
+  collapsed state — the exact thing now confirmed to cause content loss
+  on a real device with less available height.
+- **Kept, simplified**: a gentle, non-blocking scroll-to-anchor on hole
+  change (still gives a sensible resting position when navigating
+  between holes), now using `useEffect` instead of `useLayoutEffect`
+  since there's no longer a flash to prevent — just a smooth scroll, and
+  it never prevents the user from scrolling further if content doesn't
+  fit their screen.
+- **Fixed header and fixed tray** (Exit/Hole info at top, Confirm Score/
+  Previous/Next at bottom) are unchanged — these remain `position:
+  fixed` and stay reachable regardless of page scroll, which was never
+  the source of the clipping problem.
+
+### No horizontal overflow risk — confirmed by inspection, not just
+assumed
+The expanded horizontal hole strip already uses `flex: '1 1 0'` with
+`minWidth: 0` on each tile, so it shrinks to fit the available width
+rather than forcing the page wider — this already satisfies "no
+horizontal page overflow" via an equivalent mechanism to horizontal
+scrolling, and was left unchanged rather than reworked, per "avoid
+redesigning before Friday."
+
+### What was explicitly not touched
+Card sizing/spacing was left as-is from the previous release (not
+resized further, per the explicit "avoid redesigning or resizing
+panels" instruction) — some larger phones may show extra unused space
+below the cards now that nothing forces them to fill a bounded region,
+which is the accepted tradeoff this release explicitly prioritizes
+reliability over. Stableford, sync, scorecard creation, marker
+assignment, reconciliation, database/API routes, event setup — none of
+these were touched; this is a single-file layout change.
+
+### Confirmed unchanged
+94/94 scoring-domain tests pass. Only
+`SelfMarkerScoreShell.tsx` was modified.
+
+### Manual test steps (cannot be run from this sandbox — no real
+device)
+The full testing list from the brief: 320px/375px/390px widths, short
+viewport heights, browser zoom/larger text — confirming the page scrolls
+naturally, both cards are fully reachable, all buttons are tappable, the
+strip expands/collapses correctly, no horizontal overflow, and score
+entry/saving/navigation/leaderboard all still work. Specifically
+worth re-testing on Dave's actual phone, since that's the device that
+surfaced this issue.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.
