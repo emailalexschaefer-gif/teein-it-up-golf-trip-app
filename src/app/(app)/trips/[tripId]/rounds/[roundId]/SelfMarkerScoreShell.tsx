@@ -1050,7 +1050,7 @@ export default function SelfMarkerScoreShell({
         ref={scrollContainerRef}
         onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
         style={{
-          padding: '56px 16px 100px',
+          padding: '48px 16px 100px',
           background: '#faf9f6',
         }}
       >
@@ -1354,7 +1354,7 @@ function ScoreCard({
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 800, color: '#a1791f' }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#a1791f' }}>
             H{holeNum}
           </div>
           {hole && <HoleBadges hole={hole} />}

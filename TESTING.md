@@ -5490,3 +5490,44 @@ only.
 
 ### Database migrations
 None.
+
+---
+
+## Final Scoring Screen Spacing Tweak (Minor)
+
+Two small adjustments, per the explicit instruction. One file modified.
+94/94 scoring-domain tests pass, unchanged.
+
+### 1. Hole label size
+H-label font size increased 13px→17px on both cards, same gold color
+and position, no other changes to the card header.
+
+### 2. Top spacing reduced
+Content top padding reduced 56px→48px (44px fixed header + 4px
+clearance) — a modest reduction to reclaim unused space above "View
+Round Scorecard" and reveal more of the Live Leaderboard button above
+the fixed bottom controls. The toggle button's own internal padding was
+already minimal (3px) in collapsed mode and was left unchanged, since
+the outer padding was the actual unused-space target and further
+compressing an already-tight value risked looking cramped rather than
+helping.
+
+### What was explicitly not touched
+Vertical scrolling, fixed bottom Confirm Score controls, Previous/Next
+Hole, Live Leaderboard behavior, round scorecard expansion, score-entry
+logic, hole-change scroll reset, card dimensions/controls, database or
+scoring calculations.
+
+### Manual test steps (cannot be run from this sandbox — no real
+device)
+Confirm on Hole 1 and Hole 2: H1/H2 easier to read, "View Round
+Scorecard" and "Marked by" fully visible and not clipped, more of the
+Live Leaderboard button visible, and correct behavior on both small and
+large phones.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.
