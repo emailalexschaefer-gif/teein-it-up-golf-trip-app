@@ -5366,3 +5366,63 @@ only.
 
 ### Database migrations
 None.
+
+---
+
+## Live Leaderboard Access From Scoring Screen (Contained UX Addition)
+
+Per the explicit instruction: one contained navigation update only. One
+file modified. 94/94 scoring-domain tests pass, unchanged.
+
+### The key design decision — overlay, not navigation
+The brief's preservation requirements (same hole, same draft scores,
+same sync state, no reset/refresh/redirect) are exactly what a route
+navigation to a separate leaderboard page would risk breaking — routing
+away would unmount this component and lose every piece of local,
+not-yet-synced state (draft gross scores, pick-up toggles). Implemented
+instead as an in-component overlay (`showLeaderboard` state, same
+pattern already used for Round Summary's own overlay): the scoring
+component never unmounts, so every preservation requirement holds
+automatically rather than needing separate state-passing logic.
+
+### Reused, not rebuilt
+The existing `LiveLeaderboard` component (already used elsewhere in the
+app) takes exactly the props already available here — `tripId`,
+`round.id`, `round.status` — and was dropped directly into the overlay.
+No second leaderboard implementation, no duplicated data-fetching.
+
+### Placement — exactly as specified
+The button sits between the "Your Marker" card and the organiser's
+marker-assignment link, with enough top margin (14px) to avoid being
+confused with that link. Full-width, visually secondary to Confirm
+Score (outlined gold, not filled green). The existing "View Round
+Scorecard" control at the top was not touched.
+
+### Back to Hole N
+The overlay's header shows "← Back to Hole {holeNum}" using the same
+`holeNum` value already driving the rest of the screen, so it's always
+accurate to whichever hole was open when the leaderboard was opened —
+not a hard-coded or stale value.
+
+### What was explicitly not touched
+Scrolling behavior (this session's previous release), score-entry logic,
+reconciliation, Confirm Score, Previous/Next Hole, marker assignments,
+the expandable round scorecard, database schema, Social Golf
+functionality — none of these were modified. Confirmed by touching only
+one file.
+
+### Manual test steps (cannot be run from this sandbox — no real
+device)
+The full list from the brief: enter a score, open Live Leaderboard,
+confirm it displays correctly, return via "Back to Hole X," confirm the
+same hole and unconfirmed draft scores are still present, confirm
+already-confirmed scores remain saved, and confirm scrolling/expand-
+collapse/Confirm Score/Previous/Next all still work normally — at
+320px width specifically, per the explicit testing requirement.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.

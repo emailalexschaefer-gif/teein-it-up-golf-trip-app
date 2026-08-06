@@ -11,6 +11,7 @@ import { queueScoreEntry, getPendingCount, getQueuedEntriesForScorecards } from 
 import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
 import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
 import { useScoringFocusStore } from '@/store/scoringFocusStore'
+import LiveLeaderboard from '@/components/scoring/LiveLeaderboard'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -200,6 +201,15 @@ export default function SelfMarkerScoreShell({
 
   const [resumed, setResumed] = useState(false)
   const [showReconciliation, setShowReconciliation] = useState(false)
+  // Live Leaderboard overlay — deliberately an in-component overlay, not
+  // a route navigation. Navigating to a separate leaderboard page would
+  // unmount this component and lose every piece of local unconfirmed-
+  // score state (draft gross scores, pick-up toggles) that hasn't been
+  // synced yet — exactly what the brief requires preserving. An overlay
+  // keeps this component mounted throughout, which is what makes every
+  // preservation requirement (hole number, draft scores, sync state)
+  // true automatically rather than needing separate state-passing.
+  const [showLeaderboard, setShowLeaderboard] = useState(false)
 
   // Scoring focus mode — signals AppNav/TripBottomNav to hide themselves
   // while actively entering scores, restoring them for Round Summary and
@@ -1197,12 +1207,59 @@ export default function SelfMarkerScoreShell({
         )}
         </div>
 
+        {/* Live Leaderboard — a toggled overlay, not a navigation. Full-
+            width, visually secondary to score entry (outlined, not
+            filled green like Confirm Score), placed exactly where
+            specified: below Your Marker, above the organiser link, with
+            enough margin that it isn't confused with that link. */}
+        <button
+          onClick={() => setShowLeaderboard(true)}
+          style={{
+            display: 'block', width: '100%', marginTop: 14, padding: '11px 16px',
+            background: '#fdf8ee', border: '1.5px solid #d9c9a3', borderRadius: 10,
+            fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: '#7a5c00',
+            cursor: 'pointer', textAlign: 'center',
+          }}
+        >
+          🏆 Live Leaderboard
+        </button>
+
         {isOrganiser && (
           <Link href={`/trips/${tripId}/rounds/${round.id}/markers`} style={{ display: 'block', textAlign: 'center', marginTop: 20, fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', textDecoration: 'none' }}>
             Organiser: review marker assignments →
           </Link>
         )}
       </div>
+
+      {/* Live Leaderboard overlay — covers the screen while open, but
+          this component never unmounts underneath it, so returning via
+          "Back to Hole N" lands exactly back where the player left off:
+          same hole, same draft scores, same sync state. Reuses the
+          existing LiveLeaderboard component and its own data-fetching —
+          no second leaderboard implementation. */}
+      {showLeaderboard && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 250, background: '#faf9f6', overflowY: 'auto' }}>
+          <div style={{
+            position: 'sticky', top: 0, zIndex: 10,
+            background: 'linear-gradient(135deg, #0f2d1c, #1a4731)',
+            borderBottom: '2px solid #c9a84c', padding: '14px 16px',
+          }}>
+            <button
+              onClick={() => setShowLeaderboard(false)}
+              style={{
+                background: 'none', border: 'none', color: '#f5e6b8',
+                fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700,
+                cursor: 'pointer', padding: 0,
+              }}
+            >
+              ← Back to Hole {holeNum}
+            </button>
+          </div>
+          <div style={{ padding: 16 }}>
+            <LiveLeaderboard tripId={tripId} roundId={round.id} roundStatus={round.status} />
+          </div>
+        </div>
+      )}
 
       {/* Fixed scoring action tray. Now that TripBottomNav is hidden
           during active scoring (scoring focus mode), this sits directly
