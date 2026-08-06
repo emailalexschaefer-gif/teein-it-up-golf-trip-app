@@ -300,17 +300,25 @@ export default function SelfMarkerScoreShell({
   // combined with a bounded container clipped content with no way to
   // reach it. The page must always be able to scroll normally now,
   // regardless of mode.
-  const isFirstPositionRef = useRef(true)
+  // Reset scroll to the true top on every hole change — not the card
+  // anchor's offset position, which left "View Round Scorecard" and
+  // "Marked by" above the visible area (the exact reported issue: Hole
+  // 2 retained Hole 1's scroll offset, clipping both). No longer skips
+  // the first run either, so Hole 1 itself is guaranteed to land at the
+  // correct top position too, not just subsequent holes. The dependency
+  // array is deliberately just [holeIdx] — expanding/collapsing the
+  // scorecard or opening another control must never trigger this reset,
+  // and keeping scorecardExpanded/showReconciliation out of the
+  // dependency array is what guarantees that; they're still read inside
+  // the effect (to skip the reset while the strip is expanded, so
+  // tapping a hole tile there doesn't collapse the view — preserving
+  // expanded browsing as already established) without causing the
+  // effect to re-run when only they change.
   useEffect(() => {
-    if (!isFirstPositionRef.current && !scorecardExpanded && !showReconciliation) {
-      const anchor = scoringAnchorRef.current
-      if (anchor) {
-        const targetTop = Math.max(0, anchor.getBoundingClientRect().top + window.scrollY - 56)
-        window.scrollTo({ top: targetTop, behavior: 'smooth' })
-      }
+    if (!scorecardExpanded && !showReconciliation) {
+      window.scrollTo({ top: 0, behavior: 'auto' })
     }
-    isFirstPositionRef.current = false
-  }, [scorecardExpanded, showReconciliation, holeIdx])
+  }, [holeIdx]) // eslint-disable-line react-hooks/exhaustive-deps -- scorecardExpanded/showReconciliation intentionally omitted: read inside to skip the reset while expanded/on Round Summary, but must not themselves trigger a re-run
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
@@ -1223,12 +1231,6 @@ export default function SelfMarkerScoreShell({
         >
           🏆 Live Leaderboard
         </button>
-
-        {isOrganiser && (
-          <Link href={`/trips/${tripId}/rounds/${round.id}/markers`} style={{ display: 'block', textAlign: 'center', marginTop: 20, fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', textDecoration: 'none' }}>
-            Organiser: review marker assignments →
-          </Link>
-        )}
       </div>
 
       {/* Live Leaderboard overlay — covers the screen while open, but
@@ -1352,11 +1354,9 @@ function ScoreCard({
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          {strokes > 0 && (
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 600, color: '#a1791f' }}>
-              Receives {strokes} stroke{strokes === 1 ? '' : 's'}
-            </div>
-          )}
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 800, color: '#a1791f' }}>
+            H{holeNum}
+          </div>
           {hole && <HoleBadges hole={hole} />}
           {status && (status === 'matched' || status === 'mismatch') && (
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: statusColor(status), marginTop: 2 }}>

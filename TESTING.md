@@ -5426,3 +5426,67 @@ only.
 
 ### Database migrations
 None.
+
+---
+
+## Scoring Screen Polish — Scroll Reset, Card Labels, Link Removal
+
+Per the explicit instruction: three contained UX fixes. One file
+modified. 94/94 scoring-domain tests pass, unchanged.
+
+### 1. Scroll reset on hole change — the exact reported bug fixed
+Found two real bugs in the existing effect, not just one:
+- It scrolled to the **card anchor's offset position**, not the true
+  top — leaving "View Round Scorecard" and "Marked by" above the
+  visible area even when it did fire. This is exactly what the Hole 2
+  screenshot showed: the reset was happening, just landing in the wrong
+  place.
+- Its dependency array included `scorecardExpanded` and
+  `showReconciliation`, so toggling either could **also** trigger a
+  reset — directly violating "do not reset when expanding/collapsing."
+
+Fixed both: now scrolls to true `top: 0`, and the dependency array is
+narrowed to just `[holeIdx]` — `scorecardExpanded`/`showReconciliation`
+are still read inside the effect (to skip the reset while the strip is
+expanded, preserving the established "tapping a hole tile in the
+expanded strip keeps it expanded" behavior) without being able to
+trigger the effect on their own. Also removed the skip-first-run guard,
+so Hole 1 itself is guaranteed to land correctly, not just subsequent
+holes — matching the explicit "Hole 1 opens at the correct top
+position" test case.
+
+### 2. Stroke-allocation header text replaced with hole label
+"Receives N stroke(s)" removed from both card headers; replaced with a
+compact "H{N}" label using the same `holeNum` prop already available.
+Confirmed `strokes` is still used by the SHOTS tile elsewhere in the
+same card — removing this text didn't create an unused-prop situation,
+and the brief's own claim that "SHOTS already communicates the
+allocated strokes" checked out against the actual code.
+
+### 3. Organiser marker-assignment link removed from scoring screen
+Removed from the active scoring screen only. The `/markers` route and
+its full functionality are untouched — confirmed `isOrganiser` is still
+used elsewhere in this component (an unrelated data-problem message),
+so nothing else depending on it broke.
+
+### What was explicitly not touched
+Vertical scrolling mechanism (last release), View Round Scorecard
+expand/collapse, the Live Leaderboard button and its return flow,
+score-entry logic, handicap calculations, Confirm Score, Previous/Next
+Hole, reconciliation, database schema.
+
+### Manual test steps (cannot be run from this sandbox — no real
+device)
+The full list from the brief: Hole 1 opens at the correct top position,
+Next Hole opens Hole 2 at the same position, "View Round Scorecard" and
+"Marked by" visible on every hole, both cards show the correct H-number,
+no "Receives X strokes" text remains, the organiser link is gone, and
+scrolling/score entry/leaderboard/navigation all still work — on both
+small and large phones.
+
+### Files modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+only.
+
+### Database migrations
+None.
