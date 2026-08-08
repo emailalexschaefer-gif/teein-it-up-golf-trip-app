@@ -90,3 +90,71 @@ test('isZeroPointsMismatch — both picked up is already \'matched\', not a mism
   assert.equal(compareCaptures(self, marker), 'matched')
   assert.equal(isZeroPointsMismatch(self, marker, context), false)
 })
+
+// ── hasUnresolvedMismatch — the Confirm Score gating decision ──────────────
+// Direct coverage of the brief's own lettered test cases (A-D, F), using
+// the same compareCaptures the UI already computes myComparison/
+// partnerComparison from — not a second comparison implementation.
+import { hasUnresolvedMismatch } from './comparison'
+
+test('Case A — exact numeric match: confirm allowed', () => {
+  const status = compareCaptures({ grossScore: 5, pickedUp: false }, { grossScore: 5, pickedUp: false })
+  assert.equal(status, 'matched')
+  assert.equal(hasUnresolvedMismatch(status, null), false)
+})
+
+test('Case B — genuine numeric mismatch: confirm blocked', () => {
+  const status = compareCaptures({ grossScore: 5, pickedUp: false }, { grossScore: 6, pickedUp: false })
+  assert.equal(status, 'mismatch')
+  assert.equal(hasUnresolvedMismatch(status, null), true)
+})
+
+test('Case C — Pick Up vs numeric, both 0 points: still a mismatch, confirm blocked', () => {
+  // The comparison status is still 'mismatch' (raw entries genuinely
+  // differ) even though isZeroPointsMismatch would separately flag this
+  // as the softer gold case for display purposes — confirmation must
+  // still be blocked until the underlying entries actually agree.
+  const status = compareCaptures({ grossScore: null, pickedUp: true }, { grossScore: 7, pickedUp: false })
+  assert.equal(status, 'mismatch')
+  assert.equal(hasUnresolvedMismatch(status, null), true)
+})
+
+test('Case D — both Pick Up: match, confirm allowed', () => {
+  const status = compareCaptures({ grossScore: null, pickedUp: true }, { grossScore: null, pickedUp: true })
+  assert.equal(status, 'matched')
+  assert.equal(hasUnresolvedMismatch(status, null), false)
+})
+
+test('Case E — correct a genuine numeric mismatch: warning resolves, confirm becomes available', () => {
+  // Before: Player 5, Marker 6 -> mismatch, blocked.
+  const before = compareCaptures({ grossScore: 5, pickedUp: false }, { grossScore: 6, pickedUp: false })
+  assert.equal(before, 'mismatch')
+  assert.equal(hasUnresolvedMismatch(before, null), true)
+  // Marker corrected to 5 -> matched, allowed. Same pure-function
+  // behaviour as Case F: identical inputs always produce identical,
+  // immediately-available outputs — this is the actual mechanism behind
+  // "no page refresh required," not something that needs separate
+  // reactive/UI-level logic to guarantee.
+  const after = compareCaptures({ grossScore: 5, pickedUp: false }, { grossScore: 5, pickedUp: false })
+  assert.equal(after, 'matched')
+  assert.equal(hasUnresolvedMismatch(after, null), false)
+})
+
+test('Case F — undo Pick Up and enter a matching numeric score: resolves to allowed', () => {
+  // Before: Pick Up vs numeric -> mismatch, blocked.
+  const before = compareCaptures({ grossScore: null, pickedUp: true }, { grossScore: 5, pickedUp: false })
+  assert.equal(hasUnresolvedMismatch(before, null), true)
+  // After undoing Pick Up and entering 5 to match: allowed again. Same
+  // compareCaptures call, different input — this is what "no page
+  // refresh required" reduces to at the pure-function level: identical
+  // inputs always produce identical, immediately-available outputs.
+  const after = compareCaptures({ grossScore: 5, pickedUp: false }, { grossScore: 5, pickedUp: false })
+  assert.equal(hasUnresolvedMismatch(after, null), false)
+})
+
+test('hasUnresolvedMismatch — either side alone is enough to block (both cards submit together)', () => {
+  assert.equal(hasUnresolvedMismatch('mismatch', 'matched'), true)
+  assert.equal(hasUnresolvedMismatch('matched', 'mismatch'), true)
+  assert.equal(hasUnresolvedMismatch('matched', 'matched'), false)
+  assert.equal(hasUnresolvedMismatch('matched', null), false)
+})

@@ -103,3 +103,15 @@ export function compareCaptures(self: CaptureValue | null, marker: CaptureValue 
   if (self!.pickedUp && marker!.pickedUp) return 'matched' // both picked up, no score to compare
   return self!.grossScore === marker!.grossScore ? 'matched' : 'mismatch'
 }
+
+/**
+ * Whether either side of a hole's comparison is a genuine, unresolved
+ * mismatch that should block Confirm Score. Deliberately trivial (an OR
+ * of two status checks) but extracted as its own function so the
+ * confirm-gating decision has direct test coverage, not just an
+ * assumption that the UI wires compareCaptures' output through
+ * correctly.
+ */
+export function hasUnresolvedMismatch(myStatus: ComparisonStatus | null, partnerStatus: ComparisonStatus | null): boolean {
+  return myStatus === 'mismatch' || partnerStatus === 'mismatch'
+}

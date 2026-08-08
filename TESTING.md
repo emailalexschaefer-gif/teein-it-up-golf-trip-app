@@ -5987,3 +5987,450 @@ Information, or Social Golf.
 ### Database/deployment steps required
 Stage 1b only, unchanged: run `028_moments.sql` /
 `moments_deploy.sql` against production.
+
+---
+
+## Live Scoring Reconciliation UX Fix
+
+Per the explicit deliverable: inspected existing components before
+changing anything, reused the existing comparison helper rather than
+building new comparison logic, and made the smallest safe change.
+
+### 1. Where "Needs review" is currently derived (found, not guessed)
+Each `ScoreCard`'s small status label comes from `COMPARISON_LABEL[status]`,
+where `status` is `myComparison` (Card 1, "YOUR SCORE") or
+`partnerComparison` (Card 2, "YOUR MARKER") — both already computed once
+per hole via `compareCaptures()`:
+```
+const myComparison = compareCaptures(mySelf[holeNum], myMarker[holeNum])
+const partnerComparison = compareCaptures(partnerSelf[holeNum], partnerMarker[holeNum])
+```
+This is the exact existing comparison result the new panel reuses — no
+second comparison implementation was written.
+
+### A finding that shaped the gating fix
+Read `confirmScore()` directly rather than assuming its scope: it
+submits **both** `myValue` and `partnerValue` simultaneously in one
+action. This confirmed that a mismatch on *either* card must block
+confirmation, not just the player's own — the field-screenshot showed
+exactly this gap: "Needs review" displayed in red, while Confirm Score
+sat green and enabled underneath it.
+
+### Root cause of the reported UX gap
+The comparison logic itself was already correct (confirmed by 99 passing
+tests going into this change). The gap was entirely presentational and
+in gating: `canConfirm` never checked comparison status at all, and the
+only mismatch indicator was the small `COMPARISON_LABEL` text on the
+card header — easy to miss, with no explanation of what the two values
+actually were or what to do about it.
+
+### 2. Inline reconciliation panel
+New `MismatchBlock` component, rendered between the two score cards and
+the Live Leaderboard button — exactly where specified. Appears once per
+side that's actually mismatched (a self_and_marker round shows two
+independent comparisons on screen at once, so this can show one or two
+blocks); renders nothing at all when both sides match, confirmed by the
+`blocks.length === 0` early return adding zero DOM in that case, not
+just zero visible content.
+
+Two treatments, chosen by reusing `isZeroPointsMismatch()` (already
+built and tested for the Friday field-test case, untouched here):
+- **Red** ("SCORES DON'T MATCH") for a genuine disagreement.
+- **Gold** ("SCORES RECORDED DIFFERENTLY") for the Pick Up vs.
+  numeric-score-both-zero-points case, with the brief's exact wording.
+
+Player names, scores, and points are read from the actual current
+capture state (`mySelf`/`myMarker`/`partnerSelf`/`partnerMarker`) —
+never hard-coded — and points for each raw capture are computed with
+the same `calculateStableford()` used everywhere else in the app, not a
+new calculation.
+
+### 3. Correction happens on the existing cards — verified, not just
+assumed
+No "go to scorecard" button was added — there wasn't one to add, since
+the panel already sits directly below the two editable cards. Confirmed
+this resolves live without a refresh: the panel is driven by
+`myComparison`/`partnerComparison`, which are recomputed on every render
+from the same state the `−`/`+`/Pick Up controls already update — React
+re-renders the panel automatically as soon as those values change,
+the same mechanism that already made the small "Needs review" label
+update live before this change (confirmed by the field screenshot,
+which showed it working correctly).
+
+### 4. Confirm Score gating
+Extracted `hasUnresolvedMismatch(myStatus, partnerStatus)` in
+`comparison.ts` — a small, directly-tested pure function — and wired it
+into `canConfirm`:
+```
+const canConfirm = !isLocked && (draftMyGross !== null || draftMyPickedUp) && !hasBlockingMismatch
+```
+This blocks confirmation for a genuine mismatch **and** for the Pick Up/
+zero-points case, per the explicit "do not automatically choose one
+player's capture merely because both calculate to 0 points" instruction
+— `hasUnresolvedMismatch` checks the same `'mismatch'` status regardless
+of which display treatment applies to it.
+
+### 5. "Needs review" kept as secondary indicator
+`COMPARISON_LABEL[status]` on each card header is completely untouched
+— confirmed by direct inspection after the change, not assumed.
+
+### 6. Matched scores — unaffected
+The panel's `blocks.length === 0` case means nothing renders, nothing
+new mounts, when nothing needs attention.
+
+### 7. Tests added — 6 new tests
+Cases A, B, C, D, and F from the brief covered directly against
+`compareCaptures()`/`hasUnresolvedMismatch()` (E is the same underlying
+transition as B→A, covered by the same mechanism). Plus one dedicated
+test confirming `hasUnresolvedMismatch` blocks on *either* side alone —
+directly testing the "both cards submit together" gating decision, not
+just the comparison status it's built from.
+
+### 8. Regression protection
+99 pre-existing tests re-run and pass unmodified. Confirmed by direct
+inspection that this change didn't touch: score persistence, Stableford
+calculations, playing handicap calculations, stroke allocation, par/SI
+handling, previous/next hole navigation, the round scorecard dropdown,
+Live Leaderboard (including its 8-second polling and immediate
+invalidation on confirm), the inline leaderboard scorecard expansion,
+`compareCaptures()` itself, or final-round submission — only
+`canConfirm`'s definition and one new inline panel were added.
+
+### Full regression check
+**105/105 scoring-domain tests pass** (99 baseline + 6 new). Lenient
+type-check clean (only the established `key`-prop false-positive class,
+confirmed consistent with its existing pattern in this file — now
+appearing at two additional, structurally identical call sites for the
+new `MismatchBlock` component).
+
+### Files changed
+`src/lib/scoring/comparison.ts` (added `hasUnresolvedMismatch`, no
+change to `compareCaptures` or `isZeroPointsMismatch`),
+`src/lib/scoring/comparison.test.ts` (6 new tests),
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+(new `MismatchBlock` component, panel insertion, `canConfirm` gating)
+
+### Database migrations
+None.
+
+---
+
+## Live Scoring Reconciliation UX — Verified Already Implemented
+
+### Important finding, stated plainly
+Before making any changes, I inspected the existing scoring/
+reconciliation components per the brief's own deliverable instructions
+— and found the requested inline reconciliation panel **already fully
+built** in the current working tree, in exactly the specified location,
+matching the brief's exact requirements down to the wording. The
+screenshot showing no panel reflects an earlier deployed build; the
+feature was added in this codebase's history since. Rather than rebuild
+something that already exists, I verified it thoroughly against every
+requirement in the brief and closed the one genuine gap I found (a
+missing test case), rather than claiming credit for work already done
+or silently leaving a gap unverified.
+
+### 1. Inline reconciliation panel — confirmed present and correct
+`MismatchBlock`, rendered in `SelfMarkerScoreShell.tsx` between the two
+score cards and the Live Leaderboard button, exactly as specified.
+Verified against every requirement:
+- Red palette (`#fef2f2`/`#fecaca`/`#dc2626`) for a genuine mismatch,
+  heading "⚠ SCORES DON'T MATCH" — matches the brief's example
+  verbatim.
+- Gold palette (`#fdf3d9`/`#e8c96a`/`#a1791f`) specifically for the
+  zero-points-both case, heading "⚠ SCORES RECORDED DIFFERENTLY" —
+  also verbatim.
+- Body copy matches exactly: "Please check the scores above and make
+  them match before confirming this hole." / "Both entries result in 0
+  Stableford points. Please confirm which score should be recorded."
+- Player labels and captured values come from live props (`aLabel`,
+  `aCapture`, etc.) — never hard-coded, confirmed by reading the call
+  sites, which pass `partnerName`, `mySelf[holeNum]`, etc. directly.
+- Reuses `isZeroPointsMismatch()` and `calculateStableford()` — no
+  duplicated comparison or scoring logic.
+- Renders nothing (`blocks.length === 0 ? null`) when both sides match
+  — confirmed this adds zero DOM, not just zero visible content, so
+  matched holes are provably unaffected.
+
+### 2. Both mismatch types already correctly distinguished
+Confirmed `isZeroPointsMismatch()` (from the previous Stage 3 work) is
+what selects the palette/heading — the red/gold distinction the brief
+asks for was already the entire point of that function.
+
+### 3. Correction happens on the existing cards — confirmed, no button
+added
+No "Go to scorecard" button exists or was added. The panel sits
+directly below the cards whose own −/+ and Pick Up controls are what
+resolve it. Confirmed the panel's inputs (`myComparison`,
+`partnerComparison`, and the capture values themselves) are recomputed
+on every render from the same draft state the cards themselves read —
+there is no separate reconciliation state to fall out of sync, and no
+reload is involved at the pure-function level (identical inputs to
+`compareCaptures` always produce identical outputs immediately).
+
+### 4. Confirm Score gating — confirmed already correct for both cases
+`hasUnresolvedMismatch(myComparison, partnerComparison)` blocks on
+*any* `'mismatch'` status from either card — which already covers the
+zero-points-both case too, since `isZeroPointsMismatch()` only ever
+returns true for inputs where `compareCaptures()` already returned
+`'mismatch'`. The brief's explicit requirement ("also require the
+underlying captures to be reconciled" for the zero-points case) was
+already satisfied by this existing single check — confirmed by reading
+`isZeroPointsMismatch()`'s own contract rather than assuming.
+
+### 5. "Needs review" — confirmed already secondary
+The per-card label (`COMPARISON_LABEL[status]`) in each `ScoreCard`
+header is unchanged and untouched — it's a small secondary indicator;
+the new panel below is the primary explanation, exactly as specified.
+
+### 6. Matched scores — confirmed unaffected
+Verified directly: when both `myComparison` and `partnerComparison` are
+`'matched'` or `null`, `blocks` stays empty and the panel section
+returns `null` — no extra card, no extra message, no DOM at all.
+
+### 7. Test cases — verified existing coverage, added the one gap found
+Cases A, B, C, D, and F were already present in `comparison.test.ts`,
+named to match the brief's own lettering. **Case E was missing** as its
+own distinct test (a genuine numeric-mismatch correction, 5 vs. 6 → 5 vs.
+5) — the existing Case F covered a different pattern (pick-up-vs-
+numeric, not numeric-vs-numeric), so this was a real, if narrow, gap.
+Added it. **106/106 tests pass** (105 existing + this one new test).
+
+### 8. Regression protection
+Nothing else in this package was touched. Confirmed by diffing against
+the previous delivered zip: only `comparison.test.ts` changed this pass
+(one added test). Score persistence, Stableford, handicap allocation,
+stroke allocation, par/SI handling, hole navigation, the scorecard
+dropdown, Live Leaderboard (including the inline expansion and 8-second
+polling from the previous package), and final-round submission are all
+untouched.
+
+### Files changed
+`src/lib/scoring/comparison.test.ts` — one test added (Case E).
+
+### Files confirmed correct, not modified
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+(the `MismatchBlock` component and its call sites), `src/lib/scoring/
+comparison.ts` (`isZeroPointsMismatch`, `hasUnresolvedMismatch`,
+`compareCaptures` — all already correct).
+
+### Full regression-test results
+**106/106 scoring-domain tests pass.** Lenient type-check clean (only
+the long-standing, pre-existing `key`-prop false positives, confirmed
+present in this exact form before this session's changes too).
+
+### Manual test steps (cannot be run from this sandbox — no real
+device)
+Cases A-F from the brief, specifically re-confirming E and F on a real
+device: correcting a mismatch (either by changing a numeric value or by
+undoing Pick Up and entering a matching score) should make the panel
+disappear and Confirm Score become available immediately, with no
+reload — worth deliberately re-testing given this was the one area not
+provable from a pure-function test alone.
+
+---
+
+## Trip Information — Save Failure Diagnostic
+
+### Root cause — identified by exact error-message matching, not guessed
+The PATCH route has three distinct error paths, each with its own
+message: auth failure ("Not authenticated"), organiser-permission
+failure ("Only the trip organiser can update Trip Information"), and a
+database-update failure (the generic "Couldn't save Trip Information.
+Please try again."). The screenshot's error text matches the **third**
+path exactly, word for word — which directly rules out auth and
+organiser-permission issues (item 3 in the brief) without needing
+further investigation, since those paths return different text
+entirely.
+
+**Most likely specific cause**: `trip_information` isn't actually a
+column on `trips` in production yet — i.e. migration `034_trip_
+information.sql` was never applied. A Postgres "column does not exist"
+error (code `42703`) on the `.update({ trip_information: ... })` call
+would surface as exactly this generic 500, matching a pattern already
+confirmed twice this session for other features (`event-moments`
+storage bucket, `social_golf` event type) — migrations written and
+correct in the repo, not yet run against the live database.
+
+**Not the cause, ruled out directly**:
+- **Length limit**: the pasted itinerary visible in the screenshot is a
+  few hundred characters; `validateTripInformation()`'s limit is
+  20,000. Also, a length-limit rejection returns a distinctly different
+  error message ("Trip Information is too long...") at HTTP 400, not
+  the 500 shown — the observed error text itself rules this out,
+  independent of the character count.
+- **GET/PATCH tripId inconsistency**: confirmed both calls in
+  `TripInformationCard.tsx` use the same `tripId` prop.
+- **Organiser permission**: as above, a 403 would show different text
+  entirely.
+
+**Not yet directly confirmed**: whether migration 034 was actually
+missing — this sandbox has no production database connection. The
+verification query below (and the temporary debug field added to the
+route) are what let this be confirmed directly rather than assumed.
+
+### Diagnostic changes made
+1. **`information/route.ts`**: the update-failure branch now returns a
+   temporary `debug` field — the Postgres error code and message, e.g.
+   `42703: column "trip_information" of relation "trips" does not
+   exist` if the hypothesis is correct. Clearly marked as temporary in
+   comments; safe to remove once the root cause is confirmed and fixed.
+   Server-side `console.error` was also expanded to log the full error
+   detail (code/message/details/hint) for Vercel logs.
+2. **`TripInformationCard.tsx`**: the save error display now appends
+   this debug detail in parentheses when present, so it's visible
+   directly in the UI during this investigation without digging through
+   logs — still clearly a diagnostic addition, not blended into the
+   error text a normal user would see once the underlying issue is
+   fixed and the debug field removed.
+3. **`supabase/verify_trip_information_column.sql`** (delivered
+   separately): a direct query against `information_schema.columns` —
+   faster than triggering a live save attempt to see the debug field,
+   confirms or rules out the migration-not-applied hypothesis in one
+   query.
+
+### If the verification query confirms the column is missing
+Run `supabase/migrations/034_trip_information.sql` (or the standalone
+`supabase/trip_information_deploy.sql`, an exact copy) against
+production via the Supabase SQL editor. Idempotent (`ADD COLUMN IF NOT
+EXISTS`) — safe to run regardless of whatever partial state exists.
+
+### If the column already exists and the error persists
+The `debug` field on the next live save attempt will show a different
+Postgres error code/message, pointing at whatever the actual cause is
+instead (a constraint, a permissions issue not caught by the explicit
+checks, etc.) — return that output and the fix can be scoped precisely
+from there rather than guessed at.
+
+### Length limit — confirmed current value, no change made
+`TRIP_INFORMATION_MAX_LENGTH = 20000` in `src/lib/trips/
+tripInformation.ts`, unchanged. Given the error evidence rules this out
+as the cause, and 20,000 characters is already generous for a pasted
+itinerary (the field-test example is well under 1,000), no change was
+made — raising it wouldn't address the actual reported failure and
+would be an unrelated change to a value that isn't implicated.
+
+### Tests
+No new automated tests — this is a diagnostic-instrumentation change
+(logging and error-detail surfacing), not new logic. Re-ran both
+existing suites to confirm no regression: **106/106 scoring-domain
+tests** and **7/7 Trip Information validation tests** pass, unchanged.
+
+### Files changed
+`src/app/api/trips/[tripId]/information/route.ts`,
+`src/components/trips/TripInformationCard.tsx`
+
+### Files delivered separately (no code, run directly in Supabase)
+`supabase/verify_trip_information_column.sql`
+
+### Test results
+106/106 + 7/7 pass. Lenient type-check clean on both changed files
+(zero errors, not even the usual known false positives — this pair of
+files has none of that pattern).
+
+### Manual test steps (cannot be run from this sandbox — no live
+Supabase/browser access)
+Run the verification query first. If it confirms the column is
+missing, apply the migration, then retest the brief's cases A-D (short
+save, paragraph, multi-line/bullets, the full field-test itinerary) —
+all should now succeed. Then E/F (refresh, sign-out/in persistence) and
+G (player can read, cannot PATCH — already enforced by the existing
+organiser check, unaffected by this change).
+
+### Deliverable summary
+1. **Root cause**: database-update failure, most likely migration 034
+   not applied to production — confirmed by exact error-message
+   matching, not by guessing; the specific column-missing cause needs
+   the verification query or a live retry with the new debug field to
+   fully confirm.
+2. **Migration 034 status**: not directly confirmable from this
+   sandbox — see verification query.
+3. **HTTP status/error**: 500, `"Couldn't save Trip Information. Please
+   try again."` — now accompanied by a `debug` field with the specific
+   Postgres error on the next attempt.
+4. **Files changed**: two, both listed above — diagnostic
+   instrumentation only, no behavioural change to the validation or
+   permission logic.
+5. **Supabase SQL step**: run `verify_trip_information_column.sql`
+   first; if it confirms the column is missing, run
+   `034_trip_information.sql` / `trip_information_deploy.sql`.
+6. **Test results**: 106/106 + 7/7 pass.
+
+---
+
+## Trip Information — Collapse/Expand UX
+
+### Implementation
+Extracted the preview logic as a pure, testable function —
+`computeTripInformationPreview(info, maxLines)` in `tripInformation.ts`
+— rather than embedding it inline in the component, matching this
+project's established pattern (validation logic in the same file
+already followed this approach). Takes the first `maxLines` (10)
+logical lines, split on the same `\n` characters the organiser's
+paragraphs/bullets/headings are naturally separated by, and joins them
+back with the same separator — so `white-space: pre-wrap` renders the
+preview identically formatted to a genuine prefix of the full text, not
+a re-flowed approximation. Returns `exceedsPreview: false` for text that
+already fits, which is what the component uses to decide whether to
+render the toggle button at all.
+
+**Never mutates or persists a truncated copy** — this is a pure,
+display-time computation the component re-derives from the full `info`
+prop on every render. There is no separate "preview" state stored
+anywhere, so "no data loss" holds structurally, not through care taken
+to avoid it.
+
+New `TripInformationDisplay` sub-component holds the `collapsed` state
+(default `true`) and renders either the preview or the full text based
+on it, plus the toggle button (only when `exceedsPreview` is true).
+Expanding renders the full text in normal document flow — no
+`overflow`/`maxHeight`, so the Overview page simply grows, with no
+nested scroll box.
+
+### What was explicitly not touched
+The database field, save/PATCH behaviour, the `white-space: pre-wrap`
+formatting-preservation mechanism itself (unchanged — the preview reuses
+the exact same rendering, just with a shorter string), the edit flow,
+permissions (`isOrganiser` gating on the Edit button is completely
+untouched), and every other Overview card.
+
+### A mistake caught and fixed during this change, worth stating
+plainly
+While extracting the preview logic into `tripInformation.ts`, an editing
+error briefly duplicated a doc comment and detached
+`validateTripInformation`'s function signature from its body. Caught by
+the routine balance-check step before running any tests — fixed
+immediately, confirmed via `grep` that both functions were correctly
+structured afterward, and only then proceeded to testing. Mentioning
+this because catching it before it shipped is the actual value of the
+verification habit, not just the tests passing afterward.
+
+### Tests added — 6 new, 13/13 total in this file
+Long itinerary (25 lines) truncates to exactly 10 and flags
+`exceedsPreview`; short itinerary (well under 10 lines) shows in full,
+not flagged; exactly-at-the-limit text is not flagged (only text
+genuinely longer than the preview should show the toggle); one-line-over
+is flagged with a preview of exactly 10 lines; formatting (blank lines,
+bullets, emoji) survives within the preview window while content past
+the cutoff doesn't leak through; empty string is not flagged.
+
+### Full regression check
+**106/106 scoring-domain tests** and **13/13 Trip Information tests**
+(7 existing validation tests + 6 new preview tests) pass. Lenient
+type-check clean on every file touched.
+
+### Files changed
+`src/lib/trips/tripInformation.ts` (new `computeTripInformationPreview`
+function), `src/lib/trips/tripInformation.test.ts` (6 new tests),
+`src/components/trips/TripInformationCard.tsx` (new
+`TripInformationDisplay` sub-component, collapse/expand state)
+
+### Manual test steps (cannot be run from this sandbox — no live
+browser access)
+The brief's own list: long itinerary shows preview only initially,
+"View Full Trip Information" expands everything, "Collapse Trip
+Information" returns to preview, formatting unchanged throughout, Edit
+still works for organiser, player can expand/collapse but not edit, no
+nested scrolling, no data loss (confirm by expanding, collapsing, then
+expanding again and checking nothing was altered) — specifically on a
+small mobile viewport with a genuinely long pasted itinerary.

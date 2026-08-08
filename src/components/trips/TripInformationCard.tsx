@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { computeTripInformationPreview } from '@/lib/trips/tripInformation'
 
 export default function TripInformationCard({ tripId, isOrganiser }: { tripId: string; isOrganiser: boolean }) {
   const queryClient = useQueryClient()
@@ -48,7 +49,13 @@ export default function TripInformationCard({ tripId, isOrganiser }: { tripId: s
       })
       const json = await res.json()
       if (!res.ok) {
-        setError(json.error || "Couldn't save. Please try again.")
+        // TEMPORARY: json.debug (if present) is the diagnostic detail
+        // added to the route for this specific investigation — a
+        // compact postgres error code/message, not exposed by default,
+        // shown here only because it's present. Remove this once the
+        // route's own debug field is removed after the root cause is
+        // fixed.
+        setError(json.error ? `${json.error}${json.debug ? ` (${json.debug})` : ''}` : "Couldn't save. Please try again.")
         return
       }
       queryClient.setQueryData(['trip-information', tripId], { trip_information: json.trip_information })
@@ -131,24 +138,56 @@ export default function TripInformationCard({ tripId, isOrganiser }: { tripId: s
           </div>
         </div>
       ) : info ? (
-        // white-space:pre-wrap is the actual mechanism preserving
-        // paragraphs, blank lines, and any bullet-point/heading text the
-        // organiser typed — no markdown parsing, matching the explicit
-        // "one plain text field" V1 scope, while still rendering exactly
-        // as pasted rather than collapsing whitespace like normal HTML
-        // text would.
-        <p style={{
-          fontFamily: 'var(--font-body)', fontSize: 13.5, lineHeight: 1.6, color: '#1a1a16',
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0,
-        }}>
-          {info}
-        </p>
+        <TripInformationDisplay info={info} />
       ) : (
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#9ca3af' }}>
           {isOrganiser
             ? 'Add all the important details for your trip in one place.'
             : 'Trip information has not been added yet.'}
         </p>
+      )}
+    </div>
+  )
+}
+
+const PREVIEW_LINE_COUNT = 10
+
+/**
+ * Read-only display with a collapse/expand preview. white-space:pre-wrap
+ * is what preserves paragraphs, blank lines, bullets, emojis, and
+ * headings exactly as typed — unchanged from before this feature; this
+ * component only decides how much of that same text to show at once,
+ * never alters the text itself. The preview is a plain array slice
+ * computed on every render from the full `info` prop — there is no
+ * separate truncated copy stored anywhere, so "no data loss" holds by
+ * construction, not by care taken to avoid it.
+ */
+function TripInformationDisplay({ info }: { info: string }) {
+  const [collapsed, setCollapsed] = useState(true)
+
+  const preview = computeTripInformationPreview(info, PREVIEW_LINE_COUNT)
+  const showingText = collapsed ? preview.text : info
+
+  return (
+    <div>
+      <p style={{
+        fontFamily: 'var(--font-body)', fontSize: 13.5, lineHeight: 1.6, color: '#1a1a16',
+        whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0,
+      }}>
+        {showingText}
+      </p>
+
+      {preview.exceedsPreview && (
+        <button
+          onClick={() => setCollapsed(c => !c)}
+          style={{
+            display: 'block', marginTop: 8, padding: 0,
+            background: 'none', border: 'none', cursor: 'pointer',
+            fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#1a4731',
+          }}
+        >
+          {collapsed ? 'View Full Trip Information ↓' : 'Collapse Trip Information ↑'}
+        </button>
       )}
     </div>
   )

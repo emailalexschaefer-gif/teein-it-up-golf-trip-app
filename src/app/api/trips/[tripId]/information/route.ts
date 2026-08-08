@@ -79,8 +79,24 @@ export async function PATCH(req: NextRequest, { params }: RouteProps) {
     .eq('id', tripId)
 
   if (updateError) {
-    console.error('[trip information PATCH]', updateError)
-    return NextResponse.json({ error: "Couldn't save Trip Information. Please try again." }, { status: 500 })
+    console.error('[trip information PATCH]', {
+      code: updateError.code, message: updateError.message,
+      details: updateError.details, hint: updateError.hint, tripId,
+    })
+    // TEMPORARY diagnostic detail — the brief explicitly asked for the
+    // real backend error to be visible during this specific
+    // investigation, while also explicitly saying not to expose
+    // database errors permanently. This is a compact, one-line summary
+    // (postgres error code + message only — no table/column internals
+    // beyond what postgres itself already puts in `message`, no stack
+    // trace), returned as a separate `debug` field the client can
+    // choose to show a small line of, not blended into the main error
+    // text a real user would see. Remove this `debug` field once the
+    // root cause is confirmed and fixed.
+    return NextResponse.json({
+      error: "Couldn't save Trip Information. Please try again.",
+      debug: `${updateError.code ?? 'unknown'}: ${updateError.message ?? 'no message'}`,
+    }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true, trip_information: normalised })

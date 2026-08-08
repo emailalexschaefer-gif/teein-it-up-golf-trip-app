@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { calculateStableford } from '@/lib/scoring/stableford'
 import { getHandicapStrokesForHole } from '@/lib/scoring/strokeAllocation'
-import { compareCaptures, COMPARISON_LABEL, isZeroPointsMismatch, type ComparisonStatus, type CaptureValue } from '@/lib/scoring/comparison'
+import { compareCaptures, COMPARISON_LABEL, isZeroPointsMismatch, hasUnresolvedMismatch, type ComparisonStatus, type CaptureValue } from '@/lib/scoring/comparison'
 import { queueScoreEntry, getPendingCount, getQueuedEntriesForScorecards } from '@/lib/db/dexie'
 import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
 import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
@@ -529,7 +529,13 @@ export default function SelfMarkerScoreShell({
     else { if (isPartnerLocked) return; setDraftPartnerGross(null); setDraftPartnerPickedUp(p => !p) }
   }
 
-  const canConfirm = !isLocked && (draftMyGross !== null || draftMyPickedUp)
+  // Confirm Score submits both myValue and partnerValue simultaneously
+  // (see below) — a genuine unresolved mismatch on either side must
+  // block confirmation, not just my own. Reuses myComparison/
+  // partnerComparison exactly as already computed for each card's
+  // 'Needs review' label — no separate/duplicate comparison here.
+  const hasBlockingMismatch = hasUnresolvedMismatch(myComparison, partnerComparison)
+  const canConfirm = !isLocked && (draftMyGross !== null || draftMyPickedUp) && !hasBlockingMismatch
     && (!requiresMarker || !currentMarked || draftPartnerGross !== null || draftPartnerPickedUp)
 
   async function confirmScore() {
@@ -1225,6 +1231,46 @@ export default function SelfMarkerScoreShell({
         )}
         </div>
 
+        {/* Inline reconciliation panel — appears only when a genuine
+            mismatch exists on either side, using the exact same
+            myComparison/partnerComparison values already driving each
+            card's small 'Needs review' label (that label stays, per the
+            explicit instruction, now as a secondary indicator). Renders
+            nothing when both sides match — this section adds zero DOM,
+            not just zero visible content, when there's nothing to
+            resolve. */}
+        {(() => {
+          const blocks: React.ReactNode[] = []
+
+          if (myComparison === 'mismatch') {
+            const mine = mySelf[holeNum] ?? null
+            const theirs = myMarker[holeNum] ?? null
+            blocks.push(
+              <MismatchBlock
+                key="mine"
+                aLabel="You" aCapture={mine} aHandicap={myHcp}
+                bLabel={partnerName ?? 'Your marker'} bCapture={theirs} bHandicap={partnerHcp}
+                par={par} strokeIndex={si}
+              />
+            )
+          }
+          if (partnerComparison === 'mismatch') {
+            const theirs = partnerSelf[holeNum] ?? null
+            const mine = partnerMarker[holeNum] ?? null
+            blocks.push(
+              <MismatchBlock
+                key="partner"
+                aLabel={partnerName ?? 'Your marker'} aCapture={theirs} aHandicap={partnerHcp}
+                bLabel="You" bCapture={mine} bHandicap={myHcp}
+                par={par} strokeIndex={si}
+              />
+            )
+          }
+
+          if (blocks.length === 0) return null
+          return <div style={{ marginTop: 12 }}>{blocks}</div>
+        })()}
+
         {/* Live Leaderboard — a toggled overlay, not a navigation. Full-
             width, visually secondary to score entry (outlined, not
             filled green like Confirm Score), placed exactly where
@@ -1342,6 +1388,77 @@ export default function SelfMarkerScoreShell({
 }
 
 // ── Score card sub-component ───────────────────────────────────────────────────
+
+/**
+ * Inline reconciliation panel for a single mismatch — reused for both
+ * "my hole" and "the partner's hole" cases (a self_and_marker round
+ * shows both simultaneously, and either can be mismatched independently).
+ * Points for each side are computed with the exact same
+ * calculateStableford() used everywhere else in the app (imported at the
+ * top of this file already) — no second Stableford implementation.
+ * isZeroPointsMismatch() (already built and tested for the Friday
+ * field-test case) decides which of the two required treatments applies.
+ */
+function MismatchBlock({
+  aLabel, aCapture, aHandicap, bLabel, bCapture, bHandicap, par, strokeIndex,
+}: {
+  aLabel: string; aCapture: CaptureValue | null; aHandicap: number
+  bLabel: string; bCapture: CaptureValue | null; bHandicap: number
+  par: number; strokeIndex: number
+}) {
+  const pointsFor = (capture: CaptureValue | null, handicap: number): number | null => {
+    if (!capture) return null
+    if (capture.pickedUp) return 0
+    if (capture.grossScore === null) return null
+    try {
+      return calculateStableford({ grossScore: capture.grossScore, par, strokeIndex, playingHandicap: handicap })
+    } catch {
+      return null
+    }
+  }
+  const aPts = pointsFor(aCapture, aHandicap)
+  const bPts = pointsFor(bCapture, bHandicap)
+
+  const isZeroBoth = isZeroPointsMismatch(aCapture, bCapture, {
+    par, strokeIndex, selfHandicap: aHandicap, markerHandicap: bHandicap,
+  })
+
+  const describe = (capture: CaptureValue | null, pts: number | null) =>
+    capture?.pickedUp ? 'Pick up' : capture?.grossScore != null ? `${capture.grossScore} strokes` : '—'
+
+  const palette = isZeroBoth
+    ? { bg: '#fdf3d9', border: '#e8c96a', heading: '#a1791f' }
+    : { bg: '#fef2f2', border: '#fecaca', heading: '#dc2626' }
+
+  return (
+    <div style={{ background: palette.bg, border: `1.5px solid ${palette.border}`, borderRadius: 12, padding: '12px 14px', marginBottom: 8 }}>
+      <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 800, color: palette.heading, letterSpacing: 0.3, marginBottom: 8 }}>
+        {isZeroBoth ? '⚠ SCORES RECORDED DIFFERENTLY' : "⚠ SCORES DON'T MATCH"}
+      </div>
+
+      <div style={{ display: 'flex', gap: 20, marginBottom: 8 }}>
+        <div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#14532d' }}>{aLabel}:</div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151' }}>
+            {describe(aCapture, aPts)}{aPts !== null ? ` · ${aPts} pt${aPts === 1 ? '' : 's'}` : ''}
+          </div>
+        </div>
+        <div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#14532d' }}>{bLabel}:</div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151' }}>
+            {describe(bCapture, bPts)}{bPts !== null ? ` · ${bPts} pt${bPts === 1 ? '' : 's'}` : ''}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: palette.heading, lineHeight: 1.4 }}>
+        {isZeroBoth
+          ? 'Both entries result in 0 Stableford points. Please confirm which score should be recorded.'
+          : 'Please check the scores above and make them match before confirming this hole.'}
+      </div>
+    </div>
+  )
+}
 
 function ScoreCard({
   title, name, hcp, par, si, strokes, holeNum, gross, pickedUp, pts, runningTotal, onPick, onPar, onTogglePickUp, status, onOpenSummary, hole, isLockedForSide,
