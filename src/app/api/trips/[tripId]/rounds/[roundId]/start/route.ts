@@ -41,6 +41,26 @@ interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
  * no marker concept at all). Only 'self_and_marker' rounds get seeded.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+// Automatic lifecycle: READY TO PLAY -> LIVE, via the natural round-start
+// workflow — not a separate organiser action. Shared by both the RPC
+// success path and the direct-insert fallback so this logic exists in
+// exactly one place. Best-effort and silent: the round has already
+// successfully started by the time either caller reaches this, and must
+// not be rolled back over a trip-level status label. Guarded to never
+// fire if the trip is already 'live' (a later round starting on a
+// multi-round trip) or 'completed' (shouldn't occur in practice, but not
+// assumed away).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function transitionTripToLive(admin: any, tripId: string) {
+  const tripStatusRes = await admin.from('trips').select('status').eq('id', tripId).maybeSingle()
+  if (tripStatusRes.data && !['live', 'completed'].includes(tripStatusRes.data.status)) {
+    const { error: tripStatusError } = await admin.from('trips').update({ status: 'live' }).eq('id', tripId)
+    if (tripStatusError) {
+      console.error('[start-round] ready->live transition failed', tripStatusError)
+    }
+  }
+}
+
 async function autoGenerateMarkers(admin: any, tripId: string, roundId: string, scoreCaptureMode: string) {
   if (scoreCaptureMode !== 'self_and_marker') return
 
@@ -294,6 +314,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     }
     console.log('[start-round] SUCCESS via RPC', result)
     await autoGenerateMarkers(admin, tripId, roundId, round.score_capture_mode)
+    await transitionTripToLive(admin, tripId)
     return NextResponse.json(result, { status: 201 })
   }
 
@@ -459,6 +480,10 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     })
     return NextResponse.json({ error: "We couldn't begin the round. Please try again.", success: false }, { status: 500 })
   }
+
+  // Automatic lifecycle: READY TO PLAY -> LIVE (see transitionTripToLive
+  // for the full reasoning — shared with the RPC success path above).
+  await transitionTripToLive(admin, tripId)
 
   const groupsProcessed = new Set([...groupByProfile.values()].filter(Boolean)).size
 

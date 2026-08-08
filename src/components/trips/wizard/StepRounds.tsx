@@ -45,14 +45,9 @@ function RoundCard({ round, index, total, onUpdate, onRemove }: {
       <Field label="Course">
         <Input value={round.course_name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('course_name', e.target.value)} placeholder="Royal County Down" maxLength={100} />
       </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Date" required>
-          <Input type="date" value={round.play_date} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('play_date', e.target.value)} />
-        </Field>
-        <Field label="Tee time">
-          <Input type="time" value={round.tee_time} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('tee_time', e.target.value)} />
-        </Field>
-      </div>
+      <Field label="Date" required>
+        <Input type="date" value={round.play_date} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('play_date', e.target.value)} />
+      </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Holes">
           <Select value={round.holes} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => set('holes', Number(e.target.value) as 9 | 18)}>

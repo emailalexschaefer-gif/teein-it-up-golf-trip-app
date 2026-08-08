@@ -3,7 +3,7 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { formatTripDateRange } from '@/lib/utils'
-import { TRIP_STATUS_LABELS, TRIP_STATUS_TRANSITIONS, EVENT_TYPE_OPTIONS } from '@/types/app'
+import { TRIP_STATUS_LABELS, EVENT_TYPE_OPTIONS } from '@/types/app'
 import type { TripData } from '../TripDetailClient'
 import TripInformationCard from '@/components/trips/TripInformationCard'
 
@@ -24,24 +24,10 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
   const [restoring, setRestoring] = useState(false)
 
   const eventLabel   = EVENT_TYPE_OPTIONS.find(o => o.value === trip.event_type)?.label ?? 'Golf Trip'
-  const nextStatuses = TRIP_STATUS_TRANSITIONS[trip.status]
   const expected     = trip.expected_players ?? 0
   const ppg          = trip.players_per_group ?? 4
 
   const isArchived = trip.status === 'archived'
-
-  // Forward-moving status transitions (exclude archive + backward moves)
-  // Lifecycle order — forward means moving to a higher index
-  const lifecycleOrder: import('@/types/app').TripStatus[] = [
-    'draft', 'open', 'groups_ready', 'ready', 'live', 'completed',
-  ]
-  const currentIdx = lifecycleOrder.indexOf(trip.status)
-  const forwardStatuses: import('@/types/app').TripStatus[] = nextStatuses.filter(s =>
-    s !== 'archived' && lifecycleOrder.indexOf(s) > currentIdx
-  )
-  const backwardStatuses: import('@/types/app').TripStatus[] = nextStatuses.filter(s =>
-    s !== 'archived' && lifecycleOrder.indexOf(s) !== -1 && lifecycleOrder.indexOf(s) < currentIdx
-  )
 
   async function handleRestore() {
     setRestoring(true)
@@ -154,67 +140,15 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
         {/* ── Trip information ─────────────────────────────────────────── */}
         <TripInformationCard tripId={trip.id} isOrganiser={isOrganiser} />
 
-        {/* ── Stage transitions (non-archived trips) ───────────────────── */}
+        {/* ── Organiser management: Archive / Delete (non-archived
+            trips). The manual "Move trip to next stage" forward/backward
+            status controls that used to sit here were removed — trip
+            lifecycle now progresses automatically (first player join,
+            group readiness, round start, round completion), so there is
+            no longer a status for the organiser to manually select. ── */}
         {isOrganiser && !isArchived && (
           <div className="card p-4">
-            <p className="s-label" style={{ marginBottom: 10 }}>Move trip to next stage</p>
-            <div className="space-y-2">
-              {/* Forward transitions — primary */}
-              {forwardStatuses.map(s => {
-                const warnings: string[] = []
-                if (s === 'ready' && trip.rounds.length === 0) warnings.push('No rounds configured yet')
-                if (s === 'live'  && trip.rounds.length === 0) warnings.push('No rounds to start')
-                return (
-                  <div key={s}>
-                    <button
-                      disabled={updateStatus.isPending}
-                      onClick={async () => {
-                        await updateStatus.mutateAsync({ tripId: trip.id, status: s })
-                        toast(`Marked as ${TRIP_STATUS_LABELS[s]}`, 'success')
-                        router.refresh()
-                      }}
-                      style={{
-                        width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center',
-                        justifyContent: 'space-between', padding: '12px 16px', borderRadius: 10,
-                        background: '#faf6ed', border: '1.5px solid #d9c9a3',
-                        fontFamily: 'var(--font-body)', fontWeight: 600, color: '#1a1a16', fontSize: 13,
-                        cursor: 'pointer', opacity: updateStatus.isPending ? 0.5 : 1,
-                      }}
-                    >
-                      <span>{TRIP_STATUS_LABELS[s]}</span>
-                      <span style={{ color: '#a89e88' }}>→</span>
-                    </button>
-                    {warnings.map(w => (
-                      <p key={w} style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#b45309', marginTop: 3, paddingLeft: 4 }}>⚠ {w}</p>
-                    ))}
-                  </div>
-                )
-              })}
-
-              {/* Backward transitions — secondary */}
-              {backwardStatuses.map(s => (
-                <button key={s}
-                  disabled={updateStatus.isPending}
-                  onClick={async () => {
-                    await updateStatus.mutateAsync({ tripId: trip.id, status: s })
-                    toast(`Moved back to ${TRIP_STATUS_LABELS[s]}`, 'success')
-                    router.refresh()
-                  }}
-                  style={{
-                    width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center',
-                    justifyContent: 'space-between', padding: '11px 16px', borderRadius: 10,
-                    background: 'transparent', border: '1.5px solid #e8dcc8',
-                    fontFamily: 'var(--font-body)', fontWeight: 500, color: '#7a7260', fontSize: 12,
-                    cursor: 'pointer', opacity: updateStatus.isPending ? 0.5 : 1,
-                  }}
-                >
-                  <span>← {TRIP_STATUS_LABELS[s]}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Archive — always available for non-archived trips */}
-            <div style={{ borderTop: '1px solid #ede0c4', marginTop: 12, paddingTop: 12 }}>
+            <div style={{ paddingTop: 0 }}>
               <button
                 onClick={() => setShowArchiveDialog(true)}
                 style={{

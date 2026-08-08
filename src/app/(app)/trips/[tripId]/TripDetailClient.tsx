@@ -170,8 +170,9 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
             )}
             {isOrganiser && (
               <Link href={editUrl} style={{
-                fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 600,
-                color: 'rgba(245,230,184,0.45)',
+                fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600,
+                color: 'rgba(245,230,184,0.7)', textDecoration: 'underline',
+                textUnderlineOffset: 3,
               }}>
                 Edit trip
               </Link>

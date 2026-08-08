@@ -5,6 +5,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolvePlayingHandicap } from '@/lib/scoring/defaultHoles'
+import { computeTripReadiness } from '@/lib/trips/tripLifecycle'
 
 interface Props { params: Promise<{ tripId: string; memberId: string }> }
 
@@ -108,6 +109,36 @@ export async function PATCH(req: NextRequest, { params }: Props) {
         // assignment itself already succeeded above. Log and continue;
         // this is surfaced to the organiser as a missing scorecard they
         // can retry, not a silent group-assignment failure.
+      }
+    }
+  }
+
+  // Automatic lifecycle: INVITING PLAYERS -> READY TO PLAY, checked
+  // whenever a group assignment changes — the action most likely to
+  // affect readiness, and the same event this route already exists to
+  // handle. Uses computeTripReadiness (src/lib/trips/tripLifecycle.ts)
+  // against the existing trip_members/rounds data — no parallel
+  // readiness flag. Only transitions from 'open', so this never fires
+  // from 'draft' (that only ever happens via the join route) and never
+  // regresses a trip that's already 'ready', 'live', or 'completed'.
+  if (update.group_id !== undefined) {
+    const tripStatusRes = await admin.from('trips').select('status').eq('id', tripId).maybeSingle()
+    if (tripStatusRes.data?.status === 'open') {
+      const [membersRes, roundsRes] = await Promise.all([
+        admin.from('trip_members').select('group_id').eq('trip_id', tripId),
+        admin.from('rounds').select('id').eq('trip_id', tripId),
+      ])
+      const members: { group_id: string | null }[] = membersRes.data ?? []
+      const readiness = computeTripReadiness({
+        memberCount: members.length,
+        ungroupedMemberCount: members.filter(m => !m.group_id).length,
+        roundCount: (roundsRes.data ?? []).length,
+      })
+      if (readiness.ready) {
+        const { error: readyError } = await admin.from('trips').update({ status: 'ready' }).eq('id', tripId).eq('status', 'open')
+        if (readyError) {
+          console.error('[members PATCH] open->ready transition failed', readyError)
+        }
       }
     }
   }

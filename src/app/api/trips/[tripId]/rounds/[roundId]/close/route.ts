@@ -71,5 +71,25 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
     return NextResponse.json({ error: 'Could not close the round.' }, { status: 500 })
   }
 
+  // Automatic lifecycle: LIVE -> COMPLETED, only once every round on this
+  // trip is complete — not merely because this one just finished. This
+  // is the explicit "do not mark a multi-round trip completed simply
+  // because Round 1 finishes" requirement. Derived directly from
+  // rounds.status (the existing source of truth for round completion),
+  // not a second/parallel completion flag — a trip with any round still
+  // 'upcoming' or 'active' is not marked complete. Best-effort and
+  // silent, matching the same reasoning as the other lifecycle hooks:
+  // the round has already successfully closed, and this must not roll
+  // that back over a trip-level label.
+  const allRoundsRes = await admin.from('rounds').select('status').eq('trip_id', tripId)
+  const allRoundsComplete = (allRoundsRes.data ?? []).length > 0
+    && (allRoundsRes.data ?? []).every((r: { status: string }) => r.status === 'completed')
+  if (allRoundsComplete) {
+    const { error: tripCompleteError } = await admin.from('trips').update({ status: 'completed' }).eq('id', tripId)
+    if (tripCompleteError) {
+      console.error('[close-round] live->completed transition failed', tripCompleteError)
+    }
+  }
+
   return NextResponse.json({ ok: true })
 }

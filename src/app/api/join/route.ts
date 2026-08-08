@@ -99,6 +99,23 @@ export async function POST(request: Request) {
     }, { status: 500 })
   }
 
+  // Automatic lifecycle: DRAFT -> INVITING PLAYERS (open), triggered by
+  // the first player successfully joining — the authoritative,
+  // server-side event this transition is defined to happen from, not a
+  // client-side "organiser pressed a button" event. Best-effort and
+  // silent: if this update fails for any reason, the join itself has
+  // already succeeded and must not be rolled back over a status label.
+  if (trip.status === 'draft') {
+    const { error: statusError } = await admin
+      .from('trips')
+      .update({ status: 'open' })
+      .eq('id', trip.id)
+      .eq('status', 'draft') // guards against a race with a concurrent join also transitioning this
+    if (statusError) {
+      console.error('[POST /api/join] draft->open transition failed', statusError)
+    }
+  }
+
   // Best-effort: update permanent profile handicap if one was provided
   if (playing_handicap !== null && playing_handicap !== undefined) {
     await admin

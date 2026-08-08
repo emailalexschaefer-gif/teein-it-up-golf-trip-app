@@ -6434,3 +6434,155 @@ still works for organiser, player can expand/collapse but not edit, no
 nested scrolling, no data loss (confirm by expanding, collapsing, then
 expanding again and checking nothing was altered) — specifically on a
 small mobile viewport with a genuinely long pasted itinerary.
+
+---
+
+## Sprint 6 — UI / Organiser Flow Polish Pass (Automatic Lifecycle)
+
+### 1. Files changed
+- `src/app/api/join/route.ts` — DRAFT → INVITING PLAYERS hook
+- `src/app/api/trips/[tripId]/rounds/[roundId]/start/route.ts` — READY TO PLAY → LIVE hook (both RPC and fallback success paths)
+- `src/app/api/trips/[tripId]/rounds/[roundId]/close/route.ts` — LIVE → COMPLETED hook
+- `src/app/api/trips/[tripId]/members/[memberId]/route.ts` — INVITING PLAYERS → READY TO PLAY hook
+- `src/lib/trips/tripLifecycle.ts` (new) — pure `computeTripReadiness()` function
+- `src/lib/trips/tripLifecycle.test.ts` (new) — 6 regression tests
+- `src/app/(app)/trips/[tripId]/tabs/TripOverviewTab.tsx` — removed manual stage-transition UI and its now-dead computation, kept Archive/Delete
+- `src/app/(app)/trips/[tripId]/TripDetailClient.tsx` — enlarged "Edit trip"
+- `src/components/trips/wizard/StepRounds.tsx` — removed round-level Tee Time field
+
+### 2. Exact lifecycle logic implemented
+All four transitions are **silent, best-effort, server-side hooks** on
+existing authoritative actions — no new organiser-facing controls, no
+parallel status-management UI:
+
+- **DRAFT → INVITING PLAYERS**: in `/api/join`, immediately after a
+  genuinely new member is inserted (not `alreadyMember`), if the trip's
+  current status is `'draft'`, update to `'open'`. Guarded with
+  `.eq('status', 'draft')` on the update itself to protect against a
+  race with a concurrent join.
+- **INVITING PLAYERS → READY TO PLAY**: in the members PATCH route,
+  whenever `group_id` is part of the update, if the trip is currently
+  `'open'`, re-derive readiness via `computeTripReadiness()` against
+  live `trip_members`/`rounds` data and transition to `'ready'` if met.
+- **READY TO PLAY → LIVE**: in the round-start route, immediately after
+  a round successfully transitions to `'active'` (both the `begin_round`
+  RPC path and the direct-insert fallback both call the same shared
+  `transitionTripToLive()` helper), if the trip isn't already `'live'`
+  or `'completed'`, update to `'live'`.
+- **LIVE → COMPLETED**: in the round-close route, immediately after a
+  round successfully transitions to `'completed'`, query every round on
+  the trip — only if *all* of them are `'completed'` does the trip
+  itself transition to `'completed'`.
+
+### 3. Existing status values found in the codebase
+`src/types/database.ts`'s `TripStatus` type and the DB's actual
+`trips.status` CHECK constraint (`002_trips.sql`) **disagree**: the type
+includes `'groups_ready'`, the database constraint does not (`'draft',
+'open', 'ready', 'live', 'completed', 'archived'`). This is a real,
+pre-existing bug — if anything had ever tried to write
+`status: 'groups_ready'`, it would have failed with a constraint
+violation. The only code path that could have written it was the manual
+"Move Trip to Next Stage" UI just removed in this pass, so the bug is
+now structurally unreachable (nothing writes that value anymore), but
+`'groups_ready'` is still referenced for read/display purposes across
+several other files (`Badge.tsx`, `TripList.tsx`, `TripCard.tsx`,
+`TripDetailClient.tsx`'s wizard-step indicator, `TripGroupsTab.tsx`).
+**Left these untouched** — cleaning them up is a real fix but touches
+five files outside this pass's explicit scope, and the brief's own rule
+is "if not specifically mentioned, keep it exactly as it is." Flagging
+this clearly rather than silently leaving it undiscovered or silently
+fixing something out of scope.
+
+The database's five meaningful statuses map exactly onto the brief's
+intended lifecycle: `draft`→DRAFT, `open`→INVITING PLAYERS,
+`ready`→READY TO PLAY, `live`→LIVE, `completed`→COMPLETED, with
+`archived` remaining the separate, existing concept it already was.
+
+### 4. Whether any database/schema change was required
+**No.** Every status value the lifecycle needs already exists in the
+production CHECK constraint. Confirmed by reading the constraint
+directly before writing any code, not assumed.
+
+### 5. How READY TO PLAY is derived
+`computeTripReadiness()` (pure function, `src/lib/trips/
+tripLifecycle.ts`) checks three criteria against existing data — no
+parallel/duplicate readiness state:
+- at least one player has joined
+- every joined player has a `group_id` (the existing column already
+  representing group assignment)
+- at least one round is configured
+
+**Explicitly not resolved, reported rather than guessed at**: the
+brief's own readiness checklist also mentions "tee times/group
+information required by the existing workflow." This pass's own Item 2
+moves tee times out of round-level configuration entirely, and no
+group-level tee-time *requirement* (as opposed to the already-existing
+optional `trip_groups.tee_time` field) currently exists to check
+against. Treating an optional field as a hard readiness gate would be
+inventing new business logic the brief explicitly asked to be flagged
+instead. **This needs your input**: should a group need a tee time set
+before the trip can be "ready," or is group assignment alone
+sufficient?
+
+### 6. How LIVE is derived
+The round successfully transitioning to `'active'` via the existing
+round-start workflow (both its RPC and fallback code paths) — not a
+separate action. Guarded against ever regressing a trip already `'live'`
+or `'completed'` (a second round starting later on a multi-round trip).
+
+### 7. How COMPLETED is derived
+Every round on the trip having `rounds.status = 'completed'` — checked
+fresh from the database immediately after the round that triggered the
+check also completes, not a cached or partial view. A trip with any
+round still `'upcoming'` or `'active'` is never marked complete.
+
+### 8. Tests run and results
+**106/106 scoring-domain tests** (unchanged — this pass didn't touch
+scoring/Stableford/reconciliation) and **19/19 trips-domain tests** (13
+existing Trip Information tests + 6 new `computeTripReadiness` tests,
+covering: zero members, zero rounds, ungrouped players (singular and
+plural message forms), the fully-ready case, and multiple simultaneously
+unmet criteria all being reported together). Lenient type-check clean
+on every file touched.
+
+### 9. Assumptions and unresolved lifecycle edge cases
+- **Tee-time readiness** (above) — needs your input before any code
+  change, per the brief's own instruction not to invent it.
+- **`'groups_ready'` cleanup** — flagged, not fixed, since it's outside
+  explicit scope; happy to do a dedicated follow-up pass on it.
+- **"Tees" field (Item 2)**: no existing `tees`/`tee_color` column
+  anywhere in the schema — confirmed by searching before assuming.
+  Adding one would require a genuine new migration, which the brief
+  explicitly said to stop and report rather than introduce
+  unplanned. **Not implemented this pass.**
+- **Item 1 (event types)**: `social_golf`, `corporate_day`, `charity_day`
+  already exist as options (added in earlier work this project).
+  Labels read "Corporate Day"/"Charity Day" rather than the brief's
+  "Corporate Event"/"Charity Event" — treated as equivalent wording and
+  left unchanged rather than renamed, since the categories themselves
+  were already the actual ask ("ensure it supports... including").
+- **Item 9 (Players screen)**: reviewed against the screenshots and the
+  brief's own "keep" list — already matches (Joined/Expected/Remaining,
+  player cards, Edit HCP, Create Playing Groups). No change made.
+- **Multi-device consistency**: every transition is a direct database
+  write from a server route, not client state — refreshes, other
+  devices, and other organisers all read the same `trips.status` value,
+  matching the explicit "prefer server/API/domain-level lifecycle logic"
+  instruction.
+
+### 10. Package
+This working tree, packaged as the next testable ZIP.
+
+### Manual test steps (cannot be run from this sandbox — no live
+Supabase/browser access)
+The brief's own test list A-J: new trip starts Draft; sending an
+invitation alone doesn't move it; the first player joining does (check
+by refreshing as the organiser, since the transition is silent); further
+joins don't re-trigger anything already past Draft; readiness triggers
+once players are grouped and a round exists; round start moves to Live;
+Round 1 completing on a multi-round trip does NOT complete the trip;
+the final round completing does. Also specifically re-verify Trip
+Information's collapse/expand/edit-after-expand behavior, and that
+invitations/joining/groups/scoring/reconciliation/round setup/
+permissions all still work exactly as before — none of that logic was
+touched this pass.
