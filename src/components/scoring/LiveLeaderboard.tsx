@@ -9,9 +9,17 @@
 // route, React Query with a modest interval, refetchOnWindowFocus,
 // refetchOnReconnect. No new live-sync mechanism was introduced.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import Link from 'next/link'
+
+interface PerHoleEntry {
+  holeNumber: number
+  par: number
+  strokeIndex: number
+  gross: number | null
+  pickedUp: boolean
+  points: number
+}
 
 interface LeaderboardEntry {
   playerId: string
@@ -23,6 +31,7 @@ interface LeaderboardEntry {
   finished: boolean
   isCurrentUser: boolean
   position: number
+  perHole: PerHoleEntry[]
 }
 
 interface LeaderboardResponse {
@@ -63,6 +72,10 @@ export default function LiveLeaderboard({
   const prevPositions = useRef<Record<string, number> | null>(null)
   const [movements, setMovements] = useState<Record<string, Movement>>({})
   const [expanded, setExpanded] = useState(false)
+  // Which player's scorecard is currently expanded inline — accordion
+  // behaviour (only one at a time, per the explicit requirement), so
+  // this is a single id, not a Set.
+  const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null)
 
   const { data, isLoading, error, dataUpdatedAt } = useQuery<LeaderboardResponse>({
     queryKey: ['leaderboard', tripId, roundId],
@@ -184,7 +197,7 @@ export default function LiveLeaderboard({
           </div>
         )}
         {visibleRows.map((row, i) => (
-          <LeaderboardRow key={row.playerId} row={row} movement={movements[row.playerId] ?? 'same'} isLast={i === visibleRows.length - 1 && !meOutsideTopThree} tripId={tripId} />
+          <LeaderboardRow key={row.playerId} row={row} movement={movements[row.playerId] ?? 'same'} isLast={i === visibleRows.length - 1 && !meOutsideTopThree} isExpanded={expandedPlayerId === row.playerId} onToggle={() => setExpandedPlayerId(id => id === row.playerId ? null : row.playerId)} totalHoles={data.totalHoles} />
         ))}
 
         {/* Pinned "your position" row — only shown collapsed and only if
@@ -194,7 +207,7 @@ export default function LiveLeaderboard({
             <div style={{ padding: '4px 14px', fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, letterSpacing: 0.6, color: '#9ca3af', background: '#faf9f6', borderTop: '1px solid #eceae3', borderBottom: '1px solid #eceae3' }}>
               YOUR POSITION
             </div>
-            <LeaderboardRow row={meOutsideTopThree} movement={movements[meOutsideTopThree.playerId] ?? 'same'} isLast tripId={tripId} />
+            <LeaderboardRow row={meOutsideTopThree} movement={movements[meOutsideTopThree.playerId] ?? 'same'} isLast isExpanded={expandedPlayerId === meOutsideTopThree.playerId} onToggle={() => setExpandedPlayerId(id => id === meOutsideTopThree.playerId ? null : meOutsideTopThree.playerId)} totalHoles={data.totalHoles} />
           </>
         )}
       </div>
@@ -216,53 +229,143 @@ export default function LiveLeaderboard({
   )
 }
 
-interface LeaderboardRowProps { row: LeaderboardEntry; movement: Movement; isLast: boolean; tripId: string }
+interface LeaderboardRowProps { row: LeaderboardEntry; movement: Movement; isLast: boolean; isExpanded: boolean; onToggle: () => void; totalHoles: number }
 
-function LeaderboardRow({ row, movement, isLast, tripId }: LeaderboardRowProps) {
+function LeaderboardRow({ row, movement, isLast, isExpanded, onToggle, totalHoles }: LeaderboardRowProps) {
   return (
-    <div
-      style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: '10px 14px',
-        borderBottom: isLast ? 'none' : '1px solid #eceae3',
-        background: row.isCurrentUser ? '#fdf3d9' : row.position === 1 ? '#f7fdf9' : 'transparent',
-        transition: 'background 0.4s ease',
-      }}
-    >
-      <div style={{ width: 22, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 14, color: row.position <= 3 ? '#a1791f' : '#9ca3af' }}>
-        {MEDAL[row.position] ?? row.position}
+    <div style={{ borderBottom: isLast && !isExpanded ? 'none' : '1px solid #eceae3' }}>
+      <div
+        onClick={onToggle}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '10px 14px',
+          background: row.isCurrentUser ? '#fdf3d9' : row.position === 1 ? '#f7fdf9' : 'transparent',
+          transition: 'background 0.4s ease',
+          cursor: 'pointer',
+        }}
+      >
+        <div style={{ width: 22, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 14, color: row.position <= 3 ? '#a1791f' : '#9ca3af' }}>
+          {MEDAL[row.position] ?? row.position}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+            background: 'radial-gradient(#e8c96a,#c9a84c)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 11,
+          }}>
+            {initialsOf(row.name)}
+          </div>
+
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {row.name}{row.isCurrentUser ? ' (you)' : ''}
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af' }}>
+              {row.finished ? 'Finished' : row.holesPlayed > 0 ? `Thru ${row.holesPlayed}` : 'Not started'}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 17, color: '#14532d' }}>
+            {row.totalPts} <span style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af' }}>pts</span>
+          </div>
+        </div>
+
+        <div style={{ width: 16, textAlign: 'center', flexShrink: 0 }}>
+          {movement === 'up' && <span style={{ color: '#16a34a', fontSize: 13 }}>▲</span>}
+          {movement === 'down' && <span style={{ color: '#dc2626', fontSize: 13 }}>▼</span>}
+          {movement === 'same' && <span style={{ color: '#d1d5db', fontSize: 11 }}>–</span>}
+        </div>
+
+        {/* Chevron — the subtle expand affordance the brief asks for,
+            distinct from the movement arrow above it. */}
+        <div style={{ width: 14, textAlign: 'center', flexShrink: 0, color: '#c9a84c', fontSize: 11, transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }}>
+          ▾
+        </div>
       </div>
 
-      <Link href={`/trips/${tripId}/players/${row.playerId}`} style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, textDecoration: 'none' }}>
-        <div style={{
-          width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-          background: 'radial-gradient(#e8c96a,#c9a84c)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 11,
-        }}>
-          {initialsOf(row.name)}
-        </div>
+      {isExpanded && <InlineScorecard row={row} totalHoles={totalHoles} />}
+    </div>
+  )
+}
 
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {row.name}{row.isCurrentUser ? ' (you)' : ''}
-          </div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af' }}>
-            {row.finished ? 'Finished' : row.holesPlayed > 0 ? `Thru ${row.holesPlayed}` : 'Not started'}
-          </div>
-        </div>
-      </Link>
+/**
+ * Inline expanded scorecard — reuses the per-hole data the leaderboard
+ * API now includes in its existing response (see the route: same
+ * score_entries query already being polled every 8s, capture_role='self'
+ * as the authoritative source, same convention as everywhere else in the
+ * app), not a new fetch or a second scoring calculation. Horizontal
+ * scroll is contained to this element only, so the page itself never
+ * overflows even for an 18-hole round on a narrow screen.
+ */
+function InlineScorecard({ row, totalHoles }: { row: LeaderboardEntry; totalHoles: number }) {
+  const front9 = row.perHole.filter(h => h.holeNumber <= 9)
+  const back9  = row.perHole.filter(h => h.holeNumber > 9)
+  const front9Pts = front9.reduce((s, h) => s + h.points, 0)
+  const back9Pts  = back9.reduce((s, h) => s + h.points, 0)
 
-      <div style={{ textAlign: 'right', flexShrink: 0 }}>
-        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 17, color: '#14532d' }}>
-          {row.totalPts} <span style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af' }}>pts</span>
-        </div>
+  if (row.perHole.length === 0) {
+    return (
+      <div style={{ padding: '10px 14px 14px', background: '#faf9f6' }}>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af' }}>
+          No holes entered yet.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ padding: '10px 14px 14px', background: '#faf9f6' }}>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: totalHoles > 9 ? 560 : 320 }}>
+          <thead>
+            <tr>
+              {row.perHole.map(h => (
+                <th key={h.holeNumber} style={{ padding: '2px 6px', fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: '#9ca3af', textAlign: 'center', minWidth: 34 }}>
+                  H{h.holeNumber}
+                </th>
+              ))}
+            </tr>
+            <tr>
+              {row.perHole.map(h => (
+                <th key={h.holeNumber} style={{ padding: '0 6px 4px', fontFamily: 'var(--font-body)', fontSize: 8.5, fontWeight: 600, color: '#c9b896', textAlign: 'center' }}>
+                  Par {h.par} · SI {h.strokeIndex}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              {row.perHole.map(h => (
+                <td key={h.holeNumber} style={{ padding: '2px 6px', textAlign: 'center', fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: '#14532d' }}>
+                  {h.pickedUp ? 'P' : h.gross ?? '—'}
+                </td>
+              ))}
+            </tr>
+            <tr>
+              {row.perHole.map(h => (
+                <td key={h.holeNumber} style={{ padding: '0 6px 4px', textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#a1791f', fontWeight: 700 }}>
+                  {h.points} pt{h.points === 1 ? '' : 's'}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
       </div>
 
-      <div style={{ width: 16, textAlign: 'center', flexShrink: 0 }}>
-        {movement === 'up' && <span style={{ color: '#16a34a', fontSize: 13 }}>▲</span>}
-        {movement === 'down' && <span style={{ color: '#dc2626', fontSize: 13 }}>▼</span>}
-        {movement === 'same' && <span style={{ color: '#d1d5db', fontSize: 11 }}>–</span>}
+      {/* Front 9 / Back 9 / Total — only shown where applicable, matching
+          the brief's own qualifier, computed from the same perHole data
+          above rather than a separate calculation. */}
+      <div style={{ display: 'flex', gap: 14, marginTop: 8, fontFamily: 'var(--font-body)', fontSize: 12, color: '#374151' }}>
+        {front9.length > 0 && <span>Front 9: <strong>{front9Pts}</strong></span>}
+        {back9.length > 0 && <span>Back 9: <strong>{back9Pts}</strong></span>}
+        <span>Total: <strong style={{ color: '#14532d' }}>{row.totalPts}</strong></span>
       </div>
     </div>
   )

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { formatTripDateRange } from '@/lib/utils'
 import { TRIP_STATUS_LABELS, TRIP_STATUS_TRANSITIONS, EVENT_TYPE_OPTIONS } from '@/types/app'
 import type { TripData } from '../TripDetailClient'
+import TripInformationCard from '@/components/trips/TripInformationCard'
 
 type Tab = 'overview' | 'players' | 'groups' | 'rounds'
 
@@ -149,6 +150,9 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
           <InfoRow label="Status" value={TRIP_STATUS_LABELS[trip.status]} />
           {(trip.organiser_is_playing ?? false) && <InfoRow label="Organiser" value="Also playing" />}
         </div>
+
+        {/* ── Trip information ─────────────────────────────────────────── */}
+        <TripInformationCard tripId={trip.id} isOrganiser={isOrganiser} />
 
         {/* ── Stage transitions (non-archived trips) ───────────────────── */}
         {isOrganiser && !isArchived && (

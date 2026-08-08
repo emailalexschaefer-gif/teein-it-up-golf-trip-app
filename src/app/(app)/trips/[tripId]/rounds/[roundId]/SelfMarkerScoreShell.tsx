@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { calculateStableford } from '@/lib/scoring/stableford'
 import { getHandicapStrokesForHole } from '@/lib/scoring/strokeAllocation'
-import { compareCaptures, COMPARISON_LABEL, type ComparisonStatus, type CaptureValue } from '@/lib/scoring/comparison'
+import { compareCaptures, COMPARISON_LABEL, isZeroPointsMismatch, type ComparisonStatus, type CaptureValue } from '@/lib/scoring/comparison'
 import { queueScoreEntry, getPendingCount, getQueuedEntriesForScorecards } from '@/lib/db/dexie'
 import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
 import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
@@ -883,6 +883,11 @@ export default function SelfMarkerScoreShell({
 
                 {r.mineStatus === 'mismatch' && (
                   <div style={{ marginBottom: r.partnerStatus === 'mismatch' ? 10 : 0 }}>
+                    {isZeroPointsMismatch(r.mine, r.myMarkerVal, { par: r.hole.par, strokeIndex: r.hole.stroke_index, selfHandicap: myHcp, markerHandicap: partnerHcp }) && (
+                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#a1791f', marginBottom: 4 }}>
+                        Both entries score 0 points — confirm score entry.
+                      </div>
+                    )}
                     <div style={{ display: 'flex', gap: 16, fontFamily: 'var(--font-body)', fontSize: 13, color: '#14532d' }}>
                       <div>Your score: <strong>{r.mine?.pickedUp ? 'Pick-up' : r.mine?.grossScore ?? '—'}</strong></div>
                       <div>Marker score: <strong>{r.myMarkerVal?.pickedUp ? 'Pick-up' : r.myMarkerVal?.grossScore ?? '—'}</strong></div>
@@ -898,6 +903,11 @@ export default function SelfMarkerScoreShell({
 
                 {r.partnerStatus === 'mismatch' && (
                   <div>
+                    {isZeroPointsMismatch(r.partnerSelfVal, r.partnerMarkerVal, { par: r.hole.par, strokeIndex: r.hole.stroke_index, selfHandicap: partnerHcp, markerHandicap: myHcp }) && (
+                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#a1791f', marginBottom: 4 }}>
+                        Both entries score 0 points — confirm score entry.
+                      </div>
+                    )}
                     <div style={{ display: 'flex', gap: 16, fontFamily: 'var(--font-body)', fontSize: 13, color: '#14532d' }}>
                       <div>{partnerName ?? 'Partner'}&apos;s score: <strong>{r.partnerSelfVal?.pickedUp ? 'Pick-up' : r.partnerSelfVal?.grossScore ?? '—'}</strong></div>
                       <div>Your marker entry: <strong>{r.partnerMarkerVal?.pickedUp ? 'Pick-up' : r.partnerMarkerVal?.grossScore ?? '—'}</strong></div>

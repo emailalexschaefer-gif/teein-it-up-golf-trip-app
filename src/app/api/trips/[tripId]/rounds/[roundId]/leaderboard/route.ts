@@ -22,6 +22,7 @@ interface ScorecardRow {
   profiles: { full_name: string; avatar_url: string | null } | null
   score_entries: ScoreEntryRow[]
 }
+interface HoleRow { id: string; hole_number: number; par: number; stroke_index: number }
 
 export async function GET(_req: NextRequest, { params }: RouteProps) {
   const { tripId, roundId } = await params
@@ -41,6 +42,12 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   const roundRes = await admin.from('rounds').select('id, name, holes, status, scoring_format').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
   if (!roundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
   const totalHoles: number = roundRes.data.holes ?? 18
+
+  // Holes for this round — needed to attach par/SI to each per-hole row
+  // in the inline expanded scorecard, per the explicit "reuse existing
+  // scorecard data" requirement rather than a second endpoint.
+  const holesRes = await admin.from('holes').select('id, hole_number, par, stroke_index').eq('round_id', roundId)
+  const holeById = new Map<string, HoleRow>((holesRes.data ?? []).map((h: HoleRow) => [h.id, h]))
 
   // Fetch scorecards with player info and their score entries (including
   // capture_role — required to avoid double-counting self+marker rows).
@@ -71,6 +78,24 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     const selfEntries = (sc.score_entries ?? []).filter(e => e.capture_role === 'self')
     const totalPts = selfEntries.reduce((sum, e) => sum + (e.stableford_pts ?? 0), 0)
     const holesPlayed = selfEntries.length
+
+    // Per-hole detail for the inline expanded scorecard — same
+    // selfEntries source as the total above (not a separate query or
+    // calculation), sorted by hole number and joined against the holes
+    // lookup for par/SI. Only included so a player can see it when they
+    // expand a row; the totals above don't depend on this.
+    const perHole = selfEntries
+      .map(e => {
+        const hole = holeById.get(e.hole_id)
+        return hole ? {
+          holeNumber: hole.hole_number, par: hole.par, strokeIndex: hole.stroke_index,
+          gross: e.is_no_return ? null : e.gross_score,
+          pickedUp: e.is_no_return, points: e.stableford_pts ?? 0,
+        } : null
+      })
+      .filter((h): h is NonNullable<typeof h> => h !== null)
+      .sort((a, b) => a.holeNumber - b.holeNumber)
+
     return {
       playerId:      sc.player_id,
       name:          sc.profiles?.full_name ?? 'Player',
@@ -80,6 +105,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       holesPlayed,
       finished:      holesPlayed >= totalHoles,
       isCurrentUser: sc.player_id === user.id,
+      perHole,
     }
   }).sort((a, b) => b.totalPts - a.totalPts || b.holesPlayed - a.holesPlayed)
 

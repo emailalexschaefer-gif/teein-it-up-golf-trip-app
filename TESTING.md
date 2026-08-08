@@ -5531,3 +5531,459 @@ only.
 
 ### Database migrations
 None.
+
+---
+
+## Trip Information — V1 Editable Overview Section
+
+### Architecture audit performed first
+Checked the `trips` table's existing RLS before writing anything: an
+"Organisers: full access" policy already restricts UPDATE to
+`organiser_id = auth.uid()`, and a "Members: read their trips" policy
+covers SELECT for members. A third policy, "Anyone: read by invite
+code," exists for the pre-join flow and is **row-level**, not
+column-level — meaning if `trip_information` were fetched through
+whatever query already powers that flow, it would technically be
+exposed to non-members too. Rather than thread this new field through
+the existing trip-fetch path and risk that, it's served by its own
+dedicated route with explicit checks — this is the direct implementation
+of "enforce permissions server-side... do not rely only on hiding the
+Edit button."
+
+### Data
+`034_trip_information.sql` — one nullable `TEXT` column added to
+`trips`, additive, idempotent (`ADD COLUMN IF NOT EXISTS`). No data
+migration needed: existing trips simply have `null`, which is the
+documented empty state.
+
+### Permissions — enforced in the route, not assumed from RLS
+`GET /api/trips/[tripId]/information`: explicit `trip_members` check
+before returning anything (403 if not a member) — matches the pattern
+already established in `my-round/route.ts`.
+`PATCH /api/trips/[tripId]/information`: explicit `organiser_id ===
+user.id` check (403 otherwise) — matches the trips table's own RLS
+condition for UPDATE, checked again here rather than relying on RLS
+alone to catch a client that skipped its own Edit-button gating.
+
+### Validation extracted as a pure, tested function
+`validateTripInformation()` (`src/lib/trips/tripInformation.ts`) handles
+the empty-string-becomes-null normalisation (so "typed then deleted
+everything" and "never typed anything" are the same stored state, not
+two the rest of the app would need to handle separately) and a 20,000-
+character cap. Extracted from the route handler specifically so it's
+directly unit-testable without a database connection — the route just
+calls it and maps the result to an HTTP response.
+
+### Display — plain text, not markdown
+The card renders saved text with `white-space: pre-wrap`, which
+preserves paragraphs, blank lines, and any bullet-point or heading text
+the organiser typed, without parsing it as markdown — matching the
+explicit V1 scope of "one plain text field," while still displaying
+exactly as pasted rather than collapsing whitespace the way normal HTML
+text would.
+
+### UI
+New `TripInformationCard.tsx`, inserted directly below the existing
+"Trip details" card and above the Stage transitions section in
+`TripOverviewTab.tsx`, matching the existing Masters-style card
+pattern already used on that page. Organiser sees Edit/Save/Cancel;
+players see read-only text or the documented empty-state message, with
+no edit controls rendered for them at all (not just disabled/hidden —
+the button element itself only renders when `isOrganiser` is true).
+
+### Tests added — 7/7 pass
+`src/lib/trips/tripInformation.test.ts`: null passes through, a
+realistic pasted itinerary with line breaks passes through unchanged,
+empty string and whitespace-only string both normalise to null, a
+non-string value is rejected, text at exactly the length limit is
+accepted, and text one character over the limit is rejected with a
+clear message.
+
+### Full regression check
+94/94 existing scoring-domain tests still pass, confirming this
+feature — a different domain entirely — didn't touch scoring,
+reconciliation, leaderboard, round lifecycle, or Social Golf logic.
+Build/lenient type-check clean on every file touched.
+
+### What was explicitly not built, per the V1 scope
+No structured itinerary wizard, no separate accommodation/transport/cost
+forms, no attachments, no notifications, no partner offers, no
+timeline builder — one text field, one Save action, one Cancel action.
+
+### Manual test steps (cannot be run from this sandbox — no live
+Supabase/browser access)
+The full list from the brief: organiser adds/edits information, Cancel
+leaves the saved version unchanged, line breaks and pasted formatting
+are retained, a player can read but not edit, a non-member genuinely
+cannot access it (test by calling the GET route directly while
+unauthenticated or as a non-member, not just checking the UI), it
+persists after refresh and a fresh login, and a trip with no
+information still loads the Overview page normally.
+
+### Files created
+`src/app/api/trips/[tripId]/information/route.ts`,
+`src/components/trips/TripInformationCard.tsx`,
+`src/lib/trips/tripInformation.ts`,
+`src/lib/trips/tripInformation.test.ts`,
+`supabase/migrations/034_trip_information.sql`
+(+ `supabase/trip_information_deploy.sql`)
+
+### Files modified
+`src/app/(app)/trips/[tripId]/tabs/TripOverviewTab.tsx` — added the
+import and inserted the card at the specified position.
+
+### Database migrations
+`034_trip_information.sql` — new. Apply via the Supabase SQL editor
+(paste the contents of either the migration file or the standalone
+deploy script) or through the standard migration pipeline if one is in
+use — it's a single, idempotent `ALTER TABLE ... ADD COLUMN IF NOT
+EXISTS` statement, safe to run against production without downtime and
+safe to re-run if needed.
+
+---
+
+## Post-Friday Field Test — Staged Fix Report
+
+Field test result: Darren completed the round successfully, core
+functionality worked, a new player was impressed. Five stages below,
+each reported independently per the explicit "package each stage
+separately" instruction. Only Stage 1 (leaderboard row) and Stage 3
+involved code changes; Stages 2 and 4 are diagnostic reports with no
+code change, per their own explicit "do not change code" / "report
+exactly" instructions.
+
+---
+
+### STAGE 1a — Live Leaderboard Player Row 404
+
+**Root cause**: the row linked to `/trips/[tripId]/players/[profileId]`.
+That route does exist in this codebase and is fully built (profile
+bio/handicap/role display, with its own membership check) — but per the
+explicit instruction ("do not build a player profile page as part of
+this fix," and the observed 404 in the field), the correct Stage 1
+action is to remove the navigation now rather than debug why a
+structurally-complete page 404s in production, which could be a
+deployment-state or RLS issue not diagnosable from this sandbox. The
+`profiles` table's read policy has been revised across five separate
+migrations in this project's history (010, 011, 012 ×2, 015) — a signal
+this exact area has been fragile before.
+
+**Fix**: removed the `<Link>` entirely; the row is now a plain,
+non-interactive `<div>` with identical visual content (avatar, name,
+"Thru N"/points). Cleaned up the now-unused `Link` import and `tripId`
+prop threading through `LeaderboardRow` rather than leaving dead code.
+
+**Files changed**: `src/components/scoring/LiveLeaderboard.tsx`
+
+**Tests added**: none — this is a pure UI/navigation removal, not new
+logic to unit-test. Manually verify: tap every row on the leaderboard,
+confirm none navigate anywhere; confirm "Back to Hole X" still works
+(untouched).
+
+**Build/test results**: lenient type-check clean (only the pre-existing
+known false positive on `key` prop typing in the row-mapping loop,
+confirmed present before this change too). 99/99 scoring-domain tests
+pass (this change doesn't touch scoring domain at all).
+
+**Supabase steps**: none.
+
+**Safe to deploy independently**: yes — single file, UI-only, no logic
+change.
+
+---
+
+### STAGE 1b — Photo Upload "Bucket Not Found"
+
+**Root cause**: confirmed by direct inspection, not guessed. The
+application code (`MomentCapture.tsx`, `moments/route.ts`,
+`messages/route.ts`) consistently references a bucket named
+`event-moments`. Migration `028_moments.sql` already contains the exact
+matching bucket-creation statement:
+```
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('event-moments', 'event-moments', false, 8388608, ARRAY['image/jpeg', 'image/png', 'image/webp'])
+ON CONFLICT (id) DO NOTHING;
+```
+plus three storage policies (trip-member read, member-upload-own-folder,
+owner-delete). Code and migration agree with each other. The "bucket not
+found" error means this migration was never actually applied to the
+production Supabase project — a known outstanding deployment gap noted
+earlier in this project's history. Confirmed `supabase/moments_deploy.sql`
+is an exact standalone copy of this migration, ready to run as-is.
+
+**Bucket name**: `event-moments`
+
+**Required steps**: run `supabase/migrations/028_moments.sql` (or the
+standalone `supabase/moments_deploy.sql`) against production via the
+Supabase SQL editor. It's idempotent (`ON CONFLICT DO NOTHING`, `DROP
+POLICY IF EXISTS`) — safe to run even if partially applied before.
+
+**Code changes needed**: none. This is purely a deployment gap, not a
+bug.
+
+**Safe to deploy independently**: yes — it's a database/storage
+migration with no corresponding code change in this package.
+
+---
+
+### STAGE 2 — Leaderboard Refresh Reliability (Diagnostic Only)
+
+Reported exactly, as requested, from direct code inspection:
+- **Polling**: yes, via React Query. `refetchInterval: roundStatus ===
+  'active' ? 8000 : false` — 8 seconds while the round is live, no
+  polling once completed.
+- **Supabase Realtime**: not used anywhere in this codebase.
+- **React Query**: yes, `useQuery` with `queryKey: ['leaderboard',
+  tripId, roundId]`.
+- **Does score confirmation invalidate/refetch the leaderboard query**:
+  yes, confirmed at two call sites — `confirmScore()` (per-hole) and
+  `submitFinalScores()` (final) both call `queryClient.invalidateQueries
+  ({ queryKey: ['leaderboard', tripId, round.id] })`, using the exact
+  same query key the leaderboard component itself uses.
+- **Remount/focus refetch**: `refetchOnWindowFocus: true` and
+  `refetchOnReconnect: true` are both set.
+
+**Conclusion**: the current implementation already matches the brief's
+own stated V1 desired behaviour — the confirming player's own next
+leaderboard view is fresh (their local cache was just invalidated), and
+other players see the update within the 8-second poll (close enough to
+the brief's own "if currently 6s, acceptable to keep" reasoning to be
+considered acceptable under the same logic) or immediately on window
+focus/reconnect. **No code change made** — the field-tested "doesn't
+always update immediately" report is consistent with normal poll
+latency (up to 8 seconds) for a player other than the one who confirmed,
+which is the documented, accepted V1 behaviour, not a bug.
+
+**Recommendation for the field test log**: record the actual observed
+delay with two devices side by side next time, specifically noting
+whether it exceeded 8 seconds (which would indicate a genuine problem)
+or was within it (expected).
+
+---
+
+### STAGE 3 — Pickup vs. Numeric Score Reconciliation
+
+**Root cause**: `compareCaptures()` in `comparison.ts` compares
+`pickedUp` state directly — `if (self.pickedUp !== marker.pickedUp)
+return 'mismatch'` — with no awareness of the resulting Stableford
+points on either side. The exact field-tested case (a numeric gross
+score that happens to resolve to 0 points, compared against a Pick Up,
+also 0 points) correctly has different raw entries, so `'mismatch'` is
+technically correct — but from a scoring-outcome standpoint nothing
+actually disagrees.
+
+**Current comparison logic**: unchanged and confirmed correct to leave
+unchanged — the brief is explicit that raw-entry differences must not be
+silently merged, since pick-up vs. a specific numeric score is still a
+different official record, and stakeholders may care which one is true.
+
+**Recommended behaviour implemented**: a new, purely additive function,
+`isZeroPointsMismatch()`, computes both sides' actual Stableford points
+(reusing the existing `calculateStableford()` — no second Stableford
+implementation) and returns true only when a genuine `'mismatch'`
+status also happens to be worth 0 points on both sides. The Round
+Summary's mismatch cards now show the brief's exact recommended wording
+— "Both entries score 0 points — confirm score entry." — above the
+existing raw-value display and Edit link when this specific case
+applies, while every other mismatch keeps its standard presentation
+unchanged.
+
+**Minimal change required**: confirmed minimal — `compareCaptures()`
+itself, its signature, and its return values are completely untouched;
+all six of its existing tests still pass unmodified. The change is
+additive: one new function, two small UI insertions.
+
+**Tests added**: 5 new tests in `comparison.test.ts`, covering the exact
+reported case (high gross score worth 0 points vs. Pick Up), a genuine
+non-zero mismatch (still false), a non-mismatch status (still false),
+an asymmetric case where only one side is worth zero (still false, to
+confirm this doesn't over-trigger), and the "both picked up" case
+(already `'matched'`, confirmed this new function doesn't interfere).
+
+**Files changed**: `src/lib/scoring/comparison.ts`,
+`src/lib/scoring/comparison.test.ts`,
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+
+**Build/test results**: lenient type-check clean (same known false
+positive as always, unrelated to this change). 99/99 scoring-domain
+tests pass (94 baseline + 5 new).
+
+**Supabase steps**: none.
+
+**Safe to deploy independently**: yes — additive function, two small UI
+insertions, zero change to existing comparison behaviour or stored data.
+
+---
+
+### STAGE 4 — Course Par/SI Persistence (Diagnostic Only)
+
+Per the explicit "do not change code until the exact discrepancy is
+identified" instruction: no code change was made this stage. This
+sandbox has no live database connection, so the requested Hole 1-9
+comparison table cannot be produced with real data from here — a
+diagnostic SQL script (`supabase/diagnose_par_si_discrepancy.sql`,
+delivered separately) is provided to produce that exact table directly
+in the Supabase SQL editor.
+
+**A plausible contributing factor found at the code level, not
+confirmed as the cause**: `SelfMarkerScoreShell.tsx` computes
+`const par = hole?.par ?? 4` and `const si = hole?.stroke_index ?? 1`.
+If a round's `holes` rows are incomplete for any reason (fewer rows
+saved than the round's configured hole count, a hole-number gap, etc.),
+this silently falls back to Par 4 / SI 1 for the missing hole(s) with no
+visible error — which would produce exactly the reported symptom (early
+holes correct, later holes showing unexpected values, nothing
+crashing). This is a real fallback pattern found by inspection, not
+something inferred from the symptom alone.
+
+**What the diagnostic query checks**:
+1. Locates both rounds by name.
+2. Produces the exact requested Hole | Stored Par | Stored SI | Data
+   Source table for holes 1-9 of both events, side by side.
+3. Compares each round's actual `holes` row count against its
+   configured `holes` column value — directly confirming or ruling out
+   the missing-row hypothesis above.
+4. Checks for duplicate `hole_number` rows on either round (should be
+   impossible per the existing `UNIQUE (round_id, hole_number)`
+   constraint, checked rather than assumed intact).
+
+**No code changes made this stage**, per the explicit instruction.
+Once the query's output identifies the actual discrepancy, the
+appropriate fix (correcting stored data, hardening the silent fallback
+into a visible error, or something else entirely depending on what the
+data shows) can be scoped precisely rather than guessed at now.
+
+---
+
+### STAGE 5 — UI Polish Pass
+
+Not attempted this round, per the brief's own explicit sequencing:
+"After the above bugs are resolved, do one contained polish pass." Stage
+4 is still an open diagnostic pending real data, so starting a polish
+pass now would risk touching screens whose underlying data issue isn't
+yet confirmed fixed.
+
+---
+
+### Overall regression check
+
+99/99 scoring-domain tests pass across every change in this package
+(Stages 1a and 3, the only two with code changes). Confirmed untouched:
+scoring engine, Stableford maths, handicap allocation, authentication,
+trip joining, round lifecycle, database schema function/table
+definitions, Social Golf, Trip Information, multi-round logic.
+
+### Files changed (all stages combined)
+`src/components/scoring/LiveLeaderboard.tsx` (Stage 1a),
+`src/lib/scoring/comparison.ts`,
+`src/lib/scoring/comparison.test.ts`,
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+(Stage 3)
+
+### Diagnostic scripts delivered (no code, run directly in Supabase)
+`supabase/diagnose_par_si_discrepancy.sql` (Stage 4)
+
+### Database/deployment steps required
+Stage 1b only: run `028_moments.sql` / `moments_deploy.sql` against
+production (idempotent, safe to run regardless of prior partial
+application).
+
+---
+
+## Post-Friday Fixes — Final Update (Replaces Previous Stage 1–3 Package)
+
+### 1. Live Leaderboard — inline scorecard expansion (replaces the
+earlier row-removal)
+The earlier package removed leaderboard row navigation entirely to
+avoid the 404. This update replaces that with the actual product
+decision: tapping a row expands that player's current-round scorecard
+inline, accordion-style (one open at a time), collapsing on a second
+tap or when another player is tapped. No navigation, no route, no 404
+possible — the interaction never leaves the leaderboard.
+
+**Data source — reused, not duplicated**: the leaderboard API
+(`leaderboard/route.ts`) already queried `score_entries` per scorecard
+on every 8-second poll; it just didn't return the per-hole detail. This
+update extends that same response (a `perHole` array per player: hole
+number, par, SI, gross/pick-up, points) rather than creating a second
+endpoint or a second fetch — the data needed to expand a row is already
+present in the poll response by the time a player taps it, so expansion
+is instant. Reuses the exact same `capture_role='self'` convention
+already established for totals, and reuses `holes` table data for
+par/SI — no new scoring calculation.
+
+**UI**: `LeaderboardRow` is now clickable (row + keyboard-accessible),
+with a chevron affordance (rotates on expand) alongside the existing
+movement arrow. The expanded `InlineScorecard` shows a per-hole table
+(hole number, par/SI, gross-or-pick-up, points) plus Front 9/Back 9/
+Total where applicable (computed by summing the same `perHole` data,
+not a separate calculation). The per-hole table has its own
+`overflowX: auto` — the page itself never gains horizontal scroll, only
+the table does, and only when the hole count needs more width than the
+screen.
+
+**Files changed**:
+`src/app/api/trips/[tripId]/rounds/[roundId]/leaderboard/route.ts`,
+`src/components/scoring/LiveLeaderboard.tsx`
+
+**The old player-profile route** (`players/[profileId]/page.tsx`) is
+untouched by this update — it's simply no longer linked from the
+leaderboard, exactly as before.
+
+### 2. Leaderboard refresh strategy — confirmed unchanged, no code needed
+Re-confirmed: 8-second polling kept as-is, no Realtime introduced.
+`confirmScore()` and `submitFinalScores()` both already invalidate the
+`['leaderboard', tripId, roundId]` query — the same query key this
+component uses — so the confirming player's own next leaderboard view
+is fresh without waiting for the poll. This was verified, not assumed,
+in the previous package and remains true; no code was touched here
+since it already matched the requested behaviour exactly.
+
+### 3. Pickup vs. numeric reconciliation — confirmed preserved
+`compareCaptures()`, `isZeroPointsMismatch()`, and both test files are
+untouched this update. Re-ran the full suite to confirm rather than
+assert from memory.
+
+### 4. Photo bucket — deployment instructions (unchanged diagnosis)
+Bucket name: `event-moments`. Run
+`supabase/migrations/028_moments.sql` (or the standalone
+`supabase/moments_deploy.sql`, an exact copy) against production via the
+Supabase SQL editor. Idempotent — safe to run regardless of prior
+partial application. No code changes required; this remains a pure
+deployment gap.
+
+### 5. Course Par/SI — confirmed unchanged
+No code touched. `supabase/diagnose_par_si_discrepancy.sql` (delivered
+previously, present unchanged in this package) remains the path to
+produce the requested Hole 1-9 comparison table against real data. The
+`?? 4` / `?? 1` fallback in `SelfMarkerScoreShell.tsx` was not modified.
+
+### Tests
+No new automated tests this update — the leaderboard changes are UI/
+data-shape work (an extended API response and accordion interaction),
+not new pure-function logic to unit-test the way Stage 3's
+`isZeroPointsMismatch()` was. Existing Stage 3 tests (5) and the full
+94-baseline suite continue to pass unmodified.
+
+### Full regression check
+**99/99 scoring-domain tests pass** — unchanged from the previous
+package, confirming this update touched only the leaderboard's data
+shape and interaction, not scoring, Stableford, handicap allocation,
+reconciliation logic beyond the already-approved Stage 3 work,
+authentication, joining, groups, round lifecycle, schema, Trip
+Information, or Social Golf.
+
+### Files changed (this update)
+`src/app/api/trips/[tripId]/rounds/[roundId]/leaderboard/route.ts`,
+`src/components/scoring/LiveLeaderboard.tsx`
+
+### Files unchanged, confirmed rather than assumed
+`src/lib/scoring/comparison.ts`, `src/lib/scoring/comparison.test.ts`,
+`supabase/diagnose_par_si_discrepancy.sql`,
+`supabase/moments_deploy.sql`,
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+(the `?? 4`/`?? 1` fallback specifically)
+
+### Database/deployment steps required
+Stage 1b only, unchanged: run `028_moments.sql` /
+`moments_deploy.sql` against production.
