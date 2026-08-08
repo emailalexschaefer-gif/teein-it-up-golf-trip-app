@@ -148,6 +148,7 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
             no longer a status for the organiser to manually select. ── */}
         {isOrganiser && !isArchived && (
           <div className="card p-4">
+            <p className="s-label" style={{ marginBottom: 10 }}>Trip management</p>
             <div style={{ paddingTop: 0 }}>
               <button
                 onClick={() => setShowArchiveDialog(true)}

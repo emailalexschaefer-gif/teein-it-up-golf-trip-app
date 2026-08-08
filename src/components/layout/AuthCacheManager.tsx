@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { shouldClearCacheOnAuthEvent, isBfcacheRestore } from '@/lib/auth/authCacheLogic'
 
 /**
  * Clears the entire React Query cache on sign-out and on an account
@@ -20,6 +21,21 @@ import { createClient } from '@/lib/supabase/client'
  * "clear everything" is the correct default even though it means a
  * brief refetch cost right after switching accounts.
  *
+ * Also handles back/forward-cache (bfcache) restoration — see
+ * isBfcacheRestore above. This is the confirmed root cause of the
+ * mobile account-switch bug: when Chrome restores a page from bfcache
+ * (common on mobile after backgrounding/switching apps, which is a
+ * normal part of an account-switch flow — e.g. leaving the app to check
+ * an email or open account settings, then returning), it reuses the
+ * entire prior JS execution context wholesale rather than re-running
+ * anything. Every closure — including the Sign Out button's onClick,
+ * still referencing whichever `supabase`/`queryClient` instances existed
+ * at the moment the page was cached — is exactly as stale as the data
+ * it's bound to. This is a real browser behavior affecting any browser,
+ * not a mobile-only quirk; it's simply triggered far more often on
+ * mobile, where OS-level app-switching interacts with bfcache much more
+ * readily than typical desktop usage.
+ *
  * Mounted once, near the app root — has no visual output.
  */
 export default function AuthCacheManager() {
@@ -31,29 +47,34 @@ export default function AuthCacheManager() {
 
     const { data: subscription } = supabase.auth.onAuthStateChange((event, session) => {
       const currentUserId = session?.user?.id ?? null
+      const previousUserId = lastUserIdRef.current
 
-      if (event === 'SIGNED_OUT') {
-        console.log('[auth-cache] SIGNED_OUT — clearing all cached data')
+      if (shouldClearCacheOnAuthEvent(event, previousUserId, currentUserId)) {
+        console.log('[auth-cache] clearing all cached data', { event, previousUserId, currentUserId })
         queryClient.clear()
-        lastUserIdRef.current = null
-        return
       }
 
-      if (event === 'SIGNED_IN') {
-        const previousUserId = lastUserIdRef.current
-        if (previousUserId !== undefined && previousUserId !== null && previousUserId !== currentUserId) {
-          // A different account just signed in without an explicit
-          // SIGNED_OUT in between (e.g. switching accounts directly) —
-          // clear defensively so the new account never sees the old
-          // one's cached queries.
-          console.log('[auth-cache] account switch detected — clearing all cached data', { previousUserId, currentUserId })
-          queryClient.clear()
-        }
+      if (event === 'SIGNED_OUT') {
+        lastUserIdRef.current = null
+      } else if (event === 'SIGNED_IN') {
         lastUserIdRef.current = currentUserId
       }
     })
 
-    return () => subscription.subscription.unsubscribe()
+    // The actual fix for the mobile account-switch bug — see the
+    // component-level comment above for the full root-cause reasoning.
+    function handlePageShow(event: PageTransitionEvent) {
+      if (isBfcacheRestore(event)) {
+        console.log('[auth-cache] page restored from bfcache — forcing reload to resync session state')
+        window.location.reload()
+      }
+    }
+    window.addEventListener('pageshow', handlePageShow)
+
+    return () => {
+      subscription.subscription.unsubscribe()
+      window.removeEventListener('pageshow', handlePageShow)
+    }
   }, [queryClient])
 
   return null

@@ -152,7 +152,7 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
               {trip.location ? '' : eventLabel !== 'Golf Trip' ? ` · ${eventLabel}` : ''}
             </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end', flexShrink: 0, marginLeft: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center', flexShrink: 0, marginLeft: 12 }}>
             {/* Demo: rounds badge */}
             {trip.rounds.length > 0 && (
               <div style={{
@@ -172,7 +172,7 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
               <Link href={editUrl} style={{
                 fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600,
                 color: 'rgba(245,230,184,0.7)', textDecoration: 'underline',
-                textUnderlineOffset: 3,
+                textUnderlineOffset: 3, padding: '6px 4px', textAlign: 'center',
               }}>
                 Edit trip
               </Link>

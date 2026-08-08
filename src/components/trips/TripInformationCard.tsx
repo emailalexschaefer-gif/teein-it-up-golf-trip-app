@@ -186,7 +186,7 @@ function TripInformationDisplay({ info }: { info: string }) {
             fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#1a4731',
           }}
         >
-          {collapsed ? 'View Full Trip Information ↓' : 'Collapse Trip Information ↑'}
+          {collapsed ? 'View Full Trip Information ↓' : 'Show Less ↑'}
         </button>
       )}
     </div>

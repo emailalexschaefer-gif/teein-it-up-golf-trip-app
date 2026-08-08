@@ -18,6 +18,15 @@ import { resolvePlayingHandicap } from '@/lib/scoring/defaultHoles'
 import { generateMarkerAssignments } from '@/lib/scoring/markerAssignment'
 import { z } from 'zod'
 
+// Concrete type for the admin (service-role) Supabase client, derived
+// directly from createAdminClient's own real return type rather than a
+// hand-written duplicate — this can never drift out of sync with the
+// actual factory function, and is what replaces every `any` in this
+// file per the build-blocking lint error. Used for every helper that
+// receives an already-constructed admin client as a parameter, exactly
+// as it did before, just type-safe now instead of `any`.
+type AdminClient = ReturnType<typeof createAdminClient>
+
 const HoleSchema = z.object({
   hole_number:  z.number().int().min(1).max(18),
   par:          z.number().int().min(3).max(6),
@@ -40,7 +49,6 @@ interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
  * 'individual' (markers don't apply — genuinely single-capture scoring,
  * no marker concept at all). Only 'self_and_marker' rounds get seeded.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 // Automatic lifecycle: READY TO PLAY -> LIVE, via the natural round-start
 // workflow — not a separate organiser action. Shared by both the RPC
 // success path and the direct-insert fallback so this logic exists in
@@ -50,8 +58,7 @@ interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
 // fire if the trip is already 'live' (a later round starting on a
 // multi-round trip) or 'completed' (shouldn't occur in practice, but not
 // assumed away).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function transitionTripToLive(admin: any, tripId: string) {
+async function transitionTripToLive(admin: AdminClient, tripId: string) {
   const tripStatusRes = await admin.from('trips').select('status').eq('id', tripId).maybeSingle()
   if (tripStatusRes.data && !['live', 'completed'].includes(tripStatusRes.data.status)) {
     const { error: tripStatusError } = await admin.from('trips').update({ status: 'live' }).eq('id', tripId)
@@ -61,7 +68,7 @@ async function transitionTripToLive(admin: any, tripId: string) {
   }
 }
 
-async function autoGenerateMarkers(admin: any, tripId: string, roundId: string, scoreCaptureMode: string) {
+async function autoGenerateMarkers(admin: AdminClient, tripId: string, roundId: string, scoreCaptureMode: string) {
   if (scoreCaptureMode !== 'self_and_marker') return
 
   const [groupsRes, membersRes, cardsRes, existingMarkersRes] = await Promise.all([
@@ -106,8 +113,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const admin: any = createAdminClient()
+  const admin: AdminClient = createAdminClient()
 
   // ── Verify organiser ───────────────────────────────────────────────────────
   const tripRes = await admin

@@ -19,6 +19,7 @@ export default function JoinForm() {
   const [handicap, setHandicap]           = useState('')
   const [noHandicap, setNoHandicap]       = useState(false)
   const [authMode, setAuthMode]           = useState<AuthMode>('password')
+  const [formPath, setFormPath]           = useState<'existing' | 'new'>('existing')
   const [step, setStep]         = useState<Step>('checking')
   const [tripName, setTripName] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string>('')
@@ -110,6 +111,38 @@ export default function JoinForm() {
     if (noHandicap) return `${base}&noHandicap=1`
     if (handicap)   return `${base}&handicap=${encodeURIComponent(handicap)}`
     return base
+  }
+
+  async function handleExistingSignIn(e: React.FormEvent) {
+    e.preventDefault()
+    setStep('joining')
+    startJoinTimeout('Sign-in timed out. Please try again.')
+
+    const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
+
+    if (!signInErr) {
+      // Session established — hard redirect so do-join receives the cookies.
+      // Same buildDoJoinUrl(), same do-join endpoint as every other path —
+      // this is a second entry point into the one authoritative join, not
+      // a second join implementation.
+      clearJoinTimeout()
+      window.location.href = buildDoJoinUrl()
+      return
+    }
+
+    // Deliberately does NOT fall back to sign-up — the user told us they
+    // already have an account by choosing this path. A failed sign-in
+    // here is either a wrong password or genuinely no account with this
+    // email, and the clearest thing to do is say so and point at the
+    // other two paths that do handle those cases (new account, or magic
+    // link, which works for an existing account with no password set).
+    clearJoinTimeout()
+    setErrorMsg(
+      "We couldn't sign you in with that email and password. " +
+      'Double-check them, or use "New to Teein\u2019 It Up?" below if you don\u2019t have an account yet, ' +
+      'or try the magic link option if your account uses one.'
+    )
+    setStep('error')
   }
 
   async function handlePassword(e: React.FormEvent) {
@@ -343,6 +376,13 @@ export default function JoinForm() {
   }
 
   // ── Main form ──────────────────────────────────────────────────────────────
+  // Two clear paths rather than one form that always shows every field —
+  // the actual fix for "mainly presents a new-user registration form."
+  // The invite has already answered "which trip?"; this only needs to
+  // answer "who are you?" An existing user only ever sees email +
+  // password (+ the magic-link toggle); a new user sees the full form.
+  // Both still end up at the exact same buildDoJoinUrl() / do-join
+  // endpoint used everywhere else in this file.
 
   return (
     <>
@@ -356,81 +396,140 @@ export default function JoinForm() {
         )}
       </div>
 
-      <form onSubmit={authMode === 'password' ? handlePassword : handleMagicLink} className="space-y-3">
-        <div>
-          <label className="block text-sm font-medium text-text mb-1">
-            Your name<span className="text-red-500 ml-0.5">*</span>
-          </label>
-          <input type="text" required autoComplete="name" value={name}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} placeholder="James Smith"
-            className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
-        </div>
+      {formPath === 'existing' ? (
+        <>
+          <p className="text-sm font-semibold text-text mb-3">Already have an account?</p>
+          <form onSubmit={authMode === 'password' ? handleExistingSignIn : handleMagicLink} className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-text mb-1">
+                Email<span className="text-red-500 ml-0.5">*</span>
+              </label>
+              <input type="email" required autoComplete="email" value={email}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} placeholder="you@example.com"
+                className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
+            </div>
 
-        <div>
-          <label className="block text-sm font-medium text-text mb-1">
-            Email<span className="text-red-500 ml-0.5">*</span>
-          </label>
-          <input type="email" required autoComplete="email" value={email}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} placeholder="you@example.com"
-            className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
-        </div>
+            {authMode === 'password' && (
+              <div>
+                <label className="block text-sm font-medium text-text mb-1">
+                  Password<span className="text-red-500 ml-0.5">*</span>
+                </label>
+                <input type="password" required autoComplete="current-password" value={password}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+                  placeholder="Your password"
+                  className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
+              </div>
+            )}
 
-        {authMode === 'password' && (
-          <div>
-            <label className="block text-sm font-medium text-text mb-1">
-              Password<span className="text-red-500 ml-0.5">*</span>
-            </label>
-            <input type="password" required autoComplete="new-password" value={password}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
-              placeholder="Choose a password (min. 8 characters)" minLength={8}
-              className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
+            <button type="submit"
+              className="w-full bg-brand-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-brand-700 transition-colors">
+              {authMode === 'password' ? 'Sign In & Join Trip' : 'Send sign-in link'}
+            </button>
+          </form>
+
+          <div className="mt-3 text-center">
+            <button type="button"
+              onClick={() => { setAuthMode(authMode === 'password' ? 'magic' : 'password') }}
+              className="text-sm text-text-muted hover:text-brand-600 transition-colors">
+              {authMode === 'password' ? 'Email me a magic link instead' : 'Use my password instead'}
+            </button>
           </div>
-        )}
 
-        {/* Handicap field */}
-        <div>
-          <label className="block text-sm font-medium text-text mb-1">
-            Your golf handicap<span className="text-red-500 ml-0.5">*</span>
-          </label>
-          <p className="text-xs text-text-muted mb-2">
-            Your default handicap for future trips and events.
-          </p>
-          {!noHandicap && (
-            <input
-              type="number" min="-10" max="54" step="0.1"
-              value={handicap}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setHandicap(e.target.value)}
-              placeholder="e.g. 14 or 14.5"
-              disabled={noHandicap}
-              className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 mb-2"
-            />
-          )}
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={noHandicap}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setNoHandicap(e.target.checked); if (e.target.checked) setHandicap('') }}
-              className="rounded"
-            />
-            <span className="text-sm text-text-muted">No official handicap</span>
-          </label>
-        </div>
+          <div className="mt-5 pt-4 border-t border-surface-subtle text-center">
+            <button type="button"
+              onClick={() => { setFormPath('new'); setAuthMode('password') }}
+              className="text-sm text-text-muted hover:text-brand-600 transition-colors">
+              New to Teein&apos; It Up? <span className="text-brand-600 font-medium">Create an account</span>
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <form onSubmit={authMode === 'password' ? handlePassword : handleMagicLink} className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-text mb-1">
+                Your name<span className="text-red-500 ml-0.5">*</span>
+              </label>
+              <input type="text" required autoComplete="name" value={name}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} placeholder="James Smith"
+                className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
+            </div>
 
-        <button type="submit"
-          className="w-full bg-brand-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-brand-700 transition-colors">
-          {authMode === 'password' ? 'Join trip' : 'Send sign-in link'}
-        </button>
-      </form>
+            <div>
+              <label className="block text-sm font-medium text-text mb-1">
+                Email<span className="text-red-500 ml-0.5">*</span>
+              </label>
+              <input type="email" required autoComplete="email" value={email}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} placeholder="you@example.com"
+                className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
+            </div>
 
-      <div className="mt-4 text-center">
-        <button type="button"
-          onClick={() => { setAuthMode(authMode === 'password' ? 'magic' : 'password') }}
-          className="text-sm text-text-muted hover:text-brand-600 transition-colors">
-          {authMode === 'password'
-            ? 'Sign in with a magic link instead'
-            : 'Set a password instead (no email needed)'}
-        </button>
-      </div>
+            {authMode === 'password' && (
+              <div>
+                <label className="block text-sm font-medium text-text mb-1">
+                  Password<span className="text-red-500 ml-0.5">*</span>
+                </label>
+                <input type="password" required autoComplete="new-password" value={password}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+                  placeholder="Choose a password (min. 8 characters)" minLength={8}
+                  className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
+              </div>
+            )}
+
+            {/* Handicap field */}
+            <div>
+              <label className="block text-sm font-medium text-text mb-1">
+                Your golf handicap<span className="text-red-500 ml-0.5">*</span>
+              </label>
+              <p className="text-xs text-text-muted mb-2">
+                Your default handicap for future trips and events.
+              </p>
+              {!noHandicap && (
+                <input
+                  type="number" min="-10" max="54" step="0.1"
+                  value={handicap}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setHandicap(e.target.value)}
+                  placeholder="e.g. 14 or 14.5"
+                  disabled={noHandicap}
+                  className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 mb-2"
+                />
+              )}
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={noHandicap}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setNoHandicap(e.target.checked); if (e.target.checked) setHandicap('') }}
+                  className="rounded"
+                />
+                <span className="text-sm text-text-muted">No official handicap</span>
+              </label>
+            </div>
+
+            <button type="submit"
+              className="w-full bg-brand-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-brand-700 transition-colors">
+              {authMode === 'password' ? 'Create Account & Join Trip' : 'Send sign-in link'}
+            </button>
+          </form>
+
+          <div className="mt-3 text-center">
+            <button type="button"
+              onClick={() => { setAuthMode(authMode === 'password' ? 'magic' : 'password') }}
+              className="text-sm text-text-muted hover:text-brand-600 transition-colors">
+              {authMode === 'password'
+                ? 'Sign in with a magic link instead'
+                : 'Set a password instead (no email needed)'}
+            </button>
+          </div>
+
+          <div className="mt-5 pt-4 border-t border-surface-subtle text-center">
+            <button type="button"
+              onClick={() => setFormPath('existing')}
+              className="text-sm text-text-muted hover:text-brand-600 transition-colors">
+              Already have an account? <span className="text-brand-600 font-medium">Sign in instead</span>
+            </button>
+          </div>
+        </>
+      )}
     </>
   )
 }
