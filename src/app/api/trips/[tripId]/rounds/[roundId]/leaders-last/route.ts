@@ -1,0 +1,130 @@
+/**
+ * POST /api/trips/[tripId]/rounds/[roundId]/leaders-last
+ *
+ * Organiser-only. Reseeds trip_members.group_id so the current event
+ * leader (by cumulative standings through the round before this one)
+ * ends up in the group with the latest tee time, and the lowest-ranked
+ * player in the earliest — the reverse-grid "Leaders Last" pattern.
+ *
+ * Deliberately does not create a second grouping system: this writes to
+ * the exact same trip_members.group_id column the manual group-
+ * assignment UI already uses, via the same kind of update the existing
+ * members PATCH route performs. The only new logic is *how* the
+ * assignment is computed (seedLeadersLast, a pure function), not *where*
+ * it's stored.
+ *
+ * Existing trip_groups (with their tee_time values) are reused as-is,
+ * ordered by tee_time — group index 0 (earliest, per seedLeadersLast)
+ * maps onto whichever trip_groups row has the earliest tee_time, and so
+ * on. This is what "preserve tee-time slots, change player assignments"
+ * actually means in terms of this schema: the trip_groups rows
+ * themselves are untouched, only trip_members.group_id changes.
+ */
+import { NextResponse, type NextRequest } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { computeCumulativeStandings, seedLeadersLast, type RoundPlayerResult } from '@/lib/scoring/multiRound'
+
+interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
+type AdminClient = ReturnType<typeof createAdminClient>
+
+interface ScorecardRow {
+  player_id: string
+  score_entries: { stableford_pts: number; capture_role: string }[]
+}
+
+async function totalsForRound(admin: AdminClient, roundId: string): Promise<RoundPlayerResult[]> {
+  const { data } = await admin
+    .from('scorecards')
+    .select('player_id, profiles:player_id(full_name), score_entries(stableford_pts, capture_role)')
+    .eq('round_id', roundId)
+    .neq('status', 'withdrawn')
+
+  return ((data ?? []) as unknown as (ScorecardRow & { profiles: { full_name: string } | null })[]).map(sc => ({
+    playerId: sc.player_id,
+    playerName: sc.profiles?.full_name ?? 'Player',
+    roundPoints: (sc.score_entries ?? [])
+      .filter(e => e.capture_role === 'self')
+      .reduce((sum, e) => sum + (e.stableford_pts ?? 0), 0),
+  }))
+}
+
+export async function POST(_req: NextRequest, { params }: RouteProps) {
+  const { tripId, roundId } = await params
+  const supabase = await createClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
+
+  const admin: AdminClient = createAdminClient()
+
+  // Organiser-only — this reshuffles every player's group for the
+  // upcoming round, not a self-scoped action.
+  const tripRes = await admin.from('trips').select('organiser_id').eq('id', tripId).maybeSingle()
+  if (!tripRes.data) return NextResponse.json({ error: 'Trip not found.' }, { status: 404 })
+  if (tripRes.data.organiser_id !== user.id) {
+    return NextResponse.json({ error: 'Only the trip organiser can reseed groups.' }, { status: 403 })
+  }
+
+  const thisRoundRes = await admin.from('rounds').select('round_number').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
+  if (!thisRoundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
+
+  const priorRoundsRes = await admin
+    .from('rounds').select('id')
+    .eq('trip_id', tripId).lt('round_number', thisRoundRes.data.round_number).eq('status', 'completed')
+    .order('round_number', { ascending: true })
+  const priorRoundIds: string[] = (priorRoundsRes.data ?? []).map((r: { id: string }) => r.id)
+
+  if (priorRoundIds.length === 0) {
+    return NextResponse.json({ error: 'No completed rounds yet — nothing to seed from.' }, { status: 400 })
+  }
+
+  const allTotals = await Promise.all(priorRoundIds.map(id => totalsForRound(admin, id)))
+  const standings = computeCumulativeStandings(allTotals) // best-to-worst, matches seedLeadersLast's expected input
+
+  // Existing groups for this trip, ordered by tee_time — earliest first.
+  // Groups with no tee_time set sort last (NULLS LAST), since there's no
+  // way to know where an untimed group belongs in the sequence.
+  const groupsRes = await admin
+    .from('trip_groups').select('id, tee_time')
+    .eq('trip_id', tripId)
+    .order('tee_time', { ascending: true, nullsFirst: false })
+  const groups: { id: string; tee_time: string | null }[] = groupsRes.data ?? []
+
+  if (groups.length === 0) {
+    return NextResponse.json({ error: 'No playing groups exist yet — create groups before reseeding.' }, { status: 400 })
+  }
+
+  // groupSize derived from the existing group count and player count,
+  // not invented — matches whatever grouping the organiser already set
+  // up (e.g. 4 groups of 4 for 16 players), so seedLeadersLast produces
+  // exactly as many chunks as there are real groups to map onto.
+  const groupSize = Math.ceil(standings.length / groups.length)
+  const assignments = seedLeadersLast(standings, groupSize)
+
+  // Apply: groupIndex 0 -> groups[0] (earliest tee time), etc. If
+  // seedLeadersLast somehow produced more chunks than existing groups
+  // (shouldn't happen given groupSize above, but guarded rather than
+  // assumed), extra players are clamped into the last real group rather
+  // than silently dropped.
+  const updates = assignments.map(a => ({
+    profile_id: a.playerId,
+    group_id: groups[Math.min(a.groupIndex, groups.length - 1)].id,
+  }))
+
+  const errors: string[] = []
+  for (const u of updates) {
+    const { error } = await admin
+      .from('trip_members')
+      .update({ group_id: u.group_id })
+      .eq('trip_id', tripId)
+      .eq('profile_id', u.profile_id)
+    if (error) errors.push(`${u.profile_id}: ${error.message}`)
+  }
+
+  if (errors.length > 0) {
+    console.error('[leaders-last] some group updates failed', { tripId, roundId, errors })
+    return NextResponse.json({ error: 'Some players could not be reseeded. Please check groups and try again.', details: errors }, { status: 500 })
+  }
+
+  return NextResponse.json({ ok: true, playersReseeded: updates.length, groupsUsed: groups.length })
+}

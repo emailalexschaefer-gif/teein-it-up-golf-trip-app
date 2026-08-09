@@ -42,6 +42,133 @@ export default function BeginRoundModal({
   const [stage, setStage]   = useState<Stage>('review')
   const modalScrollRef = useRef<HTMLDivElement>(null)
 
+  // ── Multi-round setup context (Round 2+) ──────────────────────────────────
+  // Single fetch covers previous-round results, cumulative standings, and
+  // a refreshable copy of current groups-with-players — refetched after
+  // any handicap edit, Leaders Last, or manual group move, so Step 1
+  // always reflects the latest state without depending on the parent
+  // page's own data. localGroups starts from the static `groups` prop
+  // (Round 1 renders immediately, unchanged from before) and is replaced
+  // by the fetched version once it loads.
+  interface StandingRow { playerId: string; playerName: string; totalPoints: number; position: number; roundsPlayed: number }
+  interface SetupContextGroup { id: string; name: string; tee_time: string | null; players: Player[] }
+  interface SetupContext {
+    isFirstRound: boolean
+    previousRound?: { id: string; name: string; roundNumber: number }
+    previousRoundResults: StandingRow[] | null
+    cumulativeStandings: StandingRow[]
+    groups: SetupContextGroup[]
+  }
+  const [setupContext, setSetupContext] = useState<SetupContext | null>(null)
+  const [setupContextLoading, setSetupContextLoading] = useState(true)
+  const [setupContextError, setSetupContextError] = useState('')
+  const localGroups: Group[] = setupContext?.groups ?? groups
+
+  async function refetchSetupContext() {
+    try {
+      const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/setup-context`)
+      if (!res.ok) throw new Error('Failed to load setup context')
+      const data = await res.json()
+      setSetupContext(data)
+      setSetupContextError('')
+    } catch {
+      setSetupContextError('Could not load previous results or current groups. Pull to refresh, or continue with what\u2019s shown below.')
+    } finally {
+      setSetupContextLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    refetchSetupContext()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally fetch-once-on-mount; refetchSetupContext is called explicitly after mutations elsewhere, not on every render
+  }, [])
+
+  // ── Handicap +/- and manual group changes (Round 2+) ──────────────────────
+  // Both reuse the existing members PATCH route — no new endpoint for
+  // either, per the explicit instruction. Optimistic: localGroups updates
+  // immediately for a responsive feel, then rolls back to the pre-edit
+  // value if the server call fails, with a visible error rather than
+  // silently reverting. This only ever touches trip_members.playing_handicap/
+  // group_id (the "current, adjustable" values) — never a scorecard, so a
+  // completed Round 1's snapshot is structurally unreachable from here.
+  const [mutationError, setMutationError] = useState('')
+  const [pendingProfileId, setPendingProfileId] = useState<string | null>(null)
+
+  function setLocalGroups(updater: (prev: Group[]) => Group[]) {
+    setSetupContext(prev => prev ? { ...prev, groups: updater(prev.groups) } : prev)
+  }
+
+  async function handleHandicapAdjust(profileId: string, delta: 1 | -1) {
+    setMutationError('')
+    const previousGroups = localGroups
+    const currentPlayer = localGroups.flatMap(g => g.players).find(p => p.profile_id === profileId)
+    if (!currentPlayer) return
+    const currentHcp = resolvePlayingHandicap(currentPlayer.playing_handicap, currentPlayer.profile_handicap) ?? 0
+    const nextHcp = currentHcp + delta
+
+    setLocalGroups(prev => prev.map(g => ({
+      ...g,
+      players: g.players.map(p => p.profile_id === profileId ? { ...p, playing_handicap: nextHcp } : p),
+    })))
+
+    try {
+      const res = await fetch(`/api/trips/${tripId}/members/${profileId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playing_handicap: nextHcp }),
+      })
+      if (!res.ok) throw new Error()
+    } catch {
+      setLocalGroups(() => previousGroups) // roll back exactly to the pre-edit state
+      setMutationError("Couldn't update that handicap. Please try again.")
+    }
+  }
+
+  async function handleGroupChange(profileId: string, newGroupId: string) {
+    setMutationError('')
+    setPendingProfileId(profileId)
+    const previousGroups = localGroups
+    const player = localGroups.flatMap(g => g.players).find(p => p.profile_id === profileId)
+    if (!player) { setPendingProfileId(null); return }
+
+    setLocalGroups(prev => prev.map(g => ({
+      ...g,
+      players: g.id === newGroupId
+        ? [...g.players.filter(p => p.profile_id !== profileId), player]
+        : g.players.filter(p => p.profile_id !== profileId),
+    })))
+
+    try {
+      const res = await fetch(`/api/trips/${tripId}/members/${profileId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ group_id: newGroupId }),
+      })
+      if (!res.ok) throw new Error()
+    } catch {
+      setLocalGroups(() => previousGroups)
+      setMutationError("Couldn't move that player. Please try again.")
+    } finally {
+      setPendingProfileId(null)
+    }
+  }
+
+  const [applyingLeadersLast, setApplyingLeadersLast] = useState(false)
+  async function handleLeadersLast() {
+    setMutationError('')
+    setApplyingLeadersLast(true)
+    try {
+      const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/leaders-last`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Leaders Last failed.')
+      await refetchSetupContext() // refresh Step 1 immediately, per the explicit requirement
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Couldn't reseed groups. Please try again.")
+    } finally {
+      setApplyingLeadersLast(false)
+    }
+  }
+
   // Reset scroll position to the top whenever the active stage changes —
   // covers opening the modal (first stage), moving forward, and moving
   // backward. Without this, the modal could retain whatever scroll
@@ -70,12 +197,12 @@ export default function BeginRoundModal({
   const [starting, setStarting] = useState(false)
 
   // Validation
-  const allPlayersHaveHandicap = groups.every(g =>
+  const allPlayersHaveHandicap = localGroups.every(g =>
     g.players.every(p => resolvePlayingHandicap(p.playing_handicap, p.profile_handicap) !== null)
   )
-  const allGroupsHavePlayers = groups.every(g => g.players.length > 0)
-  const hasGroups = groups.length > 0
-  const totalPlayers = groups.reduce((sum, g) => sum + g.players.length, 0)
+  const allGroupsHavePlayers = localGroups.every(g => g.players.length > 0)
+  const hasGroups = localGroups.length > 0
+  const totalPlayers = localGroups.reduce((sum, g) => sum + g.players.length, 0)
 
   const canBegin = hasGroups && allGroupsHavePlayers && allPlayersHaveHandicap
 
@@ -201,7 +328,7 @@ export default function BeginRoundModal({
             <>
               {/* Round info */}
               {(() => {
-                const groupTimes = groups.map(g => g.tee_time).filter(Boolean).sort() as string[]
+                const groupTimes = localGroups.map(g => g.tee_time).filter(Boolean).sort() as string[]
                 const teeTimeDisplay = groupTimes.length === 0 ? 'TBC'
                   : groupTimes.length === 1 ? groupTimes[0]
                   : `${groupTimes[0]}–${groupTimes[groupTimes.length - 1]}`
@@ -227,14 +354,69 @@ export default function BeginRoundModal({
                 )
               })()}
 
+              {/* Previous round / event standings — Round 2+ only */}
+              {setupContextLoading ? (
+                <div className="card p-4 mb-4" style={{ marginBottom: 14 }}>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260' }}>Loading previous results…</p>
+                </div>
+              ) : setupContext && !setupContext.isFirstRound && setupContext.previousRoundResults && (
+                <div className="card p-4 mb-4" style={{ marginBottom: 14 }}>
+                  <p className="s-label mb-2">
+                    {setupContext.cumulativeStandings.length > 0 && setupContext.previousRound
+                      ? `Round ${setupContext.previousRound.roundNumber} Results / Event Standings`
+                      : 'Previous Round Results'}
+                  </p>
+                  {setupContext.cumulativeStandings
+                    .slice() // cumulativeStandings is already position-ordered
+                    .map(cum => {
+                      const roundRow = setupContext.previousRoundResults!.find(r => r.playerId === cum.playerId)
+                      return (
+                        <div key={cum.playerId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0' }}>
+                          <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#1a1a16' }}>
+                            <strong style={{ color: '#a1791f' }}>{cum.position}.</strong> {cum.playerName}
+                          </span>
+                          <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260' }}>
+                            R{setupContext.previousRound?.roundNumber} {roundRow?.totalPoints ?? '—'}
+                            <strong style={{ color: '#1a4731', marginLeft: 8 }}>Total {cum.totalPoints}</strong>
+                          </span>
+                        </div>
+                      )
+                    })}
+                </div>
+              )}
+
+              {mutationError && <Warning>{mutationError}</Warning>}
+              {setupContextError && <Warning>{setupContextError}</Warning>}
+
               {/* Groups & players */}
-              <p className="s-label mb-2" style={{ marginBottom: 8 }}>Playing Groups</p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <p className="s-label" style={{ marginBottom: 0 }}>Playing Groups</p>
+                {/* Leaders Last — only meaningful once there's a previous
+                    round to seed from, and organiser-optional per the
+                    explicit "must not apply automatically" requirement. */}
+                {setupContext && !setupContext.isFirstRound && hasGroups && (
+                  <button
+                    type="button"
+                    onClick={handleLeadersLast}
+                    disabled={applyingLeadersLast}
+                    style={{
+                      fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700,
+                      color: '#a1791f', background: 'rgba(201,168,76,0.12)',
+                      border: '1.5px solid rgba(201,168,76,0.4)', borderRadius: 8,
+                      padding: '6px 12px', cursor: applyingLeadersLast ? 'default' : 'pointer',
+                      opacity: applyingLeadersLast ? 0.6 : 1,
+                    }}
+                  >
+                    {applyingLeadersLast ? 'Seeding…' : '🏆 Leaders Last'}
+                  </button>
+                )}
+              </div>
 
               {!hasGroups && (
                 <Warning>No playing groups have been set up. Return to the Groups tab to create groups and assign players.</Warning>
               )}
 
-              {groups.map(g => {
+              {localGroups.map(g => {
                 const missingHcp = g.players.filter(p => resolvePlayingHandicap(p.playing_handicap, p.profile_handicap) === null)
                 return (
                   <div key={g.id} style={{
@@ -255,12 +437,60 @@ export default function BeginRoundModal({
                       g.players.map(p => {
                         const hcp = resolvePlayingHandicap(p.playing_handicap, p.profile_handicap)
                         return (
-                          <div key={p.profile_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', marginBottom: 4 }}>
-                            <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#1a1a16', fontWeight: 500 }}>{p.full_name}</span>
-                            {hcp !== null ? (
-                              <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260', background: '#f2e8d0', borderRadius: 6, padding: '2px 8px' }}>HCP {hcp}</span>
+                          <div key={p.profile_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 0', marginBottom: 4, gap: 8 }}>
+                            <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#1a1a16', fontWeight: 500, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.full_name}</span>
+
+                            {/* Inline +/- handicap controls — replaces the
+                                passive HCP badge entirely, per the explicit
+                                "no Edit button, no modal" requirement. Only
+                                shown once setup context has loaded, so a
+                                tap can never silently no-op against a null
+                                context. */}
+                            {setupContext && !setupContextLoading ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleHandicapAdjust(p.profile_id, -1)}
+                                  aria-label={`Decrease ${p.full_name}'s handicap`}
+                                  style={{ width: 30, height: 30, borderRadius: 8, border: '1.5px solid #d9c9a3', background: '#faf6ed', color: '#1a4731', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}
+                                >−</button>
+                                <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: hcp !== null ? '#7a7260' : '#b91c1c', fontWeight: 700, minWidth: 52, textAlign: 'center' }}>
+                                  {hcp !== null ? `HCP ${hcp}` : '⚠ No HCP'}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleHandicapAdjust(p.profile_id, 1)}
+                                  aria-label={`Increase ${p.full_name}'s handicap`}
+                                  style={{ width: 30, height: 30, borderRadius: 8, border: '1.5px solid #d9c9a3', background: '#faf6ed', color: '#1a4731', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}
+                                >+</button>
+                              </div>
                             ) : (
-                              <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#b91c1c', fontWeight: 600 }}>⚠ No handicap</span>
+                              hcp !== null ? (
+                                <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260', background: '#f2e8d0', borderRadius: 6, padding: '2px 8px', flexShrink: 0 }}>HCP {hcp}</span>
+                              ) : (
+                                <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#b91c1c', fontWeight: 600, flexShrink: 0 }}>⚠ No handicap</span>
+                              )
+                            )}
+
+                            {/* Manual group move — a compact selector
+                                rather than drag/drop, per the explicit
+                                "mobile simplicity over fancy drag/drop"
+                                instruction. Only shown once there's more
+                                than one group to move between. */}
+                            {localGroups.length > 1 && (
+                              <select
+                                value={g.id}
+                                disabled={pendingProfileId === p.profile_id}
+                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleGroupChange(p.profile_id, e.target.value)}
+                                style={{
+                                  fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260',
+                                  background: '#faf6ed', border: '1.5px solid #d9c9a3', borderRadius: 6,
+                                  padding: '3px 4px', flexShrink: 0, maxWidth: 72,
+                                  opacity: pendingProfileId === p.profile_id ? 0.5 : 1,
+                                }}
+                              >
+                                {localGroups.map(og => <option key={og.id} value={og.id}>{og.name}</option>)}
+                              </select>
                             )}
                           </div>
                         )
@@ -387,7 +617,7 @@ export default function BeginRoundModal({
               </div>
 
               {/* Summary */}
-              {groups.map(g => (
+              {localGroups.map(g => (
                 <div key={g.id} style={{ marginBottom: 10 }}>
                   <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#7a7260', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 4 }}>
                     {g.name}{g.tee_time ? ` · ⏱ ${g.tee_time}` : ''}

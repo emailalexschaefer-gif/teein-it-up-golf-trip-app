@@ -303,6 +303,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   const scorecardData = assignedMembers.map((m: typeof assignedMembers[0]) => ({
     player_id:        m.profile_id,
     playing_handicap: resolvePlayingHandicap(m.playing_handicap, m.profiles?.handicap) ?? 0,
+    group_id:         m.group_id ?? null,
   }))
 
   // ── Try RPC first, fall back to direct inserts ─────────────────────────────
@@ -401,10 +402,11 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   }
 
   // Scorecards upsert
-  const scorecardRows = scorecardData.map((s: { player_id: string; playing_handicap: number }) => ({
+  const scorecardRows = scorecardData.map((s: { player_id: string; playing_handicap: number; group_id: string | null }) => ({
     round_id:         roundId,
     player_id:        s.player_id,
     playing_handicap: s.playing_handicap,
+    group_id:         s.group_id,
     status:           'active',
   }))
 

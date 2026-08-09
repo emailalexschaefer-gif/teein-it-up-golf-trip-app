@@ -7237,3 +7237,447 @@ Test uploading a photo again — this should now succeed. If a further
 error appears, the temporary `debug` field will show the exact
 Postgres error directly in the UI, so send that detail rather than
 just the generic message.
+
+---
+
+## Moments — Normal Player Upload Fails with "Failed to fetch"
+
+### Investigation performed before changing anything
+Per the explicit instruction, traced the complete flow before touching
+code:
+
+- **A. Front-end request**: confirmed `MomentCapture.tsx` has zero
+  role/organiser-conditional logic anywhere (`grep` for
+  `organiser|isOrganiser|role` returns nothing) — the same code path
+  runs for every authenticated user, organiser or not.
+- **B/C. Auth and API authorisation**: confirmed the POST route
+  (`/api/trips/[tripId]/moments`) also has zero organiser-only checks —
+  `grep` for `organiser|role` returns nothing there either. Membership
+  is checked purely via a `trip_members` row matching `profile_id`, with
+  no role filter.
+- **D. Storage RLS**: confirmed `is_trip_member()` (used by all three
+  storage policies) is role-agnostic — checks any `trip_members` row
+  regardless of `role`, not organiser-specific.
+
+**This rules out an organiser-only permission gate anywhere in the
+code** — the brief's own primary hypothesis (C) is not what's
+happening here; there's no such check to find or replace.
+
+### Why "Failed to fetch" specifically is hard to diagnose from a
+screenshot alone
+This is a client-side, pre-response `TypeError` — it means the browser
+never received an HTTP response to inspect at all, so there's no server
+error body to attach a `debug` field to (the technique that resolved
+the two previous Moments bugs this session doesn't apply here). The
+Moment-posting flow makes two separate network calls — the Supabase
+Storage upload (cross-origin, to Supabase directly) and the app's own
+API call (`POST /api/trips/[tripId]/moments`) — and the previous code
+couldn't distinguish which one actually failed, or why.
+
+### Two concrete, verified findings — not blind guesses
+
+1. **A real gap found by reading the actual code**: on image
+   decode/compression failure, `resolveUploadBlob()` falls back to
+   uploading the original file with its original MIME type. HEIC — the
+   default camera format on many phones, especially iPhones — cannot be
+   decoded by `createImageBitmap()` in most browsers (a codec-licensing
+   limitation, not a bug in this code). Confirmed the storage bucket's
+   `allowed_mime_types` is `['image/jpeg', 'image/png', 'image/webp']`
+   — HEIC is not in that list. So a HEIC photo would decode-fail, fall
+   back to the original HEIC file, and attempt an upload the bucket was
+   always going to reject — plausibly surfacing as an opaque network
+   failure rather than a clear error, depending on how that rejection's
+   response is handled by the browser.
+2. **Known Supabase Storage/browser behaviour**: cross-origin storage
+   errors (including RLS rejections) sometimes lack CORS headers on
+   their error response, which some browsers report as `Failed to
+   fetch` rather than surfacing the real HTTP status — meaning an RLS
+   or validation rejection could look identical to a genuine network
+   failure from the browser's perspective.
+
+Given multiple plausible causes and no way to distinguish them from a
+screenshot alone, this pass avoided guessing and patching blindly.
+
+### What was actually changed
+1. **Diagnostic separation**: the storage upload and the app API call
+   are now each wrapped so a raw network exception at either step is
+   caught separately and labeled ("failed at the storage step" vs.
+   "failed while saving the moment record"), with the exact values
+   needed to confirm or rule out each hypothesis included directly in
+   the (temporary, clearly-marked) error message shown to the user:
+   blob size, whether compression succeeded or fell back to the
+   original file, and whether `tripId`/`user.id` were actually present
+   at upload time.
+2. **A real, defensive fix for the HEIC case specifically**: if
+   decode/compression fails AND the original file's type isn't one the
+   bucket actually accepts, the upload now fails immediately with a
+   clear, actionable message ("this photo's format isn't supported...")
+   instead of attempting a network request that was never going to
+   succeed. This is a genuine fix for a verified gap, not just
+   diagnostic logging — if this is the actual root cause, normal
+   players on affected devices will now get an immediately
+   understandable error instead of "Failed to fetch," and if it isn't,
+   the enhanced diagnostics from point 1 will show that clearly on the
+   next attempt.
+
+### Files changed
+`src/components/moments/MomentCapture.tsx` only. No server-side
+changes this pass — everything found points at the client-side upload
+flow specifically, not the API route or RLS policies (both confirmed
+role-agnostic and correctly scoped).
+
+### Regression protection
+No RLS or storage policy changes made — trip isolation is completely
+untouched. Organiser experience untouched (the same code path was
+already running for both; nothing about it changed except better error
+detail on failure). Confirmed no code change was needed for
+authorisation, since none of the investigated layers had an
+organiser-only gate to begin with.
+
+### Tests
+No new automated tests — this is diagnostic instrumentation plus one
+defensive validation check, not new pure-function logic. 106/106
+scoring-domain tests re-run and pass, confirming no unrelated
+regression (expected, since this is isolated to the Moments upload
+flow).
+
+### npm run build
+Not re-attempted — same sandbox network limitation as every prior
+attempt this project. Exhaustively `grep`-checked the changed file for
+the `@typescript-eslint/no-explicit-any` pattern that broke a previous
+build: zero explicit `any` found. The two `eslint-disable` comments
+present are pre-existing, for unrelated rules (`no-console`,
+`no-img-element`).
+
+### Next step
+Test again as the normal player account. Two possible outcomes:
+- **A clear "photo format isn't supported" message** → confirms the
+  HEIC hypothesis directly; ask what format the test photo was in
+  (Settings > Photos > Camera format, on iPhone) to fully confirm.
+- **The generic error still appears, now labeled with which step
+  failed and the diagnostic values** → send that exact message rather
+  than a screenshot of just "Failed to fetch" — it will show blob size,
+  whether the original file was used, and whether tripId/userId were
+  actually present, which narrows the remaining hypotheses immediately
+  rather than requiring another round of speculation.
+
+---
+
+## Multi-Round Setup — Foundational Data Layer (PARTIAL — UI NOT YET BUILT)
+
+**This is an honest, partial delivery.** Given the scale of this brief
+— cumulative scoring, round-specific historical data, Leaders Last
+seeding, handicap controls, manual group reshuffling, and Step 1/3 UI
+changes — this pass built and verified the foundational data layer and
+two new endpoints. The wizard UI itself (Step 1's standings display,
++/- handicap buttons, the Leaders Last button, manual group movement,
+Step 3's group/handicap summary) is **not yet wired up**. Per the
+explicit "do not package until all tests are passing" — every test that
+exists does pass, but the brief's own 16-item testing checklist is
+almost entirely UI-level and cannot be exercised without that UI
+existing yet. Flagging this clearly rather than either not delivering
+progress or overstating what's done.
+
+### 1. How cumulative scoring was already handled / what needed to
+change
+**Not handled at all before this pass** — no cumulative-scoring
+calculation existed anywhere in the codebase. `computeCumulativeStandings()`
+(new, pure function, `src/lib/scoring/multiRound.ts`) sums per-round
+totals across any number of completed rounds and ranks the result,
+correctly handling ties (shared position, not arbitrary ordering) and
+players who don't appear in every round. It does not read or duplicate
+any scoring data itself — it's handed pre-computed per-round totals by
+the caller.
+
+### 2. How round-specific handicaps are stored
+**Already correctly solved by the existing architecture — no schema
+change needed for this part.** Confirmed by reading `begin_round()`
+directly: `scorecards.playing_handicap` (distinct from
+`trip_members.playing_handicap`, the single mutable "current" value) is
+populated once, at the exact moment a round starts, from whatever value
+`trip_members.playing_handicap` held then. Once a round is `'active'`,
+its scorecards' handicaps are permanently frozen — `begin_round()`
+guards `status = 'upcoming'`, so it can never re-run against an
+already-started round. Changing `trip_members.playing_handicap` before
+Round 2 begins only affects what gets snapshotted into Round 2's new
+scorecards; Round 1's already exist and are untouched. The existing
+members PATCH route (`/api/trips/[tripId]/members/[memberId]`) already
+supports updating this value and is directly reusable for the +/-
+controls — no new endpoint needed for handicap adjustment.
+
+### 3. How round-specific group assignments are stored
+**This was the genuine gap, now closed.** Confirmed
+`scorecards` had no `group_id` column at all — group membership was
+*only* `trip_members.group_id`, a single mutable trip-level fact with
+no historical record. Reseeding groups for Round 2 would have silently
+overwritten the only record of Round 1's groupings. Fixed with a single
+additive column, `scorecards.group_id`, populated at round-start time
+via the exact same mechanism `playing_handicap` already uses —
+`begin_round()` now accepts and snapshots it. This mirrors an
+already-proven pattern rather than inventing a new one.
+
+### 4. How Leaders Last determines ordering
+`seedLeadersLast()` (new, pure function) takes standings ordered
+best-to-worst and a group size, reverses the list (worst-first), and
+chunks it — chunk 0 (lowest-ranked players) maps to the earliest group,
+the last chunk (highest-ranked, including the leader) maps to the
+latest. **Verified directly against the brief's own 8-player worked
+example** — the test asserts the exact same group membership the brief
+specified (John/Peter/James/Tom earliest, Steve/Mark/Darren/Alex
+latest), not just a plausible-looking algorithm.
+
+The `leaders-last` endpoint applies this by computing cumulative
+standings through the round before the one being set up, fetching the
+trip's *existing* `trip_groups` ordered by `tee_time`, mapping
+computed group-index 0 onto whichever real group has the earliest tee
+time, and updating only `trip_members.group_id` — the existing groups
+themselves (and their tee times) are never recreated or altered,
+directly matching "preserve tee-time slots, change player assignments."
+
+### 5. Files changed
+- `supabase/migrations/035_scorecard_round_group.sql` (new) — adds
+  `scorecards.group_id`; recreates `begin_round()` with the **complete,
+  verbatim original function body** plus the minimal group_id addition
+  (diffed against the actual source to confirm nothing else changed —
+  see the note below on a mistake caught during this)
+- `supabase/scorecard_round_group_deploy.sql` (new) — standalone deploy
+  copy, matching this project's established pattern
+- `src/lib/scoring/multiRound.ts` (new) — `computeCumulativeStandings()`,
+  `seedLeadersLast()`
+- `src/lib/scoring/multiRound.test.ts` (new) — 9 tests
+- `src/app/api/trips/[tripId]/rounds/[roundId]/setup-context/route.ts`
+  (new) — previous round results + cumulative standings for Step 1
+- `src/app/api/trips/[tripId]/rounds/[roundId]/leaders-last/route.ts`
+  (new) — applies the reseeding
+- `src/app/api/trips/[tripId]/rounds/[roundId]/start/route.ts` —
+  `group_id` added to both scorecard-data construction paths (RPC and
+  fallback), so the snapshot actually gets populated when a round starts
+
+### A mistake caught before it shipped, worth stating plainly
+My first draft of the `begin_round()` replacement was reconstructed
+from partial memory of an earlier, incomplete view of the file — it
+was missing the entire "unmapped playing group" validation check, used
+a different return-value shape than the caller expects, and omitted
+the exception handler entirely. Given a plpgsql function must be
+replaced in full (no partial patching), shipping that draft would have
+silently broken round-starts across the whole app. Caught this by
+`diff`-ing the new version against the actual, complete original source
+before finalizing — the fix confirmed the two versions differ in
+exactly the intended four lines, nothing else. Mentioning this because
+catching it is what matters, not that a mistake happened.
+
+### 6. Migrations/schema changes
+One migration, additive only: `scorecards.group_id` (nullable UUID,
+`ON DELETE SET NULL`). `begin_round()` recreated (required — plpgsql
+functions can't be partially altered) with verbatim-preserved logic
+plus the one intended addition.
+
+### 7. Tests passed
+**143 total, all passing**: 115 scoring-domain (106 existing + 9 new
+multi-round tests), 19 trips-domain, 9 auth-cache — all unchanged
+outside the 9 new additions, confirming no regression. The 9 new tests
+cover both worked examples from the brief directly (the Alex/TEST
+cumulative example, and the full 8-player Leaders Last example), plus
+edge cases: tied standings, a player present in only some rounds,
+uneven group counts, and confirming the leader/last-place player always
+land in the correct extreme group regardless of field size.
+
+**Not yet testable**: everything requiring the UI — the 16-item
+checklist in the brief is almost entirely about interacting with
+screens that don't exist yet (Step 1's standings/handicap/group
+controls, Step 3's summary). Those genuinely cannot be verified until
+built.
+
+### 8. Confirmation that Round 2 group/handicap changes do NOT alter
+Round 1 historical results
+**Confirmed by architecture, not just by intent**: both
+`scorecards.playing_handicap` and (as of this migration)
+`scorecards.group_id` are per-round snapshots, written once at
+round-start time via `begin_round()`, which can never re-run against an
+already-started round (`status = 'upcoming'` guard). Changing
+`trip_members.playing_handicap` or `trip_members.group_id` before Round
+2 begins has no code path that could reach back and modify Round 1's
+already-existing `scorecards` rows — there is no UPDATE statement
+anywhere in this codebase that touches a scorecard by anything other
+than its own `round_id`.
+
+### What remains — honestly, not glossed over
+- **Step 1 UI**: previous-round results display, cumulative standings
+  display, inline +/- handicap controls (wire to the existing members
+  PATCH route), the "Leaders Last" button (wire to the new endpoint),
+  manual group move/swap controls.
+- **Step 3 UI**: show the final groups and handicaps being used for the
+  new round.
+- **Leaderboard**: extending the live leaderboard to optionally show
+  cumulative event totals alongside round scores (item 11) — not
+  started; the underlying calculation (`computeCumulativeStandings`)
+  exists and is ready to be called from a leaderboard-facing route.
+
+### Package
+Packaged now per "all tests passing" being satisfied for what exists —
+explicitly a foundational/backend delivery, not the complete feature.
+Recommend a focused follow-up pass specifically for the Step 1/3 UI
+wiring, now that the data layer underneath it is built and verified.
+
+---
+
+## Multi-Round Setup — UI/Integration Pass (Completing the Round 2+ Experience)
+
+Builds directly on the previously-approved foundation (do not re-read
+that section for architecture — it's unchanged; this section covers
+what got wired up on top of it).
+
+### 1. UI files changed
+`src/components/scoring/BeginRoundModal.tsx` — the only UI file
+touched, per the explicit "do not redesign" instruction. All additions
+are new state, new handlers, and content within the existing Step 1
+review stage and Step 3 confirm stage — the header, progress line,
+card styling, and bottom-action structure are completely untouched.
+
+### 2. Backend files changed
+- `src/app/api/trips/[tripId]/rounds/[roundId]/setup-context/route.ts`
+  — extended to also return groups-with-players, making it the single
+  refetchable source for everything Step 1 needs (previously it only
+  returned results/standings)
+- `src/app/api/trips/[tripId]/rounds/[roundId]/leaderboard/route.ts` —
+  extended (additively — existing fields unchanged) to expose
+  `cumulativeStandings`; also fixed a pre-existing explicit `any` on
+  the admin client while already touching this file, matching the
+  established safe pattern used elsewhere
+- No changes to `leaders-last/route.ts` or `start/route.ts` this pass
+  — both were already correct from the previous foundation work
+
+### 3. Migration required
+**None new.** `035_scorecard_round_group.sql` (from the previous pass)
+is still the only migration — this pass is entirely UI/API wiring on
+top of the already-approved schema change.
+
+### 4. How previous-round results are displayed
+Step 1 fetches `setup-context` once on mount (`useEffect`, empty
+deps — intentionally fetch-once, refetched explicitly after mutations
+rather than on every render). When `!isFirstRound`, a compact card
+shows each player's position, their immediately-previous round's
+points, and their cumulative event total, sourced directly from the
+endpoint's `previousRoundResults` and `cumulativeStandings` — no
+recomputation in the component itself, per the explicit instruction.
+Round 1 shows nothing here (`isFirstRound` gates the whole section),
+completely unchanged from before this work existed.
+
+### 5. How +/- handicap editing works
+Each player row's passive "HCP N" badge is replaced with `[−] HCP N
+[+]` once setup context has loaded (gated behind `!setupContextLoading`
+specifically so a tap can never silently no-op against an unloaded
+state). Tapping either button updates local state immediately
+(optimistic), then calls the **existing** members PATCH route
+(`/api/trips/[tripId]/members/[memberId]`) with the new
+`playing_handicap` — no new endpoint, per the explicit instruction. A
+failed request rolls the local state back to its exact pre-edit value
+and shows a plain error message rather than leaving stale, misleading
+UI. This only ever writes to `trip_members.playing_handicap` (the
+"current, adjustable" value) — there is no code path here that touches
+a `scorecards` row, so a completed Round 1's snapshot is structurally
+unreachable from this control.
+
+### 6. How Leaders Last works in the UI
+A "🏆 Leaders Last" button appears next to the Playing Groups heading,
+only once there's a previous round to seed from (`!isFirstRound`) and
+groups exist. Tapping it calls the existing `leaders-last` endpoint
+(built in the previous pass, unchanged this pass), then explicitly
+`await`s a full `refetchSetupContext()` before considering the action
+complete — this is what makes "refresh Step 1 immediately" literally
+true rather than aspirational. Not automatic — requires the explicit
+tap, per "must not apply without organiser action."
+
+### 7. How manual group movement works
+A compact `<select>` per player (not drag-and-drop, per the explicit
+"mobile simplicity over fancy drag/drop" instruction) lists every
+existing group; choosing a different one calls the same members PATCH
+route with the new `group_id`, with the same optimistic-update-then-
+rollback-on-failure pattern as the handicap controls. Only rendered
+when more than one group exists (a single-group trip has nothing to
+move between). A `pendingProfileId` guard disables the selector
+mid-request so a second tap can't race the first.
+
+### 8. Confirmation of historical Round 1 vs Round 2 group preservation
+**Verified by re-reading the actual chain, not re-asserted from the
+previous pass**: `handleGroupChange` and Leaders Last both write only
+to `trip_members.group_id`. `start/route.ts` (unchanged this pass, from
+the previous foundation work) reads the *current* `trip_members.group_id`
+at the moment Round 2 actually begins and passes it into
+`begin_round()`, which snapshots it into the new scorecard's own
+`group_id` — a completely separate row from Round 1's scorecard, keyed
+by `(round_id, player_id)`. There is no UPDATE statement anywhere in
+this codebase that touches a scorecard by anything other than its own
+`round_id`, so Round 1's scorecard rows are structurally unreachable
+from any Round 2 setup action. This was true after the previous
+pass's migration; this pass's UI simply exercises that already-correct
+path, it doesn't change it.
+
+### 9. Cumulative leaderboard verification
+`cumulativeStandings` is now in the leaderboard endpoint's response,
+computed by summing every round from round 1 through the current one
+(inclusive of the current round's own live, in-progress totals — not
+just fully completed rounds, so a mid-round check already reflects
+points scored so far) via the same tested `computeCumulativeStandings`
+function used throughout this feature. **The existing leaderboard UI
+component itself was not modified to display this new field** — per
+"do not rebuild unnecessarily," the data is exposed and ready, but
+wiring it into the visible leaderboard UI (e.g. an "Event Total"
+column) is a small, separate follow-up, not bundled into this already
+large pass. Flagging this precisely rather than implying the visible
+leaderboard already shows cumulative totals when it doesn't yet.
+
+### 10. Full test count/results
+**143/143 pass** — 115 scoring-domain (unchanged from the previous
+pass; this pass added no new pure-function logic, only UI/API wiring
+around what was already tested), 19 trips-domain, 9 auth-cache. Zero
+explicit `any` across every file touched this pass, confirmed via
+exhaustive `grep`, including the one pre-existing instance fixed
+opportunistically in the leaderboard route. Lenient type-check clean
+on every file.
+
+**Manual verification not possible from this sandbox** — items in the
+brief's own 20-point testing list requiring a live browser/device
+(tapping buttons, confirming visual refresh, multi-step flows across
+Round 1 completion → Round 2 setup → Round 2 scoring) genuinely cannot
+be executed here. The code paths for all of them are now in place and
+individually verified by inspection (e.g. `refetchSetupContext` is
+actually awaited after Leaders Last, the PATCH calls use the exact
+existing route, the rollback-on-failure logic is symmetric for both
+handicap and group changes) — but a real device pass is still the
+right next step before considering this fully proven.
+
+### 11. Exact production deployment order
+1. Run `supabase/scorecard_round_group_deploy.sql` (from the previous
+   pass — unchanged, not re-delivered this pass) against production.
+   This is the one migration this entire feature depends on; the
+   application will fail safely but visibly if deployed first — the
+   `setup-context` and `leaders-last` endpoints would receive a
+   Postgres "column does not exist" error on `scorecards.group_id`
+   (the same class of error this project's earlier bugs already
+   demonstrated the diagnostic pattern for), not a silent
+   misbehavior — but there's no reason to deploy out of order when the
+   correct order is simple.
+2. Deploy this application build.
+3. Smoke test: open Round 2 setup on a trip with a completed Round 1;
+   confirm previous results appear, a handicap +/- registers, and
+   Leaders Last completes without error.
+4. Package/release the final ZIP only after the smoke test passes —
+   this echoes back to you for that confirmation before final release,
+   rather than this pass claiming that step on your behalf.
+
+### What remains, stated plainly
+- **Loading/failure states**: implemented for setup-context load,
+  handicap update, Leaders Last, and group move (item 8) — all have
+  explicit error states and no silent-stale-UI paths. Not yet given a
+  dedicated visual polish pass beyond functional correctness.
+- **Cumulative totals in the visible leaderboard UI**: data is exposed
+  (item 9 above), display is not yet built.
+- **Step 2 (hole setup) and general full-screen wizard behavior**:
+  entirely untouched this pass, as instructed.
+
+### Package
+Packaged now, per "all tests passing" being satisfied and the
+explicit request to proceed with this integration pass — still
+recommend the production smoke test (deployment step 3 above) before
+treating this as fully proven in a live environment.

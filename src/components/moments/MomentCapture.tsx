@@ -53,11 +53,31 @@ async function resolveUploadBlob(file: File): Promise<ResolvedUpload> {
     logStage('processed-blob-created', { size: blob.size, width: w, height: h })
     return { blob, contentType: 'image/jpeg', extension: 'jpg', usedOriginal: false }
   } catch (err) {
-    logStage('processing-failed-falling-back-to-original', { error: err instanceof Error ? err.message : String(err) })
+    logStage('processing-failed-falling-back-to-original', { error: err instanceof Error ? err.message : String(err), originalType: file.type })
     // Do not block a valid image solely because resizing/decoding
     // failed. The original file's own MIME type determines the upload
     // content-type and extension here, since we never got a chance to
     // normalize it to JPEG.
+    //
+    // But if decoding failed AND the original type isn't one the
+    // storage bucket actually accepts (allowed_mime_types: jpeg/png/
+    // webp) — most commonly HEIC, the default camera format on many
+    // phones, which createImageBitmap cannot decode in most browsers —
+    // the upload was never going to succeed. Failing clearly here, with
+    // an actionable message, instead of attempting a network request
+    // that would only fail opaquely (as a generic storage/network
+    // error) is both a real fix for this specific case and the
+    // fastest way to confirm or rule out this exact hypothesis on the
+    // next attempt.
+    const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+    if (!ACCEPTED_TYPES.includes(file.type)) {
+      throw new Error(
+        `This photo's format (${file.type || 'unknown'}) isn't supported. ` +
+        `Please use a JPEG, PNG, or WEBP image — on iPhone, HEIC photos ` +
+        `may need to be converted first (Settings > Camera > Formats > ` +
+        `"Most Compatible" avoids this for new photos).`
+      )
+    }
     const extension = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg'
     return { blob: file, contentType: file.type || 'application/octet-stream', extension, usedOriginal: true }
   }
@@ -145,10 +165,32 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
       // scoring (e.g. from My Round rather than mid-hole). Extension
       // reflects whichever path actually produced the upload blob.
       const path = `${tripId}/${roundId ?? 'general'}/${user.id}/${Date.now()}.${resolved.extension}`
-      const { error: uploadErr } = await supabase.storage.from('event-moments').upload(path, resolved.blob, { contentType: resolved.contentType })
+      let uploadErr: { message: string } | null = null
+      try {
+        const result = await supabase.storage.from('event-moments').upload(path, resolved.blob, { contentType: resolved.contentType })
+        uploadErr = result.error
+      } catch (networkErr) {
+        // TEMPORARY: a raw network-level exception (e.g. "Failed to
+        // fetch") from the storage upload itself is distinguished here
+        // from a normal Supabase-returned error object, and from a
+        // failure in the separate postMoment() call below — the
+        // previous generic catch-all couldn't tell these apart. Includes
+        // the exact values needed to confirm or rule out the two live
+        // hypotheses: an oversized fallback-to-original upload (blob
+        // size / usedOriginal), or a malformed path (tripId / user.id
+        // actually present at upload time). Remove this expanded detail
+        // once the root cause is confirmed.
+        const detail = networkErr instanceof Error ? networkErr.message : String(networkErr)
+        throw new Error(
+          `Photo upload failed at the storage step: ${detail} ` +
+          `(size: ${(resolved.blob.size / 1024).toFixed(0)}KB, ` +
+          `usedOriginal: ${resolved.usedOriginal}, ` +
+          `tripId: ${tripId || 'MISSING'}, userId: ${user.id ? 'present' : 'MISSING'})`
+        )
+      }
       if (uploadErr) {
         logStage('storage-upload-failed', { message: uploadErr.message })
-        throw new Error(uploadErr.message)
+        throw new Error(`Photo upload failed at the storage step: ${uploadErr.message}`)
       }
       logStage('storage-upload-complete', { path })
 
@@ -177,14 +219,26 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
 
   async function postMoment({ imagePath }: { imagePath?: string }) {
     logStage('moment-row-insert-requested', { hasImage: !!imagePath, audience })
-    const res = await fetch(`/api/trips/${tripId}/moments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        imagePath: imagePath ?? null, caption: caption.trim(), roundId: roundId ?? null, holeNumber: holeNumber ?? null,
-        audience: audience === 'group' && myGroupId ? 'group' : 'everyone',
-      }),
-    })
+    let res: Response
+    try {
+      res = await fetch(`/api/trips/${tripId}/moments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imagePath: imagePath ?? null, caption: caption.trim(), roundId: roundId ?? null, holeNumber: holeNumber ?? null,
+          audience: audience === 'group' && myGroupId ? 'group' : 'everyone',
+        }),
+      })
+    } catch (networkErr) {
+      // TEMPORARY: distinguishes a raw network failure on THIS request
+      // (the app's own API, a same-origin call) from the storage-step
+      // failure above, which is a separate, cross-origin request to
+      // Supabase Storage. Same-origin "Failed to fetch" here would point
+      // at something quite different (e.g. the request never leaving
+      // the browser at all) than a failure on the storage upload.
+      const detail = networkErr instanceof Error ? networkErr.message : String(networkErr)
+      throw new Error(`Photo upload failed while saving the moment record: ${detail} (tripId: ${tripId || 'MISSING'})`)
+    }
     const resData = await res.json().catch(() => ({}))
     if (!res.ok) {
       logStage('moment-row-insert-failed', { error: resData.error, debug: resData.debug })
