@@ -7165,3 +7165,75 @@ points to. Idempotent — safe regardless of prior partial state.
 One replacement test ZIP, per the explicit instruction — a test
 candidate pending your own `npm run build` confirmation, not a
 confirmed-passing production build.
+
+---
+
+## Bug 3 Follow-Up — Photo Upload, Second Failure After Bucket Fix
+
+The storage bucket fix (SQL delivered and confirmed run against
+production separately) resolved "Bucket not found" completely, but a
+second, different failure surfaced immediately after: "Moment couldn't
+be posted. Please try again." — a generic message, deliberately so, per
+the same pattern as the earlier Trip Information save-failure
+investigation.
+
+### Root cause — a genuine code bug, not a deployment gap this time
+The `moments` INSERT in `POST /api/trips/[tripId]/moments` included
+`moment_type: momentType` — but the `moments` table (per migration
+`028_moments.sql`) has no `moment_type` column at all. Confirmed by
+reading the table's actual `CREATE TABLE` statement directly, not
+assumed. This produces a straightforward "column does not exist"
+Postgres error on every insert attempt, regardless of whether the
+bucket or its policies are correctly configured — explaining why the
+error persisted immediately after the storage fix was confirmed
+working.
+
+`momentType` itself was only ever used for this one, non-existent
+column — confirmed via `grep` before removing it, so nothing else in
+the route depended on it.
+
+### Fix
+Removed `moment_type` from the insert entirely. Also added the same
+temporary `debug`-field diagnostic pattern used for the Trip
+Information investigation — both server (route) and client
+(`MomentCapture.tsx`) — so if any further issue exists in this path, it
+surfaces immediately rather than requiring another screenshot
+round-trip.
+
+### A related, separate issue found but not fixed
+`moments.image_path` is `TEXT NOT NULL`, but the POST route allows
+`image_path: imagePath ?? null` for caption-only "Text Moments" (the
+validation above it explicitly permits a moment with no photo, only a
+caption). This isn't what caused the reported photo-upload failure —
+photo uploads always have a real `imagePath` — but a text-only Moment
+would hit a NOT NULL violation the same way the photo path just hit a
+missing-column error. Flagging this rather than fixing it unilaterally,
+since resolving it means either a schema change (making the column
+nullable) or a product decision (are text-only Moments actually
+supported?) — both feel like they deserve an explicit decision rather
+than a silent fix bundled into this one.
+
+### Files changed
+`src/app/api/trips/[tripId]/moments/route.ts`,
+`src/components/moments/MomentCapture.tsx`
+
+### Tests
+No new automated tests — this is a straightforward column-mismatch fix,
+not new logic. 106/106 scoring-domain tests re-run and still pass,
+confirming no unrelated regression (expected, since this fix is
+entirely isolated to the Moments insert path).
+
+### npm run build
+Not re-attempted this pass — same sandbox network limitation as every
+prior attempt. Exhaustively `grep`-checked both changed files for the
+`@typescript-eslint/no-explicit-any` pattern that broke a previous
+build: zero explicit `any` in either file. The two `eslint-disable`
+comments present in `MomentCapture.tsx` are pre-existing, for different
+rules (`no-console`, `no-img-element`), not the one that caused a prior
+failure.
+
+### Next step
+Test uploading a photo again — this should now succeed. If a further
+error appears, the temporary `debug` field will show the exact
+Postgres error directly in the UI, so send that detail rather than
+just the generic message.

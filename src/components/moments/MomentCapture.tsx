@@ -187,8 +187,12 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
     })
     const resData = await res.json().catch(() => ({}))
     if (!res.ok) {
-      logStage('moment-row-insert-failed', { error: resData.error })
-      throw new Error(resData.error ?? "Moment couldn't be posted. Please try again.")
+      logStage('moment-row-insert-failed', { error: resData.error, debug: resData.debug })
+      // TEMPORARY: resData.debug (if present) is the diagnostic detail
+      // added to the route for this investigation — a compact postgres
+      // error code/message. Shown here only because it's present;
+      // remove once any further issue in this path is confirmed fixed.
+      throw new Error(resData.error ? `${resData.error}${resData.debug ? ` (${resData.debug})` : ''}` : "Moment couldn't be posted. Please try again.")
     }
     logStage('moment-posted', { momentId: resData.moment?.id })
 

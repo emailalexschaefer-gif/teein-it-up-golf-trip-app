@@ -81,7 +81,6 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   if (!imagePath && !caption?.trim()) {
     return NextResponse.json({ error: 'Add a photo or write something for this moment.' }, { status: 400 })
   }
-  const momentType = imagePath ? 'photo' : 'text'
   const resolvedAudience = audience === 'group' ? 'group' : 'everyone'
 
   const { data: membership } = await supabase
@@ -97,13 +96,24 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     group_id: resolvedAudience === 'group' ? membership.group_id : null,
     caption: caption?.trim() || null,
     image_path: imagePath ?? null,
-    moment_type: momentType,
     audience: resolvedAudience,
   }).select().single()
 
   if (momentErr) {
-    console.error('[moments POST]', { code: momentErr.code, message: momentErr.message, tripId, userId: user.id })
-    return NextResponse.json({ error: "Moment couldn't be posted. Please try again." }, { status: 500 })
+    console.error('[moments POST]', {
+      code: momentErr.code, message: momentErr.message,
+      details: momentErr.details, hint: momentErr.hint, tripId, userId: user.id,
+    })
+    // TEMPORARY diagnostic detail — same pattern used for the Trip
+    // Information save-failure investigation: a compact postgres error
+    // code/message returned as a separate `debug` field (not blended
+    // into the main error text), so the real failure is visible without
+    // needing Vercel log access. Remove once any further issue in this
+    // path is confirmed fixed.
+    return NextResponse.json({
+      error: "Moment couldn't be posted. Please try again.",
+      debug: `${momentErr.code ?? 'unknown'}: ${momentErr.message ?? 'no message'}`,
+    }, { status: 500 })
   }
 
   // Link into Chat's existing feed — a 'moment' message_type row pointing
