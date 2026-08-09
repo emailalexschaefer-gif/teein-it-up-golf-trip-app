@@ -22,6 +22,7 @@
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -83,15 +84,29 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   const groupIds = [...new Set(messages.map(m => m.recipient_group_id).filter((id): id is string => !!id))]
   const momentIds = [...new Set(messages.map(m => m.moment_id).filter((id): id is string => !!id))]
 
+  // Admin client specifically for these enrichment lookups — not a
+  // relaxation of event_messages' own RLS (that query above, and the
+  // entire POST handler, remain on the regular RLS-subject client
+  // exactly as documented at the top of this file). Resolving the name
+  // of someone who sent a message the caller can already see is not a
+  // separate access-control decision — it's display detail for content
+  // already legitimately visible. Bypassing RLS here specifically
+  // avoids a cross-user profiles lookup depending on a policy
+  // (profiles_view_own_and_cotrip / shares_trip_with) that has been
+  // revised across five prior migrations in this project's history —
+  // exactly the kind of place a lookup can silently return fewer rows
+  // than expected and produce "Unknown participant" despite the message
+  // itself having posted correctly.
+  const admin = createAdminClient()
   const [profilesRes, groupsRes, momentsRes, roleRes] = await Promise.all([
     senderIds.length > 0
-      ? supabase.from('profiles').select('id, full_name').in('id', senderIds)
+      ? admin.from('profiles').select('id, full_name').in('id', senderIds)
       : Promise.resolve({ data: [], error: null }),
     groupIds.length > 0
-      ? supabase.from('trip_groups').select('id, name').in('id', groupIds)
+      ? admin.from('trip_groups').select('id, name').in('id', groupIds)
       : Promise.resolve({ data: [], error: null }),
     momentIds.length > 0
-      ? supabase.from('moments').select('id, image_path, hole_number, caption').in('id', momentIds)
+      ? admin.from('moments').select('id, image_path, hole_number, caption').in('id', momentIds)
       : Promise.resolve({ data: [], error: null }),
     // Real role, looked up from actual trip membership — never inferred
     // from message_type. 'announcement' meaning "sent through the
@@ -100,7 +115,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     // organisers can send that type) — showing the real, looked-up role
     // keeps that distinction honest rather than collapsing into a guess.
     senderIds.length > 0
-      ? supabase.from('trip_members').select('profile_id, role').eq('trip_id', tripId).in('profile_id', senderIds)
+      ? admin.from('trip_members').select('profile_id, role').eq('trip_id', tripId).in('profile_id', senderIds)
       : Promise.resolve({ data: [], error: null }),
   ])
 

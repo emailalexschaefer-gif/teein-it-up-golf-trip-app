@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { getDefaultHoles, getDefaultHolesForNine, resolvePlayingHandicap } from '@/lib/scoring/defaultHoles'
 import type { HoleTemplate, PlayingNine } from '@/lib/scoring/defaultHoles'
+import { useScoringFocusStore } from '@/store/scoringFocusStore'
 
 interface Player {
   profile_id: string
@@ -37,6 +38,7 @@ export default function BeginRoundModal({
   playDate, groups, onClose,
 }: Props) {
   const router = useRouter()
+  const setScoringFocusActive = useScoringFocusStore(s => s.setActive)
   const [stage, setStage]   = useState<Stage>('review')
   const modalScrollRef = useRef<HTMLDivElement>(null)
 
@@ -128,26 +130,32 @@ export default function BeginRoundModal({
   const formattedDate = new Date(playDate + 'T00:00:00')
     .toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 
+  // Reuses the existing scoring-focus mechanism (already hides AppNav/
+  // TripBottomNav during active hole-by-hole scoring) rather than a new
+  // one — the wizard needs exactly the same "hide app chrome, full
+  // screen for one focused task" treatment.
+  useEffect(() => {
+    setScoringFocusActive(true)
+    return () => setScoringFocusActive(false)
+  }, [])
+
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 100,
-      background: 'rgba(15,45,28,0.85)', backdropFilter: 'blur(3px)',
-      display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+      background: '#f8f4eb',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
     }}>
-      {/* Proper mobile modal: fixed header, fixed footer, only the middle
-          scrolls. Previously the ENTIRE panel (header included) was one
-          scrolling region, so the header could scroll away and the
-          primary action buttons — rendered at the end of each stage's
-          own content — were wherever the scroll happened to leave them,
-          sometimes behind the bottom nav. Confirmed by screenshots
-          showing exactly that. */}
+      {/* True full-screen presentation, not a bottom sheet — this is the
+          actual fix for small-phone clipping. The previous maxHeight:
+          calc(92vh...) cap plus rounded-corner bottom-sheet styling was
+          what left content clipped and controls reachable only by
+          fighting the modal's constrained height. The fixed-header/
+          scrollable-body/fixed-footer structure below (already correct,
+          already respecting safe-area-inset-bottom) is unchanged. */}
       <div style={{
-        width: '100%', maxWidth: 480,
+        width: '100%', maxWidth: 560, height: '100%',
         background: '#f8f4eb',
-        borderRadius: '20px 20px 0 0',
-        maxHeight: 'calc(92vh - env(safe-area-inset-bottom, 0px))',
         display: 'flex', flexDirection: 'column',
-        boxShadow: '0 -8px 40px rgba(0,0,0,0.4)',
       }}>
         {/* Header — fixed, never scrolls */}
         <div style={{
@@ -155,7 +163,7 @@ export default function BeginRoundModal({
           background: 'linear-gradient(135deg, #0f2d1c, #1a4731)',
           borderBottom: '2px solid #c9a84c',
           padding: '20px 20px 16px',
-          borderRadius: '20px 20px 0 0',
+          paddingTop: 'calc(20px + env(safe-area-inset-top, 0px))',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>

@@ -6972,3 +6972,196 @@ the one verification step this sandbox genuinely cannot perform.
 ### Package
 One replacement Sprint 6 ZIP, packaged as a test candidate per the
 explicit instruction (not a confirmed-passing production build).
+
+---
+
+## Latest Field-Test Bug Fix Bundle
+
+Worked in the specified order. Reporting in that same order below,
+though the deliverable format follows the brief's own numbered list.
+
+### BUG 2 — Scoring mismatch dead-end (code fix)
+
+**Root cause**: `myComparison`/`partnerComparison` — the values driving
+the mismatch panel, the card status labels, and `hasBlockingMismatch`
+(which gates Confirm Score) — were computed from `mySelf`/`myMarker`/
+`partnerMarker`, separate `useState` maps holding only *already-saved*
+captures. The −/+/Pick Up/Undo Pick Up controls only ever modify a
+completely separate set of state (`draftMyGross`, `draftMyPickedUp`,
+`draftPartnerGross`, `draftPartnerPickedUp`). Editing a score updated
+the number on screen but never touched what the comparison actually
+read — so the mismatch could never clear and Confirm Score could never
+re-enable, exactly the reported dead end. This was found by tracing the
+actual disabled-prop chain first (`isLockedForSide`, `pick()`,
+`pickPar()`, `togglePickUp()`) and confirming none of them block
+editing during a mismatch — the bug was never in the editability layer
+at all, it was in what the comparison read.
+
+**Fix**: each comparison now uses the live draft value for whichever
+side is actually editable on this screen — my own draft on "Your
+Score," my marker-entry draft on "Your Marker" — compared against
+whatever the other party already submitted (still read from the saved
+maps, since that side isn't editable here). This is what each card
+visually represents, and it's what makes the requirement "any edit
+immediately recalculates reconciliation" true by construction rather
+than needing a manual recompute trigger. The mismatch panel's own
+displayed numbers had the identical bug and were fixed the same way, so
+the panel doesn't show stale values for the card being actively edited
+while it's still visible.
+
+**Files changed**:
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+
+**Confirmed untouched, per the explicit protection list**:
+`compareCaptures()`, `calculateStableford()`, handicap allocation,
+score persistence (`confirmScore()`'s submission still reads the same
+draft state it always did), the round-summary's own per-hole comparison
+(a different, correctly-scoped computation over all holes, not this
+screen's live state), leaderboard, hole navigation.
+
+### BUG 1 — Round wizard full-screen (code fix)
+
+**Root cause**: the header/scrollable-body/fixed-footer structure was
+already correctly built (confirmed by reading it, not assumed) — the
+actual clipping came from the *outer* container using bottom-sheet
+presentation: a `calc(92vh - safe-area)` height cap, rounded top
+corners, and bottom alignment. On a small viewport this genuinely
+constrained the available space for 18 rows of hole setup.
+
+**Fix**: presentation only, exactly as scoped — the outer container is
+now true full-screen (`height: 100%` within a `position: fixed, inset:
+0` overlay), removing the height cap and bottom-sheet styling. The
+already-correct fixed-header/scrollable-body/fixed-footer structure
+underneath, all wizard steps, and all round-start data logic are
+completely unchanged. Added safe-area-inset-top padding to the header
+(the footer already had safe-area-inset-bottom). Wired in the existing
+`useScoringFocusStore` — already used to hide `AppNav`/
+`TripBottomNav` during active hole-by-hole scoring — so the wizard
+gets the same "hide app chrome for one focused task" treatment via the
+established mechanism, not a new one.
+
+**Files changed**: `src/components/scoring/BeginRoundModal.tsx`
+
+### BUG 4 — Chat "Unknown participant" (code fix)
+
+**Root cause investigation**: traced the identifier end-to-end before
+changing anything. The write path stores `sender_user_id: user.id`
+(from `supabase.auth.getUser()`). The read path queries `profiles` by
+that same `sender_user_id`. No identifier-type mismatch between write
+and read — both use the same `auth.uid()`-derived UUID space.
+
+The read path's `profiles` lookup used the regular, RLS-subject
+Supabase client. The active `profiles` SELECT policy
+(`profiles_view_own_and_cotrip`, via a `shares_trip_with()` function
+checking shared `trip_members` rows) reads as structurally correct on
+inspection — but this exact policy has been revised across five
+separate prior migrations in this project's history, a documented
+pattern of fragility in this specific area, and is the most plausible
+explanation for a cross-user profile lookup silently returning fewer
+rows than expected: the message write succeeds (confirmed working),
+but the sender-name enrichment query returns nothing for that sender,
+triggering the "Unknown participant" fallback.
+
+**Fix**: switched only the enrichment queries (`profiles`,
+`trip_groups`, `trip_members` role lookup) to the admin client. This
+does not weaken `event_messages`' own RLS-gated visibility — that
+query, and the entire POST handler, remain on the regular client
+exactly as already documented at the top of the file. Resolving the
+name of someone who sent a message the caller can already see is
+display detail for content already legitimately visible, not a
+separate access-control decision.
+
+**Files changed**: `src/app/api/trips/[tripId]/messages/route.ts`
+
+**Not changed**: message posting/write logic, entirely untouched.
+
+### BUG 3 — Photo storage "Bucket not found" (Supabase configuration
+only, no code change)
+
+**Root cause**: re-confirmed unchanged from the prior diagnosis —
+`event-moments` is correctly and consistently referenced by the
+application code, and migration `028_moments.sql` (and its standalone
+copy, `supabase/moments_deploy.sql`) already creates the exact matching
+bucket plus all three required storage policies (trip-member read,
+member-upload-own-folder, owner-delete). The screenshot showing the
+identical error confirms this migration still has not been applied to
+whichever Supabase project production actually points to.
+
+**New this pass**: a combined verification query,
+`supabase/verify_event_moments_bucket.sql`, checking both the bucket's
+existence *and* all three policies in one query (the brief's own
+"confirm required storage policies exist" item, not just the bucket).
+Also explicitly flags a possibility this sandbox cannot check: if the
+bucket was created in a different Supabase project than the one
+Vercel's production deployment points to, this exact symptom would
+persist even after running the deploy script — worth confirming the
+project URLs match before re-running anything.
+
+**No code changes needed or made.**
+
+### Tests added
+No new automated tests this pass — all four fixes are either targeted
+bug fixes to existing logic (Bugs 2 and 4) or presentation-only changes
+(Bug 1), not new pure-function logic requiring new test coverage the
+way earlier features in this project did. Bug 3 required no code at
+all.
+
+### Full test results
+**134/134 tests pass**: 106 scoring-domain, 19 trips-domain, 9
+auth-cache — all unchanged, confirming none of these fixes touched
+Stableford maths, handicap/stroke allocation, lifecycle, or the
+previously-fixed account-switch logic. Lenient type-check clean on
+every file touched (only the long-standing, pre-existing `key`-prop
+false positives in `SelfMarkerScoreShell.tsx`, confirmed present in
+this exact form before this session's changes too).
+
+### npm run build result — explicit limitation, not claimed as passing
+**This sandbox still has no network access.** `npm install` fails with
+the same `403 Forbidden` against the npm registry as in the previous
+two attempts this project; no local `next`/`eslint` binaries exist as a
+fallback, so `next build` immediately fails with "next: not found."
+Per the explicit instruction: stating this plainly rather than claiming
+full production verification. As the best available substitute, every
+file touched was exhaustively `grep`-checked for the exact pattern that
+broke a previous build (`@typescript-eslint/no-explicit-any`) — zero
+explicit `any` found in any of the three files changed this pass.
+
+**Please run `npm run build` before deploying — this remains the one
+verification step this sandbox genuinely cannot perform.**
+
+### Production SQL/storage steps required
+Only for Bug 3, unchanged from before: run
+`supabase/verify_event_moments_bucket.sql` first to see exactly what's
+missing (bucket, policies, or both), then run
+`supabase/migrations/028_moments.sql` / `supabase/moments_deploy.sql`
+against the Supabase project Vercel's production deployment actually
+points to. Idempotent — safe regardless of prior partial state.
+
+### Unresolved edge cases
+- **Bug 3's Vercel/Supabase project match**: flagged, not resolvable
+  from this sandbox — needs a direct comparison on your end.
+- **Bug 4's exact RLS mechanism**: the fix (admin client for
+  enrichment) resolves the symptom regardless of the precise reason the
+  regular client's `profiles` lookup was failing, but the precise
+  reason itself (a specific gap in `shares_trip_with()`, a timing
+  issue, or something else) wasn't pinned down further, since doing so
+  would require live database access this sandbox doesn't have.
+- **Bug 1 full-screen on desktop**: made unconditional (no
+  device-specific media query) rather than only applying full-screen
+  presentation below a breakpoint, since the brief's own "avoid nested
+  scrolling" and "one focused full-screen task" framing reads as
+  reasonable on any viewport, not specifically undesirable on larger
+  ones — worth confirming this reads well on a desktop browser too.
+
+### Files changed (all bugs combined)
+`src/app/(app)/trips/[tripId]/rounds/[roundId]/SelfMarkerScoreShell.tsx`
+(Bug 2), `src/components/scoring/BeginRoundModal.tsx` (Bug 1),
+`src/app/api/trips/[tripId]/messages/route.ts` (Bug 4)
+
+### Diagnostic delivered separately (no code, run directly in Supabase)
+`supabase/verify_event_moments_bucket.sql` (Bug 3)
+
+### Package
+One replacement test ZIP, per the explicit instruction — a test
+candidate pending your own `npm run build` confirmation, not a
+confirmed-passing production build.

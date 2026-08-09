@@ -488,8 +488,22 @@ export default function SelfMarkerScoreShell({
   const myPts = draftMyPickedUp ? 0 : (draftMyGross !== null ? calculateStableford({ grossScore: draftMyGross, par, strokeIndex: si, playingHandicap: myHcp }) : null)
   const partnerPts = draftPartnerPickedUp ? 0 : (draftPartnerGross !== null ? calculateStableford({ grossScore: draftPartnerGross, par, strokeIndex: si, playingHandicap: partnerHcp }) : null)
 
-  const myComparison = requiresMarker ? compareCaptures(mySelf[holeNum] ?? null, myMarker[holeNum] ?? null) : null
-  const partnerComparison = requiresMarker && currentMarked ? compareCaptures(partnerSelf[holeNum] ?? null, partnerMarker[holeNum] ?? null) : null
+  // myComparison/partnerComparison must react to what's actually on
+  // screen right now, not stale saved data — this is the direct fix for
+  // the reported "edit the score but the mismatch never clears" dead
+  // end. Each card has exactly one side a player can edit here: their
+  // own self-entry on "Your Score" (draftMyGross/draftMyPickedUp), or
+  // their marker-entry for the partner on "Your Marker"
+  // (draftPartnerGross/draftPartnerPickedUp). The other side of each
+  // comparison is whatever the other party already submitted — not
+  // editable from this screen, so it's still read from the saved
+  // capture maps. Previously both sides came from the saved maps,
+  // meaning editing the draft changed the number on screen but never
+  // touched what compareCaptures actually compared.
+  const myDraftCapture: CaptureValue = { grossScore: draftMyPickedUp ? null : draftMyGross, pickedUp: draftMyPickedUp }
+  const partnerDraftCapture: CaptureValue = { grossScore: draftPartnerPickedUp ? null : draftPartnerGross, pickedUp: draftPartnerPickedUp }
+  const myComparison = requiresMarker ? compareCaptures(myDraftCapture, myMarker[holeNum] ?? null) : null
+  const partnerComparison = requiresMarker && currentMarked ? compareCaptures(partnerSelf[holeNum] ?? null, partnerDraftCapture) : null
 
   const myRunningTotal = holes.reduce((sum, h) => {
     const c = mySelf[h.hole_number]
@@ -1243,7 +1257,7 @@ export default function SelfMarkerScoreShell({
           const blocks: React.ReactNode[] = []
 
           if (myComparison === 'mismatch') {
-            const mine = mySelf[holeNum] ?? null
+            const mine = myDraftCapture
             const theirs = myMarker[holeNum] ?? null
             blocks.push(
               <MismatchBlock
@@ -1256,7 +1270,7 @@ export default function SelfMarkerScoreShell({
           }
           if (partnerComparison === 'mismatch') {
             const theirs = partnerSelf[holeNum] ?? null
-            const mine = partnerMarker[holeNum] ?? null
+            const mine = partnerDraftCapture
             blocks.push(
               <MismatchBlock
                 key="partner"
