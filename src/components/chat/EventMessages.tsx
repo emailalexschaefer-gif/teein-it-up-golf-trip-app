@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import MomentCapture from '@/components/moments/MomentCapture'
+import MomentViewer, { type MomentViewerData } from '@/components/moments/MomentViewer'
 
 interface EventMessage {
   id: string
@@ -84,6 +85,7 @@ export default function EventMessages({
   // control ever rendered for it; removed along with the dead branch,
   // rather than carrying forward a toggle nothing could reach.)
   const [chatDraft, setChatDraft] = useState('')
+  const [viewingMoment, setViewingMoment] = useState<MomentViewerData | null>(null)
   const [chatSending, setChatSending] = useState(false)
   const [chatError, setChatError] = useState('')
 
@@ -328,10 +330,16 @@ export default function EventMessages({
                 </span>
               </div>
               {kind === 'moment' && m.momentImageUrl && (
-                // eslint-disable-next-line @next/next/no-img-element -- a
-                // signed Supabase Storage URL, not a static asset next/image
-                // can optimize
-                <img src={m.momentImageUrl} alt="Moment" style={{ width: '100%', maxHeight: 280, objectFit: 'cover', borderRadius: 8, marginBottom: 6 }} />
+                <button
+                  onClick={() => setViewingMoment({ imageUrl: m.momentImageUrl ?? null, caption: m.message, playerName: m.sender?.full_name, holeNumber: m.momentHoleNumber, createdAt: m.created_at })}
+                  aria-label="View Moment"
+                  style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'pointer', marginBottom: 6 }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- a
+                      signed Supabase Storage URL, not a static asset next/image
+                      can optimize */}
+                  <img src={m.momentImageUrl} alt="Moment" style={{ width: '100%', maxHeight: 280, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
+                </button>
               )}
               {kind === 'moment' && m.momentHoleNumber && (
                 <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#a1791f', marginBottom: 2 }}>
@@ -347,6 +355,8 @@ export default function EventMessages({
           )
         })}
       </div>
+
+      {viewingMoment && <MomentViewer moment={viewingMoment} onClose={() => setViewingMoment(null)} />}
     </div>
   )
 }

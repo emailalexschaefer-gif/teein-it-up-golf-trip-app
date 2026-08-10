@@ -47,7 +47,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   }
 
   const roundRes = await admin.from('rounds')
-    .select('id, name, holes, status, scoring_format, score_capture_mode')
+    .select('id, name, holes, status, scoring_format, score_capture_mode, course_name')
     .eq('id', roundId).eq('trip_id', tripId).maybeSingle()
   if (!roundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
   const totalHoles: number = roundRes.data.holes ?? 18
@@ -441,6 +441,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
   return NextResponse.json({
     roundName: roundRes.data.name,
+    courseName: roundRes.data.course_name ?? null,
     scoringFormat: roundRes.data.scoring_format,
     roundStatus: roundRes.data.status,
     totalHoles,

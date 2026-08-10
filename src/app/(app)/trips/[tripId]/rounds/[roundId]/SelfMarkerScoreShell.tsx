@@ -247,9 +247,16 @@ export default function SelfMarkerScoreShell({
       })
       const resData = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(resData.error ?? "Couldn't finalise your scores. Please try again.")
-      // Immediate refresh, matching the same pattern already used after a
-      // normal score confirmation — don't wait for the next poll to
-      // reflect the locked state.
+      // Root cause of the confirm→confirm loop: this invalidation list was
+      // missing the ONE query that actually drives isLocked/currentMy.status
+      // ('round-my-scores', below) — the mutation succeeded and the server
+      // correctly persisted status='completed' (see the scorecards route),
+      // but the client kept reading a stale cached liveData.myScorecard
+      // that still said 'active', so isLocked stayed false and the UI fell
+      // straight back into "Your scorecard is ready / Confirm Final Scores"
+      // as if nothing had happened. tournament/leaderboard were already
+      // being invalidated correctly; this was the missing one.
+      void queryClient.invalidateQueries({ queryKey: ['round-my-scores', tripId, round.id] })
       void queryClient.invalidateQueries({ queryKey: ['tournament', tripId, round.id] })
       void queryClient.invalidateQueries({ queryKey: ['leaderboard', tripId, round.id] })
       setShowConfirmModal(false)
@@ -819,10 +826,11 @@ export default function SelfMarkerScoreShell({
         {isLocked && (
           <div style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 12, padding: 14, marginTop: 10, marginBottom: 16, textAlign: 'center' }}>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#16a34a', marginBottom: 4 }}>
-              Final Scores Confirmed
+              ✅ Results submitted
             </div>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280', lineHeight: 1.5 }}>
-              Your scorecard is locked. Please wait while the organiser finalises the results and announces the winners.
+              Your scorecard has been confirmed and locked.
+              Waiting for the organiser to announce the results.
             </div>
           </div>
         )}

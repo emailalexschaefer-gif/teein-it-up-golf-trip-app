@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import MomentViewer, { type MomentViewerData } from '@/components/moments/MomentViewer'
 
 interface GroupPlayer {
   playerId: string; name: string; holesPlayed: number; finished: boolean; hasMismatch: boolean; waitingForMarker: boolean
@@ -34,9 +35,19 @@ interface MismatchAlert {
   hole: number; playerScore: string; markerScore: string; at: string
 }
 interface StoryEntry { icon: string; text: string; at: string }
+// Discriminated timeline item — 'system' entries (golf milestones, group
+// finishes, leader changes) stay compact text-only rows exactly as
+// before; 'moment' entries carry the actual image so it can be rendered
+// inline, per the explicit "display the actual photo, not just an
+// activity-log line" requirement. One shared type/renderer for both "The
+// Story" and "Event Story" below, rather than two parallel
+// implementations of the same card.
+type TimelineItem =
+  | { kind: 'system'; icon: string; text: string; at: string }
+  | { kind: 'moment'; at: string; imageUrl: string | null; caption: string | null; playerName: string; holeNumber: number | null }
 interface LeaderboardSnapshotRow { position: number; playerId: string; name: string; totalPts: number; holesPlayed: number; finished: boolean }
 interface TournamentData {
-  roundName: string; scoringFormat: string; roundStatus: string; totalHoles: number
+  roundName: string; courseName: string | null; scoringFormat: string; roundStatus: string; totalHoles: number
   health: { level: 'green' | 'gold' | 'red'; text: string; topMismatch?: MismatchAlert }
   summary: { players: number; groups: number; scoringNow: number; finishedCount: number; awaitingReconciliation: number; completionPct: number }
   groups: GroupProgress[]
@@ -501,26 +512,26 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           roundMomentsData above), chronologically alongside the golf
           milestones, so a player-posted Moment shows up here too, not
           only in Event Story further down. ───────────────────────────── */}
+      {/* ── Round Story header — the beginning of "each round is a
+          chapter" (Event Story architecture). Uses data already in this
+          response (roundName/courseName) — no new query. Deliberately
+          minimal: just names which round's chapter this is; the actual
+          multi-round/trip-level Event Story view stays out of scope for
+          this pass, per the explicit "prepare, don't overbuild"
+          instruction. ─────────────────────────────────────────────────── */}
+      <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 13, fontWeight: 800, letterSpacing: 0.3, marginBottom: 6, textTransform: 'uppercase' }}>
+        {data.roundName}{data.courseName ? ` — ${data.courseName}` : ''}
+      </div>
       <SectionTitle>The Story</SectionTitle>
       {(() => {
-        const roundMomentEntries: StoryEntry[] = (roundMomentsData?.moments ?? []).map(m => ({
-          icon: '📷',
-          text: m.caption ? `${m.playerName}: ${m.caption}` : `${m.playerName} shared a photo`,
-          at: m.created_at,
+        const roundMomentItems: TimelineItem[] = (roundMomentsData?.moments ?? []).map(m => ({
+          kind: 'moment', at: m.created_at, imageUrl: m.imageUrl, caption: m.caption,
+          playerName: m.playerName, holeNumber: m.hole_number,
         }))
-        const storyCombined = [...data.story, ...roundMomentEntries].sort((a, b) => b.at.localeCompare(a.at))
-        return (
-          <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 14, overflow: 'hidden' }}>
-            {storyCombined.length === 0 && <EmptyNote>The story of the round will appear here as it unfolds.</EmptyNote>}
-            {storyCombined.map((s, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '9px 14px', borderBottom: i < storyCombined.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
-                <span style={{ fontSize: 14, flexShrink: 0 }}>{s.icon}</span>
-                <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#14532d' }}>{s.text}</span>
-                <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', flexShrink: 0, marginLeft: 8 }}>{relativeTime(s.at)}</span>
-              </div>
-            ))}
-          </div>
-        )
+        const systemItems: TimelineItem[] = data.story.map(s => ({ kind: 'system', icon: s.icon, text: s.text, at: s.at }))
+        const storyCombined: TimelineItem[] = [...systemItems, ...roundMomentItems].sort((a, b) => b.at.localeCompare(a.at))
+        if (storyCombined.length === 0) return <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 14, overflow: 'hidden' }}><EmptyNote>The story of the round will appear here as it unfolds.</EmptyNote></div>
+        return <div style={{ marginBottom: 14 }}><StoryTimelineList items={storyCombined} /></div>
       })()}
 
       {/* ── Quick Actions — only real, existing destinations ───────────── */}
@@ -612,6 +623,62 @@ function EmptyNote({ children }: { children: ReactNode }) {
   )
 }
 
+/**
+ * Shared timeline renderer for both "The Story" (this round) and "Event
+ * Story" (whole trip) — one implementation, per the explicit "reuse
+ * existing components" instruction, rather than two copies of the same
+ * card markup. 'system' items stay compact (icon + text + time); 'moment'
+ * items get visual prominence: the actual image inline, tappable into
+ * the same shared MomentViewer every other surface uses. `limit` caps how
+ * many rows render (Event Story shows more history than The Story).
+ */
+function StoryTimelineList({ items, limit }: { items: TimelineItem[]; limit?: number }) {
+  const [viewing, setViewing] = useState<MomentViewerData | null>(null)
+  const visible = typeof limit === 'number' ? items.slice(0, limit) : items
+
+  return (
+    <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+      {visible.map((item, i) => {
+        const isLast = i === visible.length - 1
+        if (item.kind === 'moment') {
+          return (
+            <div key={i} style={{ padding: '10px 14px', borderBottom: isLast ? 'none' : '1px solid #f3f4f1' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <span style={{ fontSize: 13, flexShrink: 0 }}>📷</span>
+                <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#14532d' }}>
+                  {item.playerName} shared a Moment
+                </span>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', flexShrink: 0 }}>{relativeTime(item.at)}</span>
+              </div>
+              {item.imageUrl && (
+                <button
+                  onClick={() => setViewing({ imageUrl: item.imageUrl, caption: item.caption, playerName: item.playerName, holeNumber: item.holeNumber, createdAt: item.at })}
+                  aria-label="View Moment"
+                  style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- a signed Supabase Storage URL, not a static asset */}
+                  <img src={item.imageUrl} alt="Moment" style={{ width: '100%', maxHeight: 220, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
+                </button>
+              )}
+              {item.caption && (
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#374151', marginTop: 6, lineHeight: 1.4 }}>{item.caption}</p>
+              )}
+            </div>
+          )
+        }
+        return (
+          <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '9px 14px', borderBottom: isLast ? 'none' : '1px solid #f3f4f1' }}>
+            <span style={{ fontSize: 14, flexShrink: 0 }}>{item.icon}</span>
+            <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#14532d' }}>{item.text}</span>
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', flexShrink: 0, marginLeft: 8 }}>{relativeTime(item.at)}</span>
+          </div>
+        )
+      })}
+      {viewing && <MomentViewer moment={viewing} onClose={() => setViewing(null)} />}
+    </div>
+  )
+}
+
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
     <div style={{ background: '#ffffff', borderRadius: 10, border: '1px solid #eceae3', padding: '10px 6px', textAlign: 'center' }}>
@@ -645,17 +712,17 @@ function EventStorySection({ tripId, golfStory }: { tripId: string; golfStory: S
     staleTime: 30000,
   })
 
-  const momentEntries: StoryEntry[] = (data?.moments ?? []).map(m => ({
-    icon: '📷',
-    text: m.caption ? `${m.playerName}: ${m.caption}` : `${m.playerName} shared a photo`,
-    at: m.created_at,
+  const momentItems: TimelineItem[] = (data?.moments ?? []).map(m => ({
+    kind: 'moment', at: m.created_at, imageUrl: m.imageUrl, caption: m.caption,
+    playerName: m.playerName, holeNumber: m.hole_number,
   }))
+  const systemItems: TimelineItem[] = golfStory.map(s => ({ kind: 'system', icon: s.icon, text: s.text, at: s.at }))
 
   // Merge the two timelines and sort chronologically — Golf Story
   // (scores/milestones) and Moments (people/memories) are computed
   // independently, per the brief's own "two separate timelines" framing,
   // and only combined here for display.
-  const combined = [...golfStory, ...momentEntries].sort((a, b) => b.at.localeCompare(a.at))
+  const combined: TimelineItem[] = [...systemItems, ...momentItems].sort((a, b) => b.at.localeCompare(a.at))
 
   if (combined.length === 0) {
     return (
@@ -671,15 +738,5 @@ function EventStorySection({ tripId, golfStory }: { tripId: string; golfStory: S
     )
   }
 
-  return (
-    <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
-      {combined.slice(0, 20).map((entry, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '9px 14px', borderBottom: i < Math.min(combined.length, 20) - 1 ? '1px solid #f3f4f1' : 'none' }}>
-          <span style={{ fontSize: 14, flexShrink: 0 }}>{entry.icon}</span>
-          <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#14532d' }}>{entry.text}</span>
-          <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', flexShrink: 0, marginLeft: 8 }}>{relativeTime(entry.at)}</span>
-        </div>
-      ))}
-    </div>
-  )
+  return <StoryTimelineList items={combined} limit={20} />
 }

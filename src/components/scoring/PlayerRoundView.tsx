@@ -1,8 +1,10 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
+import MomentViewer, { type MomentViewerData } from '@/components/moments/MomentViewer'
 
 interface MyRoundData {
   hasScorecard: boolean
@@ -184,6 +186,7 @@ export default function PlayerRoundView({ tripId, roundId, roundStatus }: { trip
 }
 
 function MyMoments({ tripId }: { tripId: string }) {
+  const [viewing, setViewing] = useState<MomentViewerData | null>(null)
   const { data: momentsData } = useQuery<{ moments: { id: string; caption: string | null; hole_number: number | null; created_at: string; imageUrl: string | null }[] }>({
     queryKey: ['my-moments', tripId],
     queryFn: async () => {
@@ -212,9 +215,15 @@ function MyMoments({ tripId }: { tripId: string }) {
         {momentsData.moments.map(m => (
           <div key={m.id} style={{ width: 104, background: '#ffffff', borderRadius: 10, border: '1px solid #eceae3', overflow: 'hidden' }}>
             {m.imageUrl && (
-              // eslint-disable-next-line @next/next/no-img-element -- a
-              // signed Supabase Storage URL, not a static asset
-              <img src={m.imageUrl} alt="Moment" style={{ width: '100%', height: 80, objectFit: 'cover' }} />
+              <button
+                onClick={() => setViewing({ imageUrl: m.imageUrl, caption: m.caption, holeNumber: m.hole_number, createdAt: m.created_at })}
+                aria-label="View Moment"
+                style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- a
+                    signed Supabase Storage URL, not a static asset */}
+                <img src={m.imageUrl} alt="Moment" style={{ width: '100%', height: 80, objectFit: 'cover', display: 'block' }} />
+              </button>
             )}
             <div style={{ padding: '5px 6px' }}>
               {m.hole_number && <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: '#a1791f' }}>Hole {m.hole_number}</div>}
@@ -223,6 +232,7 @@ function MyMoments({ tripId }: { tripId: string }) {
           </div>
         ))}
       </div>
+      {viewing && <MomentViewer moment={viewing} onClose={() => setViewing(null)} />}
     </>
   )
 }

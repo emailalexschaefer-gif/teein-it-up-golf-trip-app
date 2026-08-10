@@ -1,16 +1,185 @@
 # Teein' It Up — Sprint 3 Testing Guide
 
-## Build status
-- TypeScript: not run against the full project — sandbox has no network
-  access to install `node_modules`. All touched files hand-reviewed and
-  brace/paren-balance checked with a script; see per-issue notes below
-  for what else was verified.
-- Domain test suite: ✅ **143/143 passing**, no regressions (compiled via
-  global `tsc` → `node --test`, same zero-dependency method as prior
-  deliveries). None of this delivery's changes touch the pure scoring/
-  lifecycle domain modules, so this mainly confirms nothing else broke.
+## Latest delivery — score-confirmation loop + Moments/Story polish
 
-## This delivery — six issues from multi-round + player-experience testing
+### Build status
+- TypeScript: not run against the full project (same sandbox network
+  limitation as before). All touched files brace/paren-balance checked
+  with a script; logic hand-traced against the actual schema/RLS.
+- Domain test suite: ✅ **143/143 passing**, no regressions. Nothing in
+  this delivery touches the pure scoring/lifecycle domain modules.
+
+### Fix 1 — Player final score confirmation loop
+**Root cause, traced per the explicit instruction (not assumed):** the
+server was persisting finalisation correctly the whole time —
+`scorecards.status` was actually being set to `'completed'` on submit
+(`/api/trips/[tripId]/rounds/[roundId]/scorecards`, action `'submit'`).
+The bug was entirely client-side: `submitFinalScores()` (in
+`SelfMarkerScoreShell.tsx`) invalidated the `tournament` and
+`leaderboard` React Query caches after a successful submission, but
+**never invalidated `['round-my-scores', tripId, round.id]`** — the one
+query `isLocked` (`currentMy?.status === 'completed'`) actually reads.
+That query's own polling had also already stopped by this point (it
+intentionally stops once every hole is filled), so nothing else was ever
+going to refresh it either. The client kept reading stale cached data
+saying `'active'`, `isReadyToConfirm` re-evaluated true, and the UI fell
+straight back into "Your scorecard is ready / Confirm Final Scores" —
+looking exactly like finalisation had silently failed, when it hadn't.
+
+**Fix:** added the missing `invalidateQueries({ queryKey: ['round-my-
+scores', tripId, round.id] })` call alongside the two that were already
+there. Also updated the locked-state copy to "✅ Results submitted / Your
+scorecard has been confirmed and locked. Waiting for the organiser to
+announce the results." per the requested wording.
+
+**No schema change.** `scorecards.status`/`submitted_at` (migration 004)
+already fully supported this — confirmed by reading the route, not
+assumed.
+
+**Verified without a live deploy:**
+- The server-side `submit` handler already has an idempotency guard
+  (`if (status === 'completed')` short-circuits), so the player cannot
+  repeatedly submit the same scorecard — this is a pre-existing
+  behaviour, unaffected by the fix, but directly relevant to "must not be
+  able to repeatedly submit."
+- A page reload/re-login reads `status` fresh from the server-rendered
+  prop (`ScorecardFull.status`) independent of the client query cache
+  entirely, so "Results submitted must survive a refresh" was already
+  true even before this fix — the loop only happened *within the same
+  session*, without a reload.
+- No auto-navigation into Round 2 exists anywhere in this flow — checked
+  for any `router.push`/`router.replace` in the scoring shell; there is
+  none. The organiser closing/announcing the round is a fully separate,
+  untouched action.
+
+**Not verified live:** an actual two-round trip run through end to end in
+a browser.
+
+### Fix 2 — Moment media viewer (My Round, reused everywhere)
+Built one shared component, `src/components/moments/MomentViewer.tsx` —
+full-screen, `object-fit: contain` (correct for both portrait and
+landscape), an X button, Escape-to-close, `env(safe-area-inset-*)`
+padding on both edges, and a `history.pushState`/`popstate` pair so the
+Android/device Back gesture closes the viewer instead of navigating away
+from the page underneath it. Nothing about the underlying page ever
+unmounts or navigates, so "return to exactly where you were" falls out
+for free rather than needing separate handling.
+
+**Root cause of "tapping a Moment thumbnail does nothing":** the `<img>`
+in `MyMoments` (`PlayerRoundView.tsx`) had no click handler at all —
+confirmed by reading the file, not assumed. Wrapped it in a button that
+opens the shared viewer.
+
+**Also wired into Chat** (`EventMessages.tsx`) — its Moment cards had the
+same gap. **My HQ (both Story sections)** get the viewer as part of Fix 3
+below, sharing the exact same `MomentViewer` component — one viewer, four
+call sites, as required.
+
+**Video — reported, not built.** Checked the actual schema and storage
+config rather than assuming: `moments` (migration 028) has only
+`image_path`, no video column, and the `event-moments` storage bucket's
+`allowed_mime_types` is `['image/jpeg','image/png','image/webp']` —
+video upload/storage doesn't exist anywhere in this app today. Per the
+brief's own "if existing infrastructure supports video" conditional, no
+video-specific UI was built (there's nothing to view). `MomentViewer`
+carries a reserved `mediaType` prop so this doesn't require a rewrite if
+video capture is added later — this is the "don't paint into a corner"
+requirement satisfied without inventing an unrequested upload feature.
+
+### Fix 3 — My HQ "The Story" shows the actual photo
+Replaced the flat `{icon, text}` story-entry shape with a discriminated
+`TimelineItem` type (`'system' | 'moment'`) and one shared
+`StoryTimelineList` renderer, used by **both** "The Story" (this round)
+and "Event Story" (whole trip) sections — one implementation, not two
+parallel copies of the same card markup, per "reuse existing components."
+Moment items now render the actual image inline (not just "X shared a
+photo"), tappable into the same `MomentViewer` from Fix 2. System items
+(group finished, leader changes, round completed) stay exactly as
+compact as before — confirmed this doesn't turn routine events into giant
+cards, per the explicit instruction.
+
+### Fix 4 — Story understands rounds (chapter heading)
+Added a small heading directly above "The Story": `{round name} —
+{course name}` (e.g. "FINAL ROUND — CAPE SCHANCK"), using `roundName`/
+`courseName` already fetched by the tournament API — a one-line additive
+`select` on `rounds.course_name` (an existing column, migration
+000/combined schema), no migration needed. Deliberately minimal — this
+is "prepare the chapter concept," not the full Event Story trip-level
+view, which stays out of scope for this pass as instructed.
+
+**"Round 1's history must not disappear when Round 2 begins" — verified,
+not something I needed to build:** the tournament route's story/data
+computation is already scoped by the `roundId` URL param throughout
+(confirmed by reading the actual queries — `.eq('round_id', roundId)`
+appears at every relevant fetch), not derived from "whichever round is
+currently active." Round 1's chapter simply stops updating once Round 1
+closes; nothing rewrites or reassigns it.
+
+### Fix 5 — Round context preserved per Story item
+**Investigated the actual schema before changing anything, per the
+explicit instruction — found it already supports exactly what was
+asked, no migration needed:**
+- `moments.round_id` (migration 028) is nullable
+  (`REFERENCES rounds(id) ON DELETE SET NULL`) and is set **once, at
+  capture time**, from whatever round was actually active *then* — never
+  recomputed later from "whichever round is active now." A Moment
+  captured during Round 1 keeps `round_id` = Round 1's id permanently,
+  confirmed by reading the POST route (`round_id: roundId ?? null`,
+  where `roundId` comes from the request, not looked up fresh).
+- This nullable column **is** the Round Moment / Trip Moment distinction
+  the brief describes conceptually — `round_id IS NOT NULL` = Round
+  Moment, `round_id IS NULL` = Trip Moment (dinner, travel, pre/post-round
+  photos posted with no round context). The schema already cleanly
+  supports both; nothing needed adding.
+- Confirmed the two Story sections already read this distinction
+  correctly as a natural consequence of my Fix-3 query scoping: "The
+  Story" (round-scoped, `?roundId=`) correctly **excludes** Trip Moments
+  from a single round's chapter; "Event Story" (unscoped, trip-wide)
+  correctly **includes** them. This wasn't specifically built for Fix 5 —
+  it's what the existing filtering already does once "The Story" is
+  round-scoped at all, which was necessary for Fix 3/4 anyway.
+
+**No architectural gap found requiring a migration report.**
+
+### Fix 6 — Media visibility and security (re-verified, unchanged)
+Re-checked the actual RLS/storage policies rather than assuming they
+still held after this session's changes:
+- `moments` table RLS SELECT policy (migration 028) already allows any
+  trip member to read any `audience='everyone'` Moment regardless of
+  poster — unrelated to and unaffected by anything changed this session.
+- Storage bucket RLS is **separate** from table RLS and independently
+  trip-scoped: the read policy checks `is_trip_member((storage.
+  foldername(name))[1]::uuid)` against the folder path's own trip-id
+  segment, so a signed URL request for another trip's image folder fails
+  storage-level RLS regardless of table access — cross-trip media leakage
+  is prevented at both layers, confirmed by reading the actual policy,
+  not assumed.
+- The `/moments` GET route generates signed URLs using the **regular**
+  (RLS-subject) Supabase client, not the admin client — untouched this
+  session, still the case.
+- A broken/expired signed URL on a plain `<img>` tag degrades to a
+  broken-image icon in the browser; it does not throw in React, so it
+  cannot crash the rest of the Story list. Not explicitly hardened
+  further (e.g. no `onError` fallback UI) — flagging as a cheap future
+  polish item rather than building it now, since the actual requirement
+  ("does not crash") is already met without it.
+- No Moment delete UI/API exists anywhere in the app today (only the
+  DB-level RLS DELETE policy exists, unreachable from any current
+  screen) — so "deleting a Moment doesn't leave a broken Story item" has
+  no code path to actually test yet. Flagging this as a non-issue only
+  because there's currently no way to trigger it, not because it was
+  verified working.
+
+**Do-not-change list respected:** Stableford maths, reconciliation,
+cumulative leaderboard logic, handicap snapshot/history, group history,
+round-start architecture, chat send logic, and the media upload/storage
+architecture itself (only *reading*/*displaying* changed) were not
+touched by anything in this delivery.
+
+---
+
+## Previous delivery — multi-round polish, chat, story, sync fix
+
 
 ### 1. Multi-round live leaderboard (R1 | R2 LIVE | TOTAL)
 `/api/trips/[tripId]/rounds/[roundId]/leaderboard/route.ts` — each
