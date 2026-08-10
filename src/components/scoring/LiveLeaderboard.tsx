@@ -34,6 +34,24 @@ interface LeaderboardEntry {
   perHole: PerHoleEntry[]
 }
 
+interface CumulativeRoundEntry {
+  roundId: string
+  roundNumber: number
+  points: number
+  isCurrentRound: boolean
+  holesPlayed: number | null
+  finished: boolean
+}
+
+interface CumulativeStandingEntry {
+  playerId: string
+  playerName: string
+  totalPoints: number
+  position: number
+  roundsPlayed: number
+  rounds?: CumulativeRoundEntry[]
+}
+
 interface LeaderboardResponse {
   board: LeaderboardEntry[]
   roundId: string
@@ -42,6 +60,8 @@ interface LeaderboardResponse {
   totalHoles: number
   scoringNow: number
   finishedCount: number
+  cumulativeStandings?: CumulativeStandingEntry[]
+  roundsSummary?: { roundId: string; roundNumber: number }[]
 }
 
 type Movement = 'up' | 'down' | 'same'
@@ -161,6 +181,18 @@ export default function LiveLeaderboard({
   const meOutsideTopThree = me && me.position > 3 ? me : null
   const visibleRows = expanded ? data.board : topThree
 
+  // Round 2+ view: R1 | R2 LIVE | TOTAL table, TOTAL determines position.
+  // Round 1 (roundsSummary.length === 1, i.e. no prior round exists yet)
+  // keeps the simple single-round board above unchanged, per the explicit
+  // "For Round 1: keep the current simple leaderboard" instruction.
+  const cumulative = data.cumulativeStandings ?? []
+  const isMultiRound = (data.roundsSummary?.length ?? 0) > 1 && cumulative.length > 0
+  const cumTopThree = cumulative.slice(0, 3)
+  const cumMe = me ? cumulative.find(c => c.playerId === me.playerId) : undefined
+  const cumMeOutsideTopThree = cumMe && cumMe.position > 3 ? cumMe : null
+  const cumVisibleRows = expanded ? cumulative : cumTopThree
+  const boardByPlayerId = new Map(data.board.map(r => [r.playerId, r]))
+
   return (
     <div>
       {/* ── Tournament summary — the "home of the tournament" context ────── */}
@@ -203,40 +235,93 @@ export default function LiveLeaderboard({
         )}
       </div>
 
-      <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
-        {data.board.length === 0 && (
-          <div style={{ padding: '20px 16px', textAlign: 'center', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>
-            No scores yet — the leaderboard fills in as players confirm holes.
+      {isMultiRound ? (
+        <>
+          <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+            <MultiRoundHeaderRow rounds={data.roundsSummary ?? []} />
+            {cumVisibleRows.map((row, i) => (
+              <MultiRoundRow
+                key={row.playerId}
+                row={row}
+                isCurrentUser={row.playerId === me?.playerId}
+                isLast={i === cumVisibleRows.length - 1 && !cumMeOutsideTopThree}
+                isExpanded={expandedPlayerId === row.playerId}
+                onToggle={() => setExpandedPlayerId(id => id === row.playerId ? null : row.playerId)}
+                boardRow={boardByPlayerId.get(row.playerId)}
+                totalHoles={data.totalHoles}
+              />
+            ))}
+
+            {!expanded && cumMeOutsideTopThree && (
+              <>
+                <div style={{ padding: '4px 14px', fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, letterSpacing: 0.6, color: '#9ca3af', background: '#faf9f6', borderTop: '1px solid #eceae3', borderBottom: '1px solid #eceae3' }}>
+                  YOUR POSITION
+                </div>
+                <MultiRoundRow
+                  row={cumMeOutsideTopThree}
+                  isCurrentUser
+                  isLast
+                  isExpanded={expandedPlayerId === cumMeOutsideTopThree.playerId}
+                  onToggle={() => setExpandedPlayerId(id => id === cumMeOutsideTopThree.playerId ? null : cumMeOutsideTopThree.playerId)}
+                  boardRow={boardByPlayerId.get(cumMeOutsideTopThree.playerId)}
+                  totalHoles={data.totalHoles}
+                />
+              </>
+            )}
           </div>
-        )}
-        {visibleRows.map((row, i) => (
-          <LeaderboardRow key={row.playerId} row={row} movement={movements[row.playerId] ?? 'same'} isLast={i === visibleRows.length - 1 && !meOutsideTopThree} isExpanded={expandedPlayerId === row.playerId} onToggle={() => setExpandedPlayerId(id => id === row.playerId ? null : row.playerId)} totalHoles={data.totalHoles} />
-        ))}
 
-        {/* Pinned "your position" row — only shown collapsed and only if
-            you're not already in the visible top three. */}
-        {!expanded && meOutsideTopThree && (
-          <>
-            <div style={{ padding: '4px 14px', fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, letterSpacing: 0.6, color: '#9ca3af', background: '#faf9f6', borderTop: '1px solid #eceae3', borderBottom: '1px solid #eceae3' }}>
-              YOUR POSITION
-            </div>
-            <LeaderboardRow row={meOutsideTopThree} movement={movements[meOutsideTopThree.playerId] ?? 'same'} isLast isExpanded={expandedPlayerId === meOutsideTopThree.playerId} onToggle={() => setExpandedPlayerId(id => id === meOutsideTopThree.playerId ? null : meOutsideTopThree.playerId)} totalHoles={data.totalHoles} />
-          </>
-        )}
-      </div>
+          {cumulative.length > 3 && (
+            <button
+              onClick={() => setExpanded(e => !e)}
+              style={{
+                width: '100%', marginTop: 8, padding: 10,
+                background: '#ffffff', border: '1.5px solid #d1d5db', borderRadius: 10,
+                fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#14532d',
+                cursor: 'pointer',
+              }}
+            >
+              {expanded ? '↑ Show top 3 only' : `↓ Show full leaderboard (${cumulative.length})`}
+            </button>
+          )}
+        </>
+      ) : (
+        <>
+          <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+            {data.board.length === 0 && (
+              <div style={{ padding: '20px 16px', textAlign: 'center', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>
+                No scores yet — the leaderboard fills in as players confirm holes.
+              </div>
+            )}
+            {visibleRows.map((row, i) => (
+              <LeaderboardRow key={row.playerId} row={row} movement={movements[row.playerId] ?? 'same'} isLast={i === visibleRows.length - 1 && !meOutsideTopThree} isExpanded={expandedPlayerId === row.playerId} onToggle={() => setExpandedPlayerId(id => id === row.playerId ? null : row.playerId)} totalHoles={data.totalHoles} />
+            ))}
 
-      {data.board.length > 3 && (
-        <button
-          onClick={() => setExpanded(e => !e)}
-          style={{
-            width: '100%', marginTop: 8, padding: 10,
-            background: '#ffffff', border: '1.5px solid #d1d5db', borderRadius: 10,
-            fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#14532d',
-            cursor: 'pointer',
-          }}
-        >
-          {expanded ? '↑ Show top 3 only' : `↓ Show full leaderboard (${data.board.length})`}
-        </button>
+            {/* Pinned "your position" row — only shown collapsed and only if
+                you're not already in the visible top three. */}
+            {!expanded && meOutsideTopThree && (
+              <>
+                <div style={{ padding: '4px 14px', fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, letterSpacing: 0.6, color: '#9ca3af', background: '#faf9f6', borderTop: '1px solid #eceae3', borderBottom: '1px solid #eceae3' }}>
+                  YOUR POSITION
+                </div>
+                <LeaderboardRow row={meOutsideTopThree} movement={movements[meOutsideTopThree.playerId] ?? 'same'} isLast isExpanded={expandedPlayerId === meOutsideTopThree.playerId} onToggle={() => setExpandedPlayerId(id => id === meOutsideTopThree.playerId ? null : meOutsideTopThree.playerId)} totalHoles={data.totalHoles} />
+              </>
+            )}
+          </div>
+
+          {data.board.length > 3 && (
+            <button
+              onClick={() => setExpanded(e => !e)}
+              style={{
+                width: '100%', marginTop: 8, padding: 10,
+                background: '#ffffff', border: '1.5px solid #d1d5db', borderRadius: 10,
+                fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#14532d',
+                cursor: 'pointer',
+              }}
+            >
+              {expanded ? '↑ Show top 3 only' : `↓ Show full leaderboard (${data.board.length})`}
+            </button>
+          )}
+        </>
       )}
     </div>
   )
@@ -304,6 +389,121 @@ function LeaderboardRow({ row, movement, isLast, isExpanded, onToggle, totalHole
       </div>
 
       {isExpanded && <InlineScorecard row={row} totalHoles={totalHoles} />}
+    </div>
+  )
+}
+
+/**
+ * Column header row for the Round 2+ multi-round table: PLAYER | R1 | R2
+ * LIVE | TOTAL, extending naturally for 3+ rounds. `rounds` comes
+ * straight from the leaderboard API's roundsSummary — no separate
+ * round-count logic on the client.
+ */
+function MultiRoundHeaderRow({ rounds }: { rounds: { roundId: string; roundNumber: number }[] }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#faf9f6', borderBottom: '1px solid #eceae3' }}>
+      <div style={{ flex: 1, minWidth: 0 }} />
+      {rounds.map((r, i) => (
+        <div key={r.roundId} style={{ width: 52, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.4, color: '#9ca3af' }}>
+          R{r.roundNumber}{i === rounds.length - 1 ? ' LIVE' : ''}
+        </div>
+      ))}
+      <div style={{ width: 56, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.4, color: '#7a5c00' }}>
+        TOTAL
+      </div>
+      <div style={{ width: 14, flexShrink: 0 }} />
+    </div>
+  )
+}
+
+interface MultiRoundRowProps {
+  row: CumulativeStandingEntry
+  isCurrentUser: boolean
+  isLast: boolean
+  isExpanded: boolean
+  onToggle: () => void
+  boardRow: LeaderboardEntry | undefined
+  totalHoles: number
+}
+
+/**
+ * One player's row in the Round 2+ table. TOTAL and rank both come
+ * straight from the row's own `position`/`totalPoints` (already computed
+ * server-side by computeCumulativeStandings — the single source of
+ * truth per the brief). TOTAL is rendered visually strongest (largest,
+ * boldest, gold-accented) so it reads as the number that matters.
+ * Expanding still shows the current round's hole-by-hole detail via the
+ * existing InlineScorecard — same component the single-round view uses,
+ * fed from `boardRow` (this round's own board entry for this player).
+ */
+function MultiRoundRow({ row, isCurrentUser, isLast, isExpanded, onToggle, boardRow, totalHoles }: MultiRoundRowProps) {
+  return (
+    <div style={{ borderBottom: isLast && !isExpanded ? 'none' : '1px solid #eceae3' }}>
+      <div
+        onClick={onToggle}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '10px 14px',
+          background: isCurrentUser ? '#fdf3d9' : row.position === 1 ? '#f7fdf9' : 'transparent',
+          transition: 'background 0.4s ease',
+          cursor: 'pointer',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+          <div style={{ width: 20, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 13, color: row.position <= 3 ? '#a1791f' : '#9ca3af' }}>
+            {MEDAL[row.position] ?? row.position}
+          </div>
+          <div style={{
+            width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+            background: 'radial-gradient(#e8c96a,#c9a84c)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 10,
+          }}>
+            {initialsOf(row.playerName)}
+          </div>
+          <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {row.playerName}{isCurrentUser ? ' (you)' : ''}
+          </div>
+        </div>
+
+        {(row.rounds ?? []).map(r => (
+          <div key={r.roundId} style={{ width: 52, textAlign: 'center', flexShrink: 0 }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: r.isCurrentRound ? '#14532d' : '#4b5563' }}>
+              {r.points}
+            </div>
+            {r.isCurrentRound && (
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: '#9ca3af', marginTop: 1 }}>
+                {r.finished ? 'Finished' : (r.holesPlayed ?? 0) > 0 ? `Thru ${r.holesPlayed}` : 'Not started'}
+              </div>
+            )}
+          </div>
+        ))}
+
+        <div style={{ width: 56, textAlign: 'center', flexShrink: 0 }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 900, fontSize: 19, color: '#7a5c00' }}>
+            {row.totalPoints}
+          </div>
+        </div>
+
+        <div style={{ width: 14, textAlign: 'center', flexShrink: 0, color: '#c9a84c', fontSize: 11, transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }}>
+          ▾
+        </div>
+      </div>
+
+      {isExpanded && (
+        boardRow
+          ? <InlineScorecard row={boardRow} totalHoles={totalHoles} />
+          : (
+            <div style={{ padding: '10px 14px 14px', background: '#faf9f6' }}>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af' }}>
+                No holes entered yet this round.
+              </p>
+            </div>
+          )
+      )}
     </div>
   )
 }

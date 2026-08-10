@@ -37,6 +37,19 @@ export default async function TournamentPage({ params }: Props) {
   // ever look at the active round in My HQ, same as before this change.
   const focusRound = activeRound ?? upcomingRound ?? completedRounds[completedRounds.length - 1]
 
+  // ── Organiser "no active round" state — post-round navigation ──────────
+  // `rounds` above is sorted DESC by play_date (existing query), which is
+  // fine for `upcomingRound`/`completedRounds` as already used for the
+  // player-facing `focusRound` fallback, but for "which round comes next"
+  // specifically we need the true chronological order: the soonest
+  // upcoming round by play_date, and the most recently completed one.
+  // Computed locally here, ascending, rather than reusing/mutating the
+  // existing DESC-ordered variables those other call sites depend on.
+  const roundsAscending = [...(rounds ?? [])].sort((a, b) => a.play_date.localeCompare(b.play_date))
+  const mostRecentlyCompletedRound = [...roundsAscending].reverse().find(r => r.status === 'completed')
+  const nextUpcomingRound = roundsAscending.find(r => r.status === 'upcoming')
+  const eventFullyComplete = !activeRound && !nextUpcomingRound && completedRounds.length > 0
+
   // "Organiser who is also playing" — reuses the trip's existing
   // organiser_is_playing flag (the same signal this app has used for
   // this exact question since Sprint 5C.2), not a new per-round check.
@@ -73,24 +86,94 @@ export default async function TournamentPage({ params }: Props) {
 
       {!activeRound ? (
         <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', padding: '32px 20px', textAlign: 'center' }}>
-          <p style={{ fontSize: 32, marginBottom: 10 }}>⛳</p>
-          <p style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 16, fontWeight: 800, marginBottom: 8 }}>
-            No active round
-          </p>
-          <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, lineHeight: 1.5, marginBottom: 18 }}>
-            My HQ is the organiser&apos;s live command centre for today&apos;s round.
-            It fills in once a round begins.
-          </p>
-          <Link
-            href={`/trips/${tripId}`}
-            style={{
-              display: 'inline-block', padding: '10px 20px', borderRadius: 10,
-              background: '#14532d', color: '#fff', fontFamily: 'var(--font-body)',
-              fontSize: 13.5, fontWeight: 700, textDecoration: 'none',
-            }}
-          >
-            Go to Rounds →
-          </Link>
+          {nextUpcomingRound ? (
+            // A round has just closed and another is ready — the
+            // "post-round" multi-round journey. mostRecentlyCompletedRound
+            // and nextUpcomingRound are both resolved dynamically above
+            // from actual round data (by play_date, by status), never
+            // hard-coded — this reads correctly whether the trip's rounds
+            // are named "Round 1"/"Round 2" or something custom like
+            // "Final Round" (exactly the case in this trip's own test
+            // data), since it uses each round's own name throughout.
+            <>
+              <p style={{ fontSize: 32, marginBottom: 10 }}>🏁</p>
+              <p style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 16, fontWeight: 800, marginBottom: 8 }}>
+                {mostRecentlyCompletedRound?.name ?? 'Round'} Complete
+              </p>
+              <p style={{ fontFamily: 'var(--font-body)', color: '#14532d', fontSize: 13.5, fontWeight: 700, marginBottom: 10 }}>
+                {nextUpcomingRound.name} is ready when you are.
+              </p>
+              <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, lineHeight: 1.5, marginBottom: 18 }}>
+                {mostRecentlyCompletedRound?.name ?? 'The previous round'} has been closed and results are locked in.
+                Review your groups and handicaps, then begin the next round.
+              </p>
+              {/* Deep-links directly to the trip's Rounds tab (?tab=rounds,
+                  handled in TripDetailClient) — not the trip Overview —
+                  where Round 1 shows Completed / View Results and Round 2
+                  shows Upcoming / Begin Round, per the explicit
+                  requirement. Reuses the app's existing tab mechanism. */}
+              <Link
+                href={`/trips/${tripId}?tab=rounds`}
+                style={{
+                  display: 'inline-block', padding: '10px 20px', borderRadius: 10,
+                  background: '#14532d', color: '#fff', fontFamily: 'var(--font-body)',
+                  fontSize: 13.5, fontWeight: 700, textDecoration: 'none',
+                }}
+              >
+                Go to {nextUpcomingRound.name} →
+              </Link>
+            </>
+          ) : eventFullyComplete ? (
+            // Every round is done and none remain — the event-complete /
+            // final-results state, distinct from both the pre-event
+            // empty state below and the "next round ready" state above.
+            // Per the explicit instruction, this does NOT show a
+            // "Go to Round" CTA at all.
+            <>
+              <p style={{ fontSize: 32, marginBottom: 10 }}>🏆</p>
+              <p style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 16, fontWeight: 800, marginBottom: 8 }}>
+                Event Complete
+              </p>
+              <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, lineHeight: 1.5, marginBottom: 18 }}>
+                All rounds have been played and results are locked in.
+                Check the final leaderboard for the overall standings.
+              </p>
+              <Link
+                href={`/trips/${tripId}/leaderboard`}
+                style={{
+                  display: 'inline-block', padding: '10px 20px', borderRadius: 10,
+                  background: '#14532d', color: '#fff', fontFamily: 'var(--font-body)',
+                  fontSize: 13.5, fontWeight: 700, textDecoration: 'none',
+                }}
+              >
+                View Final Leaderboard →
+              </Link>
+            </>
+          ) : (
+            // Pre-event / nothing to reference yet — the original,
+            // unchanged empty state (round count is 0 or every round is
+            // still upcoming with none ever having started).
+            <>
+              <p style={{ fontSize: 32, marginBottom: 10 }}>⛳</p>
+              <p style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 16, fontWeight: 800, marginBottom: 8 }}>
+                No active round
+              </p>
+              <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, lineHeight: 1.5, marginBottom: 18 }}>
+                My HQ is the organiser&apos;s live command centre for today&apos;s round.
+                It fills in once a round begins.
+              </p>
+              <Link
+                href={`/trips/${tripId}?tab=rounds`}
+                style={{
+                  display: 'inline-block', padding: '10px 20px', borderRadius: 10,
+                  background: '#14532d', color: '#fff', fontFamily: 'var(--font-body)',
+                  fontSize: 13.5, fontWeight: 700, textDecoration: 'none',
+                }}
+              >
+                Go to Rounds →
+              </Link>
+            </>
+          )}
         </div>
       ) : (
         <>

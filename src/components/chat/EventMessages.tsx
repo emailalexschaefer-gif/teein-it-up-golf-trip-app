@@ -55,7 +55,7 @@ const KIND_META: Record<Kind, { icon: string; label: string; bg: string; border:
   announcement: { icon: '🟢', label: 'Announcement', bg: '#ffffff', border: '#eceae3', labelColor: '#16a34a' },
   notification: { icon: '🔔', label: 'Notification', bg: '#ffffff', border: '#eceae3', labelColor: '#a1791f' },
   chat:         { icon: '💬', label: 'Group Message', bg: '#ffffff', border: '#eceae3', labelColor: '#6b7280' },
-  publicPost:   { icon: '📣', label: 'Public Event Post', bg: '#ffffff', border: '#eceae3', labelColor: '#1e3a5f' },
+  publicPost:   { icon: '💬', label: 'Trip Message', bg: '#ffffff', border: '#eceae3', labelColor: '#1e3a5f' },
   moment:       { icon: '📷', label: 'Moment', bg: '#fdf3d9', border: '#e8c96a', labelColor: '#a1791f' },
 }
 
@@ -74,25 +74,28 @@ export default function EventMessages({
   const [sendError, setSendError] = useState('')
 
   // Participant chat composer (Sprint 6, Part 7: "Players can send
-  // Messages"). Now supports both "My Group" and "Everyone" — the
-  // event-wide restriction from an earlier pass is explicitly lifted per
-  // Package 3's requirement.
+  // Messages"). Product decision (this pass): normal player chat is
+  // trip-wide by default — players in the same playing group are
+  // physically together, so a group-scoped chat added little value.
+  // Always sends recipientType: 'all', reusing the existing Everyone/
+  // broadcast infrastructure the organiser announcement composer above
+  // already relies on — no new messaging system. (A previous pass left
+  // an unused 'group' vs 'all' toggle wired into state with no actual UI
+  // control ever rendered for it; removed along with the dead branch,
+  // rather than carrying forward a toggle nothing could reach.)
   const [chatDraft, setChatDraft] = useState('')
-  const [chatAudience, setChatAudience] = useState<'group' | 'all'>('group')
   const [chatSending, setChatSending] = useState(false)
   const [chatError, setChatError] = useState('')
 
   async function handleSendChat() {
     if (!chatDraft.trim()) return
-    if (chatAudience === 'group' && !myGroupId) return
     setChatSending(true)
     setChatError('')
     const res = await fetch(`/api/trips/${tripId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        recipientType: chatAudience,
-        recipientGroupId: chatAudience === 'group' ? myGroupId : undefined,
+        recipientType: 'all',
         message: chatDraft.trim(), messageType: 'chat_message',
       }),
     })
@@ -101,7 +104,7 @@ export default function EventMessages({
     if (!res.ok) { setChatError(resData.error ?? "Message couldn't be sent. Please try again."); return }
     if (resData.sentMessage) {
       queryClient.setQueryData<{ messages: EventMessage[] }>(['event-messages', tripId], (old) =>
-        old ? { messages: [{ ...resData.sentMessage, sender: { full_name: 'You', role: isOrganiser ? 'organiser' : 'player' }, recipient_group: chatAudience === 'group' && myGroupName ? { name: myGroupName } : null }, ...old.messages] } : { messages: [resData.sentMessage] }
+        old ? { messages: [{ ...resData.sentMessage, sender: { full_name: 'You', role: isOrganiser ? 'organiser' : 'player' }, recipient_group: null }, ...old.messages] } : { messages: [resData.sentMessage] }
       )
     }
     setChatDraft('')
@@ -222,11 +225,18 @@ export default function EventMessages({
         </div>
       )}
 
-      {myGroupId && (
+      {/* Trip-wide chat composer for normal players. No longer gated on
+          myGroupId — chat is trip-wide now, so a player doesn't need a
+          group assignment to use it (previously, an unassigned player
+          saw no chat composer at all, which was itself a gap). Organiser
+          keeps the dedicated Event Announcement composer above as their
+          send mechanism, unchanged — this one is deliberately for
+          players, per the explicit "normal player chat" framing. */}
+      {!isOrganiser && (
         <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid #eceae3', padding: 12, marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Chat · {myGroupName ?? 'My Group'}
+              Trip Chat
             </div>
             <MomentCapture tripId={tripId} roundId={roundId} holeNumber={holeNumber} myGroupId={myGroupId} />
           </div>
@@ -235,7 +245,7 @@ export default function EventMessages({
               value={chatDraft}
               onChange={e => setChatDraft(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !chatSending) handleSendChat() }}
-              placeholder="Message your group…"
+              placeholder="Message everyone…"
               style={{ flex: 1, border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 10px', fontFamily: 'var(--font-body)', fontSize: 13 }}
             />
             <button

@@ -147,6 +147,30 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
     staleTime: 0,
   })
 
+  // "The Story" (below) previously showed only golf milestones computed
+  // server-side (data.story) — a player-posted Moment never appeared
+  // there, only in the separate "Event Story" section further down the
+  // page, which already merges moments correctly. Root cause: no
+  // filtering bug (the /moments endpoint itself is already correctly
+  // trip-scoped by RLS only, not filtered by sender/organiser_id — any
+  // trip member's Moment is returned), it's simply that this first,
+  // most-visible section was never wired to include moments at all.
+  // Fetches THIS round's moments specifically (?roundId=), matching this
+  // section's own stated scope ("the story of the ROUND") — deliberately
+  // a different, more specific query than Event Story's unscoped
+  // trip-wide ['moments', tripId] fetch below, so past rounds' moments
+  // don't leak into a single round's story.
+  const { data: roundMomentsData } = useQuery<{ moments: Moment[] }>({
+    queryKey: ['moments', tripId, roundId],
+    queryFn: async () => {
+      const res = await fetch(`/api/trips/${tripId}/moments?roundId=${roundId}`)
+      if (!res.ok) throw new Error('failed')
+      return res.json()
+    },
+    staleTime: 10000,
+    refetchOnWindowFocus: true,
+  })
+
   async function handleClose() {
     setClosing(true); setCloseError(null)
     try {
@@ -472,18 +496,32 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
       {/* ── The Story — milestones only, never every hole or every score.
           Rebuilt from real entered_at timestamps (see the API route) —
           lead changes, hole-in-ones, review moments, group finishes,
-          not an activity log. ─────────────────────────────────────────── */}
+          not an activity log. Also merges in this round's Moments
+          (any trip member's, not just the organiser's — see
+          roundMomentsData above), chronologically alongside the golf
+          milestones, so a player-posted Moment shows up here too, not
+          only in Event Story further down. ───────────────────────────── */}
       <SectionTitle>The Story</SectionTitle>
-      <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 14, overflow: 'hidden' }}>
-        {data.story.length === 0 && <EmptyNote>The story of the round will appear here as it unfolds.</EmptyNote>}
-        {data.story.map((s, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '9px 14px', borderBottom: i < data.story.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
-            <span style={{ fontSize: 14, flexShrink: 0 }}>{s.icon}</span>
-            <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#14532d' }}>{s.text}</span>
-            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', flexShrink: 0, marginLeft: 8 }}>{relativeTime(s.at)}</span>
+      {(() => {
+        const roundMomentEntries: StoryEntry[] = (roundMomentsData?.moments ?? []).map(m => ({
+          icon: '📷',
+          text: m.caption ? `${m.playerName}: ${m.caption}` : `${m.playerName} shared a photo`,
+          at: m.created_at,
+        }))
+        const storyCombined = [...data.story, ...roundMomentEntries].sort((a, b) => b.at.localeCompare(a.at))
+        return (
+          <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 14, overflow: 'hidden' }}>
+            {storyCombined.length === 0 && <EmptyNote>The story of the round will appear here as it unfolds.</EmptyNote>}
+            {storyCombined.map((s, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '9px 14px', borderBottom: i < storyCombined.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
+                <span style={{ fontSize: 14, flexShrink: 0 }}>{s.icon}</span>
+                <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#14532d' }}>{s.text}</span>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', flexShrink: 0, marginLeft: 8 }}>{relativeTime(s.at)}</span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        )
+      })()}
 
       {/* ── Quick Actions — only real, existing destinations ───────────── */}
       <SectionTitle>Quick Actions</SectionTitle>

@@ -135,6 +135,17 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   // continue working" even if something about the cumulative-totals
   // addition itself has an issue. Logged, not silently swallowed.
   let cumulativeStandings: ReturnType<typeof computeCumulativeStandings> = []
+  // Per-round breakdown for the R1 | R2 LIVE | TOTAL table (Round 2+ only
+  // on the client). Built from the exact same relevantRoundIds/
+  // perRoundTotals data already fetched for cumulativeStandings below —
+  // not a second query, not a second calculation. TOTAL and position on
+  // each row still come directly from computeCumulativeStandings
+  // (unmodified), per the explicit "reuse the existing source of truth,
+  // don't invent another cumulative calculation" instruction; this only
+  // adds the per-round columns alongside it.
+  let roundsSummary: {
+    roundId: string; roundNumber: number
+  }[] = []
   try {
     const priorCompletedRes = await admin
       .from('rounds').select('id')
@@ -163,13 +174,45 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
           }))
         }))
         cumulativeStandings = computeCumulativeStandings(perRoundTotals)
+
+        roundsSummary = relevantRoundIds.map((rid, idx) => ({ roundId: rid, roundNumber: idx + 1 }))
+
+        // pointsByRound[playerId][roundId] = that player's points in that
+        // round. isCurrentRound rows also carry live holesPlayed/finished
+        // straight from `unranked` above (same source as the round's own
+        // "board" — no separate live-status calculation).
+        const pointsByPlayer = new Map<string, Record<string, number>>()
+        relevantRoundIds.forEach((rid, idx) => {
+          for (const r of perRoundTotals[idx]) {
+            const existing = pointsByPlayer.get(r.playerId) ?? {}
+            existing[rid] = r.roundPoints
+            pointsByPlayer.set(r.playerId, existing)
+          }
+        })
+        const liveRowByPlayer = new Map(unranked.map(r => [r.playerId, r]))
+
+        cumulativeStandings = cumulativeStandings.map(cs => ({
+          ...cs,
+          rounds: roundsSummary.map(rs => {
+            const isCurrentRound = rs.roundId === roundId
+            const liveRow = isCurrentRound ? liveRowByPlayer.get(cs.playerId) : undefined
+            return {
+              roundId: rs.roundId,
+              roundNumber: rs.roundNumber,
+              points: pointsByPlayer.get(cs.playerId)?.[rs.roundId] ?? 0,
+              isCurrentRound,
+              holesPlayed: isCurrentRound ? (liveRow?.holesPlayed ?? 0) : null,
+              finished: isCurrentRound ? (liveRow?.finished ?? false) : true,
+            }
+          }),
+        })) as typeof cumulativeStandings
       }
   } catch (cumulativeErr) {
     console.error('[leaderboard] cumulative-standings computation failed (core leaderboard still returned)', {
       tripId, roundId, error: cumulativeErr instanceof Error ? cumulativeErr.message : String(cumulativeErr),
     })
-    // cumulativeStandings stays [] — the response below still succeeds
-    // with the core leaderboard intact.
+    // cumulativeStandings/roundsSummary stay at their initial empty values —
+    // the response below still succeeds with the core leaderboard intact.
   }
 
   return NextResponse.json({
@@ -180,7 +223,8 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     totalHoles,
     scoringNow: board.filter(p => p.holesPlayed > 0 && !p.finished).length,
     finishedCount: board.filter(p => p.finished).length,
-    cumulativeStandings, // only meaningful once a prior completed round exists; empty array otherwise
+    cumulativeStandings, // only meaningful once a prior completed round exists; empty array otherwise. Each entry now also carries a `rounds` breakdown (R1, R2 live, etc.) — see route comments above.
+    roundsSummary, // [{roundId, roundNumber}] ascending — lets the client know whether this is Round 1 (single-column) or Round 2+ (R1|R2 LIVE|TOTAL table) without a separate request
   })
   } catch (err) {
     console.error('[leaderboard] unhandled exception', { tripId, roundId, error: err instanceof Error ? err.message : String(err) })

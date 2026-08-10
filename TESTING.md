@@ -2,12 +2,190 @@
 
 ## Build status
 - TypeScript: not run against the full project — sandbox has no network
-  access to install `node_modules`, so `next`/`react`/`@supabase` type
-  declarations aren't available for `tsc --noEmit` here. All touched
-  files reviewed by hand for type consistency (see delivery notes below).
-- Domain test suite: ✅ **143/143 passing** (compiled and run manually via
-  global `tsc` → `node --test`, the same zero-dependency method as prior
-  deliveries — see DEPLOYMENT_NOTES.md).
+  access to install `node_modules`. All touched files hand-reviewed and
+  brace/paren-balance checked with a script; see per-issue notes below
+  for what else was verified.
+- Domain test suite: ✅ **143/143 passing**, no regressions (compiled via
+  global `tsc` → `node --test`, same zero-dependency method as prior
+  deliveries). None of this delivery's changes touch the pure scoring/
+  lifecycle domain modules, so this mainly confirms nothing else broke.
+
+## This delivery — six issues from multi-round + player-experience testing
+
+### 1. Multi-round live leaderboard (R1 | R2 LIVE | TOTAL)
+`/api/trips/[tripId]/rounds/[roundId]/leaderboard/route.ts` — each
+`cumulativeStandings` entry now also carries a `rounds[]` breakdown
+(per-round points, and for the live round only, `holesPlayed`/`finished`),
+plus a new `roundsSummary` field. Built entirely from data already being
+fetched for the existing cumulative-totals calculation — **TOTAL and
+position still come directly, unmodified, from `computeCumulativeStandings`**,
+per the explicit "reuse the existing source of truth" instruction. Wrapped
+in the same try/catch as before, so a failure here still can't take down
+the core leaderboard.
+
+`LiveLeaderboard.tsx` branches on `roundsSummary.length > 1`: Round 1 keeps
+the exact original single-column board unchanged; Round 2+ renders a new
+`MultiRoundHeaderRow`/`MultiRoundRow` table with dynamic columns for
+however many rounds exist, TOTAL rendered largest/boldest, and
+Thru N/Finished/Not started under the live round's column. Expand-to-see-
+hole-by-hole is preserved via the same `InlineScorecard` component the
+single-round view already used.
+
+**Not verified live:** actual rendering in a browser, 3+ round scaling
+beyond what the code path supports structurally.
+
+### 2. Back to Hole X moved to bottom + safe-area fixes
+`SelfMarkerScoreShell.tsx` — the leaderboard overlay's "Back to Hole N"
+is now a centred button at the bottom, wrapped in
+`calc(20px + env(safe-area-inset-bottom, 0px))`. The full-screen scoring
+"Exit" header now has `paddingTop: env(safe-area-inset-top, 0px)`; the
+scrollable content below it and the toast notification's vertical
+position were both adjusted to match so nothing shifts or overlaps on
+notch/Dynamic-Island devices. No hard-coded offsets anywhere — `env()`
+resolves to `0px` on Android/desktop, so this is a no-op there.
+
+### 3. Post-Round-1 navigation
+`tournament/page.tsx` (My HQ) — the `!activeRound` state now branches
+three ways instead of one:
+- **Next round ready**: "🏁 {completed round's name} Complete /
+  {next round's name} is ready" with a CTA that deep-links to
+  `/trips/${tripId}?tab=rounds`. Both round names are resolved
+  dynamically from actual round data (by `play_date`/`status`), not
+  hard-coded — verified this works correctly even for a round literally
+  named "Final Round" rather than "Round 2" (the exact case in this
+  trip's own test data).
+- **Event fully complete** (no next round exists): a distinct "🏆 Event
+  Complete" state linking to the full leaderboard — no "Go to Round" CTA,
+  per the explicit instruction.
+- **Pre-event** (nothing has started yet): the original, unchanged
+  "No active round" copy.
+
+`TripDetailClient.tsx` — added `?tab=rounds` deep-link support via a
+mount-only `useEffect` reading `window.location.search` (deliberately
+not Next's `useSearchParams()`, to avoid its Suspense-boundary
+requirement, and deliberately not a lazy `useState` initializer, to avoid
+a server/client hydration mismatch — both considered and rejected before
+landing on this approach).
+
+**Related fix included in scope:** `nextUpcomingRound` is now computed
+from an ascending-by-`play_date` sort specifically for this feature. The
+pre-existing `upcomingRound` variable (still used unchanged for the
+player-facing view) uses `.find()` on a DESC-sorted array, which would
+silently pick the *latest* upcoming round instead of the *soonest* one if
+a trip ever has two or more upcoming rounds simultaneously. Not observed
+in this trip's 2-round test data, but directly relevant to "determine the
+next playable round dynamically," so fixed for the new code path (the
+player-facing `focusRound` fallback chain was left untouched).
+
+### 4. Trip-wide player chat
+`EventMessages.tsx` — the player chat composer now always sends
+`recipientType: 'all'` (no backend change needed: `/api/trips/[tripId]/
+messages` already fully supported `chat_message` + `recipientType: 'all'`
+for any confirmed trip member — this was the "reuse the existing Everyone
+infrastructure" the brief asked for). Removed a `chatAudience` state
+toggle that was wired into the send logic but had no actual UI control
+ever rendered for it (dead code from an earlier pass). Composer heading
+changed to "Trip Chat", placeholder to "Message everyone…", and the
+`publicPost` message kind's label changed from "Public Event Post" to
+"Trip Message" (icon changed from 📣 to 💬 to read as ordinary chat rather
+than an official post). The composer no longer requires a group
+assignment to render — previously an unassigned player saw no chat
+composer at all, which was itself a gap now closed as a natural
+consequence of removing the group-scoping.
+
+Organiser's separate Event Announcement composer is untouched. Moments
+already defaulted to 'everyone' audience before this change — confirmed,
+not modified.
+
+### 5. My HQ Story missing player-posted Moments
+**Investigated per the explicit checklist — not a filtering/RLS bug.**
+The `/api/trips/[tripId]/moments` GET route has no `organiser_id`/
+`player_id` filter applied by default, and the RLS SELECT policy on
+`moments` already allows any trip member to read any `audience='everyone'`
+moment regardless of who posted it. Root cause: My HQ has **two** story
+sections — the first, most-visible one (literally titled "The Story",
+directly below Side Games Snapshot) was never wired to include Moments at
+all, only the second, further-down "Event Story" section was. A player's
+Moment was always correctly saved and readable — it just never appeared
+in the section actually visible without scrolling.
+
+Fixed in `TournamentControl.tsx` by merging this round's Moments (fetched
+via the same `/moments?roundId=` endpoint, `['moments', tripId, roundId]`
+query key, independent from Event Story's own unscoped `['moments',
+tripId]` fetch — deliberately round-scoped to match "The Story"'s own
+stated purpose of being the *round's* story, not the whole event's)
+directly into the primary "The Story" timeline, chronologically alongside
+the existing golf milestones. "Event Story" further down is untouched.
+
+**Test coverage against the brief's own checklist:**
+- A/B/C (organiser/Player A/Player B post a Moment → appears): should now
+  pass — the merge has no per-sender filtering, matching the RLS policy.
+- D (refresh → still appears): unaffected, same query mechanism as Event
+  Story already used successfully.
+- E (another trip's Moment never appears): unaffected — `trip_id` scoping
+  is unchanged, enforced by both the route's `.eq('trip_id', tripId)` and
+  RLS's `is_trip_member(trip_id)`.
+- F (existing Story events still render): golf milestones (`data.story`)
+  are unchanged, just merged with an additional array.
+
+**Not verified live** — needs a real deploy to actually watch a player
+Moment appear in "The Story" end to end.
+
+### 6. Stuck "1 score still syncing" bug
+**Diagnosed a genuine root cause, distinct from a fix already present in
+this codebase.** `syncScoreQueue()` (`src/lib/db/sync.ts`) already had a
+prior fix for a *different* stuck-sync cause (entries at MAX_RETRIES being
+skipped forever) — but a second, separate bug remained: the function
+**silently dropped** any call that arrived while a sync was already
+in-flight (`if (syncInProgress) return`), with no mechanism to retry
+whatever that call had just queued.
+
+Concretely: `confirmScore()` queues an entry into Dexie synchronously,
+then fires `void syncScoreQueue()` (not awaited). If two holes are
+confirmed in quick succession — entirely plausible within the ~480ms
+hole-advance delay, especially confirming the final hole right after the
+second-to-last — the second call's sync attempt sees the first one still
+running and returns immediately, doing nothing. If that second hole is
+the *last* hole, there's no subsequent hole-confirm to trigger another
+sync pass, so the entry sits `pending` in Dexie indefinitely. Meanwhile
+the scorecard UI already looks fully correct (green rows, matched count,
+right total), because all of that reads from Dexie/local state, which was
+written before the dropped sync call ever happened — exactly the reported
+combination of symptoms.
+
+**Fix:** a `syncAgainRequested` flag. A call arriving while a sync is
+in-flight now sets this flag instead of no-opping. The in-flight call's
+loop checks the flag after each pass and, if set, immediately requeries
+and processes anything queued during its own execution — no external
+retrigger (reload, network toggle) required. Wrapped the whole thing in
+try/finally so `syncInProgress` is always released even if a pass throws.
+
+**Files changed:** `src/lib/db/sync.ts` only. `ScoreSessionShell.tsx`
+(the older group-scorer flow) imports `syncScoreQueue` from the same
+shared module, so it benefits from this fix automatically — no separate
+change needed there, confirmed by checking its import.
+
+**Not verified live** — needs a real two-holes-in-quick-succession repro
+against a real deploy to watch the counter actually reach 0 without any
+external trigger. The existing "temporary failed save + retry" and
+"9-hole round, all matches" scenarios in your test checklist should now
+also be worth re-running against this fix specifically.
+
+---
+
+## Regression protection — what was and wasn't touched
+Per the explicit "do not disturb" list: Stableford maths, handicap
+allocation, score persistence semantics (only the *concurrency* around
+when a sync pass runs changed — `markEntrySynced`/`markEntryError`
+themselves are untouched), reconciliation rules, historical Round 1
+snapshots, Begin Round workflow, automatic trip lifecycle, groups,
+invitation/join flow, Trip Information, and photo storage were not
+touched by any change in this delivery. The chat **send** API route
+(`POST /api/trips/[tripId]/messages`) was not modified at all — only the
+client's default audience selection changed, calling the same endpoint
+with a `recipientType` value it already fully supported.
+
+---
 
 ## This delivery — three fixes from multi-round acceptance testing
 

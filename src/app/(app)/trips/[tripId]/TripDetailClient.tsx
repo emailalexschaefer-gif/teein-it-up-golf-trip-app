@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatTripDateRange } from '@/lib/utils'
@@ -64,6 +64,21 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
   const router       = useRouter()
   const updateStatus = useUpdateTripStatus()
   const [tab, setTab]            = useState<Tab>('overview')
+
+  // Deep-link support: My HQ's "Go to Round N" CTA (and anywhere else
+  // that wants to land directly on a tab) passes ?tab=rounds. Read once
+  // on mount rather than as the initial state value — this keeps the
+  // server-rendered and first-client-render output identical (both
+  // start on 'overview', exactly as before), avoiding a hydration
+  // mismatch, then switches tabs immediately after mount if requested.
+  // Reuses the existing Tab state/switching mechanism; no new navigation
+  // system.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get('tab')
+    const valid: Tab[] = ['overview', 'players', 'groups', 'rounds']
+    if (valid.includes(requested as Tab)) setTab(requested as Tab)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally mount-only
+  }, [])
   const queryClient = useQueryClient()
   // Initialise from server-fetched trip data so Overview is correct before Groups tab is visited
   const [actualGroupCount, setActualGroupCount] = useState<number>(

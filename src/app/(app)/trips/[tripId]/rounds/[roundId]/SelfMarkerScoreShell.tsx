@@ -1017,11 +1017,14 @@ export default function SelfMarkerScoreShell({
           at the exact moment it matters. */}
       <div style={{
         position: 'fixed', top: 0, left: 0, right: 0, zIndex: 30,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        height: 44, padding: '0 14px',
+        paddingTop: 'env(safe-area-inset-top, 0px)',
         background: 'linear-gradient(135deg, #0f2d1c, #1a4731)',
         borderBottom: '2px solid #c9a84c',
       }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          height: 44, padding: '0 14px',
+        }}>
         <Link
           href={`/trips/${tripId}`}
           style={{ color: '#f5e6b8', textDecoration: 'none', fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 700 }}
@@ -1036,10 +1039,11 @@ export default function SelfMarkerScoreShell({
             Par {par} · SI {si}
           </div>
         </div>
+        </div>
       </div>
 
       {toast && (
-        <div style={{ position: 'fixed', top: 52, left: '50%', transform: 'translateX(-50%)', zIndex: 200, background: 'rgba(10,30,18,0.97)', border: '1px solid rgba(201,168,76,0.66)', borderRadius: 22, padding: '8px 18px' }}>
+        <div style={{ position: 'fixed', top: 'calc(52px + env(safe-area-inset-top, 0px))', left: '50%', transform: 'translateX(-50%)', zIndex: 200, background: 'rgba(10,30,18,0.97)', border: '1px solid rgba(201,168,76,0.66)', borderRadius: 22, padding: '8px 18px' }}>
           <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#e8c96a', fontWeight: 700 }}>● {toast}</span>
         </div>
       )}
@@ -1080,7 +1084,7 @@ export default function SelfMarkerScoreShell({
         ref={scrollContainerRef}
         onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
         style={{
-          padding: '48px 16px 100px',
+          padding: 'calc(48px + env(safe-area-inset-top, 0px)) 16px 100px',
           background: '#faf9f6',
         }}
       >
@@ -1312,23 +1316,40 @@ export default function SelfMarkerScoreShell({
       {showLeaderboard && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 250, background: '#faf9f6', overflowY: 'auto' }}>
           <div style={{
-            position: 'sticky', top: 0, zIndex: 10,
+            paddingTop: 'env(safe-area-inset-top, 0px)',
             background: 'linear-gradient(135deg, #0f2d1c, #1a4731)',
-            borderBottom: '2px solid #c9a84c', padding: '14px 16px',
+            borderBottom: '2px solid #c9a84c',
+          }}>
+            <div style={{ padding: '14px 16px', fontFamily: 'var(--font-display)', color: '#f5e6b8', fontSize: 15, fontWeight: 700 }}>
+              🏆 Live Leaderboard
+            </div>
+          </div>
+          <div style={{ padding: '16px 16px 8px' }}>
+            <LiveLeaderboard tripId={tripId} roundId={round.id} roundStatus={round.status} />
+          </div>
+          {/* "Back to Hole N" moved to the bottom, centred, with its own
+              bottom safe-area spacing — the old top placement could sit
+              under the iOS status bar / Dynamic Island on notch devices.
+              No hard-coded iPhone offset: env(safe-area-inset-bottom)
+              resolves to 0 on Android/desktop, so this works unchanged
+              everywhere. Still the same setShowLeaderboard(false) that
+              was here before, so scoring state (hole, draft scores, sync
+              queue) is preserved exactly as it was — nothing about the
+              underlying shell remounts. */}
+          <div style={{
+            textAlign: 'center',
+            padding: '8px 16px calc(20px + env(safe-area-inset-bottom, 0px))',
           }}>
             <button
               onClick={() => setShowLeaderboard(false)}
               style={{
-                background: 'none', border: 'none', color: '#f5e6b8',
-                fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700,
-                cursor: 'pointer', padding: 0,
+                background: '#ffffff', border: '1.5px solid #d9c9a3', borderRadius: 10,
+                color: '#7a5c00', fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700,
+                cursor: 'pointer', padding: '11px 24px',
               }}
             >
               ← Back to Hole {holeNum}
             </button>
-          </div>
-          <div style={{ padding: 16 }}>
-            <LiveLeaderboard tripId={tripId} roundId={round.id} roundStatus={round.status} />
           </div>
         </div>
       )}
