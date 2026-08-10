@@ -81,7 +81,15 @@ export default function LiveLeaderboard({
     queryKey: ['leaderboard', tripId, roundId],
     queryFn: async () => {
       const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/leaderboard`)
-      if (!res.ok) throw new Error('Could not load the leaderboard.')
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        // TEMPORARY: surfaces the server's debug detail (if present),
+        // matching the established pattern from other recent
+        // investigations — previously this threw a generic error
+        // without ever reading the response body, discarding any
+        // server-side diagnostic detail.
+        throw new Error(body.error ? `${body.error}${body.debug ? ` (${body.debug})` : ''}` : 'Could not load the leaderboard.')
+      }
       return res.json()
     },
     // Only poll while the round is actually live — no point refreshing a
@@ -137,6 +145,11 @@ export default function LiveLeaderboard({
     return (
       <div style={{ textAlign: 'center', padding: '24px 16px', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>
         Couldn&apos;t load the leaderboard right now. It&apos;ll retry automatically.
+        {/* TEMPORARY diagnostic detail — remove once this path is
+            confirmed reliable. */}
+        {error instanceof Error && (
+          <div style={{ marginTop: 6, fontSize: 11, color: '#c9a3a3' }}>{error.message}</div>
+        )}
       </div>
     )
   }

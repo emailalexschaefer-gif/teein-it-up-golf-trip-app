@@ -54,7 +54,7 @@ export default function BeginRoundModal({
   interface SetupContextGroup { id: string; name: string; tee_time: string | null; players: Player[] }
   interface SetupContext {
     isFirstRound: boolean
-    previousRound?: { id: string; name: string; roundNumber: number }
+    previousRound?: { id: string; name: string }
     previousRoundResults: StandingRow[] | null
     cumulativeStandings: StandingRow[]
     groups: SetupContextGroup[]
@@ -67,12 +67,24 @@ export default function BeginRoundModal({
   async function refetchSetupContext() {
     try {
       const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/setup-context`)
-      if (!res.ok) throw new Error('Failed to load setup context')
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        // TEMPORARY: surfaces the server's debug detail (if present) so
+        // the actual failure is visible instead of only ever showing the
+        // generic fallback -- the previous version threw before ever
+        // reading the response body, discarding any diagnostic detail
+        // the server sent. Remove the debug suffix once this path is
+        // confirmed reliable.
+        throw new Error(data.error ? `${data.error}${data.debug ? ` (${data.debug})` : ''}` : 'Failed to load setup context')
+      }
       setSetupContext(data)
       setSetupContextError('')
-    } catch {
-      setSetupContextError('Could not load previous results or current groups. Pull to refresh, or continue with what\u2019s shown below.')
+    } catch (err) {
+      setSetupContextError(
+        err instanceof Error && err.message !== 'Failed to load setup context'
+          ? err.message
+          : 'Could not load previous results or current groups. Pull to refresh, or continue with what\u2019s shown below.'
+      )
     } finally {
       setSetupContextLoading(false)
     }
@@ -363,7 +375,7 @@ export default function BeginRoundModal({
                 <div className="card p-4 mb-4" style={{ marginBottom: 14 }}>
                   <p className="s-label mb-2">
                     {setupContext.cumulativeStandings.length > 0 && setupContext.previousRound
-                      ? `Round ${setupContext.previousRound.roundNumber} Results / Event Standings`
+                      ? `${setupContext.previousRound.name} Results / Event Standings`
                       : 'Previous Round Results'}
                   </p>
                   {setupContext.cumulativeStandings
@@ -376,7 +388,7 @@ export default function BeginRoundModal({
                             <strong style={{ color: '#a1791f' }}>{cum.position}.</strong> {cum.playerName}
                           </span>
                           <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260' }}>
-                            R{setupContext.previousRound?.roundNumber} {roundRow?.totalPoints ?? '—'}
+                            {roundRow?.totalPoints ?? '—'} pts
                             <strong style={{ color: '#1a4731', marginLeft: 8 }}>Total {cum.totalPoints}</strong>
                           </span>
                         </div>

@@ -27,21 +27,20 @@ interface HoleRow { id: string; hole_number: number; par: number; stroke_index: 
 
 export async function GET(_req: NextRequest, { params }: RouteProps) {
   const { tripId, roundId } = await params
+  try {
+    const supabase = await createClient()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
 
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
+    type AdminClient = ReturnType<typeof createAdminClient>
+    const admin: AdminClient = createAdminClient()
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  type AdminClient = ReturnType<typeof createAdminClient>
-  const admin: AdminClient = createAdminClient()
+    // Verify caller is a trip member
+    const memberCheck = await admin.from('trip_members').select('role')
+      .eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
+    if (!memberCheck.data) return NextResponse.json({ error: 'Not a trip member.' }, { status: 403 })
 
-  // Verify caller is a trip member
-  const memberCheck = await admin.from('trip_members').select('role')
-    .eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
-  if (!memberCheck.data) return NextResponse.json({ error: 'Not a trip member.' }, { status: 403 })
-
-  const roundRes = await admin.from('rounds').select('id, name, holes, status, scoring_format, round_number').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
+  const roundRes = await admin.from('rounds').select('id, name, holes, status, scoring_format, created_at').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
   if (!roundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
   const totalHoles: number = roundRes.data.holes ?? 18
 
@@ -128,34 +127,49 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   // itself. Purely additive to the response: every existing field
   // (board, roundName, etc.) is unchanged, so this doesn't require any
   // UI rebuild to stay backward compatible.
+  //
+  // Wrapped in its own try/catch, separate from the outer handler-level
+  // one: if this new addition fails for any reason, the core, already-
+  // proven leaderboard must still succeed and return correctly — this
+  // is the direct fix for "existing single-round behaviour must
+  // continue working" even if something about the cumulative-totals
+  // addition itself has an issue. Logged, not silently swallowed.
   let cumulativeStandings: ReturnType<typeof computeCumulativeStandings> = []
-  if (roundRes.data.round_number) {
+  try {
     const priorCompletedRes = await admin
       .from('rounds').select('id')
-      .eq('trip_id', tripId).lte('round_number', roundRes.data.round_number)
+      .eq('trip_id', tripId).lte('created_at', roundRes.data.created_at)
       .in('status', ['completed', 'active']) // include this round's own live totals, not just fully-completed ones
-      .order('round_number', { ascending: true })
+      .order('created_at', { ascending: true })
+    if (priorCompletedRes.error) throw priorCompletedRes.error
     const relevantRoundIds: string[] = (priorCompletedRes.data ?? []).map((r: { id: string }) => r.id)
 
     if (relevantRoundIds.length > 0) {
       const perRoundTotals = await Promise.all(relevantRoundIds.map(async (rid) => {
         if (rid === roundId) {
-          // This round's own totals are already computed above (unranked) —
-          // reuse directly rather than re-querying the same data.
-          return unranked.map(r => ({ playerId: r.playerId, playerName: r.name, roundPoints: r.totalPts }))
-        }
-        const { data } = await admin
-          .from('scorecards')
-          .select('player_id, profiles:player_id(full_name), score_entries(stableford_pts, capture_role)')
-          .eq('round_id', rid).neq('status', 'withdrawn')
-        return ((data ?? []) as unknown as { player_id: string; profiles: { full_name: string } | null; score_entries: { stableford_pts: number; capture_role: string }[] }[]).map(sc => ({
-          playerId: sc.player_id,
-          playerName: sc.profiles?.full_name ?? 'Player',
-          roundPoints: (sc.score_entries ?? []).filter(e => e.capture_role === 'self').reduce((sum, e) => sum + (e.stableford_pts ?? 0), 0),
+            // This round's own totals are already computed above (unranked) —
+            // reuse directly rather than re-querying the same data.
+            return unranked.map(r => ({ playerId: r.playerId, playerName: r.name, roundPoints: r.totalPts }))
+          }
+          const { data, error } = await admin
+            .from('scorecards')
+            .select('player_id, profiles:player_id(full_name), score_entries(stableford_pts, capture_role)')
+            .eq('round_id', rid).neq('status', 'withdrawn')
+          if (error) throw error
+          return ((data ?? []) as unknown as { player_id: string; profiles: { full_name: string } | null; score_entries: { stableford_pts: number; capture_role: string }[] }[]).map(sc => ({
+            playerId: sc.player_id,
+            playerName: sc.profiles?.full_name ?? 'Player',
+            roundPoints: (sc.score_entries ?? []).filter(e => e.capture_role === 'self').reduce((sum, e) => sum + (e.stableford_pts ?? 0), 0),
+          }))
         }))
-      }))
-      cumulativeStandings = computeCumulativeStandings(perRoundTotals)
-    }
+        cumulativeStandings = computeCumulativeStandings(perRoundTotals)
+      }
+  } catch (cumulativeErr) {
+    console.error('[leaderboard] cumulative-standings computation failed (core leaderboard still returned)', {
+      tripId, roundId, error: cumulativeErr instanceof Error ? cumulativeErr.message : String(cumulativeErr),
+    })
+    // cumulativeStandings stays [] — the response below still succeeds
+    // with the core leaderboard intact.
   }
 
   return NextResponse.json({
@@ -166,6 +180,13 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     totalHoles,
     scoringNow: board.filter(p => p.holesPlayed > 0 && !p.finished).length,
     finishedCount: board.filter(p => p.finished).length,
-    cumulativeStandings, // only meaningful once round_number > 1 or a prior round exists; empty array otherwise
+    cumulativeStandings, // only meaningful once a prior completed round exists; empty array otherwise
   })
+  } catch (err) {
+    console.error('[leaderboard] unhandled exception', { tripId, roundId, error: err instanceof Error ? err.message : String(err) })
+    return NextResponse.json({
+      error: "Couldn't load the leaderboard right now.",
+      debug: err instanceof Error ? err.message : String(err),
+    }, { status: 500 })
+  }
 }

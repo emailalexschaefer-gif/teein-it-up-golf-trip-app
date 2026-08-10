@@ -65,13 +65,13 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
     return NextResponse.json({ error: 'Only the trip organiser can reseed groups.' }, { status: 403 })
   }
 
-  const thisRoundRes = await admin.from('rounds').select('round_number').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
+  const thisRoundRes = await admin.from('rounds').select('created_at').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
   if (!thisRoundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
 
   const priorRoundsRes = await admin
     .from('rounds').select('id')
-    .eq('trip_id', tripId).lt('round_number', thisRoundRes.data.round_number).eq('status', 'completed')
-    .order('round_number', { ascending: true })
+    .eq('trip_id', tripId).lt('created_at', thisRoundRes.data.created_at).eq('status', 'completed')
+    .order('created_at', { ascending: true })
   const priorRoundIds: string[] = (priorRoundsRes.data ?? []).map((r: { id: string }) => r.id)
 
   if (priorRoundIds.length === 0) {

@@ -20,7 +20,23 @@ export async function syncScoreQueue(): Promise<void> {
   let errors = 0
 
   for (const entry of pending) {
-    if (entry.retryCount >= MAX_RETRIES) { errors++; continue }
+    // Previously: entries at MAX_RETRIES were skipped permanently on
+    // every future call (still counted as pending, never attempted
+    // again) — this is the actual root cause of a "N scores still
+    // syncing" message that never clears even long after the original
+    // failure (e.g. a transient network blip) has resolved. Now always
+    // retries instead of giving up forever — this function is only
+    // called on specific triggers (queueing a new entry, coming back
+    // online, mount), not a tight loop, so there's no need for time-
+    // based backoff to avoid hammering the server. Logs the entry's own
+    // recorded lastError so the original failure reason is visible
+    // rather than silently discarded.
+    if (entry.retryCount >= MAX_RETRIES) {
+      console.warn('[sync] retrying a previously-stuck entry beyond MAX_RETRIES', {
+        clientId: entry.clientId, holeId: entry.holeId, captureRole: entry.captureRole,
+        retryCount: entry.retryCount, lastError: entry.lastError,
+      })
+    }
 
     // Snapshot what we're about to send. If the person edits this same
     // hole+role again before the request resolves, the queued record will
@@ -45,11 +61,20 @@ export async function syncScoreQueue(): Promise<void> {
         }),
       })
 
-      if (res.ok || res.status === 409) {
+      if (res.ok) {
         await markEntrySynced(entry.clientId, sent)
       } else {
         const body = await res.json().catch(() => ({}))
-        throw new Error(body.error || `HTTP ${res.status}`)
+        // Surfaced verbatim into the entry's lastError (below), and now
+        // logged immediately too — this is what makes the ACTUAL server
+        // rejection reason (e.g. "Scorecard not active" if a scorecard
+        // was marked completed while a score for it was still queued
+        // offline) visible, rather than only ever a generic stuck count.
+        const reason = body.error || `HTTP ${res.status}`
+        console.error('[sync] score rejected by server', {
+          clientId: entry.clientId, holeId: entry.holeId, captureRole: entry.captureRole, reason,
+        })
+        throw new Error(reason)
       }
     } catch (err) {
       await markEntryError(entry.clientId, err instanceof Error ? err.message : 'Unknown')
