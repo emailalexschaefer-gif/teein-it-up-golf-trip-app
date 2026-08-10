@@ -7,6 +7,7 @@ import type { HoleTemplate, PlayingNine } from '@/lib/scoring/defaultHoles'
 import { useScoringFocusStore } from '@/store/scoringFocusStore'
 
 interface Player {
+  member_id:  string  // trip_members.id — required by the members PATCH route, distinct from profile_id
   profile_id: string
   full_name:  string
   playing_handicap: number | null
@@ -124,7 +125,9 @@ export default function BeginRoundModal({
     })))
 
     try {
-      const res = await fetch(`/api/trips/${tripId}/members/${profileId}`, {
+      // The PATCH route matches on trip_members.id, not profile_id — use
+      // currentPlayer.member_id (see Player interface / setup-context route).
+      const res = await fetch(`/api/trips/${tripId}/members/${currentPlayer.member_id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playing_handicap: nextHcp }),
@@ -151,7 +154,8 @@ export default function BeginRoundModal({
     })))
 
     try {
-      const res = await fetch(`/api/trips/${tripId}/members/${profileId}`, {
+      // Same trip_members.id requirement as handleHandicapAdjust above.
+      const res = await fetch(`/api/trips/${tripId}/members/${player.member_id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ group_id: newGroupId }),

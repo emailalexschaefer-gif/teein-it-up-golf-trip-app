@@ -333,30 +333,43 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
               return (
                 <div key={group.id}>
                   {/* Group label row */}
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="mb-2">
                     {isEdit ? (
-                      <div className="flex items-center gap-2 flex-1 flex-wrap">
-                        <input value={editName}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditName(e.target.value)}
-                          style={{
-                            fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700,
-                            textTransform: 'uppercase', letterSpacing: 0.8,
-                            background: 'transparent', border: 'none',
-                            borderBottom: '1.5px solid #c9a84c', color: '#1a1a16',
-                            outline: 'none', width: 120,
-                          }} />
-                        <input type="time" value={editTime}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditTime(e.target.value)}
-                          style={{
-                            fontFamily: 'var(--font-body)', fontSize: 11, background: '#ffffff',
-                            border: '1px solid #d9c9a3', borderRadius: 7, padding: '2px 7px',
-                            color: '#c9a84c', outline: 'none',
-                          }} />
-                        <button onClick={() => saveEdit(group.id)} style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#1a4731', background: 'none', border: 'none', cursor: 'pointer' }}>Save</button>
-                        <button onClick={() => setEditing(null)} style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+                      <div className="flex flex-col gap-2.5">
+                        <div className="flex items-center justify-between">
+                          <input value={editName}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditName(e.target.value)}
+                            style={{
+                              fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700,
+                              textTransform: 'uppercase', letterSpacing: 0.8,
+                              background: 'transparent', border: 'none',
+                              borderBottom: '1.5px solid #c9a84c', color: '#1a1a16',
+                              outline: 'none', width: 120,
+                            }} />
+                          <button onClick={() => setEditing(null)} aria-label="Cancel"
+                            style={{
+                              fontFamily: 'var(--font-body)', fontSize: 15, color: '#7a7260',
+                              background: 'none', border: 'none', cursor: 'pointer',
+                              padding: 8, lineHeight: 1,
+                            }}>✕</button>
+                        </div>
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <input type="time" value={editTime}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditTime(e.target.value)}
+                            style={{
+                              fontFamily: 'var(--font-body)', fontSize: 16, fontWeight: 600, background: '#ffffff',
+                              border: '1.5px solid #c9a84c', borderRadius: 10, padding: '11px 14px',
+                              color: '#1a1a16', outline: 'none', minHeight: 46, flex: '1 1 140px',
+                            }} />
+                          <button onClick={() => saveEdit(group.id)} style={{
+                            fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#ffffff',
+                            background: '#1a4731', border: 'none', borderRadius: 10,
+                            padding: '13px 18px', minHeight: 46, cursor: 'pointer', flex: '1 1 auto',
+                          }}>Save Tee Time</button>
+                        </div>
                       </div>
                     ) : (
-                      <>
+                      <div className="flex items-center justify-between">
                         <div>
                           <p className="s-label" style={{ margin: 0 }}>{group.name}</p>
                           {/* Avg handicap for Ambrose planning */}
@@ -366,27 +379,57 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
                             </p>
                           )}
                         </div>
-                        <div className="flex items-center gap-3">
-                          {group.tee_time && (
-                            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#8b6914' }}>
-                              ⏱ {group.tee_time}
-                            </span>
-                          )}
-                          {isOrganiser && (
+                        <div className="flex items-center gap-2">
+                          {group.tee_time ? (
                             <>
-                              <button
-                                onClick={() => { setEditing(group.id); setEditName(group.name); setEditTime(group.tee_time ?? '') }}
-                                style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260', background: 'none', border: 'none', cursor: 'pointer' }}>
-                                {group.tee_time ? 'Edit' : 'Set tee time'}
-                              </button>
-                              <button onClick={() => deleteGroup(group.id, group.name)}
-                                style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}>
-                                Delete
-                              </button>
+                              <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#8b6914' }}>
+                                ⏱ {group.tee_time}
+                              </span>
+                              {isOrganiser && (
+                                <>
+                                  <button
+                                    onClick={() => { setEditing(group.id); setEditName(group.name); setEditTime(group.tee_time ?? '') }}
+                                    style={{
+                                      fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 600, color: '#7a7260',
+                                      background: 'none', border: 'none', cursor: 'pointer', padding: '8px 4px',
+                                    }}>
+                                    Edit
+                                  </button>
+                                  <button onClick={() => deleteGroup(group.id, group.name)}
+                                    style={{
+                                      fontFamily: 'var(--font-body)', fontSize: 11, color: '#b08a8a',
+                                      background: 'none', border: 'none', cursor: 'pointer', padding: '8px 4px',
+                                    }}>
+                                    Delete
+                                  </button>
+                                </>
+                              )}
                             </>
+                          ) : (
+                            isOrganiser && (
+                              <>
+                                <button
+                                  onClick={() => { setEditing(group.id); setEditName(group.name); setEditTime(group.tee_time ?? '') }}
+                                  style={{
+                                    fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#ffffff',
+                                    background: '#1a4731', border: 'none', borderRadius: 10,
+                                    padding: '11px 16px', minHeight: 44, cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                  }}>
+                                  ⏱ Set Tee Time
+                                </button>
+                                <button onClick={() => deleteGroup(group.id, group.name)}
+                                  style={{
+                                    fontFamily: 'var(--font-body)', fontSize: 11, color: '#b08a8a',
+                                    background: 'none', border: 'none', cursor: 'pointer', padding: '8px 4px',
+                                  }}>
+                                  Delete
+                                </button>
+                              </>
+                            )
                           )}
                         </div>
-                      </>
+                      </div>
                     )}
                   </div>
 

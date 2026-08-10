@@ -19,7 +19,7 @@ export default function TripRoundsTab({ trip, isOrganiser, onTabChange }: Props)
   const [beginRound, setBeginRound] = useState<RoundRow | null>(null)
   const [groups, setGroups] = useState<GroupWithMembers[]>([])
   const [groupMembers, setGroupMembers] = useState<Record<string, Array<{
-    profile_id: string; full_name: string; playing_handicap: number | null; profile_handicap: number | null
+    member_id: string; profile_id: string; full_name: string; playing_handicap: number | null; profile_handicap: number | null
   }>>>({})
 
   // If `trip` refreshes (e.g. after router.refresh()) and the round
@@ -40,14 +40,19 @@ export default function TripRoundsTab({ trip, isOrganiser, onTabChange }: Props)
       const groupData: GroupWithMembers[] = await gRes.json()
       setGroups(groupData)
 
-      // Build group → members map from trip_members (already on the page)
-      const byGroup: Record<string, Array<{ profile_id: string; full_name: string; playing_handicap: number | null; profile_handicap: number | null }>> = {}
+      // Build group → members map from trip_members (already on the page).
+      // member_id (m.id, the trip_members row's own PK) is required by the
+      // BeginRoundModal +/- handicap and group-move controls — see
+      // handleHandicapAdjust in BeginRoundModal.tsx and the matching fix
+      // in the setup-context route.
+      const byGroup: Record<string, Array<{ member_id: string; profile_id: string; full_name: string; playing_handicap: number | null; profile_handicap: number | null }>> = {}
       for (const g of groupData as GroupWithMembers[]) byGroup[g.id] = []
 
       for (const m of trip.trip_members) {
         if (!m.group_id || !byGroup[m.group_id]) continue
         if (m.role === 'organiser' && !(trip.organiser_is_playing)) continue
         byGroup[m.group_id].push({
+          member_id:        m.id,
           profile_id:       m.profile_id,
           full_name:        m.profiles?.full_name ?? 'Player',
           playing_handicap: m.playing_handicap ?? null,

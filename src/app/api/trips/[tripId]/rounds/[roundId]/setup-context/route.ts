@@ -99,7 +99,14 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     // previous-results logic below.
     const [groupsRes, membersRes] = await Promise.all([
       admin.from('trip_groups').select('id, name, tee_time').eq('trip_id', tripId).order('tee_time', { ascending: true, nullsFirst: false }),
-      admin.from('trip_members').select('profile_id, group_id, playing_handicap, role, profiles(full_name, handicap)').eq('trip_id', tripId),
+      // `id` (the trip_members row's own PK) is required here, not just
+      // profile_id — the members PATCH route at
+      // /api/trips/[tripId]/members/[memberId] matches on trip_members.id,
+      // so the client needs it to make that call. Previously this select
+      // omitted it, so the client only ever had profile_id to send, which
+      // matches no row on that route and always 500s. See handleHandicapAdjust
+      // in BeginRoundModal.tsx for the fix on the client side.
+      admin.from('trip_members').select('id, profile_id, group_id, playing_handicap, role, profiles(full_name, handicap)').eq('trip_id', tripId),
     ])
     if (groupsRes.error) {
       console.error('[setup-context] groups query failed', { code: groupsRes.error.code, message: groupsRes.error.message, tripId, roundId })
@@ -110,13 +117,14 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       return NextResponse.json({ error: 'Could not load players.', debug: membersRes.error.message }, { status: 500 })
     }
 
-    interface MemberRow { profile_id: string; group_id: string | null; playing_handicap: number | null; role: string; profiles: { full_name: string; handicap: number | null } | null }
+    interface MemberRow { id: string; profile_id: string; group_id: string | null; playing_handicap: number | null; role: string; profiles: { full_name: string; handicap: number | null } | null }
     const members = (membersRes.data ?? []) as unknown as MemberRow[]
     const groupsWithPlayers = ((groupsRes.data ?? []) as { id: string; name: string; tee_time: string | null }[]).map(g => ({
       id: g.id, name: g.name, tee_time: g.tee_time,
       players: members
         .filter(m => m.group_id === g.id)
         .map(m => ({
+          member_id: m.id,
           profile_id: m.profile_id,
           full_name: m.profiles?.full_name ?? 'Player',
           playing_handicap: m.playing_handicap,

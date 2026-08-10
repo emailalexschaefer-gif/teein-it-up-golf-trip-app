@@ -1,8 +1,131 @@
 # Teein' It Up — Sprint 3 Testing Guide
 
 ## Build status
-- TypeScript: ✅ zero errors
-- Build: ✅ passes
+- TypeScript: not run against the full project — sandbox has no network
+  access to install `node_modules`, so `next`/`react`/`@supabase` type
+  declarations aren't available for `tsc --noEmit` here. All touched
+  files reviewed by hand for type consistency (see delivery notes below).
+- Domain test suite: ✅ **143/143 passing** (compiled and run manually via
+  global `tsc` → `node --test`, the same zero-dependency method as prior
+  deliveries — see DEPLOYMENT_NOTES.md).
+
+## This delivery — three fixes from multi-round acceptance testing
+
+### 1. Social Golf event type
+`EVENT_TYPE_OPTIONS` in `src/types/app.ts` reordered to add `social_golf`
+right after `golf_trip`. **This required a migration**, not just a TS
+change: `trips.event_type` has a DB-level `CHECK` constraint listing the
+allowed values (`002_trips.sql` / `000_combined_fresh_database.sql`), so a
+new value would be rejected by Postgres even though the TypeScript type
+allowed it. New migration: **`036_add_social_golf_event_type.sql`** — drops
+and recreates `trips_event_type_check` to include `social_golf`.
+**Must be applied to production Supabase before Social Golf trips can be
+created**, per the existing "migrations must ship with the code" note —
+this one truly does need to run, unlike some past deliveries.
+
+Note: `RECOVERY_BASELINE.md` documents that this codebase was deliberately
+rolled back to a pre-Social-Golf state after an earlier Social Golf
+attempt caused problems. This delivery only adds the event-type option
+requested in the brief — no season summary, no other prior Social Golf
+scope, per "no new features until existing flows are stable."
+
+### 2. Tee-time UX on Groups screen
+`TripGroupsTab.tsx` — no logic changes, UI only:
+- "Set Tee Time" is now a filled button (`#1a4731` deep green, white text,
+  ≥44px touch target) when a group has no tee time yet.
+- Delete is demoted to small muted text (`#b08a8a`) in both states, so it
+  never competes visually with the required setup action.
+- Once a tee time exists, the compact "⏱ time / Edit / Delete" row returns
+  (Edit still small — no longer the primary action at that point).
+- Edit mode: time input is larger (16px font, 46px min height) and
+  "Save Tee Time" replaces the old small "Save" text link as a filled
+  button with the same touch-target sizing.
+- Assigned / Groups filled / Tee times counters and the "add tee times
+  before Groups Ready" message are untouched.
+
+### 3. BUG FIX — handicap +/− failing on Begin Round
+
+**Root cause:** ID mismatch, not a schema or RLS problem. The PATCH route
+`/api/trips/[tripId]/members/[memberId]` matches rows on `trip_members.id`
+(the row's own primary key). `BeginRoundModal`'s `handleHandicapAdjust`
+and `handleGroupChange` were calling that route using `profile_id`
+instead — and the `/setup-context` endpoint that supplies the modal's
+player list never selected `trip_members.id` from Supabase in the first
+place, so the correct id wasn't even available on the client. Every tap
+looked up a `trip_members` row by an id that didn't match any row,
+`.single()` errored, the route returned 500, and the client showed
+"Couldn't update that handicap."
+
+Confirmed against three other working callers of the same route
+(`TripPlayersTab.saveHcp`, `TripPlayersTab.removePlayer`,
+`TripGroupsTab.autoAssign`) — all three correctly pass `member.id`, which
+confirmed the route's actual contract and pinpointed `BeginRoundModal` as
+the outlier.
+
+**No schema/database change required.** `trip_members.playing_handicap`
+is still the correct, intended pre-round editable column — nothing wrong
+with the table, migrations, or RLS. This was purely a client-side id bug.
+
+**Files changed:**
+- `src/app/api/trips/[tripId]/rounds/[roundId]/setup-context/route.ts` —
+  select now includes `id`, and each player in the response carries
+  `member_id` alongside `profile_id`.
+- `src/components/scoring/BeginRoundModal.tsx` — `Player` interface gains
+  `member_id`; both `handleHandicapAdjust` and `handleGroupChange` now
+  call the PATCH route with `member_id` instead of `profile_id`
+  (`profile_id` is still used everywhere for React keys / lookup identity
+  — unchanged).
+- `src/app/(app)/trips/[tripId]/tabs/TripRoundsTab.tsx` — the fallback
+  group/player loader used before `/setup-context` resolves had the same
+  gap (never captured `trip_members.id`); fixed the same way so the
+  `Player` type's new required field is satisfied everywhere it's
+  constructed.
+
+**Architecture preserved:** `begin_round()` (migrations 016/020) still
+snapshots `playing_handicap` into `scorecards` independently at the
+moment each round starts, read fresh from `trip_members` server-side
+inside the RPC — this fix never touches `scorecards` or the round-start
+payload. A Round 2 handicap change cannot retroactively alter Round 1's
+already-snapshotted scorecard, exactly as before.
+
+**Verification performed:**
+- Traced the full flow client → API → Supabase query → schema, confirmed
+  root cause against the actual constraint (`.eq('id', memberId)`) rather
+  than assumed.
+- Cross-checked three other working callers of the same PATCH route to
+  confirm the id contract.
+- Searched the codebase for every other place a `Player`-shaped object is
+  constructed for `BeginRoundModal` (`TripRoundsTab.tsx`'s fallback
+  loader) and fixed it identically, rather than assuming the primary path
+  was the only one.
+- Ran the full pure-domain test suite: **143/143 passing**, no regressions.
+- Could not run `next build` / `tsc --noEmit` against the real project
+  (no network access to install dependencies in this sandbox) — reviewed
+  every touched file by hand instead, including confirming no other code
+  path reads `Player.member_id` incorrectly and that `begin_round()` is
+  untouched.
+
+**Not yet verified live** (needs a real deploy + Supabase to check):
+migration 036 actually applied to production; a live end-to-end
+HCP 10 → 11 → 10 tap sequence; Round 1 scorecard snapshot literally
+observed to survive a Round 2 handicap change in the running app. The
+architecture reasoning above should hold, but "should hold" isn't the
+same as "watched it happen" — please run through steps 3–5 in your
+original verification list against a real deploy.
+
+**Related issue discovered, not fixed (flagging per your "report, don't
+expand scope" instruction):** `TripGroupsTab.tsx`'s `deleteGroup` and
+`autoAssign` functions call `/api/trips/${trip.id}/members/${p.id}` where
+`p.id` is a `TripMemberRow.id` — correct — but `TripPlayersTab.tsx`'s
+`saveHcp`/`removePlayer` also do this correctly. So the members route's
+contract is consistently `trip_members.id` everywhere except the two
+spots just fixed. No other drift found, but worth knowing this class of
+bug (right-shaped variable, wrong table's id) has now shown up twice
+(`round_number` previously, `profile_id`/`member_id` here) — might be
+worth a lightweight naming convention (e.g. always suffix with `_member`
+vs `_profile`) if it's cheap to adopt going forward.
+
+---
 
 ## Sprint 3 Stabilisation fixes (this build)
 - **Dashboard crash fixed**: `useMyTrips` no longer selects `expected_players` /
