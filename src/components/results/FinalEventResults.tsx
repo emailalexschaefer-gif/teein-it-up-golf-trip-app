@@ -9,6 +9,12 @@ interface StandingRound { roundId: string; roundNumber: number; points: number }
 interface Standing { playerId: string; playerName: string; totalPoints: number; position: number; roundsPlayed: number; rounds: StandingRound[] }
 interface RoundWinner { roundId: string; roundNumber: number; roundName: string; courseName: string | null; winners: { playerId: string; playerName: string; points: number }[] }
 interface Champion { playerId: string; playerName: string; totalPoints: number }
+interface SideCompWinner { playerId: string; playerName: string; resultValue: number | null; momentId: string | null }
+interface RoundSideCompetitions {
+  roundId: string; roundNumber: number; roundName: string; courseName: string | null
+  competitions: { compType: 'nearest_pin' | 'longest_drive' | 'pros_approach'; holeNumber: number | null; winner: SideCompWinner | null }[]
+  powerplay: { holeNumber: number; best: { playerId: string; playerName: string; points: number } | null } | null
+}
 interface FinalResults {
   tripName: string
   rounds: RoundRef[]
@@ -16,6 +22,13 @@ interface FinalResults {
   roundWinners: RoundWinner[]
   champions: Champion[]
   hasTie: boolean
+  sideCompetitionsByRound: RoundSideCompetitions[]
+}
+
+const SIDE_COMP_LABELS: Record<string, { icon: string; label: string }> = {
+  nearest_pin:   { icon: '🎯', label: 'Nearest the Pin' },
+  longest_drive: { icon: '💥', label: 'Longest Drive' },
+  pros_approach: { icon: '🎯', label: "Pro's Approach" },
 }
 
 export default function FinalEventResults({ tripId }: { tripId: string }) {
@@ -181,6 +194,56 @@ export default function FinalEventResults({ tripId }: { tripId: string }) {
             </div>
           ))}
         </div>
+
+        {/* ── Side Competition Winners — grouped by round, never
+            collapsed. A competition existing in two rounds (e.g. NTP on
+            both Round 1 and Round 2) shows as two separate entries with
+            their own round/course heading. Empty rounds (no competitions
+            configured, or none yet closed) simply contribute nothing —
+            no empty section rendered. ──────────────────────────────────── */}
+        {data.sideCompetitionsByRound.some(r => r.competitions.some(c => c.winner) || r.powerplay?.best) && (
+          <>
+            <SectionLabel>Side Competition Winners</SectionLabel>
+            {data.sideCompetitionsByRound.map(round => {
+              const hasContent = round.competitions.some(c => c.winner) || round.powerplay?.best
+              if (!hasContent) return null
+              return (
+                <div key={round.roundId} style={{ marginBottom: 14 }}>
+                  {data.sideCompetitionsByRound.length > 1 && (
+                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                      Round {round.roundNumber}{round.courseName ? ` — ${round.courseName}` : ''}
+                    </div>
+                  )}
+                  <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+                    {round.competitions.filter(c => c.winner).map((c, i, arr) => {
+                      const meta = SIDE_COMP_LABELS[c.compType] ?? { icon: '🎯', label: c.compType }
+                      return (
+                        <div key={c.compType} style={{ padding: '11px 14px', borderBottom: (i < arr.length - 1 || round.powerplay?.best) ? '1px solid #f3f4f1' : 'none' }}>
+                          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 3 }}>
+                            {meta.icon} {meta.label}
+                          </div>
+                          <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d' }}>
+                            {c.winner!.playerName}{c.winner!.resultValue != null ? ` — ${c.winner!.resultValue}m` : ''}
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {round.powerplay?.best && (
+                      <div style={{ padding: '11px 14px' }}>
+                        <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 3 }}>
+                          ⚡ Powerplay Highlight
+                        </div>
+                        <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d' }}>
+                          {round.powerplay.best.playerName} — {round.powerplay.best.points} pts
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </>
+        )}
 
         {/* ── Event Story — placeholder only, per the explicit "prepare,
             don't build" instruction for this sprint. ────────────────────── */}

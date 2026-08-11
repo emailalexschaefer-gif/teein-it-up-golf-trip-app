@@ -12,6 +12,8 @@ import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
 import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
 import { useScoringFocusStore } from '@/store/scoringFocusStore'
 import LiveLeaderboard from '@/components/scoring/LiveLeaderboard'
+import SideCompEntryPanel from '@/components/scoring/SideCompEntryPanel'
+import NewLeaderPrompt, { type NewLeaderContext } from '@/components/scoring/NewLeaderPrompt'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -28,19 +30,32 @@ interface Hole {
   side_game_type?: 'nearest_pin' | 'longest_drive' | 'straightest_drive' | null
 }
 
-const SIDE_GAME_BADGE: Record<string, { icon: string; label: string }> = {
-  nearest_pin: { icon: '🎯', label: 'Nearest the Pin' },
+// Sprint 9 Item 2 — activated. Previously dormant (no is_powerplay/
+// side_game_type column ever existed on holes, confirmed before this
+// sprint's investigation), rendering nothing at runtime. Now fed real
+// data from the /holes route's sideComps/powerplayHoleNumber fields
+// (fetched once per round, see the load effect above) rather than
+// fields on the Hole object itself — a hole can carry more than one
+// active Side Competition (no "one per hole" rule — deliberately left
+// flexible), which a single Hole.side_game_type field couldn't express.
+const SIDE_COMP_BANNER: Record<string, { icon: string; label: string }> = {
+  nearest_pin:   { icon: '🎯', label: 'Nearest the Pin' },
   longest_drive: { icon: '💥', label: 'Longest Drive' },
-  straightest_drive: { icon: '↗', label: 'Straightest Drive' },
+  pros_approach: { icon: '🎯', label: "Pro's Approach" },
 }
 
-function HoleBadges({ hole }: { hole: Hole }) {
+function HoleBadges({ activeSideComps, isPowerplayHole }: {
+  activeSideComps: { id: string; comp_type: string }[]; isPowerplayHole: boolean
+}) {
   const badges: { icon: string; label: string }[] = []
-  if (hole.is_powerplay) badges.push({ icon: '⚡', label: 'Powerplay' })
-  if (hole.side_game_type && SIDE_GAME_BADGE[hole.side_game_type]) badges.push(SIDE_GAME_BADGE[hole.side_game_type])
+  if (isPowerplayHole) badges.push({ icon: '⚡', label: 'Powerplay' })
+  for (const c of activeSideComps) {
+    const meta = SIDE_COMP_BANNER[c.comp_type]
+    if (meta) badges.push(meta)
+  }
   if (badges.length === 0) return null
   return (
-    <div style={{ display: 'flex', gap: 5, marginTop: 3 }}>
+    <div style={{ display: 'flex', gap: 5, marginTop: 3, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
       {badges.map(b => (
         <span key={b.label} style={{
           display: 'inline-flex', alignItems: 'center', gap: 3,
@@ -181,6 +196,21 @@ export default function SelfMarkerScoreShell({
   const [holes, setHoles] = useState<Hole[]>([])
   const [loadingHoles, setLoadingHoles] = useState(true)
   const [holeIdx, setHoleIdx] = useState(0)
+  // Sprint 9 Item 2 — Side Competitions + Powerplay, read-only scoring
+  // awareness. Fetched once alongside holes (same round-scoped request,
+  // see holes/route.ts) — no write/entry flow reads or writes these yet.
+  const [sideComps, setSideComps] = useState<{ id: string; comp_type: string; hole_number: number | null; enabled: boolean }[]>([])
+  // Sprint 9 Item 4 — Capture the Moment. This is the ENTIRE one-shot
+  // mechanism: null means no prompt is showing, full stop. It is set to
+  // a real value in exactly one place in this file (SideCompEntryPanel's
+  // onBecameLeader callback below, itself only ever fired by a direct
+  // POST response), and cleared by the prompt's own onDismiss. No GET,
+  // poll, or effect anywhere reads or writes this state — a refresh
+  // remounts the whole page with this back at null, and re-renders of
+  // unrelated state can't touch it either, since nothing else ever calls
+  // setNewLeaderPrompt.
+  const [newLeaderPrompt, setNewLeaderPrompt] = useState<NewLeaderContext | null>(null)
+  const [powerplayHoleNumber, setPowerplayHoleNumber] = useState<number | null>(null)
   const searchParams = useSearchParams()
   const appliedDeepLinkRef = useRef(false)
 
@@ -395,7 +425,12 @@ export default function SelfMarkerScoreShell({
       setLoadingHoles(true)
       try {
         const res = await fetch(`/api/trips/${tripId}/rounds/${round.id}/holes`)
-        if (res.ok) setHoles((await res.json()).holes ?? [])
+        if (res.ok) {
+          const body = await res.json()
+          setHoles(body.holes ?? [])
+          setSideComps(body.sideComps ?? [])
+          setPowerplayHoleNumber(body.powerplayHoleNumber ?? null)
+        }
       } catch { /* ignore */ }
       setLoadingHoles(false)
     }
@@ -475,6 +510,12 @@ export default function SelfMarkerScoreShell({
   const holeNum = hole?.hole_number ?? holeIdx + 1
   const par = hole?.par ?? 4
   const si = hole?.stroke_index ?? 1
+  // Sprint 9 Item 2 — this hole's active Side Competitions + whether it's
+  // the Powerplay hole. Deliberately allows more than one to be true at
+  // once (no "one competition per hole" rule yet — left flexible per
+  // explicit instruction, not an oversight).
+  const activeSideComps = sideComps.filter(c => c.enabled && c.hole_number === holeNum)
+  const isPowerplayHole = powerplayHoleNumber === holeNum
 
   // Sync draft state whenever the hole changes (prefer already-saved value if present)
   useEffect(() => {
@@ -492,8 +533,16 @@ export default function SelfMarkerScoreShell({
   const myStrokes = hole ? getHandicapStrokesForHole({ playingHandicap: myHcp, strokeIndex: si }) : 0
   const partnerStrokes = hole ? getHandicapStrokesForHole({ playingHandicap: partnerHcp, strokeIndex: si }) : 0
 
-  const myPts = draftMyPickedUp ? 0 : (draftMyGross !== null ? calculateStableford({ grossScore: draftMyGross, par, strokeIndex: si, playingHandicap: myHcp }) : null)
-  const partnerPts = draftPartnerPickedUp ? 0 : (draftPartnerGross !== null ? calculateStableford({ grossScore: draftPartnerGross, par, strokeIndex: si, playingHandicap: partnerHcp }) : null)
+  const myPts = draftMyPickedUp ? 0 : (draftMyGross !== null ? calculateStableford({ grossScore: draftMyGross, par, strokeIndex: si, playingHandicap: myHcp, isPowerplayHole }) : null)
+  const partnerPts = draftPartnerPickedUp ? 0 : (draftPartnerGross !== null ? calculateStableford({ grossScore: draftPartnerGross, par, strokeIndex: si, playingHandicap: partnerHcp, isPowerplayHole }) : null)
+  // Sprint 9 — the "3 × 2 = 6 pts" breakdown shown in the UI (below) is
+  // display-only; myPts/partnerPts above (the actual authoritative
+  // client-side preview) already include the ×2 via calculateStableford's
+  // own isPowerplayHole parameter, matching the Postgres trigger exactly.
+  // These base values exist only to show the "before" half of that
+  // breakdown — they are never summed/persisted anywhere themselves.
+  const myBasePts = draftMyPickedUp || draftMyGross === null ? null : calculateStableford({ grossScore: draftMyGross, par, strokeIndex: si, playingHandicap: myHcp })
+  const partnerBasePts = draftPartnerPickedUp || draftPartnerGross === null ? null : calculateStableford({ grossScore: draftPartnerGross, par, strokeIndex: si, playingHandicap: partnerHcp })
 
   // myComparison/partnerComparison must react to what's actually on
   // screen right now, not stale saved data — this is the direct fix for
@@ -516,7 +565,7 @@ export default function SelfMarkerScoreShell({
     const c = mySelf[h.hole_number]
     if (!c || (c.grossScore === null && !c.pickedUp)) return sum
     if (c.pickedUp) return sum
-    return sum + calculateStableford({ grossScore: c.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp })
+    return sum + calculateStableford({ grossScore: c.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp, isPowerplayHole: h.hole_number === powerplayHoleNumber })
   }, 0)
 
   // Same calculation, but for the partner's own card — uses the partner's
@@ -527,7 +576,7 @@ export default function SelfMarkerScoreShell({
     const c = partnerSelf[h.hole_number]
     if (!c || (c.grossScore === null && !c.pickedUp)) return sum
     if (c.pickedUp) return sum
-    return sum + calculateStableford({ grossScore: c.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: partnerHcp })
+    return sum + calculateStableford({ grossScore: c.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: partnerHcp, isPowerplayHole: h.hole_number === powerplayHoleNumber })
   }, 0)
 
   function pick(which: 'mine' | 'partner', delta: number) {
@@ -714,7 +763,7 @@ export default function SelfMarkerScoreShell({
       const myCapture = mySelf[h.hole_number] ?? null
       const gross = myCapture?.pickedUp ? 'P' : myCapture?.grossScore ?? null
       const pts = (myCapture && !myCapture.pickedUp && myCapture.grossScore !== null)
-        ? calculateStableford({ grossScore: myCapture.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp })
+        ? calculateStableford({ grossScore: myCapture.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp, isPowerplayHole: h.hole_number === powerplayHoleNumber })
         : (myCapture?.pickedUp ? 0 : null)
       return { hole: h, status, gross, pts }
     })
@@ -1160,7 +1209,7 @@ export default function SelfMarkerScoreShell({
             const front9Pts = front9.reduce((s, h) => {
               const c = mySelf[h.hole_number]
               if (!c || c.pickedUp || c.grossScore === null) return s
-              return s + calculateStableford({ grossScore: c.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp })
+              return s + calculateStableford({ grossScore: c.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp, isPowerplayHole: h.hole_number === powerplayHoleNumber })
             }, 0)
             const front9Done = front9.every(h => {
               const c = mySelf[h.hole_number]
@@ -1172,10 +1221,15 @@ export default function SelfMarkerScoreShell({
               const isCurrent = idx === holeIdx
               const hasScore = c && (c.pickedUp || c.grossScore !== null)
               const pts = hasScore && !c!.pickedUp && c!.grossScore !== null
-                ? calculateStableford({ grossScore: c!.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp })
+                ? calculateStableford({ grossScore: c!.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp, isPowerplayHole: h.hole_number === powerplayHoleNumber })
                 : null
               const bg = isCurrent ? '#16a34a' : hasScore ? (pts !== null ? stripPtsBackground(pts) : '#fdf3d9') : '#f3f4f6'
               const fg = isCurrent ? '#fff' : hasScore ? (pts !== null ? stripPtsColor(pts) : '#a1791f') : '#9ca3af'
+              // Sprint 9 — a hole can carry a Side Competition, be the
+              // Powerplay hole, or (deliberately not restricted — no
+              // "one competition per hole" rule yet) both at once.
+              const hasSideComp = sideComps.some(c2 => c2.enabled && c2.hole_number === h.hole_number)
+              const isPowerplay = powerplayHoleNumber === h.hole_number
               return (
                 <button
                   key={h.id}
@@ -1185,9 +1239,17 @@ export default function SelfMarkerScoreShell({
                     background: bg, border: `1.5px solid ${isCurrent ? '#14532d' : '#e5e2d9'}`,
                     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                     transform: isCurrent ? 'scale(1.06)' : 'scale(1)', transition: 'transform 0.12s',
-                    padding: 0,
+                    padding: 0, position: 'relative',
                   }}
                 >
+                  {(hasSideComp || isPowerplay) && (
+                    <span style={{
+                      position: 'absolute', top: -5, right: -4, fontSize: 10, lineHeight: 1,
+                      filter: isCurrent ? 'none' : 'drop-shadow(0 0 1px rgba(255,255,255,0.9))',
+                    }}>
+                      {isPowerplay ? '⚡' : '⭐'}
+                    </span>
+                  )}
                   <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: fg }}>{h.hole_number}</span>
                   <span style={{ fontFamily: 'var(--font-body)', fontSize: 8, fontWeight: 600, color: fg }}>
                     {c?.pickedUp ? 'P' : c?.grossScore ?? '–'}
@@ -1229,6 +1291,70 @@ export default function SelfMarkerScoreShell({
           )}
         </div>
 
+        {/* ── Sprint 9 Item 2 — competition-hole announcement banners.
+            Inline/banner treatment, not a blocking modal — the golfer
+            sees this and can still scroll straight past it into scoring.
+            No result entry here yet (Item 3); this is awareness only.
+            Powerplay gets the stronger, distinct treatment the brief
+            asks for (deeper gold, "DOUBLE STABLEFORD POINTS"), separate
+            from the Side Competition banners. ───────────────────────── */}
+        {isPowerplayHole && (
+          <div style={{
+            background: 'linear-gradient(135deg,#7a5c00,#a1791f)', borderRadius: 12,
+            padding: '12px 14px', marginBottom: 10, textAlign: 'center',
+            boxShadow: '0 3px 12px rgba(161,121,31,0.35)',
+          }}>
+            <div style={{ fontFamily: 'var(--font-display)', color: '#fff', fontWeight: 900, fontSize: 14, letterSpacing: 0.3 }}>
+              ⚡ POWERPLAY — ACTIVE
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', color: '#fdf3d9', fontWeight: 700, fontSize: 11.5, marginTop: 2, letterSpacing: 0.5 }}>
+              DOUBLE STABLEFORD POINTS
+            </div>
+          </div>
+        )}
+        {activeSideComps.map(comp => (
+          <div key={comp.id} style={{
+            background: '#fdf3d9', border: '1.5px solid #e8c96a', borderRadius: 12,
+            padding: '10px 14px', marginBottom: 10,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 16, flexShrink: 0 }}>{SIDE_COMP_BANNER[comp.comp_type]?.icon ?? '🎯'}</span>
+              <div>
+                <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 12.5, color: '#7a5c00', letterSpacing: 0.3 }}>
+                  {(SIDE_COMP_BANNER[comp.comp_type]?.label ?? 'SIDE COMPETITION').toUpperCase()} — ACTIVE
+                </div>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a1791f' }}>
+                  Hole {holeNum} · Par {par}
+                </div>
+              </div>
+            </div>
+            <SideCompEntryPanel
+              tripId={tripId} sideCompId={comp.id} compType={comp.comp_type}
+              label={SIDE_COMP_BANNER[comp.comp_type]?.label ?? 'Side Competition'}
+              icon={SIDE_COMP_BANNER[comp.comp_type]?.icon ?? '🎯'}
+              currentUserId={currentMy?.player_id ?? ''}
+              // Item 4 — the one and only place newLeaderPrompt is ever
+              // set. onBecameLeader only fires from a direct POST
+              // response (see SideCompEntryPanel), so this can only ever
+              // happen as an immediate reaction to the golfer's own
+              // submission — never from a background refetch.
+              onBecameLeader={(result) => {
+                setNewLeaderPrompt({
+                  tripId, roundId: round.id, holeNumber: holeNum, myGroupId: null,
+                  sideCompId: comp.id, compType: comp.comp_type,
+                  entryId: result.entryId, leadChangeId: result.leadChangeId,
+                  playerName: myName, resultValue: result.currentLeader?.resultValue ?? null,
+                })
+              }}
+            />
+            {newLeaderPrompt && newLeaderPrompt.sideCompId === comp.id && (
+              <div style={{ marginTop: 10 }}>
+                <NewLeaderPrompt ctx={newLeaderPrompt} onDismiss={() => setNewLeaderPrompt(null)} />
+              </div>
+            )}
+          </div>
+        ))}
+
         {/* Scoring Anchor — the permanent resting point every hole
             transition returns to. Same simple normal-flow wrapper in
             both modes now — cards render at their natural height and
@@ -1243,7 +1369,8 @@ export default function SelfMarkerScoreShell({
           title="YOUR SCORE" name={myName} hcp={myHcp} par={par} si={si} strokes={myStrokes} holeNum={holeNum}
           gross={draftMyGross} pickedUp={draftMyPickedUp} pts={myPts} runningTotal={myRunningTotal}
           onPick={d => pick('mine', d)} onPar={() => pickPar('mine')} onTogglePickUp={() => togglePickUp('mine')}
-          status={myComparison} onOpenSummary={() => setShowReconciliation(true)} hole={hole} isLockedForSide={isLocked}
+          status={myComparison} onOpenSummary={() => setShowReconciliation(true)} isLockedForSide={isLocked}
+          activeSideComps={activeSideComps} isPowerplayHole={isPowerplayHole} basePts={myBasePts}
         />
 
         {/* ── Card 2: YOUR MARKER (the partner I mark) ──────────────────── */}
@@ -1253,6 +1380,7 @@ export default function SelfMarkerScoreShell({
             gross={draftPartnerGross} pickedUp={draftPartnerPickedUp} pts={partnerPts} runningTotal={partnerRunningTotal}
             onPick={d => pick('partner', d)} onPar={() => pickPar('partner')} onTogglePickUp={() => togglePickUp('partner')}
             status={partnerComparison} onOpenSummary={() => setShowReconciliation(true)} isLockedForSide={isPartnerLocked}
+            activeSideComps={activeSideComps} isPowerplayHole={isPowerplayHole} basePts={partnerBasePts}
           />
         )}
         </div>
@@ -1276,7 +1404,7 @@ export default function SelfMarkerScoreShell({
                 key="mine"
                 aLabel="You" aCapture={mine} aHandicap={myHcp}
                 bLabel={partnerName ?? 'Your marker'} bCapture={theirs} bHandicap={partnerHcp}
-                par={par} strokeIndex={si}
+                par={par} strokeIndex={si} isPowerplayHole={isPowerplayHole}
               />
             )
           }
@@ -1288,7 +1416,7 @@ export default function SelfMarkerScoreShell({
                 key="partner"
                 aLabel={partnerName ?? 'Your marker'} aCapture={theirs} aHandicap={partnerHcp}
                 bLabel="You" bCapture={mine} bHandicap={myHcp}
-                par={par} strokeIndex={si}
+                par={par} strokeIndex={si} isPowerplayHole={isPowerplayHole}
               />
             )
           }
@@ -1443,18 +1571,18 @@ export default function SelfMarkerScoreShell({
  * field-test case) decides which of the two required treatments applies.
  */
 function MismatchBlock({
-  aLabel, aCapture, aHandicap, bLabel, bCapture, bHandicap, par, strokeIndex,
+  aLabel, aCapture, aHandicap, bLabel, bCapture, bHandicap, par, strokeIndex, isPowerplayHole,
 }: {
   aLabel: string; aCapture: CaptureValue | null; aHandicap: number
   bLabel: string; bCapture: CaptureValue | null; bHandicap: number
-  par: number; strokeIndex: number
+  par: number; strokeIndex: number; isPowerplayHole?: boolean
 }) {
   const pointsFor = (capture: CaptureValue | null, handicap: number): number | null => {
     if (!capture) return null
     if (capture.pickedUp) return 0
     if (capture.grossScore === null) return null
     try {
-      return calculateStableford({ grossScore: capture.grossScore, par, strokeIndex, playingHandicap: handicap })
+      return calculateStableford({ grossScore: capture.grossScore, par, strokeIndex, playingHandicap: handicap, isPowerplayHole })
     } catch {
       return null
     }
@@ -1504,12 +1632,13 @@ function MismatchBlock({
 }
 
 function ScoreCard({
-  title, name, hcp, par, si, strokes, holeNum, gross, pickedUp, pts, runningTotal, onPick, onPar, onTogglePickUp, status, onOpenSummary, hole, isLockedForSide,
+  title, name, hcp, par, si, strokes, holeNum, gross, pickedUp, pts, runningTotal, onPick, onPar, onTogglePickUp, status, onOpenSummary, isLockedForSide, activeSideComps, isPowerplayHole, basePts,
 }: {
   title: string; name: string; hcp: number; par: number; si: number; strokes: number; holeNum: number
   gross: number | null; pickedUp: boolean; pts: number | null; runningTotal: number
   onPick: (delta: number) => void; onPar: () => void; onTogglePickUp: () => void
-  status: ComparisonStatus | null; onOpenSummary?: () => void; hole?: Hole | null; isLockedForSide?: boolean
+  status: ComparisonStatus | null; onOpenSummary?: () => void; isLockedForSide?: boolean
+  activeSideComps?: { id: string; comp_type: string }[]; isPowerplayHole?: boolean; basePts?: number | null
 }) {
   return (
     <div style={{ borderRadius: 12, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 3px 14px rgba(0,0,0,0.08)', marginBottom: 6, overflow: 'hidden' }}>
@@ -1527,7 +1656,9 @@ function ScoreCard({
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#a1791f' }}>
             H{holeNum}
           </div>
-          {hole && <HoleBadges hole={hole} />}
+          {(activeSideComps && activeSideComps.length > 0) || isPowerplayHole
+            ? <HoleBadges activeSideComps={activeSideComps ?? []} isPowerplayHole={!!isPowerplayHole} />
+            : null}
           {status && (status === 'matched' || status === 'mismatch') && (
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: statusColor(status), marginTop: 2 }}>
               {COMPARISON_LABEL[status]}
@@ -1546,6 +1677,23 @@ function ScoreCard({
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#6b7280', marginTop: 5 }}>
               {pickedUp ? '0 Points (pick-up)' : pts !== null ? `${pts} Point${pts === 1 ? '' : 's'}` : 'Par ' + par + ' · SI ' + si}
             </div>
+            {/* Sprint 9 — Powerplay visual treatment. Shows the
+                transformation explicitly (brief's own "3 × 2 = 6 pts"
+                example) rather than just a bigger/different-colored
+                number, so it's unambiguous this is a rule applying, not
+                an unusually good hole. pts itself (above) already IS the
+                doubled value — this line is purely explanatory, doesn't
+                drive any calculation. */}
+            {isPowerplayHole && !pickedUp && basePts !== null && basePts !== undefined && pts !== null && (
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4,
+                background: '#fdf3d9', border: '1px solid #e8c96a', borderRadius: 8, padding: '2px 8px',
+              }}>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#a1791f' }}>
+                  ⚡ {basePts} × 2 = {pts} pts
+                </span>
+              </div>
+            )}
           </div>
           <button onClick={() => onPick(1)} disabled={isLockedForSide} style={{ width: 50, height: 50, borderRadius: 12, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 22, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>+</button>
         </div>

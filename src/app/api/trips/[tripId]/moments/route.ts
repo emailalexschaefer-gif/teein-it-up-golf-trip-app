@@ -13,6 +13,7 @@
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -72,8 +73,13 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   if (authError || !user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
 
   const body = await req.json().catch(() => ({}))
-  const { imagePath, caption, roundId, holeNumber, audience } = body as {
+  const { imagePath, caption, roundId, holeNumber, audience, sideCompId, sideCompEntryId, leadChangeId } = body as {
     imagePath?: string; caption?: string; roundId?: string | null; holeNumber?: number | null; audience?: string
+    // Sprint 9 Item 4 — Capture the Moment linking. Only ever present
+    // when this Moment was launched from a New Leader prompt (see
+    // MomentCapture's sideCompContext prop) — a normal Moment posted
+    // from Chat/My Round never sends these.
+    sideCompId?: string | null; sideCompEntryId?: string | null; leadChangeId?: string | null
   }
 
   // A Moment needs either a photo or a caption — a Text Moment (no
@@ -140,6 +146,41 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   }
   if (msgErr) {
     console.error('[moments POST] chat-link insert failed (moment itself still saved)', { code: msgErr.code, message: msgErr.message, momentId: moment.id })
+  }
+
+  // Sprint 9 Item 4 — link this Moment back onto the Side Competition
+  // entry/lead-change it was captured for, so Event Story can later pair
+  // the golf fact ("Darren took NTP lead at 0.8m") with the actual photo.
+  // Uses the admin client for this specific follow-up write only — the
+  // primary moment insert above stays on the regular RLS-scoped client,
+  // unchanged. Ownership is re-verified here server-side (never trusts
+  // the client-supplied IDs alone) so this can't be used to attach a
+  // photo to someone else's competition result. Best-effort: if this
+  // fails, the Moment itself is still fully saved — only the Story
+  // relationship is missing, logged, not silently swallowed.
+  if (sideCompEntryId) {
+    const admin = createAdminClient()
+    const entryRes = await admin.from('side_comp_entries').select('id, player_id').eq('id', sideCompEntryId).maybeSingle()
+    if (entryRes.data && entryRes.data.player_id === user.id) {
+      const { error: linkErr } = await admin.from('side_comp_entries').update({ moment_id: moment.id }).eq('id', sideCompEntryId)
+      if (linkErr) console.error('[moments POST] side_comp_entries link failed', { code: linkErr.code, message: linkErr.message, momentId: moment.id, sideCompEntryId })
+    } else {
+      console.warn('[moments POST] sideCompEntryId ownership check failed — not linking', { sideCompEntryId, userId: user.id, sideCompId })
+    }
+  }
+  if (leadChangeId) {
+    const admin = createAdminClient()
+    // A lead-change row has no direct player-column check as cheap as
+    // the entry's own — it's already been verified indirectly (the
+    // client only ever has a leadChangeId from a POST response to ITS
+    // OWN submission), but re-verified via the entry ownership check
+    // above whenever both ids are present (the normal case). If only
+    // leadChangeId is present with no matching verified entry, skip
+    // linking rather than trust it blindly.
+    if (sideCompEntryId) {
+      const { error: leadLinkErr } = await admin.from('side_comp_lead_changes').update({ moment_id: moment.id }).eq('id', leadChangeId).eq('player_id', user.id)
+      if (leadLinkErr) console.error('[moments POST] side_comp_lead_changes link failed', { code: leadLinkErr.code, message: leadLinkErr.message, momentId: moment.id, leadChangeId })
+    }
   }
 
   return NextResponse.json({ ok: true, moment })

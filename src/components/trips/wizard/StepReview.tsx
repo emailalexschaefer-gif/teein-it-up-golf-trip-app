@@ -15,6 +15,10 @@ interface Props {
   error: string | null
 }
 
+const SIDE_COMP_LABELS: Record<string, string> = {
+  nearest_pin: '🎯 NTP', longest_drive: '💥 Longest Drive', pros_approach: "🎯 Pro's Approach",
+}
+
 export default function StepReview({ tripDetails, rounds, onBack, onCreate, loading, error, isEditing }: Props) {
   const eventLabel = EVENT_TYPE_OPTIONS.find((o) => o.value === tripDetails.event_type)?.label ?? 'Golf Trip'
 
@@ -34,17 +38,33 @@ export default function StepReview({ tripDetails, rounds, onBack, onCreate, load
           {rounds.length} round{rounds.length !== 1 ? 's' : ''}
         </p>
         <div className="space-y-2">
-          {rounds.map((r) => (
-            <div key={r.id} className="bg-white rounded-xl p-3">
-              <p className="font-medium text-sm text-text">{r.name}</p>
-              <p className="text-xs text-text-muted mt-0.5">
-                {r.course_name ? `${r.course_name} · ` : ''}
-                {formatTripDate(r.play_date)}
-                {r.tee_time ? ` · ${r.tee_time}` : ''}
-                {' · '}{r.holes} holes · Stableford
-              </p>
-            </div>
-          ))}
+          {rounds.map((r) => {
+            const enabledComps = (r.side_comps ?? []).filter(c => c.enabled && c.hole_number != null)
+            const tags = [
+              ...enabledComps.map(c => `${SIDE_COMP_LABELS[c.comp_type] ?? c.comp_type} · H${c.hole_number}`),
+              ...(r.powerplay_enabled && r.powerplay_hole_number ? [`⚡ Powerplay · H${r.powerplay_hole_number} · 2×`] : []),
+            ]
+            return (
+              <div key={r.id} className="bg-white rounded-xl p-3">
+                <p className="font-medium text-sm text-text">{r.name}</p>
+                <p className="text-xs text-text-muted mt-0.5">
+                  {r.course_name ? `${r.course_name} · ` : ''}
+                  {formatTripDate(r.play_date)}
+                  {r.tee_time ? ` · ${r.tee_time}` : ''}
+                  {' · '}{r.holes} holes · Stableford
+                </p>
+                {tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {tags.map(t => (
+                      <span key={t} className="text-[11px] bg-cream-100 rounded-full px-2.5 py-1 text-text-muted">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       </div>
 

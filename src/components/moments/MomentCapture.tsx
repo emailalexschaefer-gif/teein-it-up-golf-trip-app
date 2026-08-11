@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useQueryClient } from '@tanstack/react-query'
@@ -89,14 +89,32 @@ interface Props {
   holeNumber?: number | null
   myGroupId: string | null
   onPosted?: () => void
+  // Sprint 9 Item 4 — Capture the Moment for a new Side Competition
+  // leader. When set, "Take Photo" launches the camera picker directly
+  // (skipping the composer's normal choose-a-method screen — the whole
+  // point of this prompt is urgency, "grab a photo while you're still at
+  // the pin"), and the resulting Moment is submitted with this context
+  // attached so the server can link moment_id back onto the relevant
+  // side_comp_entries/side_comp_lead_changes row. The caption stays
+  // entirely optional and empty by default — the golfer never has to
+  // describe what happened, the structured context already says it.
+  sideCompContext?: {
+    sideCompId: string
+    entryId: string | null
+    leadChangeId: string | null
+    compType: string
+    resultValue: number | null
+  }
+  autoOpenCamera?: boolean
 }
 
 type ComposerStage = 'closed' | 'choosing' | 'photoPreview' | 'textMoment'
 
-export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, onPosted }: Props) {
+export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, onPosted, sideCompContext, autoOpenCamera }: Props) {
   const queryClient = useQueryClient()
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const galleryInputRef = useRef<HTMLInputElement>(null)
+  const autoOpenedRef = useRef(false)
 
   const [stage, setStage] = useState<ComposerStage>('closed')
   const [previewFile, setPreviewFile] = useState<File | null>(null)
@@ -107,6 +125,16 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
   const [uploading, setUploading] = useState(false)
   const [uploadStage, setUploadStage] = useState<'idle' | 'preparing' | 'uploading'>('idle')
   const [error, setError] = useState('')
+
+  // Fires once, only when a caller (the New Leader prompt) explicitly
+  // asks for it — never on a normal render, so this can never
+  // accidentally reopen the camera on its own.
+  useEffect(() => {
+    if (autoOpenCamera && !autoOpenedRef.current) {
+      autoOpenedRef.current = true
+      cameraInputRef.current?.click()
+    }
+  }, [autoOpenCamera])
 
   function resetAll() {
     if (previewUrl) URL.revokeObjectURL(previewUrl)
@@ -227,6 +255,15 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
         body: JSON.stringify({
           imagePath: imagePath ?? null, caption: caption.trim(), roundId: roundId ?? null, holeNumber: holeNumber ?? null,
           audience: audience === 'group' && myGroupId ? 'group' : 'everyone',
+          // Sprint 9 — automatic context linking. Only present when this
+          // capture was launched from a New Leader prompt; the moments
+          // route uses these to write moment_id back onto the relevant
+          // side_comp_entries/side_comp_lead_changes row after insert.
+          ...(sideCompContext ? {
+            sideCompId: sideCompContext.sideCompId,
+            sideCompEntryId: sideCompContext.entryId,
+            leadChangeId: sideCompContext.leadChangeId,
+          } : {}),
         }),
       })
     } catch (networkErr) {
@@ -269,7 +306,7 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
       <input ref={cameraInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={handleSelect} style={{ display: 'none' }} />
       <input ref={galleryInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleSelect} style={{ display: 'none' }} />
 
-      {stage === 'closed' && (
+      {stage === 'closed' && !autoOpenCamera && (
         <button
           type="button"
           onClick={() => setStage('choosing')}

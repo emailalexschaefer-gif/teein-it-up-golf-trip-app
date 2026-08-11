@@ -3,6 +3,12 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { z } from 'zod'
 
+const SideCompSchema = z.object({
+  comp_type:   z.enum(['nearest_pin', 'longest_drive', 'pros_approach']),
+  enabled:     z.boolean(),
+  hole_number: z.number().int().min(1).max(18).nullable(),
+})
+
 const RoundSchema = z.object({
   name:           z.string().min(1).max(100),
   course_name:    z.string().max(100).default(''),
@@ -10,6 +16,13 @@ const RoundSchema = z.object({
   tee_time:       z.string().max(10).default(''),
   holes:          z.union([z.literal(9), z.literal(18)]).default(18),
   scoring_format: z.literal('stableford').default('stableford'),
+  // Sprint 9 — Side Competitions + Powerplay, configured at round setup,
+  // before the round exists in an editable-forever sense (see migration
+  // 037's lock trigger). Optional/defaulted so this remains a fully
+  // backward-compatible addition to trip creation.
+  side_comps:             z.array(SideCompSchema).max(3).default([]),
+  powerplay_enabled:      z.boolean().default(false),
+  powerplay_hole_number:  z.number().int().min(1).max(18).nullable().default(null),
 })
 
 const CreateTripSchema = z.object({
@@ -132,9 +145,12 @@ export async function POST(request: Request) {
 
   // ── Rounds ─────────────────────────────────────────────────────────────────
   if (rounds.length > 0) {
-    const { error: roundsError } = await admin
+    const { data: insertedRounds, error: roundsError } = await admin
       .from('rounds')
-      .insert(rounds.map((r: { name: string; course_name: string | null; play_date: string; tee_time: string | null; holes: number; scoring_format: string }) => ({
+      .insert(rounds.map((r: {
+        name: string; course_name: string | null; play_date: string; tee_time: string | null
+        holes: number; scoring_format: string; powerplay_enabled?: boolean; powerplay_hole_number?: number | null
+      }) => ({
         trip_id:        trip.id,
         name:           r.name,
         course_name:    r.course_name || null,
@@ -143,7 +159,12 @@ export async function POST(request: Request) {
         holes:          r.holes,
         scoring_format: r.scoring_format,
         status:         'upcoming',
+        // A brand-new round is always 'upcoming', so writing this at
+        // insert time is always safe — the lock trigger (migration 037)
+        // only fires on UPDATE of this column, never INSERT.
+        powerplay_hole_number: r.powerplay_enabled ? (r.powerplay_hole_number ?? null) : null,
       })))
+      .select('id')
 
     if (roundsError) {
       // Rounds failed — clean up trip (membership cascades)
@@ -153,6 +174,38 @@ export async function POST(request: Request) {
         { error: `Failed to create rounds: ${roundsError.message}` },
         { status: 500 }
       )
+    }
+
+    // Side Competitions — one row per enabled comp_type per round. Rounds
+    // are inserted in the same order as the incoming array (Postgres/
+    // PostgREST preserves insert order in the returned rows for a single
+    // multi-row insert), so insertedRounds[i] corresponds to rounds[i].
+    const SIDE_COMP_LABELS: Record<string, string> = {
+      nearest_pin: 'Nearest the Pin', longest_drive: 'Longest Drive', pros_approach: "Pro's Approach",
+    }
+    const sideCompRows = rounds.flatMap((r: {
+      side_comps?: { comp_type: string; enabled: boolean; hole_number: number | null }[]
+    }, i: number) => {
+      const roundId = insertedRounds?.[i]?.id
+      if (!roundId) return []
+      return (r.side_comps ?? [])
+        .filter(c => c.enabled && c.hole_number != null)
+        .map(c => ({
+          trip_id: trip.id, round_id: roundId,
+          name: SIDE_COMP_LABELS[c.comp_type] ?? c.comp_type, comp_type: c.comp_type,
+          hole_number: c.hole_number, enabled: true,
+        }))
+    })
+
+    if (sideCompRows.length > 0) {
+      const { error: sideCompError } = await admin.from('side_comps').insert(sideCompRows)
+      if (sideCompError) {
+        // Side Comps are additive to a trip that already exists correctly
+        // with its rounds — a failure here shouldn't roll back the whole
+        // trip creation (unlike the rounds insert above, which the trip
+        // structurally cannot exist without). Logged, surfaced, not fatal.
+        console.error('[POST /api/trips] side_comps insert failed:', sideCompError.message)
+      }
     }
   }
 

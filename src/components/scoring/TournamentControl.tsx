@@ -34,7 +34,7 @@ interface MismatchAlert {
   playerName: string; markerName: string; groupName: string; groupId: string | null
   hole: number; playerScore: string; markerScore: string; at: string
 }
-interface StoryEntry { icon: string; text: string; at: string }
+interface StoryEntry { icon: string; text: string; at: string; imageUrl?: string }
 // Discriminated timeline item — 'system' entries (golf milestones, group
 // finishes, leader changes) stay compact text-only rows exactly as
 // before; 'moment' entries carry the actual image so it can be rendered
@@ -42,8 +42,16 @@ interface StoryEntry { icon: string; text: string; at: string }
 // activity-log line" requirement. One shared type/renderer for both "The
 // Story" and "Event Story" below, rather than two parallel
 // implementations of the same card.
+//
+// Sprint 9 — a 'system' item can now ALSO optionally carry an imageUrl:
+// a Side Competition leadership-change event ("Darren takes NTP lead —
+// 0.8m") that has a linked Moment surfaces that photo inline with the
+// fact itself, rather than as two separate timeline rows. Still
+// text-only when imageUrl is absent — the vast majority of golf
+// milestones — so this doesn't change how any existing system event
+// renders.
 type TimelineItem =
-  | { kind: 'system'; icon: string; text: string; at: string }
+  | { kind: 'system'; icon: string; text: string; at: string; imageUrl?: string }
   | { kind: 'moment'; at: string; imageUrl: string | null; caption: string | null; playerName: string; holeNumber: number | null }
 interface LeaderboardSnapshotRow { position: number; playerId: string; name: string; totalPts: number; holesPlayed: number; finished: boolean }
 interface TournamentData {
@@ -528,7 +536,7 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           kind: 'moment', at: m.created_at, imageUrl: m.imageUrl, caption: m.caption,
           playerName: m.playerName, holeNumber: m.hole_number,
         }))
-        const systemItems: TimelineItem[] = data.story.map(s => ({ kind: 'system', icon: s.icon, text: s.text, at: s.at }))
+        const systemItems: TimelineItem[] = data.story.map(s => ({ kind: 'system', icon: s.icon, text: s.text, at: s.at, imageUrl: s.imageUrl }))
         const storyCombined: TimelineItem[] = [...systemItems, ...roundMomentItems].sort((a, b) => b.at.localeCompare(a.at))
         if (storyCombined.length === 0) return <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 14, overflow: 'hidden' }}><EmptyNote>The story of the round will appear here as it unfolds.</EmptyNote></div>
         return <div style={{ marginBottom: 14 }}><StoryTimelineList items={storyCombined} /></div>
@@ -667,10 +675,27 @@ function StoryTimelineList({ items, limit }: { items: TimelineItem[]; limit?: nu
           )
         }
         return (
-          <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '9px 14px', borderBottom: isLast ? 'none' : '1px solid #f3f4f1' }}>
-            <span style={{ fontSize: 14, flexShrink: 0 }}>{item.icon}</span>
-            <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#14532d' }}>{item.text}</span>
-            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', flexShrink: 0, marginLeft: 8 }}>{relativeTime(item.at)}</span>
+          <div key={i} style={{ padding: '9px 14px', borderBottom: isLast ? 'none' : '1px solid #f3f4f1' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+              <span style={{ fontSize: 14, flexShrink: 0 }}>{item.icon}</span>
+              <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#14532d' }}>{item.text}</span>
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', flexShrink: 0, marginLeft: 8 }}>{relativeTime(item.at)}</span>
+            </div>
+            {/* Sprint 9 — a Side Competition leadership event with a
+                linked Moment surfaces the actual photo right here,
+                inline with the fact, rather than as a separate row.
+                Tappable into the same shared MomentViewer everything
+                else uses. */}
+            {item.imageUrl && (
+              <button
+                onClick={() => setViewing({ imageUrl: item.imageUrl!, caption: null, playerName: null, holeNumber: null, createdAt: item.at })}
+                aria-label="View photo"
+                style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'pointer', marginTop: 8 }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- a signed Supabase Storage URL, not a static asset */}
+                <img src={item.imageUrl} alt="" style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
+              </button>
+            )}
           </div>
         )
       })}
@@ -716,7 +741,7 @@ function EventStorySection({ tripId, golfStory }: { tripId: string; golfStory: S
     kind: 'moment', at: m.created_at, imageUrl: m.imageUrl, caption: m.caption,
     playerName: m.playerName, holeNumber: m.hole_number,
   }))
-  const systemItems: TimelineItem[] = golfStory.map(s => ({ kind: 'system', icon: s.icon, text: s.text, at: s.at }))
+  const systemItems: TimelineItem[] = golfStory.map(s => ({ kind: 'system', icon: s.icon, text: s.text, at: s.at, imageUrl: s.imageUrl }))
 
   // Merge the two timelines and sort chronologically — Golf Story
   // (scores/milestones) and Moments (people/memories) are computed

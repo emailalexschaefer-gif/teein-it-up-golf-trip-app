@@ -1,5 +1,142 @@
 # Teein' It Up — Sprint 3 Testing Guide
 
+## Sprint 9 — Side Competitions & Powerplay (deployment candidate)
+
+**Status: ready for live testing, not yet declared done.** Everything in
+this section was verified by careful code tracing and by running the
+pure-domain test suite — this sandbox has no network access to a live
+Supabase database or a browser, so nothing here has actually been
+clicked through by a real person yet. That's the next step, not this one.
+
+### Migrations — deploy in this exact order
+
+1. **`037_side_competitions_powerplay.sql`** — schema:
+   `rounds.powerplay_hole_number`; widens the existing (previously
+   dormant, confirmed unused by any application code) `side_comps` table
+   with `round_id NOT NULL`, `enabled`, and `UNIQUE(round_id, comp_type)`;
+   new `side_comp_entries` (current, correctable result per player) and
+   `side_comp_lead_changes` (append-only leadership history); a DB-level
+   trigger locking Side Comp/Powerplay config once a round leaves
+   `'upcoming'`; and the Powerplay ×2 inside the existing, authoritative
+   `compute_stableford()` trigger.
+   - **Defensive against unknown production data**: before applying
+     `NOT NULL`/`UNIQUE` to `side_comps`, any row that would violate
+     them is copied into `side_comps_pre_sprint9_backup` and logged via
+     `RAISE NOTICE`, not silently deleted. This table is confirmed dead
+     code, so this branch is not expected to fire — but this sandbox
+     cannot query production to confirm that, so it's handled rather
+     than assumed. **Check the deploy log for this notice** — if it
+     fires, look at `side_comps_pre_sprint9_backup` before doing
+     anything else.
+   - The dormant, pre-Sprint-9 `side_comp_results` table is completely
+     untouched — not dropped, not altered.
+2. **`038_side_comp_entry_submission.sql`** — the two atomic,
+   row-locking RPC functions (`submit_side_comp_value_entry` for
+   NTP/Pro's Approach, `submit_longest_drive_entry` for Longest Drive)
+   that decide leadership server-side. **Must run after 037** — both
+   reference tables/columns 037 creates.
+
+### What changed, by layer
+- **Round setup**: `StepRounds.tsx` — ON/OFF + hole select for all
+  three Side Competitions and Powerplay, locked to a read-only summary
+  once a round has started (client-side mirror of the DB trigger).
+  Persisted via `POST /api/trips` (new trip) and
+  `PATCH /api/trips/[tripId]` (edit existing trip), both respecting the
+  same lock.
+- **Scoring awareness** (read-only, both `SelfMarkerScoreShell.tsx` and
+  `ScoreSessionShell.tsx`/group_scorer): hole-strip ⭐/⚡ badges, on-hole
+  banners, and the "⚡ 3 × 2 = 6 pts" Powerplay breakdown.
+- **Entry** (`SelfMarkerScoreShell.tsx` only — see group_scorer note
+  below): `SideCompEntryPanel`, embedded under the existing hole
+  content, no modal. Qualify yes/no, distance entry, Longest Drive's
+  fairway + beat-the-leader flow. Prefills on revisit; a correction is
+  the same endpoint, not a separate path.
+- **Capture the Moment**: `NewLeaderPrompt` + extended `MomentCapture`
+  (`autoOpenCamera`, `sideCompContext`). One-shot by construction — the
+  triggering state is set in exactly one place, only in direct reaction
+  to a POST response, never read from a GET/poll.
+- **Side Games**: rebuilt from a placeholder into a live status page —
+  current leader/winner per competition, expandable leadership history,
+  🔥 Hotly Contested at 5 changes, Powerplay card.
+- **Golf Story**: leadership events, Hotly Contested, and winner
+  announcements now appear in the existing Story timeline, with linked
+  photos surfaced inline. Computed at read time from the append-only
+  log — inherently non-duplicating on refresh, nothing is ever written
+  as a side effect of a GET.
+- **Final Results**: Side Competition Winners + Powerplay Highlight,
+  grouped by round (never collapsed across rounds), each competition's
+  closure independently re-verified rather than trusted from the
+  trip-level "completed" status alone.
+
+### The two things a hardening pass caught before this ever shipped
+1. **Duplicate leadership/Capture-Moment bug**: the NTP/Pro's Approach
+   RPC originally compared a submission only against *other* players,
+   never checked whether the submitter was already leading. A same-value
+   resubmission by the standing leader would log a spurious duplicate
+   leadership event **and** re-trigger the Capture Moment prompt every
+   time. **Fixed**: leadership is now decided by comparing leader
+   *identity* before vs. after the submission. Longest Drive's function
+   already guarded against this correctly by construction and needed no
+   change.
+2. **Migration safety**: upgraded from "delete anything that would
+   violate the new constraints" to "back it up first, log if it
+   happens" — see the migration section above.
+
+### Known limitations, carried into testing deliberately, not oversights
+- **Side Competition entries are not on the offline queue** (Dexie/
+  `syncScoreQueue`). This is a considered decision: a queued
+  submission's outcome (`becameLeader`) genuinely cannot be known until
+  the server processes it against whatever every other player's entry
+  looks like *at that moment* — queuing it would mean either faking that
+  answer client-side (breaking "the server always decides leadership")
+  or turning Capture the Moment into an async, after-the-fact
+  notification, which is real new architecture, not a hardening fix.
+  **What's guaranteed**: a side-comp submission cannot interfere with
+  or corrupt normal score entry under any connectivity condition — they
+  share no state, no queue, and no request. Losing reception mid-
+  submission surfaces a clear message ("your score is safe, but this
+  result hasn't saved") rather than silently failing or blocking
+  scoring.
+- **Any trip member can submit their own Side Comp result, even without
+  a scorecard for that round** — not a spoofing risk (still only ever
+  acting as themselves), but a data-quality gap. Deliberately not fixed
+  in this deployment, per explicit instruction — tighten to
+  participating players only in a follow-up.
+- **`group_scorer` mode has no Side Comp entry UI**, only the read-only
+  awareness badges/banners. One operator scores for multiple different
+  players on that flow; wiring entry there would attribute results
+  under the *operator's* identity while asking about a different
+  player. Needs a real product decision (let the operator pick who's
+  answering? disable entirely?), not something to improvise.
+
+### Suggested live smoke test (matches what prompted this checkpoint)
+1. Configure NTP, Longest Drive, Pro's Approach, and Powerplay on a
+   test round, on known holes.
+2. Manufacture the leadership sequence: Alex 4m → Darren 3m → Dave 2m →
+   Alex 1.5m → Darren 1m — five changes, watch for 🔥 Hotly Contested
+   firing exactly once (at the 5th), and a Capture the Moment prompt on
+   every genuine change.
+3. Take at least one photo, skip at least one — confirm the photo shows
+   up in Side Games/Story, confirm skip doesn't break anything.
+4. Powerplay: a known score (e.g. 3 base points) on the Powerplay hole
+   should show 6.
+5. Finish the competition hole for every active scorecard — confirm the
+   Side Games card switches from "Current leader" to "🏆 Winner" only
+   at that point, not when the first group finishes.
+6. Complete the round, check Golf Story reads naturally, check Final
+   Results shows the correct winners.
+7. Start Round 2, change its Side Comp config, and confirm Round 1's
+   history and results are completely unaffected.
+
+### Domain test suite
+✅ **153/153 passing**, no regressions, including the tests that
+originally caught the tie-handling edge cases from Sprint 8's
+foundation this all builds on. Nothing new was added to this suite in
+the hardening pass — the bug found was in Postgres RPC logic, which this
+sandbox has no way to unit test directly (no live database).
+
+---
+
 ## Sprint 8 — Final Event Results + Champion Experience V1
 
 ### Build status

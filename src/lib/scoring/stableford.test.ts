@@ -78,3 +78,34 @@ test('invalid gross score throws a typed error, never silently returns 0', () =>
     (err: unknown) => err instanceof ScoringDomainError && err.code === 'NON_NUMERIC_VALUE'
   )
 })
+
+// ── Powerplay (Sprint 9) ─────────────────────────────────────────────────────
+
+test('powerplay hole doubles the base Stableford points — matches the brief\'s own worked example (3 → 6)', () => {
+  // scratch player, par 4, gross 4 (net par) → 2 base points on a normal hole
+  const normal = calculateStableford({ grossScore: 4, par: 4, strokeIndex: 10, playingHandicap: 0 })
+  assert.equal(normal, 2)
+  // A birdie (gross 3) on the same hole gives 3 base points — the brief's example
+  const birdieBase = calculateStableford({ grossScore: 3, par: 4, strokeIndex: 10, playingHandicap: 0 })
+  assert.equal(birdieBase, 3)
+  const birdiePowerplay = calculateStableford({ grossScore: 3, par: 4, strokeIndex: 10, playingHandicap: 0, isPowerplayHole: true })
+  assert.equal(birdiePowerplay, 6)
+})
+
+test('powerplay defaults to off — omitting the flag never doubles anything (regression guard for every existing call site)', () => {
+  const withoutFlag = calculateStableford({ grossScore: 5, par: 4, strokeIndex: 10, playingHandicap: 0 })
+  const explicitlyOff = calculateStableford({ grossScore: 5, par: 4, strokeIndex: 10, playingHandicap: 0, isPowerplayHole: false })
+  assert.equal(withoutFlag, explicitlyOff)
+})
+
+test('powerplay doubling applies after handicap strokes, not before — a 0-point hole stays 0, not negative or doubled from a different base', () => {
+  // A very poor score gets capped at 0 base points; doubling 0 is still 0.
+  const result = calculateStableford({ grossScore: 12, par: 4, strokeIndex: 10, playingHandicap: 0, isPowerplayHole: true })
+  assert.equal(result, 0)
+})
+
+test('powerplay has no upper cap either — an exceptional nett-albatross-or-better hole still doubles cleanly', () => {
+  const base = calculateStableford({ grossScore: 1, par: 5, strokeIndex: 1, playingHandicap: 0 })
+  const doubled = calculateStableford({ grossScore: 1, par: 5, strokeIndex: 1, playingHandicap: 0, isPowerplayHole: true })
+  assert.equal(doubled, base * 2)
+})

@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import SideGamesClient from './SideGamesClient'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,23 +12,19 @@ export default async function SideGamesPage({ params }: Props) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  return (
-    <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '16px 16px 90px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-        <Link href={`/trips/${tripId}`} style={{ color: '#9ca3af', fontSize: 18, textDecoration: 'none' }}>←</Link>
-        <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>Side Games</span>
-      </div>
+  // Side Games is explicitly round-specific — the active round if one is
+  // in progress, otherwise the most recently relevant one (same "focus
+  // round" reasoning already used elsewhere, e.g. PlayerHomeCard), never
+  // a merged view across rounds.
+  const { data: rounds } = await supabase
+    .from('rounds')
+    .select('id, name, course_name, status, play_date')
+    .eq('trip_id', tripId)
+    .order('play_date', { ascending: false })
 
-      {/* Preserved destination for Sprint 5C.3 — not built yet, deliberately. */}
-      <div style={{ textAlign: 'center', padding: '48px 16px' }}>
-        <p style={{ fontSize: 36, marginBottom: 10 }}>🎯</p>
-        <p style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 17, fontWeight: 800, marginBottom: 8 }}>
-          Side Games — coming soon
-        </p>
-        <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, maxWidth: 300, margin: '0 auto', lineHeight: 1.5 }}>
-          Nearest the Pin, Longest Drive, Pro&apos;s Approach and other competitions will live here in a future update.
-        </p>
-      </div>
-    </div>
-  )
+  const activeRound = rounds?.find(r => r.status === 'active')
+  const round = activeRound ?? rounds?.find(r => r.status === 'completed') ?? rounds?.[0] ?? null
+
+  return <SideGamesClient tripId={tripId} round={round} />
 }
+

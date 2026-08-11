@@ -82,7 +82,9 @@ export default async function TripDetailPage({ params }: Props) {
           profiles ( id, full_name, avatar_url, handicap )
         ),
         rounds (
-          id, name, course_name, play_date, tee_time, holes, scoring_format, status
+          id, name, course_name, play_date, tee_time, holes, scoring_format, status,
+          powerplay_hole_number,
+          side_comps ( id, comp_type, hole_number, enabled )
         )
       `)
       .eq('id', tripId).maybeSingle()
@@ -95,6 +97,13 @@ export default async function TripDetailPage({ params }: Props) {
         msg.includes('players_per_group') || msg.includes('organiser_is_playing') ||
         msg.includes('playing_handicap') || msg.includes('handicap_status')
       )
+      // Sprint 9 (migration 037) — same resilience pattern, separate check:
+      // powerplay_hole_number missing, or side_comps not found as a
+      // relationship (Postgrest's message for an unrecognised nested
+      // table differs from a plain missing-column message, hence the
+      // separate "relationship" check rather than reusing isMissingCol).
+      const isMissingSideComp = (msg.includes('does not exist') && msg.includes('powerplay_hole_number'))
+        || msg.toLowerCase().includes('side_comps') // covers Postgrest's "could not find a relationship" wording
       if (isMissingCol) {
         console.warn('[trip page] Sprint 3 columns missing — run 012_sprint3_schema.sql in Supabase SQL Editor')
         result = await db
@@ -104,6 +113,23 @@ export default async function TripDetailPage({ params }: Props) {
             start_date, end_date, status, invite_code,
             trip_members (
               id, role, profile_id,
+              profiles ( id, full_name, avatar_url, handicap )
+            ),
+            rounds (
+              id, name, course_name, play_date, tee_time, holes, scoring_format, status
+            )
+          `)
+          .eq('id', tripId).maybeSingle()
+      } else if (isMissingSideComp) {
+        console.warn('[trip page] Sprint 9 columns/tables missing — run 037_side_competitions_powerplay.sql in Supabase SQL Editor')
+        result = await db
+          .from('trips')
+          .select(`
+            id, name, description, event_type, location,
+            start_date, end_date, status, invite_code,
+            expected_players, players_per_group, organiser_is_playing,
+            trip_members (
+              id, role, profile_id, group_id, playing_handicap,
               profiles ( id, full_name, avatar_url, handicap )
             ),
             rounds (

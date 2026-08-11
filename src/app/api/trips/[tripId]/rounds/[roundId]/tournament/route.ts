@@ -289,7 +289,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     }
   }
 
-  const story: { icon: string; text: string; at: string }[] = []
+  const story: { icon: string; text: string; at: string; imageUrl?: string }[] = []
 
   // Hole-in-one — an individual real event, unaffected by the
   // cross-player fairness issue above. Detected purely on gross_score,
@@ -383,6 +383,109 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       const lastEntry = holeEntries.filter(t => g.players.some(p => p.name === t.name)).sort((a, b) => b.at.localeCompare(a.at))[0]
       if (lastEntry) story.push({ icon: '🏁', text: `${g.groupName} finished`, at: lastEntry.at })
     }
+  }
+
+  // Same per-hole closure signal as the Side Games route: reuses the
+  // scorecards/score_entries data already fetched above (scRes) rather
+  // than a new query — every active scorecard needs a self-captured
+  // entry for this specific hole_number before the competition on it can
+  // be considered genuinely finished. A player who hasn't started (no
+  // entries at all) or any scorecard missing just this one hole both
+  // correctly keep this false.
+  function isHoleComplete(holeNumber: number | null): boolean {
+    if (holeNumber === null) return false
+    const holeRow = holeByNumber.get(holeNumber)
+    if (!holeRow) return false
+    const activeCards = scRes.data ?? []
+    if (activeCards.length === 0) return false
+    return activeCards.every((sc: { score_entries: { hole_id: string; capture_role: string }[] }) =>
+      (sc.score_entries ?? []).some(e => e.hole_id === holeRow.id && e.capture_role === 'self')
+    )
+  }
+
+  // ── Side Competition events (Sprint 9 Item 3) ────────────────────────────
+  // Entirely computed here, at read time, from side_comp_lead_changes (the
+  // append-only log — never replayed/derived from mutable side_comp_entries)
+  // and the same per-hole closure signal the Side Games route uses. This is
+  // what makes it idempotent by construction: recomputing this on every poll
+  // produces the exact same list every time, because nothing is ever
+  // inserted anywhere as a side effect of a GET — there is no separate
+  // "story_events" table to accidentally duplicate rows in.
+  try {
+    const compsRes = await admin.from('side_comps').select('id, comp_type, hole_number').eq('round_id', roundId).eq('enabled', true)
+    const comps = compsRes.data ?? []
+    if (comps.length > 0) {
+      const compIds = comps.map((c: { id: string }) => c.id)
+      const changesRes = await admin
+        .from('side_comp_lead_changes')
+        .select('id, side_comp_id, player_id, result_value, sequence_number, moment_id, created_at, profiles:player_id(full_name)')
+        .in('side_comp_id', compIds)
+        .order('sequence_number', { ascending: true })
+      const changes = (changesRes.data ?? []) as { id: string; side_comp_id: string; player_id: string; result_value: number; sequence_number: number; moment_id: string | null; created_at: string; profiles: { full_name: string } | null }[]
+
+      const COMP_LABEL: Record<string, string> = { nearest_pin: 'NTP', longest_drive: 'Longest Drive', pros_approach: "Pro's Approach" }
+      const changesByComp = new Map<string, typeof changes>()
+      for (const c of changes) {
+        if (!changesByComp.has(c.side_comp_id)) changesByComp.set(c.side_comp_id, [])
+        changesByComp.get(c.side_comp_id)!.push(c)
+      }
+
+      for (const comp of comps) {
+        const compChanges = changesByComp.get(comp.id) ?? []
+        const label = COMP_LABEL[comp.comp_type] ?? 'Side Competition'
+
+        for (const change of compChanges) {
+          const text = comp.comp_type === 'longest_drive'
+            ? `${change.profiles?.full_name ?? 'A player'} takes the ${label} lead`
+            : `${change.profiles?.full_name ?? 'A player'} takes the ${label} lead — ${change.result_value}m on Hole ${comp.hole_number}`
+          let imageUrl: string | undefined
+          if (change.moment_id) {
+            const momentRes = await admin.from('moments').select('image_path').eq('id', change.moment_id).maybeSingle()
+            if (momentRes.data?.image_path) {
+              const signed = await admin.storage.from('event-moments').createSignedUrl(momentRes.data.image_path, 3600)
+              imageUrl = signed.data?.signedUrl ?? undefined
+            }
+          }
+          story.push({ icon: comp.comp_type === 'longest_drive' ? '💥' : '🎯', text, at: change.created_at, imageUrl })
+        }
+
+        // Hotly Contested — fires once the 5th change happens (not once
+        // per subsequent change), by construction: this reads sequence_
+        // number === 5 specifically, not "length >= 5", so it can never
+        // re-fire or duplicate on every later change once the threshold
+        // is already passed.
+        const fifthChange = compChanges.find(c => c.sequence_number === 5)
+        if (fifthChange) {
+          story.push({ icon: '🔥', text: `${label} lead changes hands for the fifth time — HOTLY CONTESTED`, at: fifthChange.created_at })
+        }
+
+        // Winner — only once the competition's own hole is genuinely
+        // complete (same per-hole closure signal as the Side Games route:
+        // every active scorecard has a self-captured entry for that hole),
+        // never merely because the current group finished. The explicit
+        // caution here: a player who hasn't started, or any active
+        // scorecard missing a self-entry for this hole, must keep this
+        // false — isHoleComplete already returns false in exactly that
+        // case (a missing entry fails the `.every(...)` check), so there's
+        // no separate "is everyone genuinely done" condition to get wrong
+        // here beyond what that function already guarantees.
+        if (compChanges.length > 0 && isHoleComplete(comp.hole_number)) {
+          const winningChange = compChanges[compChanges.length - 1]
+          const winText = comp.comp_type === 'longest_drive'
+            ? `🏆 ${winningChange.profiles?.full_name ?? 'A player'} wins ${label}`
+            : `🏆 ${winningChange.profiles?.full_name ?? 'A player'} wins ${label} — ${winningChange.result_value}m`
+          story.push({ icon: '🏆', text: winText, at: winningChange.created_at })
+        }
+      }
+    }
+  } catch (compStoryErr) {
+    // Same reasoning as the cumulative-standings try/catch elsewhere in
+    // this codebase: Side Competition Story events are additive — if this
+    // fails for any reason, the core Story (golf milestones) must still
+    // return correctly.
+    console.error('[tournament] side-competition story events failed (core story still returned)', {
+      tripId, roundId, error: compStoryErr instanceof Error ? compStoryErr.message : String(compStoryErr),
+    })
   }
 
   if (roundRes.data.status === 'completed') {

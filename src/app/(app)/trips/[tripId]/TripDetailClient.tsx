@@ -22,9 +22,15 @@ export interface TripMemberRow {
   playing_handicap?: number | null
   profiles: MemberProfile | null
 }
+export interface RoundSideComp {
+  id: string; comp_type: 'nearest_pin' | 'longest_drive' | 'pros_approach' | 'best_on_day' | 'custom'
+  hole_number: number | null; enabled: boolean
+}
 export interface RoundRow {
   id: string; name: string; course_name: string | null; play_date: string
   tee_time: string | null; holes: number; scoring_format: string; status: string
+  powerplay_hole_number?: number | null
+  side_comps?: RoundSideComp[]
 }
 export interface TripData {
   id: string; name: string; description: string | null; event_type: string | null
@@ -121,6 +127,13 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
       id: r.id, name: r.name, course_name: r.course_name ?? '',
       play_date: r.play_date, tee_time: r.tee_time ?? '',
       holes: r.holes, scoring_format: r.scoring_format,
+      status: r.status,
+      side_comps: (r.side_comps ?? [])
+        .filter((c): c is typeof c & { comp_type: 'nearest_pin' | 'longest_drive' | 'pros_approach' } =>
+          c.comp_type === 'nearest_pin' || c.comp_type === 'longest_drive' || c.comp_type === 'pros_approach')
+        .map(c => ({ comp_type: c.comp_type, enabled: c.enabled, hole_number: c.hole_number })),
+      powerplay_enabled: r.powerplay_hole_number != null,
+      powerplay_hole_number: r.powerplay_hole_number ?? null,
     })),
   }))}`
 
