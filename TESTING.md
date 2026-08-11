@@ -1,6 +1,196 @@
 # Teein' It Up — Sprint 3 Testing Guide
 
-## Latest delivery — score-confirmation loop + Moments/Story polish
+## Sprint 8 — Final Event Results + Champion Experience V1
+
+### Build status
+- TypeScript: not run against the full project (same sandbox network
+  limitation as every prior delivery — no `node_modules`). All touched/
+  new files brace-balance checked with a script; logic hand-traced
+  against the actual schema.
+- `npm run build`: **could not be run** — no network access in this
+  sandbox to install dependencies. Saying so explicitly rather than
+  claiming it passed, per the brief's own instruction.
+- Domain test suite: ✅ **149/149 passing** (143 pre-existing + 6 new),
+  no regressions. Compiled via global `tsc` → `node --test`, same
+  zero-dependency method as every prior delivery.
+
+### 1. Investigation, before anything was built
+Confirmed rather than assumed:
+- `trips.status` already includes `'completed'` as a valid value (the
+  live DB constraint, not the stale `000_combined_fresh_database.sql`
+  reference copy — checked by reading which migration actually last
+  touched it).
+- `POST /api/trips/[tripId]/rounds/[roundId]/close` **already existed**
+  and **already correctly** flips `trips.status` to `'completed'` —
+  but only once every one of the trip's rounds has `status = 'completed'`,
+  derived from the real `rounds` table on every close, not a separate
+  flag and not hard-coded to "the second round." This is the exact
+  "authoritative, not client-side" mechanism the brief asked for — it
+  was sitting there unused by any UI. Confirmed idempotent guard rails
+  already present too (`if (roundRes.data.status !== 'active')`, the
+  server-side completion check re-verifying every scorecard, not just
+  trusting the client).
+- `computeCumulativeStandings` (from the Sprint 7 multi-round work)
+  already implements standard 1,2,2,4 competition ranking — ties
+  genuinely share a position rather than being split by array/DB order.
+  This became the foundation for Fix 6 (below) rather than needing new
+  logic.
+- No confetti library anywhere in the project (checked `package.json`
+  and searched the codebase).
+- **No migration was required anywhere in this sprint.**
+
+### 2/3. Final round detection + authoritative completion
+Not rebuilt — reused directly. `close/route.ts`'s existing
+`allRoundsComplete` check (re-read every round's live status from the
+DB on every close, not assumed) is what already correctly distinguishes
+"more rounds remain" from "this was the last one." The new
+`/api/trips/[tripId]/final-results` route trusts `trips.status ===
+'completed'` as its single gate — it does not re-derive "is this over"
+itself, it defers entirely to the mechanism that already existed. This
+works identically for 1, 2, 3, or N rounds: `completedRounds.length ===
+1` already exercises the exact same code path as `length === 3`, since
+nothing branches on round count anywhere in the new route.
+
+### 4. Final Event Results screen
+New route: `/trips/[tripId]/results` →
+`src/components/results/FinalEventResults.tsx`. Trophy hero (champion
+name(s), winning total), Final Podium (grouped by **distinct position
+value**, not array index — a tie at position 1 still only occupies the
+gold tier; the next distinct position under 1,2,2,4 ranking is
+correctly 3, not 2, so silver never gets invented for a tied pair),
+Round Winners (per round, tie-safe), Final Leaderboard with dynamic
+`R1..Rn | TOTAL` columns built from however many rounds the API
+actually returns — never hard-coded to two, verified by reading the
+column-generation code (`data.rounds.map(...)`, no fixed-length array
+anywhere).
+
+### 5. Champion celebration
+`src/components/results/ConfettiBurst.tsx` — hand-rolled, dependency-
+free CSS animation, not an npm package. **Flagging this choice
+explicitly** per "don't introduce a large dependency without reporting
+it first": no confetti library existed already, so rather than add one
+sight-unseen in a sandbox with no network access to actually test it
+installs cleanly, I built a small (~90 line) self-contained CSS burst.
+Happy to swap to a library instead if you'd prefer a more elaborate
+effect later.
+- Plays once per mount (lazy `useState` initializer generates the piece
+  list once; a fixed-duration CSS animation with `fill-mode: forwards`
+  runs once and stops — does not loop, does not replay on unrelated
+  re-renders of the parent).
+- Skips entirely under `prefers-reduced-motion: reduce` (no reduced
+  variant shown — a confetti burst has no information to convey, so
+  someone who's asked for less motion loses nothing).
+- `pointer-events: none` throughout — cannot sit on top of and block a
+  tap on real navigation.
+- Reopening the results page (a fresh mount) plays it again — explicitly
+  allowed per the brief's own "may replay when deliberately reopening."
+- Event *state* does not depend on this at all — the confetti is purely
+  a mount-time visual effect layered over data that's fetched fresh from
+  `trips.status`/the final-results API every time, so a refresh always
+  shows correct final results with or without the animation.
+
+### 6. Ties
+Given real scrutiny rather than an afterthought. Extracted two new pure,
+tested functions into `src/lib/scoring/multiRound.ts`:
+- `determineRoundWinners(results)` — every player at that round's max,
+  never just the first.
+- `determineChampions(standings)` — every player at overall position 1,
+  never just the first.
+
+**6 new tests added** in `multiRound.test.ts`, including a worked
+example directly from the brief's own numbers (Alex 72 vs a tied 69/69),
+and two explicit tie cases confirming both tied players come back, the
+third-place player never does, and an empty-round case returns no
+winners rather than crashing. **No countback/tie-break rule was invented
+anywhere** — flagging, per the brief's own instruction, that Teein' It
+Up has no formal tie-break mechanism today; this is a product decision
+to make separately, not something worked around silently in this sprint.
+
+### 7. Post-final-round navigation
+- My HQ (organiser): the existing "event complete" state (built in a
+  prior session) now links to `/trips/${tripId}/results` instead of the
+  plain leaderboard, with "🏆 Event Complete / View Final Results →"
+  copy. The "next round ready" state for a *non-final* round close was
+  already correct from that same prior session and was left untouched —
+  confirmed still correct by re-reading it, not re-verified by rebuilding
+  it.
+- Players (`PlayerHomeCard.tsx`): now branches on `trip.status ===
+  'completed'` specifically (not on the focus round's own status alone,
+  which would say "complete" for a mid-trip round too) — shows "🏆 View
+  Final Results" as the primary action only once the whole event, not
+  just one round, is done.
+- **Deliberately not changed:** the locked-scorecard screen inside
+  `SelfMarkerScoreShell.tsx` ("✅ Results submitted... waiting for the
+  organiser") — re-checked this session, left as-is. That screen is
+  scoped to a single round's scoring session; making it reactively
+  detect trip-level completion that happens later, asynchronously, after
+  the organiser closes the round (by which point the player has usually
+  already navigated away) isn't justified and risks touching "do not
+  disturb" scoring code for a screen most players won't still be on when
+  the event actually completes. The upgrade to "View Final Results"
+  happens naturally the next time they land on their home card, which is
+  now wired correctly.
+
+### 8. My HQ
+Only the primary CTA in the already-existing "no active round" branch
+changed (copy + link target, per above). Story, Moments, round history,
+scorecards, and event information were not touched, removed, or hidden
+by anything in this delivery — confirmed by re-reading the file: the
+change is scoped entirely to the `eventFullyComplete` ternary branch,
+nothing else in the file was edited.
+
+### 9. Event Story placeholder
+"📖 Event Story — Coming soon" card included on the results page, dashed
+border, clearly a placeholder, not a real feature. Results data
+(`standings`, `roundWinners`, `champions`, per-round breakdown) is
+returned as clean structured JSON from one dedicated endpoint —
+reusable as-is by a future Story Builder without needing this route
+reshaped.
+
+### 10. Side Competitions
+Not built, as instructed. Card-based section layout on the results page
+(Podium / Round Winners / Leaderboard / Event Story, each its own
+bordered card) means an "EVENT AWARDS" section could be inserted between
+Round Winners and Final Leaderboard later without restructuring anything
+existing.
+
+### 11. Regression tests — what was actually verified vs. traced
+**Verified by running:** the full 149-test domain suite, including the
+6 new tie-focused tests, all passing.
+
+**Verified by reading the code, not by watching it run in a browser**
+(no live deploy in this sandbox, consistent with every prior delivery):
+one-round / two-round / three-round completion paths all route through
+`close/route.ts`'s unmodified `allRoundsComplete` check regardless of
+round count; refresh-safety (final-results route re-fetches from
+`trips.status` fresh every request, no client-cached "final" flag);
+permission scoping (401 unauthenticated, 403 non-member, verified by
+re-reading the route just before packaging this delivery); cross-trip
+isolation (every query explicit `.eq('trip_id', tripId)` or scoped
+through a round that was itself trip-scoped first).
+
+**Not verified at all, honestly:** anything requiring an actual running
+app in a browser — the real end-to-end "create → score → close → close
+final round → see confetti" journey, re-login persistence, and the
+mobile/safe-area behaviour on a real device. `env(safe-area-inset-top)`/
+`env(safe-area-inset-bottom)` are applied on the results page's outer
+container following the exact same pattern already verified working
+elsewhere in this codebase, but this specific new page has not itself
+been seen on a real phone.
+
+### Existing functionality
+Not touched by this delivery: scoring, reconciliation, score locking,
+offline queue/sync, handicap adjustments, Leaders Last, groups,
+Moments, chat, the live per-round leaderboard, or historical scorecards.
+The only pre-existing files modified were `tournament/page.tsx` and
+`PlayerHomeCard.tsx` (both scoped to the specific branches described
+above), and `multiRound.ts`/`multiRound.test.ts` (purely additive new
+exports and tests — the existing `computeCumulativeStandings` and
+`seedLeadersLast` functions and their existing tests were not changed).
+
+---
+
+## Previous delivery — score-confirmation loop + Moments/Story polish
 
 ### Build status
 - TypeScript: not run against the full project (same sandbox network

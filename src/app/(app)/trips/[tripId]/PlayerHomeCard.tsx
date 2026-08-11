@@ -88,38 +88,59 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
           </div>
 
           {/* Round status / primary action — the one thing a player
-              actually needs to do or know right now. */}
-          {!focusRound && (
-            <div style={{ textAlign: 'center', padding: '14px 0', fontFamily: 'var(--font-body)', fontSize: 13, color: '#9ca3af' }}>
-              The organiser hasn&apos;t set up a round yet.
-            </div>
-          )}
-          {focusRound?.status === 'upcoming' && (
-            <div style={{ background: '#fdf3d9', border: '1px solid #e8c96a', borderRadius: 12, padding: '12px 14px', textAlign: 'center' }}>
-              <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#a1791f' }}>
-                🟡 Waiting for organiser to start {focusRound.name}
-              </span>
-            </div>
-          )}
-          {focusRound?.status === 'active' && (
+              actually needs to do or know right now. Event-complete
+              takes priority over "this round is complete" — trip.status
+              is the authoritative signal (set automatically, once, when
+              the last round closes — see close/route.ts), not derived
+              from focusRound alone, since focusRound would say the same
+              "complete" thing for an in-between round too. */}
+          {trip.status === 'completed' ? (
             <Link
-              href={`/trips/${trip.id}/rounds/${focusRound.id}`}
+              href={`/trips/${trip.id}/results`}
               style={{
                 display: 'block', textAlign: 'center', padding: 16, borderRadius: 12,
-                background: 'linear-gradient(135deg,#2d7a52,#16a34a)', color: '#fff',
-                fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 16, textDecoration: 'none',
-                boxShadow: '0 4px 16px rgba(22,163,74,0.3)',
+                background: 'linear-gradient(135deg,#14532d,#1a6b3a)', color: '#fff',
+                fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 15, textDecoration: 'none',
+                boxShadow: '0 4px 16px rgba(20,83,45,0.3)',
               }}
             >
-              ▶ Start Scoring
+              🏆 View Final Results
             </Link>
-          )}
-          {focusRound?.status === 'completed' && (
-            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: '12px 14px', textAlign: 'center' }}>
-              <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#16a34a' }}>
-                ✓ {focusRound.name} complete
-              </span>
-            </div>
+          ) : (
+            <>
+              {!focusRound && (
+                <div style={{ textAlign: 'center', padding: '14px 0', fontFamily: 'var(--font-body)', fontSize: 13, color: '#9ca3af' }}>
+                  The organiser hasn&apos;t set up a round yet.
+                </div>
+              )}
+              {focusRound?.status === 'upcoming' && (
+                <div style={{ background: '#fdf3d9', border: '1px solid #e8c96a', borderRadius: 12, padding: '12px 14px', textAlign: 'center' }}>
+                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#a1791f' }}>
+                    🟡 Waiting for organiser to start {focusRound.name}
+                  </span>
+                </div>
+              )}
+              {focusRound?.status === 'active' && (
+                <Link
+                  href={`/trips/${trip.id}/rounds/${focusRound.id}`}
+                  style={{
+                    display: 'block', textAlign: 'center', padding: 16, borderRadius: 12,
+                    background: 'linear-gradient(135deg,#2d7a52,#16a34a)', color: '#fff',
+                    fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 16, textDecoration: 'none',
+                    boxShadow: '0 4px 16px rgba(22,163,74,0.3)',
+                  }}
+                >
+                  ▶ Start Scoring
+                </Link>
+              )}
+              {focusRound?.status === 'completed' && (
+                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: '12px 14px', textAlign: 'center' }}>
+                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#16a34a' }}>
+                    ✓ {focusRound.name} complete
+                  </span>
+                </div>
+              )}
+            </>
           )}
         </div>
 

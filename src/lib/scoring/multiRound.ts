@@ -61,6 +61,38 @@ export function computeCumulativeStandings(roundsResults: RoundPlayerResult[][])
   return result
 }
 
+export interface RoundWinner { playerId: string; playerName: string; points: number }
+
+/**
+ * The winner(s) of a single round, independent of overall cumulative
+ * standing — the player(s) with the highest points in that round only.
+ * Tie-safe by construction: returns every player who reached the max,
+ * never picks one arbitrarily by array/database order. An empty
+ * `results` array (a round with no scorecards at all) returns an empty
+ * winners list rather than crashing or inventing a winner.
+ */
+export function determineRoundWinners(results: RoundPlayerResult[]): RoundWinner[] {
+  if (results.length === 0) return []
+  const maxPoints = Math.max(...results.map(r => r.roundPoints))
+  return results.filter(r => r.roundPoints === maxPoints)
+    .map(r => ({ playerId: r.playerId, playerName: r.playerName, points: r.roundPoints }))
+}
+
+export interface Champion { playerId: string; playerName: string; totalPoints: number }
+
+/**
+ * The event champion(s) from already-computed cumulative standings —
+ * whichever player(s) hold position 1. Teein' It Up has no formal
+ * countback/tie-break rule today (confirmed by inspection, not assumed);
+ * this deliberately does not invent one. Two players level on points at
+ * the top both come back as champions, honestly, rather than the first
+ * one encountered being promoted to sole champion.
+ */
+export function determineChampions(standings: CumulativeStanding[]): Champion[] {
+  return standings.filter(s => s.position === 1)
+    .map(s => ({ playerId: s.playerId, playerName: s.playerName, totalPoints: s.totalPoints }))
+}
+
 export interface LeadersLastAssignment {
   playerId: string
   groupIndex: number // 0 = earliest tee time, highest index = latest (leaders)

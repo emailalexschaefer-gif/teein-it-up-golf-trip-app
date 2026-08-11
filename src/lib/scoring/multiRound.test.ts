@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { computeCumulativeStandings, seedLeadersLast } from './multiRound'
+import { computeCumulativeStandings, determineRoundWinners, determineChampions, seedLeadersLast } from './multiRound'
 
 // ── computeCumulativeStandings ──────────────────────────────────────────────
 
@@ -63,6 +63,60 @@ test('cumulative standings — a player present in only round 1 (e.g. left the t
   assert.equal(a?.roundsPlayed, 2)
   assert.equal(guest?.totalPoints, 25)
   assert.equal(guest?.roundsPlayed, 1)
+})
+
+// ── determineRoundWinners / determineChampions (Sprint 8 — Final Event
+//    Results) ─────────────────────────────────────────────────────────────
+
+test('determineRoundWinners — single clear winner', () => {
+  const results = [
+    { playerId: 'a', playerName: 'Alex', roundPoints: 39 },
+    { playerId: 'b', playerName: 'Darren', roundPoints: 34 },
+  ]
+  const winners = determineRoundWinners(results)
+  assert.deepEqual(winners, [{ playerId: 'a', playerName: 'Alex', points: 39 }])
+})
+
+test('determineRoundWinners — tie returns every player at the max, not just the first', () => {
+  const results = [
+    { playerId: 'a', playerName: 'Alex', roundPoints: 36 },
+    { playerId: 'b', playerName: 'Darren', roundPoints: 36 },
+    { playerId: 'c', playerName: 'Dave', roundPoints: 30 },
+  ]
+  const winners = determineRoundWinners(results)
+  assert.equal(winners.length, 2)
+  assert.deepEqual(new Set(winners.map(w => w.playerId)), new Set(['a', 'b']))
+})
+
+test('determineRoundWinners — no scorecards for the round returns no winners, not a crash', () => {
+  assert.deepEqual(determineRoundWinners([]), [])
+})
+
+test('determineChampions — single champion at position 1', () => {
+  const standings = computeCumulativeStandings([
+    [{ playerId: 'a', playerName: 'Alex', roundPoints: 40 }, { playerId: 'b', playerName: 'Darren', roundPoints: 35 }],
+  ])
+  const champions = determineChampions(standings)
+  assert.deepEqual(champions.map(c => c.playerId), ['a'])
+})
+
+test('determineChampions — a tie at the top produces joint champions, never one picked arbitrarily', () => {
+  const standings = computeCumulativeStandings([
+    [{ playerId: 'a', playerName: 'Alex', roundPoints: 36 }, { playerId: 'b', playerName: 'Darren', roundPoints: 36 }, { playerId: 'c', playerName: 'Dave', roundPoints: 30 }],
+  ])
+  const champions = determineChampions(standings)
+  assert.equal(champions.length, 2)
+  assert.deepEqual(new Set(champions.map(c => c.playerId)), new Set(['a', 'b']))
+  // Third place is not a champion, however close.
+  assert.equal(champions.some(c => c.playerId === 'c'), false)
+})
+
+test('determineChampions — matches the brief\'s own two-round worked example (Alex 72 vs TEST/Darren 69)', () => {
+  const round1 = [{ playerId: 'a', playerName: 'Alex', roundPoints: 33 }, { playerId: 'd', playerName: 'Darren', roundPoints: 38 }]
+  const round2 = [{ playerId: 'a', playerName: 'Alex', roundPoints: 39 }, { playerId: 'd', playerName: 'Darren', roundPoints: 31 }]
+  const standings = computeCumulativeStandings([round1, round2])
+  const champions = determineChampions(standings)
+  assert.deepEqual(champions, [{ playerId: 'a', playerName: 'Alex', totalPoints: 72 }])
 })
 
 // ── seedLeadersLast ──────────────────────────────────────────────────────────

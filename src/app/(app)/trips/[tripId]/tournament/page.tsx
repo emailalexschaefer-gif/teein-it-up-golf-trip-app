@@ -128,7 +128,14 @@ export default async function TournamentPage({ params }: Props) {
             // final-results state, distinct from both the pre-event
             // empty state below and the "next round ready" state above.
             // Per the explicit instruction, this does NOT show a
-            // "Go to Round" CTA at all.
+            // "Go to Round" CTA at all. Now links to the dedicated Final
+            // Event Results experience (trophy/champion/podium/round
+            // winners/leaderboard) rather than the plain leaderboard —
+            // this is the primary CTA once the event is complete, per
+            // Sprint 8's explicit "🏆 EVENT COMPLETE / View Final
+            // Results →" requirement. Round history, Story, Moments and
+            // scorecards all remain reachable via the trip's normal tabs
+            // underneath — nothing here removes or hides them.
             <>
               <p style={{ fontSize: 32, marginBottom: 10 }}>🏆</p>
               <p style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 16, fontWeight: 800, marginBottom: 8 }}>
@@ -136,17 +143,16 @@ export default async function TournamentPage({ params }: Props) {
               </p>
               <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, lineHeight: 1.5, marginBottom: 18 }}>
                 All rounds have been played and results are locked in.
-                Check the final leaderboard for the overall standings.
               </p>
               <Link
-                href={`/trips/${tripId}/leaderboard`}
+                href={`/trips/${tripId}/results`}
                 style={{
                   display: 'inline-block', padding: '10px 20px', borderRadius: 10,
                   background: '#14532d', color: '#fff', fontFamily: 'var(--font-body)',
                   fontSize: 13.5, fontWeight: 700, textDecoration: 'none',
                 }}
               >
-                View Final Leaderboard →
+                View Final Results →
               </Link>
             </>
           ) : (
