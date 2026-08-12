@@ -16,7 +16,7 @@ interface Props {
 }
 
 const SIDE_COMP_LABELS: Record<string, string> = {
-  nearest_pin: '🎯 NTP', longest_drive: '💥 Longest Drive', pros_approach: "🎯 Pro's Approach",
+  nearest_pin: '🎯 NTP', longest_drive: '💥 Longest Drive', pros_approach: "🎯 Pro's Approach", powerplay: '⚡ Powerplay',
 }
 
 export default function StepReview({ tripDetails, rounds, onBack, onCreate, loading, error, isEditing }: Props) {
@@ -39,11 +39,9 @@ export default function StepReview({ tripDetails, rounds, onBack, onCreate, load
         </p>
         <div className="space-y-2">
           {rounds.map((r) => {
-            const enabledComps = (r.side_comps ?? []).filter(c => c.enabled && c.hole_number != null)
-            const tags = [
-              ...enabledComps.map(c => `${SIDE_COMP_LABELS[c.comp_type] ?? c.comp_type} · H${c.hole_number}`),
-              ...(r.powerplay_enabled && r.powerplay_hole_number ? [`⚡ Powerplay · H${r.powerplay_hole_number} · 2×`] : []),
-            ]
+            // Every configured instance shown individually — a round
+            // with two NTPs shows two tags, never collapsed into one.
+            const tags = (r.side_comps ?? []).map(c => `${SIDE_COMP_LABELS[c.comp_type] ?? c.comp_type} · H${c.hole_number}${c.comp_type === 'powerplay' ? ' · 2×' : ''}`)
             return (
               <div key={r.id} className="bg-white rounded-xl p-3">
                 <p className="font-medium text-sm text-text">{r.name}</p>
@@ -55,8 +53,8 @@ export default function StepReview({ tripDetails, rounds, onBack, onCreate, load
                 </p>
                 {tags.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-2">
-                    {tags.map(t => (
-                      <span key={t} className="text-[11px] bg-cream-100 rounded-full px-2.5 py-1 text-text-muted">
+                    {tags.map((t, i) => (
+                      <span key={i} className="text-[11px] bg-cream-100 rounded-full px-2.5 py-1 text-text-muted">
                         {t}
                       </span>
                     ))}

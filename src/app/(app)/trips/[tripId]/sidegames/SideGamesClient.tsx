@@ -7,19 +7,22 @@ import { useQuery } from '@tanstack/react-query'
 interface Leader { playerId: string; playerName: string; resultValue: number | null; momentUrl: string | null }
 interface HistoryEntry { playerName: string; resultValue: number | null; sequenceNumber: number }
 interface Competition {
-  id: string; compType: 'nearest_pin' | 'longest_drive' | 'pros_approach'; holeNumber: number | null
+  id: string; compType: 'nearest_pin' | 'longest_drive' | 'pros_approach' | 'powerplay'; holeNumber: number | null
   currentLeader: Leader | null; leadChangeCount: number; hotlyContested: boolean
   isComplete: boolean; winner: Leader | null; history: HistoryEntry[]
+  // Only meaningful for compType === 'powerplay' — a different kind of
+  // "result" (best authoritative score, not a submitted leader).
+  powerplayBest: { playerId: string; playerName: string; points: number } | null
 }
 interface SideGamesData {
   competitions: Competition[]
-  powerplay: { holeNumber: number; best: { playerId: string; playerName: string; points: number } | null } | null
 }
 
 const COMP_META: Record<Competition['compType'], { icon: string; label: string }> = {
   nearest_pin:   { icon: '🎯', label: 'Nearest the Pin' },
   longest_drive: { icon: '💥', label: 'Longest Drive' },
   pros_approach: { icon: '🎯', label: "Pro's Approach" },
+  powerplay:     { icon: '⚡', label: 'Powerplay' },
 }
 
 export default function SideGamesClient({ tripId, round }: { tripId: string; round: { id: string; name: string; course_name: string | null; status: string } | null }) {
@@ -54,7 +57,7 @@ export default function SideGamesClient({ tripId, round }: { tripId: string; rou
         <div style={{ textAlign: 'center', padding: '32px 0', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>
           Loading Side Games…
         </div>
-      ) : !data || (data.competitions.length === 0 && !data.powerplay) ? (
+      ) : !data || data.competitions.length === 0 ? (
         <EmptyState text="No Side Competitions or Powerplay are configured for this round." />
       ) : (
         <>
@@ -62,25 +65,13 @@ export default function SideGamesClient({ tripId, round }: { tripId: string; rou
             {round.name}{round.course_name ? ` — ${round.course_name}` : ''}
           </div>
 
+          {/* Every configured instance renders as its own card, keyed by
+              its own id — two NTPs or two Powerplay holes each get a
+              separate card, never merged. Powerplay cards render
+              differently inside CompetitionCard (best score, not a
+              submitted leader) but are otherwise the same list, same
+              loop — not a separate section anymore. */}
           {data.competitions.map(comp => <CompetitionCard key={comp.id} comp={comp} />)}
-
-          {data.powerplay && (
-            <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', padding: '14px 16px', marginBottom: 12 }}>
-              <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 13.5, color: '#7a5c00' }}>
-                ⚡ Powerplay — Hole {data.powerplay.holeNumber}
-              </div>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', marginTop: 2, marginBottom: 8 }}>
-                2× Stableford Points
-              </div>
-              {data.powerplay.best ? (
-                <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#14532d' }}>
-                  Best so far: {data.powerplay.best.playerName} — {data.powerplay.best.points} pts
-                </div>
-              ) : (
-                <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af' }}>No scores on this hole yet.</div>
-              )}
-            </div>
-          )}
         </>
       )}
     </div>
@@ -102,6 +93,30 @@ function CompetitionCard({ comp }: { comp: Competition }) {
   const [expanded, setExpanded] = useState(false)
   const meta = COMP_META[comp.compType]
   const displayed = comp.isComplete ? comp.winner : comp.currentLeader
+
+  // Powerplay is a different kind of card entirely — no leader, no
+  // leadership history, just the best authoritative score on this
+  // specific hole. Rendered independently per instance (own card, own
+  // id), so two Powerplay holes never get merged into one card.
+  if (comp.compType === 'powerplay') {
+    return (
+      <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', padding: '14px 16px', marginBottom: 12 }}>
+        <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 13.5, color: '#7a5c00' }}>
+          {meta.icon} {meta.label}{comp.holeNumber ? ` — Hole ${comp.holeNumber}` : ''}
+        </div>
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', marginTop: 2, marginBottom: 8 }}>
+          2× Stableford Points
+        </div>
+        {comp.powerplayBest ? (
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#14532d' }}>
+            Best so far: {comp.powerplayBest.playerName} — {comp.powerplayBest.points} pts
+          </div>
+        ) : (
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af' }}>No scores on this hole yet.</div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', padding: '14px 16px', marginBottom: 12 }}>

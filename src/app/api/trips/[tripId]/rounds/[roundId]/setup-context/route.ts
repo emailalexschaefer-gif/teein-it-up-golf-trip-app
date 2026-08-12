@@ -19,7 +19,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { computeCumulativeStandings, type RoundPlayerResult } from '@/lib/scoring/multiRound'
+import { computeCumulativeStandings, sortRoundsChronologically, type RoundPlayerResult } from '@/lib/scoring/multiRound'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -76,19 +76,30 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     }
     if (!thisRoundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
 
-    const priorRoundsRes = await admin
+    // Same stable-ordering fix as leaderboard/route.ts. The old
+    // .lt('created_at', ...) filter is unreliable when rounds share an
+    // identical created_at (rounds created together in one batch INSERT
+    // all get the same Postgres now() — transaction-start time, not
+    // per-row) — with tied timestamps, .lt() (strict less-than) would
+    // silently exclude a genuinely-prior round, making Round 2 think
+    // it's the first round of the trip (isFirstRound: true) and skip
+    // Leaders-Last seeding entirely. Fixed the same way: sort every
+    // round for this trip on play_date (primary) with created_at/id as
+    // tiebreakers, then slice by array position instead of a SQL
+    // inequality on the collision-prone column.
+    const allRoundsForTripRes = await admin
       .from('rounds')
-      .select('id, created_at, name, status')
+      .select('id, play_date, created_at, name, status')
       .eq('trip_id', tripId)
-      .lt('created_at', thisRoundRes.data.created_at)
-      .eq('status', 'completed')
-      .order('created_at', { ascending: true })
-    if (priorRoundsRes.error) {
-      console.error('[setup-context] prior rounds query failed', { code: priorRoundsRes.error.code, message: priorRoundsRes.error.message, tripId, roundId })
-      return NextResponse.json({ error: 'Could not load previous rounds.', debug: priorRoundsRes.error.message }, { status: 500 })
+    if (allRoundsForTripRes.error) {
+      console.error('[setup-context] prior rounds query failed', { code: allRoundsForTripRes.error.code, message: allRoundsForTripRes.error.message, tripId, roundId })
+      return NextResponse.json({ error: 'Could not load previous rounds.', debug: allRoundsForTripRes.error.message }, { status: 500 })
     }
-
-    const priorRounds: { id: string; created_at: string; name: string }[] = priorRoundsRes.data ?? []
+    const sortedRoundsForTrip = sortRoundsChronologically((allRoundsForTripRes.data ?? []) as { id: string; play_date: string; created_at: string; name: string; status: string }[])
+    const thisRoundIdx = sortedRoundsForTrip.findIndex(r => r.id === roundId)
+    const priorRounds: { id: string; created_at: string; name: string }[] = thisRoundIdx <= 0
+      ? []
+      : sortedRoundsForTrip.slice(0, thisRoundIdx).filter(r => r.status === 'completed')
 
     // Current groups-with-players — the single refetchable source for
     // Step 1's group display. Query syntax matches exactly what's

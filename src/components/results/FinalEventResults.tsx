@@ -12,8 +12,15 @@ interface Champion { playerId: string; playerName: string; totalPoints: number }
 interface SideCompWinner { playerId: string; playerName: string; resultValue: number | null; momentId: string | null }
 interface RoundSideCompetitions {
   roundId: string; roundNumber: number; roundName: string; courseName: string | null
-  competitions: { compType: 'nearest_pin' | 'longest_drive' | 'pros_approach'; holeNumber: number | null; winner: SideCompWinner | null }[]
-  powerplay: { holeNumber: number; best: { playerId: string; playerName: string; points: number } | null } | null
+  competitions: {
+    compType: 'nearest_pin' | 'longest_drive' | 'pros_approach' | 'powerplay'; holeNumber: number | null
+    winner: SideCompWinner | null
+    // Only meaningful for compType === 'powerplay' — a per-instance
+    // best-score highlight, not a submitted leader. Two Powerplay holes
+    // in one round each get their own competitions[] entry here, never
+    // merged into a single round-level field.
+    powerplayBest: { playerId: string; playerName: string; points: number } | null
+  }[]
 }
 interface FinalResults {
   tripName: string
@@ -29,6 +36,7 @@ const SIDE_COMP_LABELS: Record<string, { icon: string; label: string }> = {
   nearest_pin:   { icon: '🎯', label: 'Nearest the Pin' },
   longest_drive: { icon: '💥', label: 'Longest Drive' },
   pros_approach: { icon: '🎯', label: "Pro's Approach" },
+  powerplay:     { icon: '⚡', label: 'Powerplay Highlight' },
 }
 
 export default function FinalEventResults({ tripId }: { tripId: string }) {
@@ -198,15 +206,22 @@ export default function FinalEventResults({ tripId }: { tripId: string }) {
         {/* ── Side Competition Winners — grouped by round, never
             collapsed. A competition existing in two rounds (e.g. NTP on
             both Round 1 and Round 2) shows as two separate entries with
-            their own round/course heading. Empty rounds (no competitions
-            configured, or none yet closed) simply contribute nothing —
-            no empty section rendered. ──────────────────────────────────── */}
-        {data.sideCompetitionsByRound.some(r => r.competitions.some(c => c.winner) || r.powerplay?.best) && (
+            their own round/course heading — and two NTPs (or two
+            Powerplay holes) within the SAME round each get their own row
+            too, keyed by compType+holeNumber (unique per the DB's own
+            UNIQUE(round_id, comp_type, hole_number) constraint), not by
+            compType alone, which would collide. Empty rounds (no
+            competitions configured, or none yet closed) simply
+            contribute nothing — no empty section rendered. Powerplay is
+            just another row in this same list now (own winner-shaped
+            display via powerplayBest), not a separate round-level
+            field. ─────────────────────────────────────────────────────── */}
+        {data.sideCompetitionsByRound.some(r => r.competitions.some(c => c.winner || c.powerplayBest)) && (
           <>
             <SectionLabel>Side Competition Winners</SectionLabel>
             {data.sideCompetitionsByRound.map(round => {
-              const hasContent = round.competitions.some(c => c.winner) || round.powerplay?.best
-              if (!hasContent) return null
+              const shown = round.competitions.filter(c => c.winner || c.powerplayBest)
+              if (shown.length === 0) return null
               return (
                 <div key={round.roundId} style={{ marginBottom: 14 }}>
                   {data.sideCompetitionsByRound.length > 1 && (
@@ -215,29 +230,24 @@ export default function FinalEventResults({ tripId }: { tripId: string }) {
                     </div>
                   )}
                   <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
-                    {round.competitions.filter(c => c.winner).map((c, i, arr) => {
+                    {shown.map((c, i) => {
                       const meta = SIDE_COMP_LABELS[c.compType] ?? { icon: '🎯', label: c.compType }
+                      const holeSuffix = c.holeNumber ? ` — Hole ${c.holeNumber}` : ''
                       return (
-                        <div key={c.compType} style={{ padding: '11px 14px', borderBottom: (i < arr.length - 1 || round.powerplay?.best) ? '1px solid #f3f4f1' : 'none' }}>
+                        <div key={`${c.compType}-${c.holeNumber}`} style={{ padding: '11px 14px', borderBottom: i < shown.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
                           <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 3 }}>
-                            {meta.icon} {meta.label}
+                            {meta.icon} {meta.label}{holeSuffix}
                           </div>
                           <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d' }}>
-                            {c.winner!.playerName}{c.winner!.resultValue != null ? ` — ${c.winner!.resultValue}m` : ''}
+                            {c.compType === 'powerplay' && c.powerplayBest
+                              ? `${c.powerplayBest.playerName} — ${c.powerplayBest.points} pts`
+                              : c.winner
+                                ? `${c.winner.playerName}${c.winner.resultValue != null ? ` — ${c.winner.resultValue}m` : ''}`
+                                : ''}
                           </div>
                         </div>
                       )
                     })}
-                    {round.powerplay?.best && (
-                      <div style={{ padding: '11px 14px' }}>
-                        <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 3 }}>
-                          ⚡ Powerplay Highlight
-                        </div>
-                        <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d' }}>
-                          {round.powerplay.best.playerName} — {round.powerplay.best.points} pts
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
               )

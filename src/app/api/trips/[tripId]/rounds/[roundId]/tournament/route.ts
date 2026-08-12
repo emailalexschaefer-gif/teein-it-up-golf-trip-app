@@ -431,13 +431,27 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       }
 
       for (const comp of comps) {
+        // Powerplay has no leadership/entries concept at all — no
+        // side_comp_entries are ever written for it (see migration 037's
+        // own comment on that table), so changesByComp naturally has no
+        // rows for a powerplay comp.id and this loop contributes nothing
+        // for it, which is correct: Powerplay's story presence (if any)
+        // belongs to the future automatic Golf Moments engine reading
+        // score_entries directly, not this leadership-history mechanism.
         const compChanges = changesByComp.get(comp.id) ?? []
         const label = COMP_LABEL[comp.comp_type] ?? 'Side Competition'
+        // Every competition's story text names its hole explicitly — not
+        // just for Longest Drive's benefit, but because any repeated
+        // competition type (two NTPs, per the corrected multi-instance
+        // architecture) would otherwise produce genuinely ambiguous
+        // wording like "Darren takes the NTP lead" with no way to tell
+        // which of two NTP competitions that refers to.
+        const holeSuffix = comp.hole_number ? ` on Hole ${comp.hole_number}` : ''
 
         for (const change of compChanges) {
           const text = comp.comp_type === 'longest_drive'
-            ? `${change.profiles?.full_name ?? 'A player'} takes the ${label} lead`
-            : `${change.profiles?.full_name ?? 'A player'} takes the ${label} lead — ${change.result_value}m on Hole ${comp.hole_number}`
+            ? `${change.profiles?.full_name ?? 'A player'} takes the ${label} lead${holeSuffix}`
+            : `${change.profiles?.full_name ?? 'A player'} takes the ${label} lead — ${change.result_value}m${holeSuffix}`
           let imageUrl: string | undefined
           if (change.moment_id) {
             const momentRes = await admin.from('moments').select('image_path').eq('id', change.moment_id).maybeSingle()
@@ -456,7 +470,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
         // is already passed.
         const fifthChange = compChanges.find(c => c.sequence_number === 5)
         if (fifthChange) {
-          story.push({ icon: '🔥', text: `${label} lead changes hands for the fifth time — HOTLY CONTESTED`, at: fifthChange.created_at })
+          story.push({ icon: '🔥', text: `${label} lead changes hands for the fifth time${holeSuffix} — HOTLY CONTESTED`, at: fifthChange.created_at })
         }
 
         // Winner — only once the competition's own hole is genuinely
@@ -472,8 +486,8 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
         if (compChanges.length > 0 && isHoleComplete(comp.hole_number)) {
           const winningChange = compChanges[compChanges.length - 1]
           const winText = comp.comp_type === 'longest_drive'
-            ? `🏆 ${winningChange.profiles?.full_name ?? 'A player'} wins ${label}`
-            : `🏆 ${winningChange.profiles?.full_name ?? 'A player'} wins ${label} — ${winningChange.result_value}m`
+            ? `🏆 ${winningChange.profiles?.full_name ?? 'A player'} wins ${label}${holeSuffix}`
+            : `🏆 ${winningChange.profiles?.full_name ?? 'A player'} wins ${label}${holeSuffix} — ${winningChange.result_value}m`
           story.push({ icon: '🏆', text: winText, at: winningChange.created_at })
         }
       }

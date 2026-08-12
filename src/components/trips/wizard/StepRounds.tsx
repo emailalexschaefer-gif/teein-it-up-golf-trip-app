@@ -19,7 +19,7 @@ function newRound(tripDetails: WizardTripDetails, n: number): WizardRound {
     id: generateUUID(), name: `Round ${n}`, course_name: '',
     play_date: tripDetails.start_date || '', tee_time: '',
     holes: 18, scoring_format: 'stableford',
-    side_comps: [], powerplay_enabled: false, powerplay_hole_number: null,
+    side_comps: [],
   }
 }
 
@@ -27,18 +27,9 @@ const SIDE_COMP_META: Record<WizardSideComp['comp_type'], { icon: string; label:
   nearest_pin:   { icon: '🎯', label: 'Nearest the Pin' },
   longest_drive: { icon: '💥', label: 'Longest Drive' },
   pros_approach: { icon: '🎯', label: "Pro's Approach" },
+  powerplay:     { icon: '⚡', label: 'Powerplay' },
 }
-
-function getComp(round: WizardRound, type: WizardSideComp['comp_type']): WizardSideComp {
-  return round.side_comps?.find(c => c.comp_type === type) ?? { comp_type: type, enabled: false, hole_number: null }
-}
-
-function setComp(round: WizardRound, type: WizardSideComp['comp_type'], patch: Partial<WizardSideComp>): WizardRound {
-  const existing = getComp(round, type)
-  const updated = { ...existing, ...patch }
-  const others = (round.side_comps ?? []).filter(c => c.comp_type !== type)
-  return { ...round, side_comps: [...others, updated] }
-}
+const COMP_TYPE_ORDER: WizardSideComp['comp_type'][] = ['nearest_pin', 'longest_drive', 'pros_approach', 'powerplay']
 
 /**
  * A round's Side Competitions + Powerplay config. Only rendered for
@@ -50,105 +41,105 @@ function setComp(round: WizardRound, type: WizardSideComp['comp_type'], patch: P
  * trigger (migration 037) that would reject the write anyway — matching
  * "enforce upcoming-round-only editing in UI as well as DB", not relying
  * on the DB rejection alone to communicate this to the organiser.
+ *
+ * Corrected model: an "add competition" list, not one ON/OFF row per
+ * type — a round can hold multiple instances of the same competition
+ * (two NTPs on different holes, two Powerplay holes), so a single toggle
+ * per type could never express that. Each row is independent, with its
+ * own Remove.
  */
 function SideCompsConfig({ round, onUpdate }: { round: WizardRound; onUpdate: (r: WizardRound) => void }) {
   const holeOptions = Array.from({ length: round.holes }, (_, i) => i + 1)
+  const comps = round.side_comps ?? []
+  const [adding, setAdding] = React.useState(false)
+  const [newType, setNewType] = React.useState<WizardSideComp['comp_type']>('nearest_pin')
+  const [newHole, setNewHole] = React.useState(holeOptions[0])
+
+  function addComp() {
+    const comp: WizardSideComp = { id: generateUUID(), comp_type: newType, hole_number: newHole }
+    // UNIQUE(round_id, comp_type, hole_number) — mirrored client-side so
+    // the organiser gets an immediate, specific message rather than a
+    // generic failure once this reaches the server.
+    if (comps.some(c => c.comp_type === newType && c.hole_number === newHole)) {
+      return // silently no-op; the Add button's own disabled state below prevents reaching here in the normal flow
+    }
+    onUpdate({ ...round, side_comps: [...comps, comp] })
+    setAdding(false)
+    setNewType('nearest_pin')
+    setNewHole(holeOptions[0])
+  }
+
+  function removeComp(id: string) {
+    onUpdate({ ...round, side_comps: comps.filter(c => c.id !== id) })
+  }
+
+  const wouldDuplicate = comps.some(c => c.comp_type === newType && c.hole_number === newHole)
 
   return (
     <div className="space-y-3 pt-3 border-t border-cream-300">
       <p className="text-xs font-semibold uppercase tracking-wider text-brand-600">Side Competitions</p>
 
-      {(['nearest_pin', 'longest_drive', 'pros_approach'] as const).map(type => {
-        const comp = getComp(round, type)
-        const meta = SIDE_COMP_META[type]
-        return (
-          <div key={type} className="bg-white rounded-xl p-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-text flex items-center gap-2">
-                <span>{meta.icon}</span>{meta.label}
-              </span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={comp.enabled}
-                onClick={() => onUpdate(setComp(round, type, { enabled: !comp.enabled, hole_number: !comp.enabled ? (comp.hole_number ?? holeOptions[0]) : comp.hole_number }))}
-                style={{
-                  width: 42, height: 24, borderRadius: 12, position: 'relative', flexShrink: 0,
-                  background: comp.enabled ? '#16a34a' : '#d1d5db', border: 'none', cursor: 'pointer', transition: 'background 0.15s',
-                }}
-              >
-                <span style={{
-                  position: 'absolute', top: 2, left: comp.enabled ? 20 : 2,
-                  width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
-                }} />
-              </button>
-            </div>
-            {comp.enabled && (
-              <div className="mt-3">
-                <Field label="Select Hole">
-                  <Select
-                    value={comp.hole_number ?? holeOptions[0]}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onUpdate(setComp(round, type, { hole_number: Number(e.target.value) }))}
-                  >
-                    {holeOptions.map(h => <option key={h} value={h}>Hole {h}</option>)}
-                  </Select>
-                </Field>
-                {/* "Do NOT describe manually entered competitions as
-                    Auto-tracked" — this is a manually-configured hole with
-                    live scoring integration, worded as exactly that. */}
-                <p className="text-xs text-text-muted mt-2">
-                  {meta.icon} {meta.label} · Hole {comp.hole_number ?? holeOptions[0]} · Integrated into scoring
-                </p>
+      {comps.length > 0 && (
+        <div className="space-y-2">
+          {comps.map(comp => {
+            const meta = SIDE_COMP_META[comp.comp_type]
+            return (
+              <div key={comp.id} className="bg-white rounded-xl p-3 flex items-center justify-between">
+                <div>
+                  <span className="text-sm font-medium text-text flex items-center gap-2">
+                    <span>{meta.icon}</span>{meta.label} — H{comp.hole_number}
+                  </span>
+                  {/* "Do NOT describe manually entered competitions as
+                      Auto-tracked" — worded as exactly what it is. */}
+                  <p className="text-xs text-text-muted mt-1">
+                    {comp.comp_type === 'powerplay' ? '2× Stableford Points' : 'Integrated into scoring'}
+                  </p>
+                </div>
+                <button type="button" onClick={() => removeComp(comp.id)} className="text-xs text-red-400 hover:text-red-600 transition-colors flex-shrink-0">
+                  Remove
+                </button>
               </div>
-            )}
-          </div>
-        )
-      })}
-
-      <div className="bg-white rounded-xl p-3">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-text flex items-center gap-2">
-            <span>⚡</span>Powerplay
-          </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={!!round.powerplay_enabled}
-            onClick={() => onUpdate({
-              ...round,
-              powerplay_enabled: !round.powerplay_enabled,
-              powerplay_hole_number: !round.powerplay_enabled ? (round.powerplay_hole_number ?? holeOptions[holeOptions.length - 1]) : round.powerplay_hole_number,
-            })}
-            style={{
-              width: 42, height: 24, borderRadius: 12, position: 'relative', flexShrink: 0,
-              background: round.powerplay_enabled ? '#16a34a' : '#d1d5db', border: 'none', cursor: 'pointer', transition: 'background 0.15s',
-            }}
-          >
-            <span style={{
-              position: 'absolute', top: 2, left: round.powerplay_enabled ? 20 : 2,
-              width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
-            }} />
-          </button>
+            )
+          })}
         </div>
-        {round.powerplay_enabled && (
-          <div className="mt-3">
-            <Field label="Select Powerplay Hole">
-              <Select
-                value={round.powerplay_hole_number ?? holeOptions[holeOptions.length - 1]}
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onUpdate({ ...round, powerplay_hole_number: Number(e.target.value) })}
-              >
-                {holeOptions.map(h => <option key={h} value={h}>Hole {h}</option>)}
-              </Select>
-            </Field>
-            {/* V1: fixed ×2 rule, no multiplier editor, per the brief. */}
-            <p className="text-xs text-text-muted mt-2">
-              ⚡ Hole {round.powerplay_hole_number ?? holeOptions[holeOptions.length - 1]} · 2× Stableford Points
-            </p>
+      )}
+
+      {adding ? (
+        <div className="bg-white rounded-xl p-3 space-y-3">
+          <Field label="Competition Type">
+            <Select value={newType} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNewType(e.target.value as WizardSideComp['comp_type'])}>
+              {COMP_TYPE_ORDER.map(t => <option key={t} value={t}>{SIDE_COMP_META[t].icon} {SIDE_COMP_META[t].label}</option>)}
+            </Select>
+          </Field>
+          <Field label="Hole">
+            <Select value={newHole} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNewHole(Number(e.target.value))}>
+              {holeOptions.map(h => <option key={h} value={h}>Hole {h}</option>)}
+            </Select>
+          </Field>
+          {newType === 'powerplay' && (
+            <p className="text-xs text-text-muted">⚡ 2× Stableford Points on this hole</p>
+          )}
+          {wouldDuplicate && (
+            <p className="text-xs text-red-500">{SIDE_COMP_META[newType].label} is already configured on Hole {newHole}.</p>
+          )}
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setAdding(false)} className="flex-1 text-sm font-medium text-text-muted border border-cream-300 rounded-xl py-2">
+              Cancel
+            </button>
+            <button type="button" onClick={addComp} disabled={wouldDuplicate} className="flex-1 text-sm font-medium text-white bg-brand-600 rounded-xl py-2 disabled:opacity-50">
+              Add
+            </button>
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="w-full border-2 border-dashed border-brand-200 rounded-xl py-2.5 text-sm font-medium text-brand-600 hover:border-brand-400 hover:bg-brand-50 transition-colors"
+        >
+          + Add Competition
+        </button>
+      )}
     </div>
   )
 }
@@ -160,7 +151,7 @@ function RoundCard({ round, index, total, onUpdate, onRemove, locked }: {
   function set<K extends keyof WizardRound>(k: K, v: WizardRound[K]) {
     onUpdate({ ...round, [k]: v })
   }
-  const enabledComps = (round.side_comps ?? []).filter(c => c.enabled)
+  const comps = round.side_comps ?? []
 
   return (
     <div className="bg-surface-muted rounded-2xl p-4 space-y-3">
@@ -200,22 +191,17 @@ function RoundCard({ round, index, total, onUpdate, onRemove, locked }: {
         // the DB-level lock in migration 037). Read-only summary instead
         // of edit controls, rather than silently hiding what was
         // configured.
-        (enabledComps.length > 0 || round.powerplay_enabled) && (
+        comps.length > 0 && (
           <div className="pt-3 border-t border-cream-300">
             <p className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-2">
               Side Competitions · Locked
             </p>
             <div className="flex flex-wrap gap-2">
-              {enabledComps.map(c => (
-                <span key={c.comp_type} className="text-xs bg-white rounded-full px-3 py-1 text-text-muted">
-                  {SIDE_COMP_META[c.comp_type].icon} {SIDE_COMP_META[c.comp_type].label} · H{c.hole_number}
+              {comps.map(c => (
+                <span key={c.id} className="text-xs bg-white rounded-full px-3 py-1 text-text-muted">
+                  {SIDE_COMP_META[c.comp_type].icon} {SIDE_COMP_META[c.comp_type].label} · H{c.hole_number}{c.comp_type === 'powerplay' ? ' · 2×' : ''}
                 </span>
               ))}
-              {round.powerplay_enabled && (
-                <span className="text-xs bg-white rounded-full px-3 py-1 text-text-muted">
-                  ⚡ Powerplay · H{round.powerplay_hole_number} · 2×
-                </span>
-              )}
             </div>
             <p className="text-xs text-text-muted mt-2">
               This round has started, so its Side Competition and Powerplay setup can no longer be changed.

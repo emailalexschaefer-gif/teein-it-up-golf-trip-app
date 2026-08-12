@@ -25,7 +25,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { computeCumulativeStandings, determineRoundWinners, determineChampions, type RoundPlayerResult } from '@/lib/scoring/multiRound'
+import { computeCumulativeStandings, determineRoundWinners, determineChampions, sortRoundsChronologically, type RoundPlayerResult } from '@/lib/scoring/multiRound'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -34,7 +34,7 @@ interface RouteProps { params: Promise<{ tripId: string }> }
 
 interface ScoreEntryRow { stableford_pts: number; capture_role: string }
 interface ScorecardRow { player_id: string; profiles: { full_name: string } | null; score_entries: ScoreEntryRow[] }
-interface RoundRow { id: string; name: string; course_name: string | null; status: string; created_at: string; powerplay_hole_number: number | null }
+interface RoundRow { id: string; name: string; course_name: string | null; status: string; created_at: string }
 
 export async function GET(_req: NextRequest, { params }: RouteProps) {
   const { tripId } = await params
@@ -59,14 +59,22 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       return NextResponse.json({ error: 'This event is not yet complete.' }, { status: 409 })
     }
 
+    // Same stable-ordering fix as leaderboard/route.ts — created_at alone
+    // is unreliable when rounds are batch-created together (identical
+    // transaction-start timestamps). play_date is the primary key here,
+    // with created_at/id as deterministic tiebreakers only for same-day
+    // rounds. This is what makes "Round 1 Complete" / "Final Round" (or
+    // any custom names) attach to the correct data regardless of which
+    // physical order the INSERT happened to return them in.
     const roundsRes = await admin.from('rounds')
-      .select('id, name, course_name, status, created_at, powerplay_hole_number')
-      .eq('trip_id', tripId).order('created_at', { ascending: true })
+      .select('id, name, course_name, status, play_date, created_at')
+      .eq('trip_id', tripId)
     if (roundsRes.error) throw roundsRes.error
+    const sortedRounds = sortRoundsChronologically((roundsRes.data ?? []) as (RoundRow & { play_date: string })[])
     // Defensive, not assumed: only rounds actually marked completed count
     // toward results, even though trip.status === 'completed' should
     // already imply every round is (see close/route.ts's own guard).
-    const completedRounds = ((roundsRes.data ?? []) as RoundRow[]).filter(r => r.status === 'completed')
+    const completedRounds = sortedRounds.filter(r => r.status === 'completed')
 
     if (completedRounds.length === 0) {
       return NextResponse.json({ error: 'No completed rounds found for this event.' }, { status: 409 })
@@ -161,7 +169,30 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
       const comps = compsRes.data ?? []
       const competitions = await Promise.all(comps.map(async (comp: { id: string; comp_type: string; hole_number: number | null }) => {
-        if (!isHoleComplete(comp.hole_number)) return { compType: comp.comp_type, holeNumber: comp.hole_number, winner: null }
+        // Powerplay is a genuinely different kind of competition instance
+        // — no player-submitted entries, no leader, just the best
+        // authoritative score on this specific Powerplay hole. Treated as
+        // just another row in this same per-instance array (own comp.id,
+        // own card), not a separate round-level field — this is what
+        // makes multiple Powerplay holes in one round each get their own
+        // correct highlight, exactly like multiple NTPs already do.
+        if (comp.comp_type === 'powerplay') {
+          let powerplayBest: { playerId: string; playerName: string; points: number } | null = null
+          const ppHoleId = holeIdByNumber.get(comp.hole_number ?? -1)
+          if (ppHoleId) {
+            const { data: ppEntries } = await admin.from('score_entries').select('stableford_pts, scorecard_id').eq('hole_id', ppHoleId).eq('capture_role', 'self')
+            const top = ((ppEntries ?? []) as { stableford_pts: number | null; scorecard_id: string }[])
+              .filter(e => e.stableford_pts !== null).sort((a, b) => (b.stableford_pts ?? 0) - (a.stableford_pts ?? 0))[0]
+            if (top) {
+              const { data: sc } = await admin.from('scorecards').select('player_id, profiles:player_id(full_name)').eq('id', top.scorecard_id).maybeSingle()
+              const scRow = sc as unknown as { player_id: string; profiles: { full_name: string } | null } | null
+              if (scRow) powerplayBest = { playerId: scRow.player_id, playerName: scRow.profiles?.full_name ?? 'Player', points: top.stableford_pts ?? 0 }
+            }
+          }
+          return { compType: comp.comp_type, holeNumber: comp.hole_number, winner: null, powerplayBest }
+        }
+
+        if (!isHoleComplete(comp.hole_number)) return { compType: comp.comp_type, holeNumber: comp.hole_number, winner: null, powerplayBest: null }
 
         const [entriesRes, changesRes] = await Promise.all([
           admin.from('side_comp_entries').select('player_id, qualified, result_value, moment_id, profiles:player_id(full_name)').eq('side_comp_id', comp.id),
@@ -183,30 +214,10 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
           const best = entries.filter(e => e.qualified && e.result_value !== null).sort((a, b) => (a.result_value ?? 0) - (b.result_value ?? 0))[0]
           if (best) winner = { playerId: best.player_id, playerName: best.profiles?.full_name ?? 'Player', resultValue: best.result_value, momentId: best.moment_id }
         }
-        return { compType: comp.comp_type, holeNumber: comp.hole_number, winner }
+        return { compType: comp.comp_type, holeNumber: comp.hole_number, winner, powerplayBest: null as { playerId: string; playerName: string; points: number } | null }
       }))
 
-      // Powerplay highlight — same authoritative-data reasoning as the
-      // Side Games route: the best score_entries.stableford_pts on this
-      // round's own Powerplay hole, never a manually entered result.
-      let powerplay: { holeNumber: number; best: { playerId: string; playerName: string; points: number } | null } | null = null
-      if (round.powerplay_hole_number) {
-        const ppHoleId = holeIdByNumber.get(round.powerplay_hole_number)
-        let best: { playerId: string; playerName: string; points: number } | null = null
-        if (ppHoleId) {
-          const { data: ppEntries } = await admin.from('score_entries').select('stableford_pts, scorecard_id').eq('hole_id', ppHoleId).eq('capture_role', 'self')
-          const top = ((ppEntries ?? []) as { stableford_pts: number | null; scorecard_id: string }[])
-            .filter(e => e.stableford_pts !== null).sort((a, b) => (b.stableford_pts ?? 0) - (a.stableford_pts ?? 0))[0]
-          if (top) {
-            const { data: sc } = await admin.from('scorecards').select('player_id, profiles:player_id(full_name)').eq('id', top.scorecard_id).maybeSingle()
-            const scRow = sc as unknown as { player_id: string; profiles: { full_name: string } | null } | null
-            if (scRow) best = { playerId: scRow.player_id, playerName: scRow.profiles?.full_name ?? 'Player', points: top.stableford_pts ?? 0 }
-          }
-        }
-        powerplay = { holeNumber: round.powerplay_hole_number, best }
-      }
-
-      return { roundId: round.id, roundNumber: idx + 1, roundName: round.name, courseName: round.course_name, competitions, powerplay }
+      return { roundId: round.id, roundNumber: idx + 1, roundName: round.name, courseName: round.course_name, competitions }
     }))
 
     return NextResponse.json({

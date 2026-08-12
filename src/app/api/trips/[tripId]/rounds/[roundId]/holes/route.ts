@@ -29,18 +29,15 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   // Sprint 9 — Side Competitions + Powerplay. Fetched alongside holes
   // since both are needed together to render hole-navigator badges and
   // on-hole banners, and this route is already the one place the
-  // scoring shell loads round-scoped hole data from — no second request
-  // for what's conceptually "what does this round's hole layout look
-  // like". Read-only here: this is Item 2 (scoring awareness), no
-  // result entry endpoints yet.
-  const [roundRes, compsRes] = await Promise.all([
-    admin.from('rounds').select('powerplay_hole_number').eq('id', roundId).maybeSingle(),
-    admin.from('side_comps').select('id, comp_type, hole_number, enabled').eq('round_id', roundId).eq('enabled', true),
-  ])
+  // scoring shell loads round-scoped hole data from. Corrected model:
+  // Powerplay is just another side_comps row (comp_type = 'powerplay'),
+  // not a separate rounds column — this single query already returns
+  // every competition instance, including however many Powerplay holes
+  // are configured, with no special-casing needed here at all.
+  const compsRes = await admin.from('side_comps').select('id, comp_type, hole_number, enabled').eq('round_id', roundId).eq('enabled', true)
 
   return NextResponse.json({
     holes: holes ?? [],
-    powerplayHoleNumber: roundRes.data?.powerplay_hole_number ?? null,
     sideComps: compsRes.data ?? [],
   })
 }

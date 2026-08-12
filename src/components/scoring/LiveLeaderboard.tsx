@@ -360,7 +360,13 @@ function LeaderboardRow({ row, movement, isLast, isExpanded, onToggle, totalHole
           </div>
 
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {/* Bug fix: previously forced to one line (whiteSpace: nowrap
+                + ellipsis), which on realistic mobile widths clipped
+                "(you)" and sometimes the surname itself before the R1/R2/
+                TOTAL columns even got a chance to compress. The name is
+                more important than the extra vertical space a wrapped
+                second line costs — not solved by shrinking the font. */}
+            <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d', lineHeight: 1.25, wordBreak: 'break-word' }}>
               {row.name}{row.isCurrentUser ? ' (you)' : ''}
             </div>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af' }}>
@@ -452,19 +458,27 @@ function MultiRoundRow({ row, isCurrentUser, isLast, isExpanded, onToggle, board
           cursor: 'pointer',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-          <div style={{ width: 20, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 13, color: row.position <= 3 ? '#a1791f' : '#9ca3af' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+          <div style={{ width: 18, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 12.5, color: row.position <= 3 ? '#a1791f' : '#9ca3af' }}>
             {MEDAL[row.position] ?? row.position}
           </div>
           <div style={{
-            width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+            width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
             background: 'radial-gradient(#e8c96a,#c9a84c)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 10,
+            fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 9.5,
           }}>
             {initialsOf(row.playerName)}
           </div>
-          <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {/* Bug fix: same as the single-round row above — this cell has
+              even less room to work with (rank + avatar + however many
+              round columns + TOTAL all compete for width on the same
+              row), so it was the more visibly broken case on mobile
+              ("Darren Lappen (..."). Wraps instead of clipping; the
+              rank/avatar widths above were trimmed slightly (not the
+              font) to give the name more room without needing to shrink
+              anything the person actually reads. */}
+          <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d', lineHeight: 1.25, wordBreak: 'break-word', minWidth: 0 }}>
             {row.playerName}{isCurrentUser ? ' (you)' : ''}
           </div>
         </div>

@@ -128,7 +128,7 @@ export default function ScoreSessionShell({
   // score), the scorer just had no visual warning why. Same fields, same
   // /holes response shape, same reasoning — not a duplicated data model.
   const [sideComps, setSideComps] = useState<{ id: string; comp_type: string; hole_number: number | null; enabled: boolean }[]>([])
-  const [powerplayHoleNumber, setPowerplayHoleNumber] = useState<number | null>(null)
+  const powerplayHoleNumbers = new Set(sideComps.filter(c => c.comp_type === 'powerplay' && c.enabled).map(c => c.hole_number))
   const [scores, setScores]             = useState<ScoreMap>({})
   const [confirmed, setConfirmed]       = useState<ConfirmMap>({})
   const [holeIdx, setHoleIdx]           = useState(0) // 0-indexed into holes array, shared across the group
@@ -201,7 +201,6 @@ export default function ScoreSessionShell({
           const data = await res.json()
           setHoles(data.holes ?? [])
           setSideComps(data.sideComps ?? [])
-          setPowerplayHoleNumber(data.powerplayHoleNumber ?? null)
         }
       } catch { /* ignore */ }
       setLoadingHoles(false)
@@ -297,8 +296,14 @@ export default function ScoreSessionShell({
   // Sprint 9 — this hole's active Side Competitions + whether it's the
   // Powerplay hole. No "one competition per hole" restriction, matching
   // the primary shell exactly.
-  const activeSideComps = sideComps.filter(c => c.enabled && c.hole_number === holeNum)
-  const isPowerplayHole = powerplayHoleNumber === holeNum
+  // Excludes Powerplay — it gets its own dedicated banner below, so a
+  // hole with both Powerplay and, say, NTP configured doesn't show
+  // Powerplay twice (once correctly, once via this generic loop with the
+  // wrong fallback icon/label — SIDE_COMP_BANNER has no 'powerplay'
+  // entry). Every other competition on this hole still renders here,
+  // correctly rendering more than one if configured.
+  const activeSideComps = sideComps.filter(c => c.enabled && c.hole_number === holeNum && c.comp_type !== 'powerplay')
+  const isPowerplayHole = powerplayHoleNumbers.has(holeNum)
   const pts      = gross !== null ? calculateStableford({ grossScore: gross, par, strokeIndex: si, playingHandicap: hcp, isPowerplayHole }) : null
   const basePts  = gross !== null ? calculateStableford({ grossScore: gross, par, strokeIndex: si, playingHandicap: hcp }) : null
 
@@ -307,9 +312,9 @@ export default function ScoreSessionShell({
       if (!confirmed[card.id]?.[h.hole_number]) return sum
       const g = scores[card.id]?.[h.hole_number]
       if (!g) return sum
-      return sum + calculateStableford({ grossScore: g, par: h.par, strokeIndex: h.stroke_index, playingHandicap: card.playing_handicap, isPowerplayHole: h.hole_number === powerplayHoleNumber })
+      return sum + calculateStableford({ grossScore: g, par: h.par, strokeIndex: h.stroke_index, playingHandicap: card.playing_handicap, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
     }, 0)
-  }, [holes, confirmed, scores, powerplayHoleNumber])
+  }, [holes, confirmed, scores, powerplayHoleNumbers])
 
   const cardHolesPlayed = useCallback((card: GroupScorecard) => {
     return holes.filter(h => confirmed[card.id]?.[h.hole_number]).length
@@ -319,12 +324,12 @@ export default function ScoreSessionShell({
   const front9Pts = activeCard ? holes.filter(h => h.hole_number <= 9).reduce((sum, h) => {
     const g = scores[activeCard.id]?.[h.hole_number]
     if (!g || !confirmed[activeCard.id]?.[h.hole_number]) return sum
-    return sum + calculateStableford({ grossScore: g, par: h.par, strokeIndex: h.stroke_index, playingHandicap: hcp, isPowerplayHole: h.hole_number === powerplayHoleNumber })
+    return sum + calculateStableford({ grossScore: g, par: h.par, strokeIndex: h.stroke_index, playingHandicap: hcp, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
   }, 0) : 0
   const back9Pts = activeCard ? holes.filter(h => h.hole_number > 9).reduce((sum, h) => {
     const g = scores[activeCard.id]?.[h.hole_number]
     if (!g || !confirmed[activeCard.id]?.[h.hole_number]) return sum
-    return sum + calculateStableford({ grossScore: g, par: h.par, strokeIndex: h.stroke_index, playingHandicap: hcp, isPowerplayHole: h.hole_number === powerplayHoleNumber })
+    return sum + calculateStableford({ grossScore: g, par: h.par, strokeIndex: h.stroke_index, playingHandicap: hcp, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
   }, 0) : 0
 
   const strokesReceived = hole
@@ -429,7 +434,7 @@ export default function ScoreSessionShell({
     if (!isConf || !g) {
       return { bg: '#f3f4f6', label: String(h.hole_number), sub: `p${h.par}` }
     }
-    const p = calculateStableford({ grossScore: g, par: h.par, strokeIndex: h.stroke_index, playingHandicap: activeCard.playing_handicap, isPowerplayHole: h.hole_number === powerplayHoleNumber })
+    const p = calculateStableford({ grossScore: g, par: h.par, strokeIndex: h.stroke_index, playingHandicap: activeCard.playing_handicap, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
     return { bg: ptsBackground(p), label: String(g), sub: `${p}pt`, color: ptsColor(p) }
   }
 
@@ -614,9 +619,9 @@ export default function ScoreSessionShell({
                           boxShadow: isOn ? '0 4px 14px rgba(22,163,74,0.35)' : undefined,
                           position: 'relative',
                         }}>
-                          {(sideComps.some(c => c.enabled && c.hole_number === h.hole_number) || powerplayHoleNumber === h.hole_number) && (
+                          {(sideComps.some(c => c.enabled && c.hole_number === h.hole_number) || powerplayHoleNumbers.has(h.hole_number)) && (
                             <span style={{ position: 'absolute', top: -5, right: -4, fontSize: 10, lineHeight: 1 }}>
-                              {powerplayHoleNumber === h.hole_number ? '⚡' : '⭐'}
+                              {powerplayHoleNumbers.has(h.hole_number) ? '⚡' : '⭐'}
                             </span>
                           )}
                           <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: isOn ? '#fff' : (m.color ?? '#6b7280') }}>{m.label}</div>
@@ -648,9 +653,9 @@ export default function ScoreSessionShell({
                           boxShadow: isOn ? '0 4px 14px rgba(22,163,74,0.35)' : undefined,
                           position: 'relative',
                         }}>
-                          {(sideComps.some(c => c.enabled && c.hole_number === h.hole_number) || powerplayHoleNumber === h.hole_number) && (
+                          {(sideComps.some(c => c.enabled && c.hole_number === h.hole_number) || powerplayHoleNumbers.has(h.hole_number)) && (
                             <span style={{ position: 'absolute', top: -5, right: -4, fontSize: 10, lineHeight: 1 }}>
-                              {powerplayHoleNumber === h.hole_number ? '⚡' : '⭐'}
+                              {powerplayHoleNumbers.has(h.hole_number) ? '⚡' : '⭐'}
                             </span>
                           )}
                           <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: isOn ? '#fff' : (m.color ?? '#6b7280') }}>{m.label}</div>

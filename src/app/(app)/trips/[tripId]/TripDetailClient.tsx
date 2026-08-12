@@ -23,13 +23,12 @@ export interface TripMemberRow {
   profiles: MemberProfile | null
 }
 export interface RoundSideComp {
-  id: string; comp_type: 'nearest_pin' | 'longest_drive' | 'pros_approach' | 'best_on_day' | 'custom'
+  id: string; comp_type: 'nearest_pin' | 'longest_drive' | 'pros_approach' | 'powerplay' | 'best_on_day' | 'custom'
   hole_number: number | null; enabled: boolean
 }
 export interface RoundRow {
   id: string; name: string; course_name: string | null; play_date: string
   tee_time: string | null; holes: number; scoring_format: string; status: string
-  powerplay_hole_number?: number | null
   side_comps?: RoundSideComp[]
 }
 export interface TripData {
@@ -128,12 +127,15 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
       play_date: r.play_date, tee_time: r.tee_time ?? '',
       holes: r.holes, scoring_format: r.scoring_format,
       status: r.status,
+      // Corrected model: every enabled competition instance round-trips
+      // into the wizard, including Powerplay (now just another comp_type
+      // here, not a separate field) — a round with two NTPs correctly
+      // carries both instances back into edit mode, not just one.
       side_comps: (r.side_comps ?? [])
-        .filter((c): c is typeof c & { comp_type: 'nearest_pin' | 'longest_drive' | 'pros_approach' } =>
-          c.comp_type === 'nearest_pin' || c.comp_type === 'longest_drive' || c.comp_type === 'pros_approach')
-        .map(c => ({ comp_type: c.comp_type, enabled: c.enabled, hole_number: c.hole_number })),
-      powerplay_enabled: r.powerplay_hole_number != null,
-      powerplay_hole_number: r.powerplay_hole_number ?? null,
+        .filter((c): c is typeof c & { comp_type: 'nearest_pin' | 'longest_drive' | 'pros_approach' | 'powerplay'; hole_number: number } =>
+          (c.comp_type === 'nearest_pin' || c.comp_type === 'longest_drive' || c.comp_type === 'pros_approach' || c.comp_type === 'powerplay')
+          && c.enabled && c.hole_number != null)
+        .map(c => ({ id: c.id, comp_type: c.comp_type, hole_number: c.hole_number })),
     })),
   }))}`
 

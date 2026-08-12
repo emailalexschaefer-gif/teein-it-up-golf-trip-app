@@ -1,6 +1,128 @@
 # Teein' It Up — Sprint 3 Testing Guide
 
-## Sprint 9 — Side Competitions & Powerplay (deployment candidate)
+## Sprint 9 — Side Competitions & Powerplay — FINAL
+
+**162/162 domain tests passing.** `npm run build`/full project typecheck
+could not be run — no network access to install `node_modules` in this
+sandbox, same limitation as every delivery this project. Every file
+touched across the full Sprint 9 body of work was instead verified by
+hand: brace-balance checked with a script, and re-read line by line for
+the specific classes of bug this sprint's corrections were about.
+
+### The architectural correction, confirmed complete
+Powerplay now follows the **exact same instance model** as every other
+Side Competition — a `side_comps` row with `comp_type = 'powerplay'`,
+identified by its own `id`, never a special `rounds` column or a
+single round-level object anywhere in the stack.
+
+A comprehensive, assumption-free re-audit (not relying on memory of
+what earlier sessions fixed) searched the entire `src/` tree for every
+category of stale assumption and found **zero remaining instances** of:
+- `powerplay_hole_number` (outside migration history/comments)
+- a single (non-array) Powerplay object anywhere
+- `.find(...comp_type...)` patterns that would silently return only the
+  first match of a repeated type
+- any grouping/reducing keyed by `comp_type` alone
+
+The wizard's own duplicate-prevention check, the DB's own `UNIQUE(round_id,
+comp_type, hole_number)` constraint, and every card/row's React key
+(`comp.id`, never `comp_type`) all agree: **type + hole**, never type
+alone, is what makes a competition instance unique.
+
+### Files touched across the full correction (this session + prior)
+- `supabase/migrations/037_side_competitions_powerplay.sql` — Powerplay
+  moved from `rounds.powerplay_hole_number` into `side_comps`;
+  `UNIQUE(round_id, comp_type, hole_number)` replacing the old
+  one-per-type constraint; one lock trigger for every competition type
+- `supabase/migrations/038_side_comp_entry_submission.sql` — unaffected
+  by the schema correction (already keyed entirely by `side_comp_id`)
+- `src/types/app.ts`, `StepRounds.tsx`, `StepReview.tsx` — wizard
+  rebuilt from per-type ON/OFF toggles to an add/remove instance list
+- `src/app/api/trips/route.ts`, `src/app/api/trips/[tripId]/route.ts` —
+  trip create/edit persist every configured instance
+- `src/app/(app)/trips/[tripId]/page.tsx`, `TripDetailClient.tsx` — read
+  paths and edit-prefill round-trip every instance correctly
+- `src/app/api/trips/[tripId]/rounds/[roundId]/holes/route.ts` — no
+  longer queries the removed column
+- `SelfMarkerScoreShell.tsx`, `ScoreSessionShell.tsx` — Powerplay
+  awareness derived from a `Set` of hole numbers (supports multiple
+  Powerplay holes); fixed a genuine duplicate-banner bug found during
+  this correction (a hole with both Powerplay and another competition
+  would have shown Powerplay twice, once mislabeled)
+- `SideCompEntryPanel.tsx`, `NewLeaderPrompt.tsx`, `MomentCapture.tsx`,
+  `moments/route.ts`, `side-comps/[sideCompId]/entries/route.ts` — the
+  full entry → leadership-decision → Capture Moment chain, already
+  correctly keyed by `side_comp_id` throughout (never touched by the
+  comp_type correction, since it was built instance-scoped from the
+  start)
+- `side-games/route.ts`, `SideGamesClient.tsx` — Powerplay is one more
+  row in the same per-instance competitions array (own card, own
+  `powerplayBest`), not a separate top-level field
+- `tournament/route.ts`, `TournamentControl.tsx` — Golf Story events
+  disambiguated by hole number for every competition type, including
+  Longest Drive (confirmed present, not just NTP/Pro's Approach)
+- `final-results/route.ts`, `FinalEventResults.tsx` — Side Competition
+  Winners + Powerplay Highlights, one row per instance, grouped by round,
+  never collapsed by type
+- `src/lib/scoring/multiRound.ts` (+ tests) — the multi-round leaderboard
+  root-cause fix: `sortRoundsChronologically()`, replacing four separate
+  inline `created_at`-only sorts that had no reliable result when rounds
+  share an identical creation timestamp (the actual cause of Round 1
+  appearing under the Round 2 LIVE column)
+- `LiveLeaderboard.tsx` — the same fix's UI consequences (Thru X no
+  longer able to attach to a frozen historical round) plus the
+  independent mobile name-clipping fix ("(you)" no longer forced onto
+  one truncated line)
+- `leaderboard/route.ts`, `setup-context/route.ts`, `leaders-last/route.ts`
+  — all four round-ordering sites now share the one tested function
+
+### Multi-round leaderboard — confirmed generic for Round 3+
+`sortRoundsChronologically()` has no round-count-specific branching
+anywhere — it sorts an arbitrary-length array by `play_date` (primary)
+with `created_at`/`id` as deterministic tiebreakers. A dedicated test
+(`sortRoundsChronologically — generic for any round count`) verifies
+this directly with four rounds, not two. `roundNumber` labeling
+downstream is a trivial `idx + 1` over that already-correct order.
+
+### What's genuinely NOT covered by automated tests, said plainly
+Side-comp entry/leader isolation by `side_comp_id`, Powerplay's per-hole
+Stableford doubling, and trip-creation/edit round-tripping every
+instance are database and integration-level guarantees. This sandbox
+has no live Postgres and no component-rendering test harness — the
+existing test suite only exercises pure TypeScript functions in
+`src/lib/`. These were verified the same way the rest of Sprint 9's
+architecture was: careful, repeated code tracing (confirmed again in
+this session's fresh audit), not executed tests. Two new tests
+(`determineRoundWinners`/`determineChampions` called independently for
+two simulated same-type instances) cover what's genuinely testable at
+the pure-function layer; they don't and can't stand in for the
+database-level claim.
+
+### End-to-end data flow
+**Trip setup** → organiser configures individual competition instances
+(`{comp_type, hole_number}[]`) in the wizard, each becoming its own
+`side_comps` row — **Round start** → `begin_round()` generates that
+round's own `holes`/`scorecards`, config already locked by the DB
+trigger — **Scoring** → `compute_stableford()` checks `side_comps` for
+a matching enabled `'powerplay'` row on the exact hole/round being
+scored, doubling independently per instance; the scoring UI shows every
+configured competition on the current hole via the same `side_comps`
+array — **Entry** → `SideCompEntryPanel` posts to
+`/side-comps/[sideCompId]/entries`, which calls one of two row-locking
+Postgres RPCs that decide leadership atomically and append to the
+immutable `side_comp_lead_changes` log only on a genuine change —
+**Leaderboard** → per-round Stableford totals summed from `score_entries`
+scoped by `round_id`, rounds ordered by the now-fixed
+`sortRoundsChronologically`, cumulative total = frozen historical rounds
++ live current-round subtotal — **Side Games** → live status per
+competition instance, keyed by `id` — **Golf Story** → leadership
+events and Hotly Contested computed at read time from the append-only
+log, hole-disambiguated in every phrase — **Final Results** → winners
+and Powerplay highlights per instance, grouped by round, never collapsed.
+
+---
+
+## Sprint 9 — earlier delivery notes (superseded above, kept for history)
 
 **Status: ready for live testing, not yet declared done.** Everything in
 this section was verified by careful code tracing and by running the

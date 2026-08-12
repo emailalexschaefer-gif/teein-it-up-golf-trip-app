@@ -4,9 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { z } from 'zod'
 
 const SideCompSchema = z.object({
-  comp_type:   z.enum(['nearest_pin', 'longest_drive', 'pros_approach']),
-  enabled:     z.boolean(),
-  hole_number: z.number().int().min(1).max(18).nullable(),
+  comp_type:   z.enum(['nearest_pin', 'longest_drive', 'pros_approach', 'powerplay']),
+  hole_number: z.number().int().min(1).max(18),
 })
 
 const RoundSchema = z.object({
@@ -16,13 +15,12 @@ const RoundSchema = z.object({
   tee_time:       z.string().max(10).default(''),
   holes:          z.union([z.literal(9), z.literal(18)]).default(18),
   scoring_format: z.literal('stableford').default('stableford'),
-  // Sprint 9 — Side Competitions + Powerplay, configured at round setup,
-  // before the round exists in an editable-forever sense (see migration
-  // 037's lock trigger). Optional/defaulted so this remains a fully
-  // backward-compatible addition to trip creation.
-  side_comps:             z.array(SideCompSchema).max(3).default([]),
-  powerplay_enabled:      z.boolean().default(false),
-  powerplay_hole_number:  z.number().int().min(1).max(18).nullable().default(null),
+  // Sprint 9 — corrected model: a round can hold multiple instances of
+  // the same competition type (two NTPs on different holes, two
+  // Powerplay holes) — each array entry is its own independent
+  // competition, matching the schema's own UNIQUE(round_id, comp_type,
+  // hole_number) rather than a one-per-type assumption.
+  side_comps: z.array(SideCompSchema).max(20).default([]),
 })
 
 const CreateTripSchema = z.object({
@@ -149,7 +147,7 @@ export async function POST(request: Request) {
       .from('rounds')
       .insert(rounds.map((r: {
         name: string; course_name: string | null; play_date: string; tee_time: string | null
-        holes: number; scoring_format: string; powerplay_enabled?: boolean; powerplay_hole_number?: number | null
+        holes: number; scoring_format: string
       }) => ({
         trip_id:        trip.id,
         name:           r.name,
@@ -159,10 +157,9 @@ export async function POST(request: Request) {
         holes:          r.holes,
         scoring_format: r.scoring_format,
         status:         'upcoming',
-        // A brand-new round is always 'upcoming', so writing this at
-        // insert time is always safe — the lock trigger (migration 037)
-        // only fires on UPDATE of this column, never INSERT.
-        powerplay_hole_number: r.powerplay_enabled ? (r.powerplay_hole_number ?? null) : null,
+        // No powerplay_hole_number here — Powerplay is a side_comps row
+        // now (comp_type = 'powerplay'), inserted below alongside every
+        // other competition instance, not a special column on rounds.
       })))
       .select('id')
 
@@ -176,25 +173,27 @@ export async function POST(request: Request) {
       )
     }
 
-    // Side Competitions — one row per enabled comp_type per round. Rounds
-    // are inserted in the same order as the incoming array (Postgres/
-    // PostgREST preserves insert order in the returned rows for a single
-    // multi-row insert), so insertedRounds[i] corresponds to rounds[i].
+    // Side Competitions — one row per configured INSTANCE, not per type.
+    // A round with two NTPs on different holes produces two rows here,
+    // each an independent competition (own side_comp_id, own leadership
+    // history, own winner) — nothing here groups or dedupes by comp_type.
+    // Rounds are inserted in the same order as the incoming array
+    // (Postgres/PostgREST preserves insert order in the returned rows for
+    // a single multi-row insert), so insertedRounds[i] corresponds to
+    // rounds[i].
     const SIDE_COMP_LABELS: Record<string, string> = {
-      nearest_pin: 'Nearest the Pin', longest_drive: 'Longest Drive', pros_approach: "Pro's Approach",
+      nearest_pin: 'Nearest the Pin', longest_drive: 'Longest Drive', pros_approach: "Pro's Approach", powerplay: 'Powerplay',
     }
     const sideCompRows = rounds.flatMap((r: {
-      side_comps?: { comp_type: string; enabled: boolean; hole_number: number | null }[]
+      side_comps?: { comp_type: string; hole_number: number }[]
     }, i: number) => {
       const roundId = insertedRounds?.[i]?.id
       if (!roundId) return []
-      return (r.side_comps ?? [])
-        .filter(c => c.enabled && c.hole_number != null)
-        .map(c => ({
-          trip_id: trip.id, round_id: roundId,
-          name: SIDE_COMP_LABELS[c.comp_type] ?? c.comp_type, comp_type: c.comp_type,
-          hole_number: c.hole_number, enabled: true,
-        }))
+      return (r.side_comps ?? []).map(c => ({
+        trip_id: trip.id, round_id: roundId,
+        name: SIDE_COMP_LABELS[c.comp_type] ?? c.comp_type, comp_type: c.comp_type,
+        hole_number: c.hole_number, enabled: true,
+      }))
     })
 
     if (sideCompRows.length > 0) {

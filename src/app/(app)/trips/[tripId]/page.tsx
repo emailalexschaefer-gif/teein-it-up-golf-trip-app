@@ -83,7 +83,6 @@ export default async function TripDetailPage({ params }: Props) {
         ),
         rounds (
           id, name, course_name, play_date, tee_time, holes, scoring_format, status,
-          powerplay_hole_number,
           side_comps ( id, comp_type, hole_number, enabled )
         )
       `)
@@ -98,12 +97,11 @@ export default async function TripDetailPage({ params }: Props) {
         msg.includes('playing_handicap') || msg.includes('handicap_status')
       )
       // Sprint 9 (migration 037) — same resilience pattern, separate check:
-      // powerplay_hole_number missing, or side_comps not found as a
-      // relationship (Postgrest's message for an unrecognised nested
-      // table differs from a plain missing-column message, hence the
-      // separate "relationship" check rather than reusing isMissingCol).
-      const isMissingSideComp = (msg.includes('does not exist') && msg.includes('powerplay_hole_number'))
-        || msg.toLowerCase().includes('side_comps') // covers Postgrest's "could not find a relationship" wording
+      // side_comps not found as a relationship (Postgrest's message for
+      // an unrecognised nested table — this is a substring check on that
+      // wording, not a specific-column check, since side_comps is a
+      // whole related table, not a single column on trips/rounds).
+      const isMissingSideComp = msg.toLowerCase().includes('side_comps')
       if (isMissingCol) {
         console.warn('[trip page] Sprint 3 columns missing — run 012_sprint3_schema.sql in Supabase SQL Editor')
         result = await db

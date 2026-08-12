@@ -7,7 +7,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 interface Props { params: Promise<{ tripId: string }> }
 
 const SIDE_COMP_LABELS: Record<string, string> = {
-  nearest_pin: 'Nearest the Pin', longest_drive: 'Longest Drive', pros_approach: "Pro's Approach",
+  nearest_pin: 'Nearest the Pin', longest_drive: 'Longest Drive', pros_approach: "Pro's Approach", powerplay: 'Powerplay',
 }
 
 export async function PATCH(request: NextRequest, { params }: Props) {
@@ -108,8 +108,11 @@ export async function PATCH(request: NextRequest, { params }: Props) {
     // in the update payload for a locked round, so the request succeeds
     // rather than tripping the DB lock trigger over an unrelated field
     // like a course-name typo fix) and at the DB level (defense in depth).
-    side_comps?: { comp_type: string; enabled: boolean; hole_number: number | null }[]
-    powerplay_enabled?: boolean; powerplay_hole_number?: number | null
+    // Corrected model: a round can hold multiple instances of the same
+    // competition type, including Powerplay (now just another comp_type
+    // here, not a separate rounds column) — each array entry is its own
+    // independent competition instance.
+    side_comps?: { comp_type: string; hole_number: number }[]
   }> | undefined)
 
   if (rounds && rounds.length > 0) {
@@ -145,18 +148,8 @@ export async function PATCH(request: NextRequest, { params }: Props) {
         tee_time:       r.tee_time || null,
         holes:          r.holes ?? 18,
         scoring_format: r.scoring_format ?? 'stableford',
-      }
-      // Only attempt to write powerplay_hole_number for a round still
-      // 'upcoming' — the DB trigger (migration 037) would reject any
-      // change to it otherwise, and there's no reason to let an
-      // unrelated field edit (e.g. fixing a course-name typo on a round
-      // that's already started) fail the whole request over a Powerplay
-      // value that isn't even being changed on-screen for a locked round
-      // (StepRounds.tsx renders locked rounds read-only, so this should
-      // always match the existing DB value anyway for a locked round —
-      // this is the defensive, not the primary, guard).
-      if (isUpcoming) {
-        updatePayload.powerplay_hole_number = r.powerplay_enabled ? (r.powerplay_hole_number ?? null) : null
+        // No powerplay_hole_number — Powerplay is a side_comps row now,
+        // reconciled below alongside every other competition instance.
       }
 
       const { error: updateRoundError } = await admin
@@ -170,21 +163,27 @@ export async function PATCH(request: NextRequest, { params }: Props) {
         return NextResponse.json({ error: `Failed to update round: ${updateRoundError.message}` }, { status: 500 })
       }
 
-      // Side Competitions — same "only if still upcoming" guard, same
-      // reasoning. Reconciled as delete-then-insert-enabled rather than a
-      // more granular per-row upsert: at most 3 rows per round, and this
-      // keeps toggling a comp off (removing its row) trivially correct
-      // without a separate delete branch to get wrong.
+      // Side Competitions — only reconciled for a round still 'upcoming'
+      // (the DB lock trigger would reject any change otherwise, and
+      // there's no reason to let an unrelated field edit — e.g. fixing a
+      // course-name typo on a round that's already started — fail the
+      // whole request over Side Comp config that isn't even editable
+      // on-screen for a locked round). Reconciled as delete-then-insert
+      // rather than a granular per-row upsert: a full replace of this
+      // round's competition instances is simple and correct, and at most
+      // a handful of rows per round in practice. Every configured
+      // instance is inserted, not one row per comp_type — a round can
+      // legitimately have two NTPs, two Powerplay holes, etc.
       if (isUpcoming) {
         const { error: deleteCompsError } = await admin.from('side_comps').delete().eq('round_id', r.id as string)
         if (deleteCompsError) {
           console.error('[PATCH /api/trips] side_comps clear failed', { roundId: r.id, error: deleteCompsError })
           return NextResponse.json({ error: `Failed to update side competitions: ${deleteCompsError.message}` }, { status: 500 })
         }
-        const enabledComps = (r.side_comps ?? []).filter(c => c.enabled && c.hole_number != null)
-        if (enabledComps.length > 0) {
+        const comps = r.side_comps ?? []
+        if (comps.length > 0) {
           const { error: insertCompsError } = await admin.from('side_comps').insert(
-            enabledComps.map(c => ({
+            comps.map(c => ({
               trip_id: tripId, round_id: r.id as string,
               name: SIDE_COMP_LABELS[c.comp_type] ?? c.comp_type, comp_type: c.comp_type,
               hole_number: c.hole_number, enabled: true,
@@ -208,10 +207,8 @@ export async function PATCH(request: NextRequest, { params }: Props) {
         holes:          r.holes ?? 18,
         scoring_format: r.scoring_format ?? 'stableford',
         status:         'upcoming',
-        // A brand-new round is always 'upcoming' — safe to write directly,
-        // same reasoning as the create-trip route (the lock trigger only
-        // fires on UPDATE of this column, never INSERT).
-        powerplay_hole_number: r.powerplay_enabled ? (r.powerplay_hole_number ?? null) : null,
+        // No powerplay_hole_number — Powerplay is a side_comps row,
+        // inserted below with every other competition instance.
       }))
 
       const { data: newRounds, error: insertRoundsError } = await admin.from('rounds').insert(insertRows).select('id')
@@ -223,13 +220,11 @@ export async function PATCH(request: NextRequest, { params }: Props) {
       const newSideCompRows = toInsert.flatMap((r, i) => {
         const roundId = newRounds?.[i]?.id
         if (!roundId) return []
-        return (r.side_comps ?? [])
-          .filter(c => c.enabled && c.hole_number != null)
-          .map(c => ({
-            trip_id: tripId, round_id: roundId,
-            name: SIDE_COMP_LABELS[c.comp_type] ?? c.comp_type, comp_type: c.comp_type,
-            hole_number: c.hole_number, enabled: true,
-          }))
+        return (r.side_comps ?? []).map(c => ({
+          trip_id: tripId, round_id: roundId,
+          name: SIDE_COMP_LABELS[c.comp_type] ?? c.comp_type, comp_type: c.comp_type,
+          hole_number: c.hole_number, enabled: true,
+        }))
       })
       if (newSideCompRows.length > 0) {
         const { error: newCompsError } = await admin.from('side_comps').insert(newSideCompRows)

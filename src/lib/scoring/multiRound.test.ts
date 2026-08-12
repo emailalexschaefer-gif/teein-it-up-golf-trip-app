@@ -1,6 +1,115 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { computeCumulativeStandings, determineRoundWinners, determineChampions, seedLeadersLast } from './multiRound'
+import { computeCumulativeStandings, determineRoundWinners, determineChampions, seedLeadersLast, sortRoundsChronologically } from './multiRound'
+
+// ── sortRoundsChronologically ────────────────────────────────────────────────
+
+test('sortRoundsChronologically — the exact bug scenario: rounds sharing an identical created_at (batch-inserted together) still sort correctly by play_date', () => {
+  const rounds = [
+    { id: 'round-2', play_date: '2026-08-11', created_at: '2026-08-01T10:00:00.000Z' },
+    { id: 'round-1', play_date: '2026-08-10', created_at: '2026-08-01T10:00:00.000Z' }, // identical created_at to round-2 — the actual root cause
+  ]
+  const sorted = sortRoundsChronologically(rounds)
+  assert.deepEqual(sorted.map(r => r.id), ['round-1', 'round-2'])
+})
+
+test('sortRoundsChronologically — normal case, distinct created_at, already-correct order is preserved', () => {
+  const rounds = [
+    { id: 'round-1', play_date: '2026-08-10', created_at: '2026-08-01T09:00:00.000Z' },
+    { id: 'round-2', play_date: '2026-08-11', created_at: '2026-08-01T10:00:00.000Z' },
+  ]
+  const sorted = sortRoundsChronologically(rounds)
+  assert.deepEqual(sorted.map(r => r.id), ['round-1', 'round-2'])
+})
+
+test('sortRoundsChronologically — same play_date AND same created_at falls back to id as a stable, deterministic (not necessarily meaningful, but repeatable) final tiebreaker', () => {
+  const rounds = [
+    { id: 'zzz', play_date: '2026-08-10', created_at: '2026-08-01T10:00:00.000Z' },
+    { id: 'aaa', play_date: '2026-08-10', created_at: '2026-08-01T10:00:00.000Z' },
+  ]
+  const sorted = sortRoundsChronologically(rounds)
+  assert.deepEqual(sorted.map(r => r.id), ['aaa', 'zzz'])
+})
+
+test('sortRoundsChronologically — generic for any round count, not special-cased to two', () => {
+  const rounds = [
+    { id: 'r4', play_date: '2026-08-13', created_at: '2026-08-01T10:00:00.000Z' },
+    { id: 'r2', play_date: '2026-08-11', created_at: '2026-08-01T10:00:00.000Z' },
+    { id: 'r1', play_date: '2026-08-10', created_at: '2026-08-01T10:00:00.000Z' },
+    { id: 'r3', play_date: '2026-08-12', created_at: '2026-08-01T10:00:00.000Z' },
+  ]
+  const sorted = sortRoundsChronologically(rounds)
+  assert.deepEqual(sorted.map(r => r.id), ['r1', 'r2', 'r3', 'r4'])
+})
+
+test('sortRoundsChronologically — does not mutate the input array', () => {
+  const rounds = [
+    { id: 'round-2', play_date: '2026-08-11', created_at: '2026-08-01T10:00:00.000Z' },
+    { id: 'round-1', play_date: '2026-08-10', created_at: '2026-08-01T10:00:00.000Z' },
+  ]
+  const original = [...rounds]
+  sortRoundsChronologically(rounds)
+  assert.deepEqual(rounds, original)
+})
+
+test('cumulative standings — Darren\'s exact reported scenario: Round 1 complete (36/32), Round 2 unstarted, then Round 2 partial scoring', () => {
+  // Round 1 complete
+  const round1 = [
+    { playerId: 'darren', playerName: 'Darren', roundPoints: 36 },
+    { playerId: 'razzle', playerName: 'Razzle Dazzle', roundPoints: 32 },
+  ]
+  // Round 2 just started, nobody has a score yet — every active
+  // scorecard still contributes a row (created at Begin Round), just
+  // with 0 points, matching how the leaderboard route already treats
+  // "this round's own totals" (see route comments) — never omitted,
+  // never confused with "no data".
+  const round2Unstarted = [
+    { playerId: 'darren', playerName: 'Darren', roundPoints: 0 },
+    { playerId: 'razzle', playerName: 'Razzle Dazzle', roundPoints: 0 },
+  ]
+  const standingsUnstarted = computeCumulativeStandings([round1, round2Unstarted])
+  assert.deepEqual(standingsUnstarted.find(s => s.playerId === 'darren')?.totalPoints, 36)
+  assert.deepEqual(standingsUnstarted.find(s => s.playerId === 'razzle')?.totalPoints, 32)
+
+  // Round 2, hole 1 scored
+  const round2Partial = [
+    { playerId: 'darren', playerName: 'Darren', roundPoints: 3 },
+    { playerId: 'razzle', playerName: 'Razzle Dazzle', roundPoints: 2 },
+  ]
+  const standingsPartial = computeCumulativeStandings([round1, round2Partial])
+  const darren = standingsPartial.find(s => s.playerId === 'darren')
+  const razzle = standingsPartial.find(s => s.playerId === 'razzle')
+  // R1 (36) is frozen — this is the same round1 array passed unchanged,
+  // never re-derived — and TOTAL = R1 + R2-live exactly, matching the
+  // required "sum(completed round totals) + current live round subtotal"
+  // formula, not a separately-maintained running total that could drift.
+  assert.equal(darren?.totalPoints, 39) // 36 + 3
+  assert.equal(razzle?.totalPoints, 34) // 32 + 2
+})
+
+test('computeCumulativeStandings — round ordering fed into it must come from sortRoundsChronologically, not raw array order — verifies the two functions compose correctly for the reported bug\'s exact shape', () => {
+  // Simulates rounds returned in the WRONG order (as they could be,
+  // pre-fix, when created_at collides) — round2's data listed first.
+  const roundsInWrongOrder = [
+    { id: 'round-2', play_date: '2026-08-11', created_at: '2026-08-01T10:00:00.000Z' },
+    { id: 'round-1', play_date: '2026-08-10', created_at: '2026-08-01T10:00:00.000Z' },
+  ]
+  const correctedOrder = sortRoundsChronologically(roundsInWrongOrder)
+  assert.deepEqual(correctedOrder.map(r => r.id), ['round-1', 'round-2'])
+
+  // Per-round results keyed by round id, not by array position — this is
+  // what the API route now builds roundsSummary/roundNumber from, so the
+  // corrected order above is what actually determines which id gets
+  // labeled "roundNumber: 1" (the "R1" column) vs "roundNumber: 2"
+  // ("R2 LIVE").
+  const resultsByRoundId: Record<string, { playerId: string; playerName: string; roundPoints: number }[]> = {
+    'round-1': [{ playerId: 'darren', playerName: 'Darren', roundPoints: 36 }],
+    'round-2': [{ playerId: 'darren', playerName: 'Darren', roundPoints: 3 }],
+  }
+  const orderedResults = correctedOrder.map(r => resultsByRoundId[r.id])
+  const standings = computeCumulativeStandings(orderedResults)
+  assert.equal(standings[0].totalPoints, 39) // 36 + 3, correct regardless of the original fetch order
+})
 
 // ── computeCumulativeStandings ──────────────────────────────────────────────
 
@@ -181,4 +290,42 @@ test('seedLeadersLast — an uneven player count puts the remainder in the final
   assert.equal(groupSizes.get(0), 4)
   assert.equal(groupSizes.get(1), 4)
   assert.equal(groupSizes.get(2), 2)
+})
+
+// ── Side Competition instance isolation (Sprint 9 correction) ───────────────
+// determineRoundWinners/determineChampions are pure and take their own
+// isolated input array on every call — there is no shared/module-level
+// state for either function to leak between two competition instances.
+// These tests document and assert that explicitly (two NTPs on
+// different holes, called independently, produce independent results)
+// rather than leaving it as an implicit property of "the functions
+// happen to be pure". The actual DB-level isolation guarantee (every
+// query scoped by side_comp_id, verified by code trace in the delivery
+// report) is a different, integration-level claim this sandbox has no
+// live database to exercise directly — not something a unit test here
+// can honestly claim to cover.
+
+test('determineRoundWinners — two competition instances of the same comp_type (e.g. NTP on Hole 3 and NTP on Hole 7) never share or leak state between calls', () => {
+  const instanceA = [
+    { playerId: 'darren', playerName: 'Darren', roundPoints: 5 },
+    { playerId: 'alex', playerName: 'Alex', roundPoints: 3 },
+  ]
+  const instanceB = [
+    { playerId: 'darren', playerName: 'Darren', roundPoints: 1 },
+    { playerId: 'alex', playerName: 'Alex', roundPoints: 8 },
+  ]
+  const winnersA = determineRoundWinners(instanceA)
+  const winnersB = determineRoundWinners(instanceB)
+  assert.deepEqual(winnersA.map(w => w.playerId), ['darren'])
+  assert.deepEqual(winnersB.map(w => w.playerId), ['alex'])
+  // Calling A again after B produces the exact same result as the first
+  // time — nothing from instance B's call leaked into instance A.
+  assert.deepEqual(determineRoundWinners(instanceA).map(w => w.playerId), ['darren'])
+})
+
+test('determineChampions — two independent standings computations (e.g. two Powerplay holes\' own best-score rankings) do not interfere with each other', () => {
+  const standingsA = computeCumulativeStandings([[{ playerId: 'p1', playerName: 'P1', roundPoints: 10 }, { playerId: 'p2', playerName: 'P2', roundPoints: 6 }]])
+  const standingsB = computeCumulativeStandings([[{ playerId: 'p1', playerName: 'P1', roundPoints: 4 }, { playerId: 'p2', playerName: 'P2', roundPoints: 9 }]])
+  assert.deepEqual(determineChampions(standingsA).map(c => c.playerId), ['p1'])
+  assert.deepEqual(determineChampions(standingsB).map(c => c.playerId), ['p2'])
 })

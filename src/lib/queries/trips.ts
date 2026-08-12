@@ -38,8 +38,7 @@ interface CreateTripVars {
   rounds: Array<{
     name: string; course_name: string; play_date: string
     tee_time: string; holes: 9 | 18; scoring_format: 'stableford'
-    side_comps?: { comp_type: string; enabled: boolean; hole_number: number | null }[]
-    powerplay_enabled?: boolean; powerplay_hole_number?: number | null
+    side_comps?: { comp_type: string; hole_number: number }[]
   }>
 }
 

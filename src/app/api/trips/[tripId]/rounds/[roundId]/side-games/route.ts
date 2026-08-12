@@ -36,9 +36,15 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     const memberCheck = await admin.from('trip_members').select('role').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
     if (!memberCheck.data) return NextResponse.json({ error: 'Not a trip member.' }, { status: 403 })
 
-    const roundRes = await admin.from('rounds').select('id, holes, score_capture_mode, powerplay_hole_number').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
+    const roundRes = await admin.from('rounds').select('id, holes, score_capture_mode').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
     if (!roundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
 
+    // Every configured competition instance, including however many
+    // Powerplay holes exist — comp_type = 'powerplay' rows are no longer
+    // special-cased into a separate query/field. Corrected model: a round
+    // can hold multiple instances of the same type (two NTPs, two
+    // Powerplay holes), so this list is never grouped or deduped by
+    // comp_type — each row is independently identified by its own id.
     const compsRes = await admin.from('side_comps').select('id, comp_type, hole_number').eq('round_id', roundId).eq('enabled', true).order('hole_number', { ascending: true })
     const comps = compsRes.data ?? []
 
@@ -76,6 +82,38 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     }
 
     const competitions = await Promise.all(comps.map(async (comp) => {
+      // Powerplay is a genuinely different kind of competition — not a
+      // player-submitted result with a leader, but a scoring modifier.
+      // Its "highlight" is the best authoritative score on this specific
+      // Powerplay hole (score_entries.stableford_pts, already doubled by
+      // the trigger — never a second manually-entered result), computed
+      // independently per instance so two Powerplay holes in one round
+      // each get their own, correct highlight rather than being merged.
+      if (comp.comp_type === 'powerplay') {
+        let powerplayBest: { playerId: string; playerName: string; points: number } | null = null
+        const ppHoleId = holeIdByNumber.get(comp.hole_number)
+        if (ppHoleId) {
+          const { data: ppEntries } = await admin
+            .from('score_entries')
+            .select('stableford_pts, scorecard_id')
+            .eq('hole_id', ppHoleId).eq('capture_role', 'self')
+          const topEntry = ((ppEntries ?? []) as { stableford_pts: number | null; scorecard_id: string }[])
+            .filter(e => e.stableford_pts !== null)
+            .sort((a, b) => (b.stableford_pts ?? 0) - (a.stableford_pts ?? 0))[0]
+          if (topEntry) {
+            const { data: sc } = await admin.from('scorecards').select('player_id, profiles:player_id(full_name)').eq('id', topEntry.scorecard_id).maybeSingle()
+            const scRow = sc as unknown as { player_id: string; profiles: { full_name: string } | null } | null
+            if (scRow) powerplayBest = { playerId: scRow.player_id, playerName: scRow.profiles?.full_name ?? 'Player', points: topEntry.stableford_pts ?? 0 }
+          }
+        }
+        return {
+          id: comp.id, compType: comp.comp_type, holeNumber: comp.hole_number,
+          currentLeader: null, leadChangeCount: 0, hotlyContested: false,
+          isComplete: isHoleComplete(comp.hole_number), winner: null, history: [],
+          powerplayBest,
+        }
+      }
+
       const [entriesRes, changesRes] = await Promise.all([
         admin.from('side_comp_entries').select('id, player_id, qualified, result_value, moment_id, profiles:player_id(full_name)').eq('side_comp_id', comp.id),
         admin.from('side_comp_lead_changes').select('id, player_id, result_value, sequence_number, moment_id, profiles:player_id(full_name)').eq('side_comp_id', comp.id).order('sequence_number', { ascending: true }),
@@ -110,35 +148,11 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
         isComplete: complete,
         winner: complete ? currentLeader : null,
         history: changes.map(c => ({ playerName: c.profiles?.full_name ?? 'Player', resultValue: c.result_value, sequenceNumber: c.sequence_number })),
+        powerplayBest: null as { playerId: string; playerName: string; points: number } | null,
       }
     }))
 
-    // Powerplay highlight — the best single-hole Stableford result on the
-    // Powerplay hole, read directly from score_entries.stableford_pts
-    // (already doubled by the trigger, migration 037) — not a second,
-    // manually-entered result table.
-    let powerplay: { holeNumber: number; best: { playerId: string; playerName: string; points: number } | null } | null = null
-    if (roundRes.data.powerplay_hole_number) {
-      const ppHoleId = holeIdByNumber.get(roundRes.data.powerplay_hole_number)
-      let best: { playerId: string; playerName: string; points: number } | null = null
-      if (ppHoleId) {
-        const { data: ppEntries } = await admin
-          .from('score_entries')
-          .select('stableford_pts, scorecard_id')
-          .eq('hole_id', ppHoleId).eq('capture_role', 'self')
-        const topEntry = ((ppEntries ?? []) as { stableford_pts: number | null; scorecard_id: string }[])
-          .filter(e => e.stableford_pts !== null)
-          .sort((a, b) => (b.stableford_pts ?? 0) - (a.stableford_pts ?? 0))[0]
-        if (topEntry) {
-          const { data: sc } = await admin.from('scorecards').select('player_id, profiles:player_id(full_name)').eq('id', topEntry.scorecard_id).maybeSingle()
-          const scRow = sc as unknown as { player_id: string; profiles: { full_name: string } | null } | null
-          if (scRow) best = { playerId: scRow.player_id, playerName: scRow.profiles?.full_name ?? 'Player', points: topEntry.stableford_pts ?? 0 }
-        }
-      }
-      powerplay = { holeNumber: roundRes.data.powerplay_hole_number, best }
-    }
-
-    return NextResponse.json({ competitions, powerplay })
+    return NextResponse.json({ competitions })
   } catch (err) {
     console.error('[side-games]', err)
     return NextResponse.json({ error: 'Could not load Side Games.' }, { status: 500 })

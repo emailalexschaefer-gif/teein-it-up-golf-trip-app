@@ -33,7 +33,7 @@ interface Hole {
 // Sprint 9 Item 2 — activated. Previously dormant (no is_powerplay/
 // side_game_type column ever existed on holes, confirmed before this
 // sprint's investigation), rendering nothing at runtime. Now fed real
-// data from the /holes route's sideComps/powerplayHoleNumber fields
+// data from the /holes route's sideComps field
 // (fetched once per round, see the load effect above) rather than
 // fields on the Hole object itself — a hole can carry more than one
 // active Side Competition (no "one per hole" rule — deliberately left
@@ -200,6 +200,11 @@ export default function SelfMarkerScoreShell({
   // awareness. Fetched once alongside holes (same round-scoped request,
   // see holes/route.ts) — no write/entry flow reads or writes these yet.
   const [sideComps, setSideComps] = useState<{ id: string; comp_type: string; hole_number: number | null; enabled: boolean }[]>([])
+  // Corrected model: Powerplay is just another side_comps row
+  // (comp_type = 'powerplay'), not a separate rounds column — a round
+  // can have multiple Powerplay holes, so this is a derived Set of every
+  // Powerplay hole_number, not a single "the" Powerplay hole.
+  const powerplayHoleNumbers = new Set(sideComps.filter(c => c.comp_type === 'powerplay' && c.enabled).map(c => c.hole_number))
   // Sprint 9 Item 4 — Capture the Moment. This is the ENTIRE one-shot
   // mechanism: null means no prompt is showing, full stop. It is set to
   // a real value in exactly one place in this file (SideCompEntryPanel's
@@ -210,7 +215,6 @@ export default function SelfMarkerScoreShell({
   // unrelated state can't touch it either, since nothing else ever calls
   // setNewLeaderPrompt.
   const [newLeaderPrompt, setNewLeaderPrompt] = useState<NewLeaderContext | null>(null)
-  const [powerplayHoleNumber, setPowerplayHoleNumber] = useState<number | null>(null)
   const searchParams = useSearchParams()
   const appliedDeepLinkRef = useRef(false)
 
@@ -429,7 +433,6 @@ export default function SelfMarkerScoreShell({
           const body = await res.json()
           setHoles(body.holes ?? [])
           setSideComps(body.sideComps ?? [])
-          setPowerplayHoleNumber(body.powerplayHoleNumber ?? null)
         }
       } catch { /* ignore */ }
       setLoadingHoles(false)
@@ -514,8 +517,17 @@ export default function SelfMarkerScoreShell({
   // the Powerplay hole. Deliberately allows more than one to be true at
   // once (no "one competition per hole" rule yet — left flexible per
   // explicit instruction, not an oversight).
-  const activeSideComps = sideComps.filter(c => c.enabled && c.hole_number === holeNum)
-  const isPowerplayHole = powerplayHoleNumber === holeNum
+  // Corrected model: Powerplay gets its own dedicated, stronger banner
+  // (below) — excluded here so a hole with both Powerplay and, say, NTP
+  // configured doesn't show Powerplay twice (once via its own banner,
+  // once via this generic loop with a wrong fallback icon/label, since
+  // SIDE_COMP_BANNER has no 'powerplay' entry). Every OTHER competition
+  // on this hole still renders here, and correctly renders more than one
+  // if configured (this is already a .map() over every match, not a
+  // .find() that would silently drop a second one).
+  const activeSideComps = sideComps.filter(c => c.enabled && c.hole_number === holeNum && c.comp_type !== 'powerplay')
+  const powerplayCompsOnHole = sideComps.filter(c => c.enabled && c.hole_number === holeNum && c.comp_type === 'powerplay')
+  const isPowerplayHole = powerplayCompsOnHole.length > 0
 
   // Sync draft state whenever the hole changes (prefer already-saved value if present)
   useEffect(() => {
@@ -565,7 +577,7 @@ export default function SelfMarkerScoreShell({
     const c = mySelf[h.hole_number]
     if (!c || (c.grossScore === null && !c.pickedUp)) return sum
     if (c.pickedUp) return sum
-    return sum + calculateStableford({ grossScore: c.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp, isPowerplayHole: h.hole_number === powerplayHoleNumber })
+    return sum + calculateStableford({ grossScore: c.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
   }, 0)
 
   // Same calculation, but for the partner's own card — uses the partner's
@@ -576,7 +588,7 @@ export default function SelfMarkerScoreShell({
     const c = partnerSelf[h.hole_number]
     if (!c || (c.grossScore === null && !c.pickedUp)) return sum
     if (c.pickedUp) return sum
-    return sum + calculateStableford({ grossScore: c.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: partnerHcp, isPowerplayHole: h.hole_number === powerplayHoleNumber })
+    return sum + calculateStableford({ grossScore: c.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: partnerHcp, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
   }, 0)
 
   function pick(which: 'mine' | 'partner', delta: number) {
@@ -763,7 +775,7 @@ export default function SelfMarkerScoreShell({
       const myCapture = mySelf[h.hole_number] ?? null
       const gross = myCapture?.pickedUp ? 'P' : myCapture?.grossScore ?? null
       const pts = (myCapture && !myCapture.pickedUp && myCapture.grossScore !== null)
-        ? calculateStableford({ grossScore: myCapture.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp, isPowerplayHole: h.hole_number === powerplayHoleNumber })
+        ? calculateStableford({ grossScore: myCapture.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
         : (myCapture?.pickedUp ? 0 : null)
       return { hole: h, status, gross, pts }
     })
@@ -1209,7 +1221,7 @@ export default function SelfMarkerScoreShell({
             const front9Pts = front9.reduce((s, h) => {
               const c = mySelf[h.hole_number]
               if (!c || c.pickedUp || c.grossScore === null) return s
-              return s + calculateStableford({ grossScore: c.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp, isPowerplayHole: h.hole_number === powerplayHoleNumber })
+              return s + calculateStableford({ grossScore: c.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
             }, 0)
             const front9Done = front9.every(h => {
               const c = mySelf[h.hole_number]
@@ -1221,7 +1233,7 @@ export default function SelfMarkerScoreShell({
               const isCurrent = idx === holeIdx
               const hasScore = c && (c.pickedUp || c.grossScore !== null)
               const pts = hasScore && !c!.pickedUp && c!.grossScore !== null
-                ? calculateStableford({ grossScore: c!.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp, isPowerplayHole: h.hole_number === powerplayHoleNumber })
+                ? calculateStableford({ grossScore: c!.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
                 : null
               const bg = isCurrent ? '#16a34a' : hasScore ? (pts !== null ? stripPtsBackground(pts) : '#fdf3d9') : '#f3f4f6'
               const fg = isCurrent ? '#fff' : hasScore ? (pts !== null ? stripPtsColor(pts) : '#a1791f') : '#9ca3af'
@@ -1229,7 +1241,7 @@ export default function SelfMarkerScoreShell({
               // Powerplay hole, or (deliberately not restricted — no
               // "one competition per hole" rule yet) both at once.
               const hasSideComp = sideComps.some(c2 => c2.enabled && c2.hole_number === h.hole_number)
-              const isPowerplay = powerplayHoleNumber === h.hole_number
+              const isPowerplay = powerplayHoleNumbers.has(h.hole_number)
               return (
                 <button
                   key={h.id}

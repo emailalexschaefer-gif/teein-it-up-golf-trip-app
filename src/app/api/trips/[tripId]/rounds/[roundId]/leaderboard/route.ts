@@ -7,7 +7,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { computeCumulativeStandings } from '@/lib/scoring/multiRound'
+import { computeCumulativeStandings, sortRoundsChronologically } from '@/lib/scoring/multiRound'
 
 // This is a polling endpoint — never cache it. Without this, Next.js could
 // serve one stale response to every poll instead of hitting Supabase fresh
@@ -147,13 +147,35 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     roundId: string; roundNumber: number
   }[] = []
   try {
-    const priorCompletedRes = await admin
-      .from('rounds').select('id')
-      .eq('trip_id', tripId).lte('created_at', roundRes.data.created_at)
+    // Root cause of the "R2 LIVE shows R1 data" bug: rounds created
+    // together at trip setup (a single multi-row INSERT) get IDENTICAL
+    // created_at — Postgres's now() resolves to transaction-start time,
+    // not per-row — so ordering by created_at alone has NO reliable
+    // result when two rounds tie exactly, which they do by construction
+    // here. Depending on query-plan happenstance, Round 2 could sort
+    // before Round 1, silently swapping which round gets labeled
+    // "roundNumber: 1" (rendered as the "R1" column) vs "roundNumber: 2"
+    // ("R2 LIVE") — the data itself was always correctly round-scoped
+    // (confirmed by tracing every query above), the LABELING was wrong.
+    // The previous .lte('created_at', ...) filter had the same collision
+    // problem from the other direction: with tied timestamps, "rounds at
+    // or before this one" could silently include a later round too.
+    //
+    // Fixed by sorting on play_date (the organiser's actual configured
+    // chronological order, which the UI already exposes as the round's
+    // date) as the primary key, with created_at/id as deterministic
+    // tiebreakers only for same-day rounds — then slicing by the current
+    // round's ARRAY POSITION rather than a SQL inequality on a
+    // collision-prone column. Fully generic for Round 3, 4, ... — no
+    // round-count-specific logic anywhere in this.
+    const allRoundsRes = await admin
+      .from('rounds').select('id, play_date, created_at')
+      .eq('trip_id', tripId)
       .in('status', ['completed', 'active']) // include this round's own live totals, not just fully-completed ones
-      .order('created_at', { ascending: true })
-    if (priorCompletedRes.error) throw priorCompletedRes.error
-    const relevantRoundIds: string[] = (priorCompletedRes.data ?? []).map((r: { id: string }) => r.id)
+    if (allRoundsRes.error) throw allRoundsRes.error
+    const sortedRounds = sortRoundsChronologically((allRoundsRes.data ?? []) as { id: string; play_date: string; created_at: string }[])
+    const currentRoundIdx = sortedRounds.findIndex(r => r.id === roundId)
+    const relevantRoundIds: string[] = currentRoundIdx === -1 ? [] : sortedRounds.slice(0, currentRoundIdx + 1).map(r => r.id)
 
     if (relevantRoundIds.length > 0) {
       const perRoundTotals = await Promise.all(relevantRoundIds.map(async (rid) => {

@@ -4,6 +4,43 @@ export interface RoundPlayerResult {
   roundPoints: number
 }
 
+export interface RoundOrderingInput {
+  id: string
+  play_date: string
+  created_at: string
+}
+
+/**
+ * Stable, deterministic chronological ordering for a trip's rounds.
+ *
+ * Root cause this exists to fix: rounds are typically created together
+ * in a single multi-row INSERT at trip setup, and Postgres's now()
+ * resolves to transaction-start time — not per-row — so every round
+ * created in that batch gets an IDENTICAL created_at. Ordering (or
+ * filtering with .lt()/.lte()) by created_at alone therefore has no
+ * reliable result when two rounds tie exactly, which they do by
+ * construction. This was the actual root cause of Round 1's data
+ * appearing under Round 2's "LIVE" column on the multi-round
+ * leaderboard: the round holding the correct live data was
+ * mislabeled "roundNumber: 1" purely because of arbitrary tie-breaking
+ * in an ORDER BY with no secondary key — the underlying per-round
+ * totals were always correctly scoped by round_id, only the column
+ * LABEL was wrong.
+ *
+ * play_date (the organiser's actual configured chronological order,
+ * already surfaced in the UI as each round's date) is the primary sort
+ * key; created_at and id are deterministic tiebreakers only for rounds
+ * sharing the same play_date. Fully generic — works identically for 2,
+ * 3, or 20 rounds, with no round-count-specific branching anywhere.
+ */
+export function sortRoundsChronologically<T extends RoundOrderingInput>(rounds: T[]): T[] {
+  return [...rounds].sort((a, b) =>
+    a.play_date.localeCompare(b.play_date)
+    || a.created_at.localeCompare(b.created_at)
+    || a.id.localeCompare(b.id)
+  )
+}
+
 export interface CumulativeStanding {
   playerId: string
   playerName: string

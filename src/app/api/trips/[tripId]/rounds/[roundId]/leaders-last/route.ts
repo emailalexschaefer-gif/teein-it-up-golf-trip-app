@@ -23,7 +23,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { computeCumulativeStandings, seedLeadersLast, type RoundPlayerResult } from '@/lib/scoring/multiRound'
+import { computeCumulativeStandings, seedLeadersLast, sortRoundsChronologically, type RoundPlayerResult } from '@/lib/scoring/multiRound'
 
 interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
 type AdminClient = ReturnType<typeof createAdminClient>
@@ -65,14 +65,23 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
     return NextResponse.json({ error: 'Only the trip organiser can reseed groups.' }, { status: 403 })
   }
 
-  const thisRoundRes = await admin.from('rounds').select('created_at').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
+  const thisRoundRes = await admin.from('rounds').select('play_date, created_at').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
   if (!thisRoundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
 
-  const priorRoundsRes = await admin
-    .from('rounds').select('id')
-    .eq('trip_id', tripId).lt('created_at', thisRoundRes.data.created_at).eq('status', 'completed')
-    .order('created_at', { ascending: true })
-  const priorRoundIds: string[] = (priorRoundsRes.data ?? []).map((r: { id: string }) => r.id)
+  // Same stable-ordering fix as leaderboard/route.ts and setup-context/
+  // route.ts — created_at collides for rounds created in the same batch
+  // INSERT, so .lt('created_at', ...) can silently miss a genuinely-
+  // prior round, which here would mean seeding Leaders-Last from the
+  // wrong (or no) standings. Sorts every round for this trip (including
+  // this one, so its own array position is findable), then takes
+  // everything strictly before it that's actually completed.
+  const allRoundsForTripRes = await admin
+    .from('rounds').select('id, play_date, created_at, status').eq('trip_id', tripId)
+  const sortedRoundsForTrip = sortRoundsChronologically((allRoundsForTripRes.data ?? []) as { id: string; play_date: string; created_at: string; status: string }[])
+  const thisRoundIdx = sortedRoundsForTrip.findIndex(r => r.id === roundId)
+  const priorRoundIds: string[] = thisRoundIdx <= 0
+    ? []
+    : sortedRoundsForTrip.slice(0, thisRoundIdx).filter(r => r.status === 'completed').map(r => r.id)
 
   if (priorRoundIds.length === 0) {
     return NextResponse.json({ error: 'No completed rounds yet — nothing to seed from.' }, { status: 400 })
