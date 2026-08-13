@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import ProfileForm from './ProfileForm'
 import DevResetSection from '@/components/profile/DevResetSection'
@@ -99,7 +100,7 @@ export default async function ProfilePage() {
           rendered). Kept simple rather than adding a whole admin nav
           section for one screen. */}
       {profile?.app_role === 'admin' && (
-        <a
+        <Link
           href="/admin/courses"
           style={{
             display: 'block', textAlign: 'center', marginTop: 16, padding: '12px 0',
@@ -108,7 +109,7 @@ export default async function ProfilePage() {
           }}
         >
           🏌️ Course Library Admin
-        </a>
+        </Link>
       )}
     </>
   )

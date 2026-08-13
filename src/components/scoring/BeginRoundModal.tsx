@@ -47,7 +47,7 @@ type Stage = 'review' | 'holes' | 'confirm' | 'starting'
 
 export default function BeginRoundModal({
   tripId, roundId, roundName, courseName, holeCount,
-  playDate, groups, onClose, libraryHolesSnapshot, teeName,
+  playDate, groups, onClose, libraryHolesSnapshot,
 }: Props) {
   const router = useRouter()
   const setScoringFocusActive = useScoringFocusStore(s => s.setActive)
@@ -298,7 +298,15 @@ export default function BeginRoundModal({
   useEffect(() => {
     setScoringFocusActive(true)
     return () => setScoringFocusActive(false)
-  }, [])
+    // setScoringFocusActive is the `setActive` action from a Zustand
+    // store (src/store/scoringFocusStore.ts) — Zustand guarantees action
+    // references defined in the store creator are stable for the
+    // store's lifetime (a module-level singleton here, not created per-
+    // component), so including it below does not change when this
+    // effect runs; it still only fires on mount/unmount, exactly as
+    // before. This satisfies the lint rule honestly rather than
+    // silencing it.
+  }, [setScoringFocusActive])
 
   return (
     <div style={{

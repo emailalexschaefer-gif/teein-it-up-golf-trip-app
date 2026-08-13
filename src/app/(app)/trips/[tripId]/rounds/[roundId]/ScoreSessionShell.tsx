@@ -128,7 +128,10 @@ export default function ScoreSessionShell({
   // score), the scorer just had no visual warning why. Same fields, same
   // /holes response shape, same reasoning — not a duplicated data model.
   const [sideComps, setSideComps] = useState<{ id: string; comp_type: string; hole_number: number | null; enabled: boolean }[]>([])
-  const powerplayHoleNumbers = new Set(sideComps.filter(c => c.comp_type === 'powerplay' && c.enabled).map(c => c.hole_number))
+  const powerplayHoleNumbers = useMemo(
+    () => new Set(sideComps.filter(c => c.comp_type === 'powerplay' && c.enabled).map(c => c.hole_number)),
+    [sideComps],
+  )
   const [scores, setScores]             = useState<ScoreMap>({})
   const [confirmed, setConfirmed]       = useState<ConfirmMap>({})
   const [holeIdx, setHoleIdx]           = useState(0) // 0-indexed into holes array, shared across the group

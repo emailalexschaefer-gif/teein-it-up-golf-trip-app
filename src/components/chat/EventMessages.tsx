@@ -61,7 +61,7 @@ const KIND_META: Record<Kind, { icon: string; label: string; bg: string; border:
 }
 
 export default function EventMessages({
-  tripId, isOrganiser, myGroupId, myGroupName, roundId, holeNumber,
+  tripId, isOrganiser, myGroupId, roundId, holeNumber,
 }: {
   tripId: string; isOrganiser: boolean; myGroupId: string | null; myGroupName: string | null
   roundId?: string | null; holeNumber?: number | null

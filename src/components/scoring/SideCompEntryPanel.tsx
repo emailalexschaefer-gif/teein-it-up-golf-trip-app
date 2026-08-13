@@ -53,7 +53,6 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
   const [currentLeader, setCurrentLeader] = useState<SideCompLeader | null>(null)
   const [myQualified, setMyQualified] = useState<boolean | null>(null) // null = not yet answered
   const [myResultValue, setMyResultValue] = useState<string>('')
-  const [claimsBeatLeader, setClaimsBeatLeader] = useState<boolean | null>(null)
   const [hasSubmittedOnce, setHasSubmittedOnce] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -220,14 +219,14 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
             <div style={{ display: 'flex', gap: 8 }}>
               <button
                 disabled={submitting}
-                onClick={() => { setClaimsBeatLeader(true); void submit(true, null, true) }}
+                onClick={() => void submit(true, null, true)}
                 style={{ flex: 1, padding: '9px 0', borderRadius: 8, background: '#16a34a', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
               >
                 Yes — I did
               </button>
               <button
                 disabled={submitting}
-                onClick={() => { setClaimsBeatLeader(false); void submit(true, null, false) }}
+                onClick={() => void submit(true, null, false)}
                 style={{ flex: 1, padding: '9px 0', borderRadius: 8, background: '#ffffff', color: '#14532d', border: '1.5px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
               >
                 No

@@ -383,7 +383,7 @@ export default function SelfMarkerScoreShell({
   // resolves on first load, seeded with that same data via `initialData` so
   // there's no loading flash, then keeps it fresh via polling + window-focus
   // + reconnect — all without touching holeIdx or any in-progress draft.
-  const { data: liveData, isFetching: isRefreshingScores } = useQuery<LiveScores>({
+  const { data: liveData } = useQuery<LiveScores>({
     queryKey: ['round-my-scores', tripId, round.id],
     queryFn: () => fetchLiveScores(tripId, round.id),
     initialData: {
@@ -1606,7 +1606,7 @@ function MismatchBlock({
     par, strokeIndex, selfHandicap: aHandicap, markerHandicap: bHandicap,
   })
 
-  const describe = (capture: CaptureValue | null, pts: number | null) =>
+  const describe = (capture: CaptureValue | null) =>
     capture?.pickedUp ? 'Pick up' : capture?.grossScore != null ? `${capture.grossScore} strokes` : '—'
 
   const palette = isZeroBoth
@@ -1623,13 +1623,13 @@ function MismatchBlock({
         <div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#14532d' }}>{aLabel}:</div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151' }}>
-            {describe(aCapture, aPts)}{aPts !== null ? ` · ${aPts} pt${aPts === 1 ? '' : 's'}` : ''}
+            {describe(aCapture)}{aPts !== null ? ` · ${aPts} pt${aPts === 1 ? '' : 's'}` : ''}
           </div>
         </div>
         <div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#14532d' }}>{bLabel}:</div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151' }}>
-            {describe(bCapture, bPts)}{bPts !== null ? ` · ${bPts} pt${bPts === 1 ? '' : 's'}` : ''}
+            {describe(bCapture)}{bPts !== null ? ` · ${bPts} pt${bPts === 1 ? '' : 's'}` : ''}
           </div>
         </div>
       </div>
