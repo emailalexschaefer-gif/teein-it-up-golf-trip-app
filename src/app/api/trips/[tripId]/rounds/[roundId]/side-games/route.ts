@@ -21,7 +21,7 @@ export const revalidate = 0
 interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
 
 interface LeadChangeRow { id: string; player_id: string; result_value: number; sequence_number: number; moment_id: string | null; profiles: { full_name: string } | null }
-interface EntryRow { id: string; player_id: string; qualified: boolean; result_value: number | null; moment_id: string | null; profiles: { full_name: string } | null }
+interface EntryRow { id: string; player_id: string; qualified: boolean; result_value: number | null; verification_status: string; moment_id: string | null; profiles: { full_name: string } | null }
 
 export async function GET(_req: NextRequest, { params }: RouteProps) {
   const { tripId, roundId } = await params
@@ -115,26 +115,36 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       }
 
       const [entriesRes, changesRes] = await Promise.all([
-        admin.from('side_comp_entries').select('id, player_id, qualified, result_value, moment_id, profiles:player_id(full_name)').eq('side_comp_id', comp.id),
+        admin.from('side_comp_entries').select('id, player_id, qualified, result_value, verification_status, moment_id, profiles:player_id(full_name)').eq('side_comp_id', comp.id),
         admin.from('side_comp_lead_changes').select('id, player_id, result_value, sequence_number, moment_id, profiles:player_id(full_name)').eq('side_comp_id', comp.id).order('sequence_number', { ascending: true }),
       ])
       const entries = (entriesRes.data ?? []) as unknown as EntryRow[]
       const changes = (changesRes.data ?? []) as unknown as LeadChangeRow[]
 
-      // Current leader — same derivation as the entries route: value-
-      // based live query for NTP/Pro's Approach, log-walk (verified
-      // against current qualified flags) for Longest Drive.
+      // Current OFFICIAL leader — verified entries only, Stage 4's own
+      // review. NTP/Pro's Approach's `result_value !== null` filter was
+      // already structurally correct (result_value only exists once
+      // verified — Stage 1's design) but didn't say so explicitly; the
+      // explicit verification_status check is added for the same reason
+      // Stage 1's own migration comment flagged: self-documenting and
+      // defensive rather than relying on an implicit consequence of
+      // another field's behaviour. Longest Drive's log-walk needed an
+      // actual fix, not just clarity: a resubmission unconditionally
+      // resets verification_status to 'pending' even for a previously-
+      // verified entry (see submit_longest_drive_entry) — checking only
+      // `qualified` would have let a player who resubmitted while
+      // awaiting re-verification still display as the current leader.
       let currentLeader: { playerId: string; playerName: string; resultValue: number | null; momentUrl: string | null } | null = null
       if (comp.comp_type === 'longest_drive') {
         for (let i = changes.length - 1; i >= 0; i--) {
           const entry = entries.find(e => e.player_id === changes[i].player_id)
-          if (entry?.qualified) {
+          if (entry?.qualified && entry.verification_status === 'verified') {
             currentLeader = { playerId: changes[i].player_id, playerName: changes[i].profiles?.full_name ?? 'Player', resultValue: null, momentUrl: await momentThumb(entry.moment_id ?? changes[i].moment_id) }
             break
           }
         }
       } else {
-        const qualified = entries.filter(e => e.qualified && e.result_value !== null).sort((a, b) => (a.result_value ?? 0) - (b.result_value ?? 0))
+        const qualified = entries.filter(e => e.qualified && e.verification_status === 'verified' && e.result_value !== null).sort((a, b) => (a.result_value ?? 0) - (b.result_value ?? 0))
         const best = qualified[0]
         if (best) currentLeader = { playerId: best.player_id, playerName: best.profiles?.full_name ?? 'Player', resultValue: best.result_value, momentUrl: await momentThumb(best.moment_id) }
       }

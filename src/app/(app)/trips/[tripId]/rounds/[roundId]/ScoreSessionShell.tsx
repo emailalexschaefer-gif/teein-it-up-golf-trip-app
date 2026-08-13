@@ -7,6 +7,7 @@ import { getHandicapStrokesForHole } from '@/lib/scoring/strokeAllocation'
 import { queueScoreEntry, getPendingCount, getQueuedEntriesForScorecards } from '@/lib/db/dexie'
 import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
 import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
+import PendingVerificationCard from '@/components/scoring/PendingVerificationCard'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -672,6 +673,14 @@ export default function ScoreSessionShell({
             </>
           )}
         </div>
+
+        {/* Side Game Marker Verification Stage 3 — the operator running
+            group_scorer mode may be the organiser-fallback verifier for
+            a claim (round_markers doesn't apply to this mode, so the
+            fallback hierarchy from migration 047 can resolve here) —
+            same non-blocking, collapsed-by-default card as
+            SelfMarkerScoreShell, not a second implementation. */}
+        <PendingVerificationCard tripId={tripId} roundId={round.id} />
 
         {/* Scoring Anchor — the permanent resting point for every hole
             transition, same role as in SelfMarkerScoreShell. */}

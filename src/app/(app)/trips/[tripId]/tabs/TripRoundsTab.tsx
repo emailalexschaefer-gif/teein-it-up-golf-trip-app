@@ -113,6 +113,17 @@ export default function TripRoundsTab({ trip, isOrganiser, onTabChange }: Props)
           nextLabel="Overview →"
           onNext={() => onTabChange('overview')}
         />
+        {/* Extra safe-area-aware clearance specifically for this tab —
+            reported issue: on some devices the shared pb-20 wrapper
+            (TripDetailClient.tsx) isn't enough once a round list scrolls
+            far enough that a card's own Begin Round button sits right at
+            the bottom edge, where the fixed TripBottomNav can overlap
+            it. This doesn't touch or remove that shared nav — it just
+            reserves guaranteed extra room below the last card, using the
+            same safe-area calc already proven elsewhere in this app
+            (e.g. Side Games), rather than a fixed pixel guess that could
+            still be too small on some devices. */}
+        <div style={{ height: 'calc(24px + env(safe-area-inset-bottom, 0px))' }} aria-hidden="true" />
       </div>
 
       {beginRound && (

@@ -1,0 +1,101 @@
+/**
+ * POST /api/trips/[tripId]/side-comps/[sideCompId]/entries/[entryId]/verify
+ *
+ * The only write path for turning a pending Side Game claim into an
+ * official result (or a rejection). p_verifier_id is always the
+ * authenticated user's own id — never taken from the request body — so
+ * there is no path by which one player could verify as someone else.
+ * The actual authority check (does this user match the claim's
+ * snapshotted required_verifier_id, or are they a trip organiser) lives
+ * inside the RPC itself (migration 047), not duplicated here — this
+ * route's job is to resolve which RPC applies (value-based vs Longest
+ * Drive's ordinal model) and forward exactly what it decides.
+ */
+import { NextResponse, type NextRequest } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+
+interface RouteProps { params: Promise<{ tripId: string; sideCompId: string; entryId: string }> }
+
+export async function POST(req: NextRequest, { params }: RouteProps) {
+  const { tripId, sideCompId, entryId } = await params
+  const supabase = await createClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
+
+  type AdminClient = ReturnType<typeof createAdminClient>
+  const admin: AdminClient = createAdminClient()
+
+  const memberCheck = await admin.from('trip_members').select('role').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
+  if (!memberCheck.data) return NextResponse.json({ error: 'Not a trip member.' }, { status: 403 })
+
+  const compRes = await admin.from('side_comps').select('id, comp_type, trip_id').eq('id', sideCompId).maybeSingle()
+  if (!compRes.data || compRes.data.trip_id !== tripId) {
+    return NextResponse.json({ error: 'Side competition not found.' }, { status: 404 })
+  }
+
+  const entryRes = await admin.from('side_comp_entries').select('id, side_comp_id').eq('id', entryId).maybeSingle()
+  if (!entryRes.data || entryRes.data.side_comp_id !== sideCompId) {
+    return NextResponse.json({ error: 'Claim not found.' }, { status: 404 })
+  }
+
+  let body: Record<string, unknown>
+  try { body = await req.json() } catch {
+    return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 })
+  }
+  const decision = body.decision
+  if (decision !== 'confirm' && decision !== 'correct' && decision !== 'reject') {
+    return NextResponse.json({ error: 'Invalid verification decision.' }, { status: 400 })
+  }
+
+  if (compRes.data.comp_type === 'nearest_pin' || compRes.data.comp_type === 'pros_approach') {
+    let correctedValue: number | null = null
+    if (decision === 'correct') {
+      correctedValue = typeof body.correctedValue === 'number' ? body.correctedValue : null
+      if (correctedValue === null || !Number.isFinite(correctedValue) || correctedValue <= 0) {
+        return NextResponse.json({ error: 'Enter a valid corrected distance.' }, { status: 400 })
+      }
+    }
+    const { data, error } = await admin.rpc('verify_side_comp_value_entry', {
+      p_entry_id: entryId, p_verifier_id: user.id, p_decision: decision, p_corrected_value: correctedValue,
+    })
+    if (error) {
+      console.error('[side-comp verify] verify_side_comp_value_entry failed', { entryId, error: error.message })
+      const isAuthError = error.message.includes('Only the assigned verifier')
+      return NextResponse.json({ error: isAuthError ? "You're not the verifier for this claim." : "Couldn't save this verification. Please try again." }, { status: isAuthError ? 403 : 500 })
+    }
+    const row = data?.[0]
+    return NextResponse.json({
+      entryId: row?.entry_id ?? null,
+      verificationStatus: row?.verification_status ?? null,
+      resultValue: row?.result_value ?? null,
+      becameOfficialLeader: row?.became_official_leader ?? false,
+      currentLeader: row?.current_leader_player_id ? { playerId: row.current_leader_player_id, playerName: row.current_leader_name, resultValue: row.current_leader_value } : null,
+      leadChangeId: row?.lead_change_id ?? null,
+    })
+  }
+
+  if (compRes.data.comp_type === 'longest_drive') {
+    if (decision === 'correct') {
+      return NextResponse.json({ error: "Longest Drive claims can be confirmed or rejected, not numerically corrected." }, { status: 400 })
+    }
+    const { data, error } = await admin.rpc('verify_longest_drive_entry', {
+      p_entry_id: entryId, p_verifier_id: user.id, p_decision: decision,
+    })
+    if (error) {
+      console.error('[side-comp verify] verify_longest_drive_entry failed', { entryId, error: error.message })
+      const isAuthError = error.message.includes('Only the assigned verifier')
+      return NextResponse.json({ error: isAuthError ? "You're not the verifier for this claim." : "Couldn't save this verification. Please try again." }, { status: isAuthError ? 403 : 500 })
+    }
+    const row = data?.[0]
+    return NextResponse.json({
+      entryId: row?.entry_id ?? null,
+      verificationStatus: row?.verification_status ?? null,
+      becameOfficialLeader: row?.became_official_leader ?? false,
+      currentLeader: row?.current_leader_player_id ? { playerId: row.current_leader_player_id, playerName: row.current_leader_name, resultValue: null } : null,
+      leadChangeId: row?.lead_change_id ?? null,
+    })
+  }
+
+  return NextResponse.json({ error: 'Unsupported competition type.' }, { status: 400 })
+}

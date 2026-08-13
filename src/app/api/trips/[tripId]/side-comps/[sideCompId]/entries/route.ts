@@ -1,27 +1,25 @@
 /**
  * POST /api/trips/[tripId]/side-comps/[sideCompId]/entries
  *
- * Submits (or corrects) the authenticated player's own result for a Side
- * Competition. Who may submit: the player themselves, always — the
- * `playerId` is never taken from the request body, only from the
- * authenticated session, so there is no path by which one player could
- * submit on another's behalf. Per the explicit V1 decision: no marker
- * submits a side-comp result for someone else, and no organiser
- * correction endpoint exists yet — that's deliberately deferred, not
- * overlooked (see delivery notes).
+ * Submits (or corrects) the authenticated player's own CLAIM for a Side
+ * Competition — Stage 2 of Side Game Marker Verification. Who may
+ * submit: the player themselves, always — `playerId` is never taken
+ * from the request body, only from the authenticated session.
  *
- * Leadership is decided entirely inside the Postgres RPC functions
- * (migration 038), not here and not by the client — this route's job is
- * strictly to validate the request shape, resolve which RPC applies for
- * this competition's comp_type, call it, and hand back exactly what it
- * returned. It does not itself compare values or infer who's leading.
+ * Since migration 047, submission NEVER decides official leadership —
+ * it creates a pending claim and returns wouldLeadIfVerified (a
+ * deliberately distinct concept from becameOfficialLeader, which only
+ * ever comes from the verification endpoint, not this one). The RPCs
+ * (submit_side_comp_value_entry / submit_longest_drive_entry) resolve
+ * the required verifier via the round_markers -> organiser -> co-player
+ * -> self hierarchy and snapshot it onto the claim — this route doesn't
+ * duplicate that logic, it only forwards the RPC's own decision.
  *
- * Idempotent by construction: UNIQUE(side_comp_id, player_id) on
- * side_comp_entries means a resubmission (refresh-and-retry, or a
- * genuine correction) is always an UPDATE of the same row inside the
- * RPC, never a second row — and the RPC only appends to the leadership
- * history when the authoritative comparison actually changes the leader,
- * so resubmitting an unchanged result is a true no-op there too.
+ * Idempotent by construction, same as before: UNIQUE(side_comp_id,
+ * player_id) means a resubmission is always an UPDATE of the same row.
+ * A resubmission while still pending just updates the claim value in
+ * place; a resubmission of an already-verified/rejected claim starts a
+ * genuinely new pending cycle (handled inside the RPC, not here).
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
@@ -46,28 +44,22 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     return NextResponse.json({ error: 'Side competition not found.' }, { status: 404 })
   }
 
-  // The caller's own existing entry (so re-visiting the hole shows what
-  // they already answered, and a resubmission is understood as a
-  // correction rather than a fresh attempt) — read-only here, the RPCs
-  // above are the only write path.
+  // The caller's own existing claim — so re-visiting the hole shows
+  // exactly what they already answered, including its current
+  // verification state, and a resubmission is understood as a
+  // correction rather than a fresh attempt. Read-only here; the RPCs
+  // are the only write path.
   const myEntryRes = await admin.from('side_comp_entries')
-    .select('id, qualified, result_value')
+    .select('id, qualified, claimed_value, result_value, verification_status, required_verifier_id')
     .eq('side_comp_id', sideCompId).eq('player_id', user.id).maybeSingle()
 
-  // Current leader — same derivation as each RPC's own final SELECT
-  // (value-based for NTP/Pro's Approach, log-walk for Longest Drive),
-  // duplicated here only because this is a read that doesn't need the
-  // row-lock a write does — reusing the RPCs themselves for reads would
-  // needlessly lock the competition just to display current state.
+  // Current OFFICIAL leader — verified entries only. This is the one
+  // place migration 047's own noted follow-up (adding explicit
+  // `result_value IS NOT NULL` guards rather than relying on implicit
+  // NULLS-LAST ordering) is applied, since this route's reads were
+  // never rewritten by that migration itself.
   let currentLeader: { playerId: string; playerName: string; resultValue: number | null } | null = null
   if (compRes.data.comp_type === 'longest_drive') {
-    // Walk the append-only log from most recent, verified against each
-    // candidate's CURRENT qualified flag — a plain sequential lookup
-    // rather than an embedded-join filter, since PostgREST's exact
-    // behaviour for filtering a nested resource inside an outer select
-    // isn't something this sandbox can verify by actually running it.
-    // At most a handful of lead-change rows per competition in practice,
-    // so this is cheap.
     const { data: changes } = await admin
       .from('side_comp_lead_changes')
       .select('player_id, sequence_number')
@@ -75,9 +67,9 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       .order('sequence_number', { ascending: false })
     for (const change of (changes ?? []) as { player_id: string }[]) {
       const { data: entry } = await admin
-        .from('side_comp_entries').select('qualified')
+        .from('side_comp_entries').select('qualified, verification_status')
         .eq('side_comp_id', sideCompId).eq('player_id', change.player_id).maybeSingle()
-      if (entry?.qualified) {
+      if (entry?.qualified && entry.verification_status === 'verified') {
         const { data: profile } = await admin.from('profiles').select('full_name').eq('id', change.player_id).maybeSingle()
         currentLeader = { playerId: change.player_id, playerName: profile?.full_name ?? 'Player', resultValue: null }
         break
@@ -87,7 +79,8 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     const { data } = await admin
       .from('side_comp_entries')
       .select('player_id, result_value, profiles:player_id(full_name)')
-      .eq('side_comp_id', sideCompId).eq('qualified', true)
+      .eq('side_comp_id', sideCompId).eq('qualified', true).eq('verification_status', 'verified')
+      .not('result_value', 'is', null)
       .order('result_value', { ascending: true })
       .limit(1)
     const row = (data ?? [])[0] as unknown as { player_id: string; result_value: number; profiles: { full_name: string } | null } | undefined
@@ -95,7 +88,12 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   }
 
   return NextResponse.json({
-    myEntry: myEntryRes.data ? { qualified: myEntryRes.data.qualified, resultValue: myEntryRes.data.result_value } : null,
+    myEntry: myEntryRes.data ? {
+      qualified: myEntryRes.data.qualified,
+      claimedValue: myEntryRes.data.claimed_value,
+      resultValue: myEntryRes.data.result_value,
+      verificationStatus: myEntryRes.data.verification_status,
+    } : null,
     currentLeader,
   })
 }
@@ -144,9 +142,11 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     const row = data?.[0]
     return NextResponse.json({
       entryId: row?.entry_id ?? null,
-      becameLeader: row?.became_leader ?? false,
+      verificationStatus: row?.verification_status ?? 'pending',
+      wouldLeadIfVerified: row?.would_lead_if_verified ?? false,
+      requiredVerifierId: row?.required_verifier_id ?? null,
+      verifierSource: row?.verifier_source ?? null,
       currentLeader: row?.current_leader_player_id ? { playerId: row.current_leader_player_id, playerName: row.current_leader_name, resultValue: row.current_leader_value } : null,
-      leadChangeId: row?.lead_change_id ?? null,
     })
   }
 
@@ -164,9 +164,11 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     const row = data?.[0]
     return NextResponse.json({
       entryId: row?.entry_id ?? null,
-      becameLeader: row?.became_leader ?? false,
+      verificationStatus: row?.verification_status ?? 'pending',
+      wouldLeadIfVerified: row?.would_lead_if_verified ?? false,
+      requiredVerifierId: row?.required_verifier_id ?? null,
+      verifierSource: row?.verifier_source ?? null,
       currentLeader: row?.current_leader_player_id ? { playerId: row.current_leader_player_id, playerName: row.current_leader_name, resultValue: null } : null,
-      leadChangeId: row?.lead_change_id ?? null,
     })
   }
 

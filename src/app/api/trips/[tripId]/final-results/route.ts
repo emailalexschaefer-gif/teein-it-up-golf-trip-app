@@ -195,23 +195,30 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
         if (!isHoleComplete(comp.hole_number)) return { compType: comp.comp_type, holeNumber: comp.hole_number, winner: null, powerplayBest: null }
 
         const [entriesRes, changesRes] = await Promise.all([
-          admin.from('side_comp_entries').select('player_id, qualified, result_value, moment_id, profiles:player_id(full_name)').eq('side_comp_id', comp.id),
+          admin.from('side_comp_entries').select('player_id, qualified, result_value, verification_status, moment_id, profiles:player_id(full_name)').eq('side_comp_id', comp.id),
           comp.comp_type === 'longest_drive'
             ? admin.from('side_comp_lead_changes').select('player_id, moment_id, sequence_number, profiles:player_id(full_name)').eq('side_comp_id', comp.id).order('sequence_number', { ascending: false })
             : Promise.resolve({ data: [] }),
         ])
-        type EntryRow = { player_id: string; qualified: boolean; result_value: number | null; moment_id: string | null; profiles: { full_name: string } | null }
+        type EntryRow = { player_id: string; qualified: boolean; result_value: number | null; verification_status: string; moment_id: string | null; profiles: { full_name: string } | null }
         const entries = (entriesRes.data ?? []) as unknown as EntryRow[]
 
+        // Verified entries only — same Stage 4 fix as the Side Games
+        // route: a resubmission unconditionally resets verification_
+        // status to 'pending' even for a previously-verified entry, so
+        // checking `qualified` alone (Longest Drive) or `result_value !==
+        // null` alone (NTP/Pro's Approach, structurally correct already
+        // since result_value only exists once verified, but made
+        // explicit here too) isn't sufficient on its own.
         let winner: { playerId: string; playerName: string; resultValue: number | null; momentId: string | null } | null = null
         if (comp.comp_type === 'longest_drive') {
           type ChangeRow = { player_id: string; moment_id: string | null; profiles: { full_name: string } | null }
           for (const change of ((changesRes.data ?? []) as unknown as ChangeRow[])) {
             const entry = entries.find(e => e.player_id === change.player_id)
-            if (entry?.qualified) { winner = { playerId: change.player_id, playerName: change.profiles?.full_name ?? 'Player', resultValue: null, momentId: entry.moment_id ?? change.moment_id }; break }
+            if (entry?.qualified && entry.verification_status === 'verified') { winner = { playerId: change.player_id, playerName: change.profiles?.full_name ?? 'Player', resultValue: null, momentId: entry.moment_id ?? change.moment_id }; break }
           }
         } else {
-          const best = entries.filter(e => e.qualified && e.result_value !== null).sort((a, b) => (a.result_value ?? 0) - (b.result_value ?? 0))[0]
+          const best = entries.filter(e => e.qualified && e.verification_status === 'verified' && e.result_value !== null).sort((a, b) => (a.result_value ?? 0) - (b.result_value ?? 0))[0]
           if (best) winner = { playerId: best.player_id, playerName: best.profiles?.full_name ?? 'Player', resultValue: best.result_value, momentId: best.moment_id }
         }
         return { compType: comp.comp_type, holeNumber: comp.hole_number, winner, powerplayBest: null as { playerId: string; playerName: string; points: number } | null }

@@ -423,6 +423,37 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
         .order('sequence_number', { ascending: true })
       const changes = (changesRes.data ?? []) as { id: string; side_comp_id: string; player_id: string; result_value: number; sequence_number: number; moment_id: string | null; created_at: string; profiles: { full_name: string } | null }[]
 
+      // Current verification_status for every player/comp pair that
+      // appears in the leadership log — needed for the winner
+      // determination below. Without this, "the last lead-change row"
+      // could point at a player whose entry has since flipped back to
+      // 'pending' via resubmission (submit_side_comp_value_entry/
+      // submit_longest_drive_entry both unconditionally reset status to
+      // 'pending' on any resubmission, even of a previously-verified
+      // claim) — Stage 4's own review, same bug class as the one fixed
+      // in the Side Games route's Longest Drive log-walk.
+      const entriesRes = compIds.length > 0
+        ? await admin.from('side_comp_entries').select('side_comp_id, player_id, verification_status, result_value').in('side_comp_id', compIds)
+        : { data: [] as { side_comp_id: string; player_id: string; verification_status: string; result_value: number | null }[] }
+      const verifiedNow = new Set(
+        ((entriesRes.data ?? []) as { side_comp_id: string; player_id: string; verification_status: string; result_value: number | null }[])
+          .filter(e => e.verification_status === 'verified')
+          .map(e => `${e.side_comp_id}:${e.player_id}`)
+      )
+      // Current (possibly re-corrected) result_value per (comp, player) —
+      // used only for the final winner announcement below, never for the
+      // mid-battle "takes the lead" lines, which stay historically
+      // accurate to the value at the moment each hand-off actually
+      // happened (side_comp_lead_changes.result_value, its own permanent
+      // record). The winner line is the one place a later correction
+      // (without a further leadership hand-off) must be reflected — per
+      // explicit instruction, official displays always use the current
+      // verified value.
+      const currentValueByPlayer = new Map(
+        ((entriesRes.data ?? []) as { side_comp_id: string; player_id: string; result_value: number | null }[])
+          .map(e => [`${e.side_comp_id}:${e.player_id}`, e.result_value])
+      )
+
       const COMP_LABEL: Record<string, string> = { nearest_pin: 'NTP', longest_drive: 'Longest Drive', pros_approach: "Pro's Approach" }
       const changesByComp = new Map<string, typeof changes>()
       for (const c of changes) {
@@ -483,12 +514,24 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
         // case (a missing entry fails the `.every(...)` check), so there's
         // no separate "is everyone genuinely done" condition to get wrong
         // here beyond what that function already guarantees.
+        //
+        // Walks the log from most recent, same as the Side Games route's
+        // Longest Drive derivation — not just "the last row" — verified
+        // against verifiedNow so a player whose entry has since flipped
+        // back to pending (via resubmission) is correctly skipped rather
+        // than incorrectly declared the winner.
         if (compChanges.length > 0 && isHoleComplete(comp.hole_number)) {
-          const winningChange = compChanges[compChanges.length - 1]
-          const winText = comp.comp_type === 'longest_drive'
-            ? `🏆 ${winningChange.profiles?.full_name ?? 'A player'} wins ${label}${holeSuffix}`
-            : `🏆 ${winningChange.profiles?.full_name ?? 'A player'} wins ${label}${holeSuffix} — ${winningChange.result_value}m`
-          story.push({ icon: '🏆', text: winText, at: winningChange.created_at })
+          let winningChange: typeof compChanges[number] | undefined
+          for (let i = compChanges.length - 1; i >= 0; i--) {
+            if (verifiedNow.has(`${comp.id}:${compChanges[i].player_id}`)) { winningChange = compChanges[i]; break }
+          }
+          if (winningChange) {
+            const currentValue = currentValueByPlayer.get(`${comp.id}:${winningChange.player_id}`) ?? winningChange.result_value
+            const winText = comp.comp_type === 'longest_drive'
+              ? `🏆 ${winningChange.profiles?.full_name ?? 'A player'} wins ${label}${holeSuffix}`
+              : `🏆 ${winningChange.profiles?.full_name ?? 'A player'} wins ${label}${holeSuffix} — ${currentValue}m`
+            story.push({ icon: '🏆', text: winText, at: winningChange.created_at })
+          }
         }
       }
     }

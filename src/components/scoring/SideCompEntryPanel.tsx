@@ -3,30 +3,42 @@
 import { useEffect, useState } from 'react'
 
 /**
- * Side Competition result entry — shared between SelfMarkerScoreShell and
- * ScoreSessionShell (the same component, not two implementations, per
- * "reuse where practical"; this one is substantial enough to genuinely
- * warrant sharing, unlike the small badge icon lookups in Item 2).
+ * Side Competition CLAIM entry — Stage 2 of Side Game Marker
+ * Verification. Shared between SelfMarkerScoreShell and ScoreSessionShell.
  *
- * Strictly renders what the server decides. This component never
- * compares a submitted value against anything itself — every "who's
- * leading" fact on screen comes directly from a GET or the POST
- * response's `currentLeader`/`becameLeader` fields. If the server said
- * someone else is leading, that's what's shown, full stop.
+ * Strictly renders what the server decides, same principle as before —
+ * this component never compares a submitted value against anything
+ * itself. What changed since Stage 1: a submission is now explicitly a
+ * CLAIM, not a result. It never becomes an "official leader" here —
+ * `wouldLeadIfVerified` (would this take the lead if a marker confirms
+ * it, right now) is a deliberately different, softer signal than
+ * `becameOfficialLeader` (which only exists on the future verification
+ * endpoint, not this one). The golfer's own UI reflects this honestly:
+ * "awaiting marker verification", never "you're the leader."
  *
- * Longest Drive correction semantics (flagged, not hidden): V1's result
- * is ordinal ("I beat the current leader"), not a measured distance. If
- * a player corrects their own entry to un-qualify (says they didn't
- * actually hit the fairway after all) and they were the standing leader,
- * the server re-derives the new leader by walking the append-only log
- * for the next still-qualified entrant (see migration 038's
- * submit_longest_drive_entry). This is well-defined and implemented, but
- * genuinely more fragile than NTP's plain numeric comparison — flagging
- * this here again at the UI layer, not inventing any additional ordering
- * logic client-side to compensate.
+ * CLAIM -> CELEBRATE -> CAPTURE -> UPLOAD -> PENDING: this component's
+ * only job in that chain is CLAIM. The parent scoring shell owns
+ * CELEBRATE/CAPTURE (see NewLeaderPrompt, unchanged in spirit from
+ * before — it just now reacts to onWouldLeadIfVerified instead of a
+ * confirmed-leader event).
  */
 export interface SideCompLeader { playerId: string; playerName: string; resultValue: number | null }
-export interface SideCompSubmitResult { entryId: string | null; becameLeader: boolean; currentLeader: SideCompLeader | null; leadChangeId: string | null }
+export type SideCompVerificationStatus = 'pending' | 'verified' | 'rejected'
+export interface SideCompSubmitResult {
+  entryId: string | null
+  verificationStatus: SideCompVerificationStatus
+  wouldLeadIfVerified: boolean
+  requiredVerifierId: string | null
+  verifierSource: 'marker' | 'organiser_fallback' | 'self_verified_fallback' | null
+  currentLeader: SideCompLeader | null
+  // The value THIS player just submitted — sourced from the client's own
+  // input, not the server response, since it's simply "what did I just
+  // type," unambiguous and not a leadership decision. Needed by the
+  // parent (for the Capture the Moment prompt) because currentLeader is
+  // explicitly the OFFICIAL/verified leader, which is never this player
+  // at claim time — there's no other field carrying their own value.
+  claimedValue: number | null
+}
 
 interface Props {
   tripId: string
@@ -35,11 +47,12 @@ interface Props {
   label: string
   icon: string
   currentUserId: string
-  // Item 4 hook — deliberately not acted on yet in this component. The
-  // parent scoring shell passes a callback so that when Capture the
-  // Moment is built, it has entryId/leadChangeId to link the Moment to,
-  // without this panel needing to know anything about Moments itself.
-  onBecameLeader?: (result: SideCompSubmitResult) => void
+  // Fires only when a submission's wouldLeadIfVerified is true — the
+  // trigger for Capture the Moment. Deliberately never fires on
+  // "becameOfficialLeader", because that event doesn't exist on this
+  // code path at all anymore — only the future verification action can
+  // produce it.
+  onWouldLeadIfVerified?: (result: SideCompSubmitResult) => void
 }
 
 const QUALIFY_QUESTION: Record<Props['compType'], string> = {
@@ -48,18 +61,26 @@ const QUALIFY_QUESTION: Record<Props['compType'], string> = {
   longest_drive: 'Did you hit the fairway?',
 }
 
-export default function SideCompEntryPanel({ tripId, sideCompId, compType, label, icon, currentUserId, onBecameLeader }: Props) {
+const STATUS_LABEL: Record<SideCompVerificationStatus, { text: string; color: string }> = {
+  pending:  { text: 'Awaiting marker verification', color: '#a1791f' },
+  verified: { text: 'Verified ✓', color: '#16a34a' },
+  rejected: { text: 'Not confirmed by your marker', color: '#9ca3af' },
+}
+
+export default function SideCompEntryPanel({ tripId, sideCompId, compType, label, icon, currentUserId, onWouldLeadIfVerified }: Props) {
   const [loading, setLoading] = useState(true)
   const [currentLeader, setCurrentLeader] = useState<SideCompLeader | null>(null)
   const [myQualified, setMyQualified] = useState<boolean | null>(null) // null = not yet answered
   const [myResultValue, setMyResultValue] = useState<string>('')
+  const [myStatus, setMyStatus] = useState<SideCompVerificationStatus | null>(null)
   const [hasSubmittedOnce, setHasSubmittedOnce] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastResult, setLastResult] = useState<SideCompSubmitResult | null>(null)
 
-  // Load current state once on mount — my own prior entry (if any) and
-  // the current leader, both from the GET, never inferred locally.
+  // Load current state once on mount — my own prior claim (if any) and
+  // the current OFFICIAL (verified-only) leader, both from the GET,
+  // never inferred locally.
   useEffect(() => {
     let cancelled = false
     async function load() {
@@ -73,7 +94,12 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
         if (body.myEntry) {
           setHasSubmittedOnce(true)
           setMyQualified(body.myEntry.qualified)
-          if (body.myEntry.resultValue != null) setMyResultValue(String(body.myEntry.resultValue))
+          setMyStatus(body.myEntry.verificationStatus ?? null)
+          // Prefill from claimedValue (what the player actually entered),
+          // not resultValue (which stays null until a marker verifies) —
+          // the form should always show the player their own last claim,
+          // regardless of whether it's been reviewed yet.
+          if (body.myEntry.claimedValue != null) setMyResultValue(String(body.myEntry.claimedValue))
         }
       } catch { /* ignore — panel just shows the form with no prior state */ }
       if (!cancelled) setLoading(false)
@@ -85,29 +111,22 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
   async function submit(qualified: boolean, resultValue: number | null, claims: boolean | null) {
     setSubmitting(true)
     setError(null)
-    // A Side Competition submission is NOT part of the existing offline
-    // queue (Dexie/syncScoreQueue) — deliberately, not an oversight. That
+    // A Side Competition claim is NOT part of the existing offline queue
+    // (Dexie/syncScoreQueue) — deliberately, not an oversight. That
     // queue works because a queued SCORE's outcome is fully known at
-    // queue time (the Stableford formula is deterministic from inputs
-    // already on the device). A side-comp submission's outcome
-    // (becameLeader) is NOT knowable offline — it depends on whatever
-    // every other player's current entry happens to be at the moment the
-    // server actually processes it, which can change while this device
-    // has no reception. Queuing it would mean either lying about
-    // becameLeader at submission time (violating "the server decides
-    // leadership, never the client") or turning Capture the Moment into
-    // an async notification that fires long after the golfer has left
-    // the hole — a fundamentally different, unproven UX. Building that
-    // is real architecture, not a hardening-pass fix — flagged here and
-    // in the delivery notes rather than improvised.
+    // queue time. A claim's wouldLeadIfVerified is NOT knowable offline
+    // — it depends on every other player's currently VERIFIED results at
+    // the moment the server processes it. Queuing it would mean either
+    // faking that answer client-side or turning Capture the Moment into
+    // an async, after-the-fact notification — real architecture, not a
+    // quick addition, and still not attempted here.
     //
-    // What this DOES guarantee: a failed/offline side-comp submission
-    // cannot interfere with normal score entry in any way — this
-    // component shares no state, no queue, and no request with
-    // queueScoreEntry/syncScoreQueue; a network failure here only ever
-    // sets this component's own error state, nothing upstream.
+    // What this DOES guarantee, unchanged from before: a failed/offline
+    // claim cannot interfere with normal score entry in any way — this
+    // component shares no state, queue, or request with
+    // queueScoreEntry/syncScoreQueue.
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      setError('No connection right now — your score is safe, but this result hasn\u2019t saved. Try again once you have signal.')
+      setError('No connection right now — your score is safe, but this claim hasn\u2019t saved. Try again once you have signal.')
       setSubmitting(false)
       return
     }
@@ -122,17 +141,28 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
       const responseBody = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(responseBody.error ?? "Couldn't save your result. Please try again."); return }
+      if (!res.ok) { setError(responseBody.error ?? "Couldn't save your claim. Please try again."); return }
       const result: SideCompSubmitResult = {
-        entryId: responseBody.entryId ?? null, becameLeader: !!responseBody.becameLeader,
-        currentLeader: responseBody.currentLeader ?? null, leadChangeId: responseBody.leadChangeId ?? null,
+        entryId: responseBody.entryId ?? null,
+        verificationStatus: responseBody.verificationStatus ?? 'pending',
+        wouldLeadIfVerified: !!responseBody.wouldLeadIfVerified,
+        requiredVerifierId: responseBody.requiredVerifierId ?? null,
+        verifierSource: responseBody.verifierSource ?? null,
+        currentLeader: responseBody.currentLeader ?? null,
+        claimedValue: resultValue,
       }
+      // currentLeader here is the OFFICIAL (verified) leader — unaffected
+      // by this submission, since a claim never writes an official
+      // result. Shown for context only, so the player understands why
+      // they might not be the "leader" on screen yet even if their claim
+      // would win.
       setCurrentLeader(result.currentLeader)
       setHasSubmittedOnce(true)
+      setMyStatus(result.verificationStatus)
       setLastResult(result)
-      if (result.becameLeader) onBecameLeader?.(result)
+      if (result.wouldLeadIfVerified) onWouldLeadIfVerified?.(result)
     } catch {
-      setError('Couldn\u2019t save your result — your score is unaffected. Check your connection and try again.')
+      setError('Couldn\u2019t save your claim — your score is unaffected. Check your connection and try again.')
     } finally {
       setSubmitting(false)
     }
@@ -142,7 +172,7 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
 
   const leaderLine = currentLeader
     ? `Current leader: ${currentLeader.playerName}${currentLeader.resultValue != null ? ` · ${currentLeader.resultValue}m` : ''}`
-    : 'No leader yet — be the first!'
+    : 'No verified leader yet — be the first!'
 
   return (
     <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #e8c96a' }}>
@@ -150,9 +180,17 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
         {leaderLine}
       </div>
 
+      {myStatus && (
+        <div style={{ marginTop: 4, fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: STATUS_LABEL[myStatus].color }}>
+          {icon} {label}{myResultValue ? ` — ${myResultValue}m` : ''} · {STATUS_LABEL[myStatus].text}
+        </div>
+      )}
+
       {lastResult && (
-        <div style={{ marginTop: 6, fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 800, color: lastResult.becameLeader ? '#16a34a' : '#6b7280' }}>
-          {lastResult.becameLeader ? `🏁 NEW LEADER! ${leaderLine.replace('Current leader: ', '')}` : 'Result saved — current leader unchanged.'}
+        <div style={{ marginTop: 6, fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 800, color: lastResult.wouldLeadIfVerified ? '#16a34a' : '#6b7280' }}>
+          {lastResult.wouldLeadIfVerified
+            ? '📸 Claim saved — awaiting your marker\u2019s verification'
+            : 'Claim saved — awaiting your marker\u2019s verification'}
         </div>
       )}
 
@@ -205,7 +243,7 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
               opacity: submitting || !myResultValue ? 0.6 : 1,
             }}
           >
-            {submitting ? '…' : hasSubmittedOnce ? 'Update' : 'Submit'}
+            {submitting ? '…' : hasSubmittedOnce ? 'Update claim' : 'Submit claim'}
           </button>
         </div>
       )}
@@ -234,17 +272,17 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
             </div>
           </div>
         ) : (
-          // No standing leader yet, or the current leader is already this
-          // player — a qualifying drive is submitted directly; the server
-          // decides leadership from there (no-leader-yet auto-becomes
-          // leader, per migration 038).
+          // No standing OFFICIAL (verified) leader yet, or the current
+          // official leader is already this player — a qualifying claim
+          // is submitted directly; the server decides wouldLeadIfVerified
+          // from there.
           <div style={{ marginTop: 8 }}>
             <button
               disabled={submitting}
               onClick={() => void submit(true, null, null)}
               style={{ width: '100%', padding: '9px 0', borderRadius: 8, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
             >
-              {submitting ? '…' : hasSubmittedOnce ? 'Update' : 'Submit'}
+              {submitting ? '…' : hasSubmittedOnce ? 'Update claim' : 'Submit claim'}
             </button>
           </div>
         )

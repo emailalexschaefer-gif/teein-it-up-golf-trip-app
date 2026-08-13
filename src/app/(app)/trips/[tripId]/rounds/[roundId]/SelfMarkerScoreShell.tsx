@@ -14,6 +14,7 @@ import { useScoringFocusStore } from '@/store/scoringFocusStore'
 import LiveLeaderboard from '@/components/scoring/LiveLeaderboard'
 import SideCompEntryPanel from '@/components/scoring/SideCompEntryPanel'
 import NewLeaderPrompt, { type NewLeaderContext } from '@/components/scoring/NewLeaderPrompt'
+import PendingVerificationCard from '@/components/scoring/PendingVerificationCard'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -205,15 +206,15 @@ export default function SelfMarkerScoreShell({
   // can have multiple Powerplay holes, so this is a derived Set of every
   // Powerplay hole_number, not a single "the" Powerplay hole.
   const powerplayHoleNumbers = new Set(sideComps.filter(c => c.comp_type === 'powerplay' && c.enabled).map(c => c.hole_number))
-  // Sprint 9 Item 4 — Capture the Moment. This is the ENTIRE one-shot
-  // mechanism: null means no prompt is showing, full stop. It is set to
-  // a real value in exactly one place in this file (SideCompEntryPanel's
-  // onBecameLeader callback below, itself only ever fired by a direct
-  // POST response), and cleared by the prompt's own onDismiss. No GET,
-  // poll, or effect anywhere reads or writes this state — a refresh
-  // remounts the whole page with this back at null, and re-renders of
-  // unrelated state can't touch it either, since nothing else ever calls
-  // setNewLeaderPrompt.
+  // Side Game Marker Verification Stage 2 — Capture the Moment. This is
+  // the ENTIRE one-shot mechanism: null means no prompt is showing, full
+  // stop. It is set to a real value in exactly one place in this file
+  // (SideCompEntryPanel's onWouldLeadIfVerified callback below, itself
+  // only ever fired by a direct POST response), and cleared by the
+  // prompt's own onDismiss. No GET, poll, or effect anywhere reads or
+  // writes this state — a refresh remounts the whole page with this
+  // back at null, and re-renders of unrelated state can't touch it
+  // either, since nothing else ever calls setNewLeaderPrompt.
   const [newLeaderPrompt, setNewLeaderPrompt] = useState<NewLeaderContext | null>(null)
   const searchParams = useSearchParams()
   const appliedDeepLinkRef = useRef(false)
@@ -1345,17 +1346,20 @@ export default function SelfMarkerScoreShell({
               label={SIDE_COMP_BANNER[comp.comp_type]?.label ?? 'Side Competition'}
               icon={SIDE_COMP_BANNER[comp.comp_type]?.icon ?? '🎯'}
               currentUserId={currentMy?.player_id ?? ''}
-              // Item 4 — the one and only place newLeaderPrompt is ever
-              // set. onBecameLeader only fires from a direct POST
+              // Stage 2 — the one and only place newLeaderPrompt is ever
+              // set. onWouldLeadIfVerified only fires from a direct POST
               // response (see SideCompEntryPanel), so this can only ever
               // happen as an immediate reaction to the golfer's own
-              // submission — never from a background refetch.
-              onBecameLeader={(result) => {
+              // submission — never from a background refetch. Uses the
+              // claim's own claimedValue, not currentLeader (which is
+              // explicitly the OFFICIAL/verified leader — a different
+              // person at this point, since this claim is still pending).
+              onWouldLeadIfVerified={(result) => {
                 setNewLeaderPrompt({
                   tripId, roundId: round.id, holeNumber: holeNum, myGroupId: null,
                   sideCompId: comp.id, compType: comp.comp_type,
-                  entryId: result.entryId, leadChangeId: result.leadChangeId,
-                  playerName: myName, resultValue: result.currentLeader?.resultValue ?? null,
+                  entryId: result.entryId,
+                  playerName: myName, claimedValue: result.claimedValue,
                 })
               }}
             />
@@ -1366,6 +1370,12 @@ export default function SelfMarkerScoreShell({
             )}
           </div>
         ))}
+
+        {/* Side Game Marker Verification Stage 3 — non-blocking, appears
+            once per screen (not per hole), collapsed by default. Normal
+            hole-by-hole scoring below remains completely uninterrupted
+            whether or not this marker has anything to verify. */}
+        <PendingVerificationCard tripId={tripId} roundId={round.id} />
 
         {/* Scoring Anchor — the permanent resting point every hole
             transition returns to. Same simple normal-flow wrapper in
