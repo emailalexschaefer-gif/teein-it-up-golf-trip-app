@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import TripDetailClient from './TripDetailClient'
 import type { TripData } from './TripDetailClient'
 import Link from 'next/link'
+import { groupSideCompsByRound } from '@/lib/trips/sideCompRoundTrip'
 
 // This page must always reflect the live database — it's the page that was
 // showing stale round data (a round id that had already been deleted) after
@@ -83,7 +84,7 @@ export default async function TripDetailPage({ params }: Props) {
         ),
         rounds (
           id, name, course_name, play_date, tee_time, holes, scoring_format, status,
-          side_comps ( id, comp_type, hole_number, enabled )
+          tee_set_source_id, tee_name, course_rating, slope_rating, library_holes_snapshot
         )
       `)
       .eq('id', tripId).maybeSingle()
@@ -102,6 +103,14 @@ export default async function TripDetailPage({ params }: Props) {
       // wording, not a specific-column check, since side_comps is a
       // whole related table, not a single column on trips/rounds).
       const isMissingSideComp = msg.toLowerCase().includes('side_comps')
+      // Course Library v1 (migrations 039/041) — same resilience pattern
+      // again: any of the new rounds columns missing (039 not yet
+      // applied) falls back the same way.
+      const isMissingCourseLibrary = msg.includes('does not exist') && (
+        msg.includes('tee_set_source_id') || msg.includes('tee_name') ||
+        msg.includes('course_rating') || msg.includes('slope_rating') ||
+        msg.includes('library_holes_snapshot')
+      )
       if (isMissingCol) {
         console.warn('[trip page] Sprint 3 columns missing — run 012_sprint3_schema.sql in Supabase SQL Editor')
         result = await db
@@ -118,8 +127,8 @@ export default async function TripDetailPage({ params }: Props) {
             )
           `)
           .eq('id', tripId).maybeSingle()
-      } else if (isMissingSideComp) {
-        console.warn('[trip page] Sprint 9 columns/tables missing — run 037_side_competitions_powerplay.sql in Supabase SQL Editor')
+      } else if (isMissingSideComp || isMissingCourseLibrary) {
+        console.warn('[trip page] Sprint 9 / Course Library columns missing — run 037_side_competitions_powerplay.sql, 039_course_library.sql and 041_round_library_snapshot_column.sql in Supabase SQL Editor')
         result = await db
           .from('trips')
           .select(`
@@ -171,12 +180,44 @@ export default async function TripDetailPage({ params }: Props) {
     // trip_groups table may not exist yet — default to empty
   }
 
+  // Side Competitions — fetched as an explicit, separate, flat query
+  // rather than nested inside the trips->rounds embed above. This is a
+  // deliberate simplification, not a stylistic preference: a 3-level
+  // nested PostgREST embed (trips -> rounds -> side_comps) through the
+  // RLS-subject client is a combination used nowhere else in this
+  // codebase — every other place this app reads side_comps (Side Games,
+  // Golf Story, Final Results, the scoring holes route) does so via a
+  // flat, single-level query, several of them via the admin client
+  // specifically to sidestep exactly this kind of embed/RLS interaction
+  // entirely. Replacing the nested embed with the same flat-query
+  // pattern already proven reliable everywhere else in this app removes
+  // an untested combination as a variable, regardless of whether it was
+  // the actual cause of side competitions failing to round-trip through
+  // Edit Trip.
+  const roundIds = (rawTrip.rounds ?? []).map(r => r.id)
+  let sideCompsByRound = new Map<string, { id: string; comp_type: string; hole_number: number | null; enabled: boolean }[]>()
+  if (roundIds.length > 0) {
+    try {
+      const sideCompsResult = await db
+        .from('side_comps')
+        .select('id, round_id, comp_type, hole_number, enabled')
+        .in('round_id', roundIds)
+      sideCompsByRound = groupSideCompsByRound((sideCompsResult.data ?? []) as { id: string; round_id: string; comp_type: string; hole_number: number | null; enabled: boolean }[])
+    } catch {
+      // Side Competitions are additive to the trip page, never fatal to
+      // it — a failure here should not take down Edit Trip / trip
+      // overview entirely. Rounds simply show with no side_comps
+      // attached, same as a trip that genuinely has none configured.
+      sideCompsByRound = new Map()
+    }
+  }
+
   const sortedTrip: TripData = {
     ...rawTrip,
     trip_groups: fetchedGroups,
-    rounds: [...(rawTrip.rounds ?? [])].sort(
-      (a, b) => a.play_date.localeCompare(b.play_date)
-    ),
+    rounds: [...(rawTrip.rounds ?? [])]
+      .map(r => ({ ...r, side_comps: sideCompsByRound.get(r.id) ?? [] }))
+      .sort((a, b) => a.play_date.localeCompare(b.play_date)),
   }
 
   return (

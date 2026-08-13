@@ -15,6 +15,7 @@ import TripPlayersTab  from './tabs/TripPlayersTab'
 import TripGroupsTab   from './tabs/TripGroupsTab'
 import PlayerHomeCard  from './PlayerHomeCard'
 import TripRoundsTab   from './tabs/TripRoundsTab'
+import { toWizardSideCompPrefill } from '@/lib/trips/sideCompRoundTrip'
 
 export interface MemberProfile { id: string; full_name: string; avatar_url: string | null; handicap?: number | null }
 export interface TripMemberRow {
@@ -30,6 +31,10 @@ export interface RoundRow {
   id: string; name: string; course_name: string | null; play_date: string
   tee_time: string | null; holes: number; scoring_format: string; status: string
   side_comps?: RoundSideComp[]
+  // Course Library v1 — all null for a manually-configured round.
+  tee_set_source_id?: string | null; tee_name?: string | null
+  course_rating?: number | null; slope_rating?: number | null
+  library_holes_snapshot?: { hole_number: number; par: number; stroke_index: number | null; distance: number | null }[] | null
 }
 export interface TripData {
   id: string; name: string; description: string | null; event_type: string | null
@@ -131,11 +136,16 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
       // into the wizard, including Powerplay (now just another comp_type
       // here, not a separate field) — a round with two NTPs correctly
       // carries both instances back into edit mode, not just one.
-      side_comps: (r.side_comps ?? [])
-        .filter((c): c is typeof c & { comp_type: 'nearest_pin' | 'longest_drive' | 'pros_approach' | 'powerplay'; hole_number: number } =>
-          (c.comp_type === 'nearest_pin' || c.comp_type === 'longest_drive' || c.comp_type === 'pros_approach' || c.comp_type === 'powerplay')
-          && c.enabled && c.hole_number != null)
-        .map(c => ({ id: c.id, comp_type: c.comp_type, hole_number: c.hole_number })),
+      side_comps: toWizardSideCompPrefill(r.side_comps ?? []),
+      // Course Library v1 — round-trips exactly what was previously
+      // saved, so re-opening the wizard for an existing round shows the
+      // already-loaded course/tee (via CourseLibrarySearch's
+      // initialSelection) rather than dropping back to search.
+      library_tee_set_id: r.tee_set_source_id ?? null,
+      tee_name: r.tee_name ?? null,
+      course_rating: r.course_rating ?? null,
+      slope_rating: r.slope_rating ?? null,
+      library_holes_snapshot: r.library_holes_snapshot ?? null,
     })),
   }))}`
 

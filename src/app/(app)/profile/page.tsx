@@ -15,7 +15,7 @@ export default async function ProfilePage() {
   const db: any = supabase
   const { data: profile, error: profileError } = await db
     .from('profiles')
-    .select('full_name, email, avatar_url, handicap, location, bio, occupation, company, golf_club, interests, ask_me_about')
+    .select('full_name, email, avatar_url, handicap, location, bio, occupation, company, golf_club, interests, ask_me_about, app_role')
     .eq('id', user.id)
     .single()
 
@@ -92,6 +92,23 @@ export default async function ProfilePage() {
           userEmail={user.email ?? ''}
           userId={user.id}
         />
+      )}
+      {/* Course Library v1 — UX-only entry point, not the security
+          boundary (requireAdmin() + RLS independently enforce that on
+          every request regardless of whether this link is even
+          rendered). Kept simple rather than adding a whole admin nav
+          section for one screen. */}
+      {profile?.app_role === 'admin' && (
+        <a
+          href="/admin/courses"
+          style={{
+            display: 'block', textAlign: 'center', marginTop: 16, padding: '12px 0',
+            borderRadius: 10, background: '#ffffff', border: '1.5px solid #c9a84c',
+            color: '#7a5c00', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, textDecoration: 'none',
+          }}
+        >
+          🏌️ Course Library Admin
+        </a>
       )}
     </>
   )

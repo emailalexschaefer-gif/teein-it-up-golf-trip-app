@@ -1,6 +1,443 @@
 # Teein' It Up — Sprint 3 Testing Guide
 
-## Sprint 9 — Side Competitions & Powerplay — FINAL
+## Diagnostic deployment — Side Competition round-trip fix
+
+**Purpose: isolated fix for one reported regression, nothing else changed.**
+191/191 tests passing (179 prior + 12 new). This build is specifically
+for the live test below — no other feature work is included.
+
+### What was reported
+Side competitions, configured during round setup, appeared to vanish
+entirely — both on re-opening Edit Trip and on the live scoring screen.
+
+### What was found
+Exhaustive tracing of persistence (both `POST`/`PATCH` insert paths),
+the scoring API, and both scoring shells' client-side filtering/
+rendering logic (the filter logic was verified correct by actually
+executing it against the exact repro scenario, not just reading it)
+found no defect. The one genuine architectural anomaly found: the Edit
+Trip readback query used a 3-level nested PostgREST embed
+(`trips → rounds → side_comps`) through the RLS-subject client — a
+combination used nowhere else in this codebase. Every other side-comp
+read in this app (scoring holes API, Side Games, Golf Story, Final
+Results) uses a flat, single-level query instead.
+
+### What changed
+- `src/app/(app)/trips/[tripId]/page.tsx` — removed the nested embed;
+  added an explicit, separate `side_comps` query, matching the pattern
+  already proven reliable everywhere else.
+- `src/lib/trips/sideCompRoundTrip.ts` (new) — the grouping/attachment
+  logic (`groupSideCompsByRound`) and the wizard-prefill transformation
+  (`toWizardSideCompPrefill`) extracted as pure, tested functions, wired
+  into both `page.tsx` and `TripDetailClient.tsx` so tests validate the
+  real production path.
+- `src/lib/trips/sideCompRoundTrip.test.ts` (new) — 12 tests, including
+  the exact five-instance repro case (NTP×2, Longest Drive, Powerplay×2)
+  round-tripping completely through grouping and prefill.
+
+### Honest confidence level
+This is a well-reasoned, well-contained fix for a real architectural
+inconsistency — but it was found by static tracing and a process of
+elimination, not by reproducing the failure and watching this specific
+change resolve it. **The live test below is what actually proves or
+disproves this.**
+
+### Live test to run now (see delivery notes for the exact steps)
+1. Create a brand-new one-round trip with: NTP Hole 3, NTP Hole 12,
+   Longest Drive Hole 7, Powerplay Hole 5, Powerplay Hole 16.
+2. Immediately open Edit Trip — confirm all five reappear.
+3. Save, reopen Edit Trip again — confirm they persist through a second
+   round trip.
+4. Begin the round, check Holes 3, 5, 7, 12, 16 on the scoring screen.
+
+If Edit Trip is still empty after this deploy, the next step is a
+direct Supabase query against that round's `side_comps` rows — that
+single result definitively separates "never written" from "written but
+still not reading back," which static tracing alone cannot.
+
+No further feature work is included in this build pending that result.
+
+## Course Library v1 — completion report
+
+**Status: feature-complete, defect-fixed, ready for deployment.**
+179/179 tests passing (162 Sprint 9 + 8 initial Course Library + 9 for
+the nine-selector fix). Every file in the project brace/dollar-quote
+balance checked. As with every delivery in this project: no live
+database or browser in this sandbox, so nothing here has actually been
+clicked through by a real person — everything is verified by running
+the automated suite and by careful, repeated reading.
+
+### Migrations (037–043, deploy in this exact order)
+
+037/038 are Sprint 9 (Side Competitions/Powerplay), already deployed
+separately. Course Library v1 adds:
+
+- **039_course_library.sql** — `courses` → `course_tee_sets` →
+  `course_tee_holes`, `profiles.app_role` (`member`/`admin`, defaults
+  `member`), `is_admin()` helper, RLS (members read published, admins
+  write). Non-destructive to the pre-existing dormant `side_comps`/
+  `side_comp_results` tables — untouched.
+- **040_course_library_seed.sql** — seeds all four courses at identity
+  level; Sandhurst Champions' verified 18-hole par/stroke index. See the
+  data-gap report below for exactly what is and isn't included.
+- **041_round_library_snapshot_column.sql** — `rounds.library_holes_
+  snapshot` (JSONB), `tee_set_source_id`, `tee_name`, `course_rating`,
+  `slope_rating`. The mechanism that makes "already-configured future
+  rounds must not change" hold even before Begin Round runs.
+- **042_begin_round_hole_distance.sql** — fixes a real gap found during
+  the wiring pass: `begin_round()`'s primary RPC path was dropping
+  `distance` (only the fallback path handled it). `CREATE OR REPLACE`
+  of the same function, same signature, every other line unchanged.
+- **043_course_library_rls_hardening.sql** — fresh security-audit
+  finding, not a live incident: `course_tee_sets`/`course_tee_holes`
+  RLS only checked their own `is_active` flag, not the parent course's.
+  Every route this app actually uses already checked the course first,
+  so this was never exploitable through the app's own UI/API — but RLS
+  should be self-sufficient, not dependent on every future caller
+  remembering to check the parent table too. Tightened so both policies
+  now also require the parent course to be published.
+
+### Files changed/added (Course Library v1 portion)
+
+**Schema**: migrations 039–043 above.
+
+**Types**: `src/types/app.ts` (`WizardRound`/`WizardSideComp` extended
+with library snapshot fields).
+
+**Organiser flow**:
+- `src/components/trips/wizard/CourseLibrarySearch.tsx` (new) — search →
+  select course → select tee → summary → manual fallback at every stage.
+- `src/components/trips/wizard/StepRounds.tsx` — plain-text course field
+  replaced; locked rounds show a read-only summary instead.
+- `src/app/api/course-library/search/route.ts` (new) — published-only
+  search, RLS-gated via the regular client.
+- `src/app/api/course-library/courses/[courseId]/tee-sets/route.ts`
+  (new) — tee sets + hole data for a selected course.
+
+**Snapshot persistence**:
+- `src/app/api/trips/route.ts`, `src/app/api/trips/[tripId]/route.ts` —
+  both creation and edit paths persist the snapshot fields, gated by the
+  same upcoming-only lock already used for Side Comps/Powerplay.
+- `src/app/(app)/trips/[tripId]/page.tsx`,
+  `src/app/(app)/trips/[tripId]/TripDetailClient.tsx`,
+  `src/app/(app)/trips/new/page.tsx`, `src/lib/queries/trips.ts` — read
+  path and edit-prefill round-trip every field correctly.
+
+**Begin Round integration**:
+- `src/lib/scoring/defaultHoles.ts` — new `deriveBeginRoundHoles()`, a
+  pure function extracted specifically so this is unit-tested, not just
+  verified by reading. Also extended `HoleTemplate` with optional
+  `distance`.
+- `src/components/scoring/BeginRoundModal.tsx` — uses the extracted
+  function; Props extended with `libraryHolesSnapshot`/`teeName`.
+- `src/app/(app)/trips/[tripId]/tabs/TripRoundsTab.tsx` — passes the
+  snapshot through to the modal.
+- `src/app/api/trips/[tripId]/rounds/[roundId]/start/route.ts` —
+  `HoleSchema` extended with optional `distance`; both the `holeData`
+  and the direct-insert-fallback `holeRows` construction carry it.
+
+**Admin UI**:
+- `src/lib/auth/requireAdmin.ts` (new) — shared server-side admin check,
+  used by every admin route.
+- `src/app/api/admin/courses/route.ts`,
+  `src/app/api/admin/courses/[courseId]/route.ts`,
+  `src/app/api/admin/courses/[courseId]/tee-sets/route.ts`,
+  `src/app/api/admin/tee-sets/[teeSetId]/route.ts`,
+  `src/app/api/admin/tee-sets/[teeSetId]/holes/[holeNumber]/route.ts`
+  (all new) — course/tee-set/hole CRUD, publish/deactivate.
+- `src/app/(app)/admin/courses/page.tsx`,
+  `.../CourseLibraryAdminClient.tsx`,
+  `src/app/(app)/admin/courses/[courseId]/page.tsx`,
+  `.../CourseDetailAdminClient.tsx` (all new) — list, add course,
+  course detail with editable fields, tee sets, and a genuinely granular
+  per-hole editor (each hole has its own Save button/API call — editing
+  Hole 5 never touches Holes 1–4 or 6–18).
+
+### Tests added (8 new, all in `defaultHoles.test.ts`)
+
+Per the explicit instruction not to fake unit tests against Postgres/
+RLS that this sandbox cannot run: everything genuinely pure was
+extracted and tested. `deriveBeginRoundHoles()` — the function deciding
+what BeginRoundModal shows — now has direct coverage for:
+- a manual/legacy round (no snapshot) behaving byte-identical to the
+  pre-Course-Library default template
+- an empty snapshot array also falling back correctly, not producing an
+  empty hole list
+- a real snapshot being preferred over the generic template
+- **distance surviving derivation untouched, including staying `null`
+  when genuinely unverified** (not coerced to `0` or dropped)
+- a missing `stroke_index` defaulting to the hole's own number without
+  colliding, while a *present* verified stroke_index is never
+  overwritten by that same defaulting logic
+- **this build's own real seeded Sandhurst Champions data** round-
+  tripping exactly: par sums to 72, stroke indexes are a complete 1–18
+  set with no duplicates
+- correct behaviour at 9 holes (not padding to 18 from an 18-hole
+  library tee)
+- correct sort order regardless of snapshot input order
+
+Anything requiring an actual Postgres connection — RLS enforcement,
+`requireAdmin()`'s live behaviour, snapshot persistence through a real
+`POST`/`PATCH`, one hole's edit not touching another via a real
+database round-trip — is **not** faked here. See "Required live
+integration tests" below.
+
+### Fresh security audit (performed this session, not assumed from earlier)
+
+- **Every admin route calls `requireAdmin()` as its first line, and
+  every one of the 7 handlers across the 5 admin route files both
+  checks and short-circuits on failure** — confirmed by grep, not
+  spot-checked: 7 `requireAdmin()` calls, 7 matching `if (!auth.ok)`
+  guards, one-to-one.
+- **Zero hard-coded admin email addresses anywhere** in `src/` or
+  `supabase/` — confirmed by a repository-wide search.
+- **One real, if minor, gap found and fixed**: `course_tee_sets`/
+  `course_tee_holes` RLS didn't independently check the parent course's
+  `is_active` flag (migration 043, above). Never exploitable through
+  this app's own routes (which always check the course first), but RLS
+  is now self-sufficient rather than relying on every future caller to
+  remember that.
+- **No client-side role check is the security boundary anywhere** — the
+  Admin UI's page-level redirects and nav hiding are UX only;
+  `requireAdmin()` + RLS both independently enforce the real boundary,
+  confirmed by reading every admin route.
+
+### Fresh snapshot audit (performed this session)
+
+Searched the entire codebase for any reference to `course_tee_holes`/
+`course_tee_sets` outside the course-library and admin API routes:
+**zero matches.** This is a structural guarantee, not a convention —
+`BeginRoundModal`, `start/route.ts`, and `begin_round()` (checked
+directly in migration 042) contain no code path capable of reading the
+library tables at all. The only round-start input is `rounds.library_
+holes_snapshot`, frozen at round-setup time. A future library edit is
+not just "unlikely to" but **structurally cannot** change an
+already-configured round, because there is no query anywhere on that
+path that could pick the edit up.
+
+### Known limitation found during audit — now fixed, not just flagged
+
+An earlier version of this delivery flagged that `BeginRoundModal`'s
+Front/Back/Custom-nine selector discarded a library snapshot, silently
+falling back to the generic template the moment an organiser tapped
+Front/Back on a 9-hole round sourced from an 18-hole library course.
+**Fixed before deployment**, per explicit instruction not to ship it:
+
+- New pure function `deriveNineHoles()` (`src/lib/scoring/
+  defaultHoles.ts`) — slices the original, full library snapshot
+  (never re-fetched, never the already-sliced component state) to
+  holes 1–9 (Front) or 10–18 (Back), preserving hole_number, par,
+  stroke_index, and distance exactly as stored. Falls back to the
+  generic `getDefaultHolesForNine()` template only when there's
+  genuinely no snapshot, or the snapshot has zero holes in the
+  requested range — never a silent switch away from real data that
+  does exist.
+- `BeginRoundModal.tsx`'s `handlePlayingNineChange` now calls this
+  instead of the generic template unconditionally.
+- **Custom nine required no separate fix** — it already left `holes`
+  state untouched rather than resetting it, so once Front/Back
+  correctly seed real snapshot data, switching to Custom from either
+  one inherits that real data as its starting point automatically.
+- Neither function mutates the snapshot passed in — `filter`/`sort`/
+  `map` all return new arrays; confirmed by a dedicated test that
+  slices the same snapshot object repeatedly (front, back, front again)
+  and asserts it's byte-identical to a frozen copy taken before any
+  slicing happened.
+
+**9 new tests** (`defaultHoles.test.ts`), covering: Front Nine and Back
+Nine each preserving real, distinctive par/stroke-index/distance values
+(not the generic template — asserted via `notDeepEqual` against it, not
+just checking the real values are present); the snapshot genuinely
+never being mutated across repeated Front/Back switches; the two
+returned arrays being independent (editing one, as Custom-mode editing
+would, cannot corrupt the other or the source); the same missing-
+stroke-index defaulting rule as the initial-load function; correct
+fallback to the generic template both when there's no snapshot at all
+and when the snapshot has no holes in the requested range; this
+build's own real seeded Sandhurst Champions data sliced correctly
+(front/back nine pars both sum to 36, the course's genuinely hardest
+hole (SI 1, hole 9) lands on the front nine, its easiest (SI 18, hole
+12) on the back — matching the real course); and a legacy/manual round
+(no snapshot ever existed) behaving byte-identical to before this fix.
+
+### Manual fallback — confirmed still fully functional
+
+`CourseLibrarySearch`'s manual mode is reachable from every stage
+(initial search, after selecting a course, after selecting a tee) via
+"Can't find your course? Set up course manually →", and manually-typed
+course names persist exactly as they did before this feature existed —
+none of the new snapshot fields are ever populated for a manual round.
+
+### Daily Handicap — confirmed still dormant, as instructed
+
+`calculateDailyHandicap()` is untouched. `slope_rating`/`course_rating`
+are stored on the round (via `library_holes_snapshot`'s sibling columns)
+but nothing reads them into `resolvePlayingHandicap()` or anywhere else
+in the live scoring/handicap flow. Confirmed by the same search used for
+the snapshot audit — no new caller of that function exists anywhere.
+
+---
+
+## Four-course data-gap report
+
+Conservative by design: nothing below is presented as more verified
+than it actually is, and no third-party source is described as
+official.
+
+### Sandhurst Champions
+- **Verified**: club/course identity, suburb (Sandhurst), state
+  (Victoria) — official club site. **Full 18-hole par and stroke
+  index** — official club site (`sandhurst.com/courses/the-champions-
+  course`), transcribed hole-by-hole, cross-checked by hand (par sums
+  to 72; stroke indexes are a complete 1–18 set).
+- **Missing**: every tee set (name/colour/gender), total distance,
+  Scratch/Course Rating, Slope Rating, and every hole's individual
+  distance.
+- **Conflicting, deliberately left unresolved**: the official site
+  shows four distance numbers per hole with no tee-colour label — the
+  mapping was not guessed. Golf Australia Magazine gives per-tee slope
+  ratings (144 black / 131 blue / 128 white / 132 red); a separate
+  golf-tracking app states "142 slope" with no tee specified, which
+  doesn't match any of Golf Australia's four values. Not resolved by
+  picking one.
+- **Source**: `https://www.sandhurst.com/courses/the-champions-course`
+  (identity + hole-by-hole par/SI, official).
+- **Admin completion needed**: every tee set, every rating, every hole
+  distance.
+
+### Sandhurst North
+- **Verified**: club/course identity, suburb, state — official club
+  site navigation only.
+- **Missing**: everything else — hole-by-hole data for this specific
+  course was not fetched this session (only Champions was).
+- **Conflicting**: none surfaced (nothing was cross-checked, since
+  nothing beyond identity was gathered).
+- **Source**: `https://www.sandhurst.com/play-golf/courses` (identity
+  only, official).
+- **Admin completion needed**: everything — tee sets, ratings, and all
+  18 holes' par/stroke index/distance.
+
+### Eagle Ridge
+- **Verified**: club name, address (215 Browns Rd / Bass Street area,
+  Boneo VIC), suburb, state — official club site.
+- **Missing**: par-per-hole, stroke-index-per-hole, tee sets, ratings,
+  distances — the official site's course-detail pages didn't return
+  extractable hole-by-hole text content this session (an image-only
+  page, or not reached).
+- **Conflicting**: none surfaced.
+- **Source**: `https://eagleridge.com.au/` (identity only, official).
+- **Admin completion needed**: everything beyond identity.
+
+### Flinders
+- **Verified**: club name, address (Bass Street, Flinders VIC), suburb,
+  state — corroborated across multiple independent secondary sources
+  (GolfPass, MyTeeTimes, GolfFinder). Overall par (69) and hole count
+  (18) — also multi-source corroborated, treated as reasonably reliable
+  given independent agreement, though not confirmed against the club's
+  own official site directly.
+- **Missing**: tee sets, ratings, and confirmed hole-by-hole data.
+- **Conflicting, deliberately not seeded**: a third-party scorecard
+  service (18Birdies) returned a labelled, hole-by-hole par/stroke-
+  index breakdown for a "Blue" tee — genuinely useful-looking data, but
+  explicitly **not treated as official** since it's not the club's own
+  material and wasn't cross-checked against `flindersgolfclub.com.au`
+  directly this session. Not seeded.
+- **Source**: multiple independent secondary sources for identity/par/
+  holes (not official club material — flagged as such, not upgraded to
+  "verified").
+- **Admin completion needed**: everything — including re-verifying par/
+  holes against the club's own site if a fully "official" standard is
+  wanted, plus all tee sets/ratings/distances.
+
+---
+
+## Required live integration tests (cannot be run in this sandbox)
+
+No live Postgres/Supabase connection exists here — these are the exact
+tests that need a real deployment, listed precisely so they're not
+skipped by accident:
+
+1. **Member reads published courses** — log in as a non-admin, confirm
+   `GET /api/course-library/search` returns the seeded courses.
+2. **Member cannot create/edit a library course** — attempt
+   `POST /api/admin/courses` (or any admin route) as a non-admin;
+   expect 403, and confirm no row was written.
+3. **Admin can create/edit** — same requests as an admin account;
+   expect success.
+4. **Unpublished course is invisible to members** — create a draft
+   course (starts `is_active=false` by design), confirm it does not
+   appear in member search, confirms `is_admin()`-only visibility.
+5. **Editing one hole doesn't touch others** — via the admin hole
+   editor, change Hole 5's par, then re-fetch the tee set and confirm
+   every other hole's data is byte-identical to before.
+6. **Snapshot persists through trip creation** — create a trip with a
+   library-selected course/tee, confirm `rounds.library_holes_snapshot`
+   is populated immediately after creation, before Begin Round.
+7. **Snapshot persists through trip edit** — edit an unrelated field
+   (e.g. tee time) on that same round; confirm the snapshot is
+   unchanged (not re-written from the library).
+8. **Changing course/tee regenerates only that round's snapshot** — in
+   a multi-round trip, change Round 2's course; confirm Round 1's
+   snapshot is untouched.
+9. **Library edit does not mutate an existing round** — as admin, edit
+   Sandhurst Champions' Hole 5 in the library; confirm an
+   already-configured round (snapshot already saved) shows the
+   original value, not the edit.
+10. **Begin Round uses the stored snapshot, not a live library read** —
+    disconnect/break the library data after a round is configured (or
+    simply confirm via query logs) and verify Begin Round still works
+    correctly from the frozen snapshot alone.
+11. **Distance survives round-start on both paths** — confirm
+    `holes.distance` is populated after Begin Round both when the
+    `begin_round()` RPC succeeds and (if forced) via the direct-insert
+    fallback.
+12. **Legacy/manual rounds unaffected** — confirm a manually-configured
+    round (no library selection) behaves exactly as before this feature
+    shipped.
+13. **Alex/Darren admin promotion** (see below) — confirm the Admin UI
+    becomes accessible immediately after promotion, with no code
+    deploy needed.
+
+---
+
+## Alex + Darren admin bootstrap
+
+Exact, safe, no application code involved — uses the real `profiles`
+schema (`id`, `email`, `full_name`, `app_role` after migration 039).
+
+**Step 1 — locate the two accounts first, before changing anything:**
+```sql
+SELECT id, email, full_name, app_role
+FROM public.profiles
+WHERE email IN ('ALEX_EMAIL', 'DARREN_EMAIL');
+```
+Confirm this returns exactly two rows, both currently `app_role =
+'member'` (the default), before proceeding.
+
+**Step 2 — promote both:**
+```sql
+UPDATE public.profiles
+SET app_role = 'admin'
+WHERE email IN ('ALEX_EMAIL', 'DARREN_EMAIL');
+```
+
+**Step 3 — verify:**
+```sql
+SELECT id, email, app_role
+FROM public.profiles
+WHERE email IN ('ALEX_EMAIL', 'DARREN_EMAIL');
+```
+Expected: both rows show `app_role = 'admin'`.
+
+No application code, migration, or deploy is needed for this to take
+effect — `requireAdmin()` and every RLS policy read `app_role` live on
+every request, so both accounts gain Admin UI access the moment this
+SQL runs, no redeploy required. A "🏌️ Course Library Admin" link
+appears on the Profile page for any account with `app_role = 'admin'`
+(added during this session's own security audit, once it was noticed
+no link existed anywhere) — this is discoverability only, not the
+access control itself.
+
 
 **162/162 domain tests passing.** `npm run build`/full project typecheck
 could not be run — no network access to install `node_modules` in this

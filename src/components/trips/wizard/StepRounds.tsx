@@ -4,6 +4,7 @@ import React from 'react'
 import { Field, Input, Select } from '@/components/ui/FormFields'
 import Button from '@/components/ui/Button'
 import { generateUUID } from '@/lib/utils'
+import CourseLibrarySearch from './CourseLibrarySearch'
 import type { WizardRound, WizardTripDetails, WizardSideComp } from '@/types/app'
 
 interface Props {
@@ -166,9 +167,45 @@ function RoundCard({ round, index, total, onUpdate, onRemove, locked }: {
       <Field label="Round name" required>
         <Input value={round.name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('name', e.target.value)} placeholder="Day 1 — Royal County Down" maxLength={100} disabled={locked} />
       </Field>
-      <Field label="Course">
-        <Input value={round.course_name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('course_name', e.target.value)} placeholder="Royal County Down" maxLength={100} disabled={locked} />
-      </Field>
+      {locked ? (
+        <Field label="Course">
+          <div style={{ padding: '9px 0', fontFamily: 'var(--font-body)', fontSize: 14, color: '#374151' }}>
+            {round.course_name || '—'}{round.tee_name ? ` — ${round.tee_name} Tees` : ''}
+          </div>
+        </Field>
+      ) : (
+        <CourseLibrarySearch
+          initialCourseName={round.course_name}
+          initialSelection={round.library_tee_set_id ? {
+            courseLabel: round.course_name,
+            teeSetId: round.library_tee_set_id,
+            teeName: round.tee_name ?? '',
+            courseRating: round.course_rating ?? null,
+            slopeRating: round.slope_rating ?? null,
+            holes: round.library_holes_snapshot ?? [],
+          } : null}
+          onSelectLibrary={(selection) => {
+            if (selection) {
+              onUpdate({
+                ...round,
+                course_name: selection.courseLabel,
+                library_tee_set_id: selection.teeSetId,
+                tee_name: selection.teeName,
+                course_rating: selection.courseRating,
+                slope_rating: selection.slopeRating,
+                library_holes_snapshot: selection.holes,
+              })
+            } else {
+              // Cleared (switched back to search, or "Change tee"/"Change
+              // course") — the round's own manual course_name text is left
+              // as-is here; onManualNameChange (below) is the only path
+              // that edits it directly when the organiser types.
+              onUpdate({ ...round, library_tee_set_id: null, tee_name: null, course_rating: null, slope_rating: null, library_holes_snapshot: null })
+            }
+          }}
+          onManualNameChange={(name) => onUpdate({ ...round, course_name: name })}
+        />
+      )}
       <Field label="Date" required>
         <Input type="date" value={round.play_date} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('play_date', e.target.value)} disabled={locked} />
       </Field>

@@ -31,6 +31,11 @@ const HoleSchema = z.object({
   hole_number:  z.number().int().min(1).max(18),
   par:          z.number().int().min(3).max(6),
   stroke_index: z.number().int().min(1).max(18),
+  // Course Library v1 — optional, purely round metadata (nothing in
+  // scoring reads it), carried through from BeginRoundModal's holes
+  // state so a library-sourced round's distances survive into the
+  // actual holes table, not just the setup-time snapshot.
+  distance:     z.number().int().positive().nullable().optional(),
 })
 
 const StartSchema = z.object({
@@ -296,8 +301,8 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   }
 
   // ── Build data arrays ──────────────────────────────────────────────────────
-  const holeData = holes.map((h: { hole_number: number; par: number; stroke_index: number }) => ({
-    hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index,
+  const holeData = holes.map((h: { hole_number: number; par: number; stroke_index: number; distance?: number | null }) => ({
+    hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index, distance: h.distance ?? null,
   }))
 
   const scorecardData = assignedMembers.map((m: typeof assignedMembers[0]) => ({
@@ -378,8 +383,8 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
 
   // ── Direct insert fallback (works even if migration 016 not applied) ───────
   // Holes upsert
-  const holeRows = holeData.map((h: { hole_number: number; par: number; stroke_index: number }) => ({
-    round_id: roundId, hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index,
+  const holeRows = holeData.map((h: { hole_number: number; par: number; stroke_index: number; distance: number | null }) => ({
+    round_id: roundId, hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index, distance: h.distance,
   }))
 
   const { error: holesError } = await admin

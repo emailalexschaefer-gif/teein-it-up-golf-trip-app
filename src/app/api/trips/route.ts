@@ -8,6 +8,13 @@ const SideCompSchema = z.object({
   hole_number: z.number().int().min(1).max(18),
 })
 
+const LibraryHoleSnapshotSchema = z.object({
+  hole_number:  z.number().int().min(1).max(18),
+  par:          z.number().int().min(3).max(6),
+  stroke_index: z.number().int().min(1).max(18).nullable(),
+  distance:     z.number().int().positive().nullable(),
+})
+
 const RoundSchema = z.object({
   name:           z.string().min(1).max(100),
   course_name:    z.string().max(100).default(''),
@@ -21,6 +28,15 @@ const RoundSchema = z.object({
   // competition, matching the schema's own UNIQUE(round_id, comp_type,
   // hole_number) rather than a one-per-type assumption.
   side_comps: z.array(SideCompSchema).max(20).default([]),
+  // Course Library v1 — absent entirely for a manually-configured round.
+  // A brand-new round is always 'upcoming', so writing these directly at
+  // insert time is always safe, matching the reasoning already used for
+  // side_comps/powerplay.
+  library_tee_set_id:     z.string().uuid().nullable().default(null),
+  tee_name:               z.string().max(50).nullable().default(null),
+  course_rating:          z.number().nullable().default(null),
+  slope_rating:           z.number().int().nullable().default(null),
+  library_holes_snapshot: z.array(LibraryHoleSnapshotSchema).nullable().default(null),
 })
 
 const CreateTripSchema = z.object({
@@ -148,6 +164,9 @@ export async function POST(request: Request) {
       .insert(rounds.map((r: {
         name: string; course_name: string | null; play_date: string; tee_time: string | null
         holes: number; scoring_format: string
+        library_tee_set_id: string | null; tee_name: string | null
+        course_rating: number | null; slope_rating: number | null
+        library_holes_snapshot: { hole_number: number; par: number; stroke_index: number | null; distance: number | null }[] | null
       }) => ({
         trip_id:        trip.id,
         name:           r.name,
@@ -160,6 +179,13 @@ export async function POST(request: Request) {
         // No powerplay_hole_number here — Powerplay is a side_comps row
         // now (comp_type = 'powerplay'), inserted below alongside every
         // other competition instance, not a special column on rounds.
+        // Course Library v1 — absent (all null) for a manually-configured
+        // round, exactly as intended.
+        tee_set_source_id:      r.library_tee_set_id,
+        tee_name:               r.tee_name,
+        course_rating:          r.course_rating,
+        slope_rating:           r.slope_rating,
+        library_holes_snapshot: r.library_holes_snapshot,
       })))
       .select('id')
 

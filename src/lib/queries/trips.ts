@@ -39,6 +39,9 @@ interface CreateTripVars {
     name: string; course_name: string; play_date: string
     tee_time: string; holes: 9 | 18; scoring_format: 'stableford'
     side_comps?: { comp_type: string; hole_number: number }[]
+    library_tee_set_id?: string | null; tee_name?: string | null
+    course_rating?: number | null; slope_rating?: number | null
+    library_holes_snapshot?: { hole_number: number; par: number; stroke_index: number | null; distance: number | null }[] | null
   }>
 }
 

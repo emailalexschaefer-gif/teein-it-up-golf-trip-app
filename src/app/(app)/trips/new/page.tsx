@@ -64,6 +64,9 @@ function NewTripForm() {
               id: r.id, name: r.name, course_name: r.course_name, play_date: r.play_date,
               tee_time: r.tee_time, holes: r.holes, scoring_format: r.scoring_format,
               side_comps: (r.side_comps ?? []).map(c => ({ comp_type: c.comp_type, hole_number: c.hole_number })),
+              library_tee_set_id: r.library_tee_set_id ?? null, tee_name: r.tee_name ?? null,
+              course_rating: r.course_rating ?? null, slope_rating: r.slope_rating ?? null,
+              library_holes_snapshot: r.library_holes_snapshot ?? null,
             })),
           }),
         })
@@ -92,6 +95,9 @@ function NewTripForm() {
           name: r.name, course_name: r.course_name, play_date: r.play_date,
           tee_time: r.tee_time, holes: r.holes, scoring_format: r.scoring_format,
           side_comps: (r.side_comps ?? []).map(c => ({ comp_type: c.comp_type, hole_number: c.hole_number })),
+          library_tee_set_id: r.library_tee_set_id ?? null, tee_name: r.tee_name ?? null,
+          course_rating: r.course_rating ?? null, slope_rating: r.slope_rating ?? null,
+          library_holes_snapshot: r.library_holes_snapshot ?? null,
         })),
       })
       router.push(`/trips/${tripId}`)

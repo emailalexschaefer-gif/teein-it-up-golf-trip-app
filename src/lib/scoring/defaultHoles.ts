@@ -14,6 +14,12 @@ export interface HoleTemplate {
   hole_number: number
   par: number
   stroke_index: number
+  // Course Library v1 — optional, only ever populated when this template
+  // came from a library snapshot rather than the generic default/manual
+  // entry. Not required by scoring (nothing reads it for any
+  // calculation), purely round-metadata preserved through to the
+  // holes table for display.
+  distance?: number | null
 }
 
 export const DEFAULT_18_HOLES: HoleTemplate[] = [
@@ -115,3 +121,99 @@ export function resolvePlayingHandicap(
   if (raw === null) return null
   return roundHandicap(raw)
 }
+
+// ── Course Library v1 ───────────────────────────────────────────────────────
+
+export interface LibraryHoleSnapshot {
+  hole_number: number
+  par: number
+  stroke_index: number | null
+  distance: number | null
+}
+
+/**
+ * Derives the hole-review-screen starting state for BeginRoundModal.
+ * Extracted as a pure function specifically so this is unit-testable
+ * without a browser — it was previously an inline useState initializer.
+ *
+ * Frozen library snapshot data takes priority over the generic default
+ * template whenever one exists — never a fresh read from the library
+ * tables themselves (this function has no access to them at all; it
+ * only ever sees whatever snapshot was already passed in, which is the
+ * whole point: a later library edit cannot retroactively change what
+ * this function returns for an already-configured round, because the
+ * snapshot argument itself was frozen at round-setup time, not read
+ * live here).
+ *
+ * A missing stroke_index (a library course with genuinely unverified SI
+ * data) defaults to the hole's own number — always a valid, unique 1-18
+ * value satisfying the holes table's own UNIQUE(round_id, stroke_index)
+ * constraint, and something the organiser can still see and correct
+ * before confirming. This is a safe placeholder for round-level working
+ * data, never presented anywhere as verified library fact.
+ *
+ * A snapshot with zero entries, or none at all (a manually-configured
+ * round, or any round created before Course Library existed), falls
+ * back to the exact same getDefaultHoles(holeCount) behaviour this
+ * function replaces — byte-identical to pre-Course-Library output.
+ */
+export function deriveBeginRoundHoles(
+  libraryHolesSnapshot: LibraryHoleSnapshot[] | null | undefined,
+  holeCount: 9 | 18,
+): HoleTemplate[] {
+  if (libraryHolesSnapshot && libraryHolesSnapshot.length > 0) {
+    return libraryHolesSnapshot
+      .filter(h => h.hole_number <= holeCount)
+      .sort((a, b) => a.hole_number - b.hole_number)
+      .map(h => ({ hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index ?? h.hole_number, distance: h.distance }))
+  }
+  return getDefaultHoles(holeCount)
+}
+
+/**
+ * Front/Back Nine selection for a round already using a library
+ * snapshot — the fix for a real defect found during this build's own
+ * review: BeginRoundModal's nine-selector previously called
+ * getDefaultHolesForNine() unconditionally, silently discarding real
+ * course data (par/stroke index/distance) the moment an organiser chose
+ * Front/Back/Custom on a 9-hole round sourced from an 18-hole library
+ * course, and replacing it with the same generic placeholder template
+ * used for a completely manual round.
+ *
+ * Slices the ORIGINAL, full library snapshot (never the already-sliced
+ * `holes` component state, and never re-fetched from anywhere — the
+ * snapshot argument here is the same frozen array threaded all the way
+ * through from round setup) to holes 1-9 (front) or 10-18 (back),
+ * preserving every field — hole_number, par, stroke_index, distance —
+ * exactly as stored. Does not mutate the snapshot passed in: filter/
+ * sort/map all return new arrays, the input is only ever read.
+ *
+ * Falls back to the generic getDefaultHolesForNine() template only when
+ * there is genuinely no snapshot, or the snapshot has zero holes in the
+ * requested range (e.g. a 9-hole-only library entry and Back Nine was
+ * requested) — never a silent switch away from real data that does
+ * exist, exactly the same "generic template is the fallback, not the
+ * default, when real data exists" principle deriveBeginRoundHoles above
+ * already established for the initial 18-hole load.
+ *
+ * Custom nine needs no equivalent function: BeginRoundModal's existing
+ * Custom handling already leaves `holes` state untouched rather than
+ * resetting it, so once Front/Back correctly seed real snapshot data,
+ * switching to Custom from either one inherits that real data as its
+ * starting point for free.
+ */
+export function deriveNineHoles(
+  libraryHolesSnapshot: LibraryHoleSnapshot[] | null | undefined,
+  nine: 'front' | 'back',
+): HoleTemplate[] {
+  if (libraryHolesSnapshot && libraryHolesSnapshot.length > 0) {
+    const [lo, hi] = nine === 'front' ? [1, 9] : [10, 18]
+    const sliced = libraryHolesSnapshot
+      .filter(h => h.hole_number >= lo && h.hole_number <= hi)
+      .sort((a, b) => a.hole_number - b.hole_number)
+      .map(h => ({ hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index ?? h.hole_number, distance: h.distance }))
+    if (sliced.length > 0) return sliced
+  }
+  return getDefaultHolesForNine(nine)
+}
+

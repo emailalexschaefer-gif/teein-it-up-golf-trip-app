@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { getDefaultHoles, getDefaultHolesForNine, resolvePlayingHandicap } from '@/lib/scoring/defaultHoles'
+import { resolvePlayingHandicap, deriveBeginRoundHoles, deriveNineHoles } from '@/lib/scoring/defaultHoles'
 import type { HoleTemplate, PlayingNine } from '@/lib/scoring/defaultHoles'
 import { useScoringFocusStore } from '@/store/scoringFocusStore'
 
@@ -30,13 +30,24 @@ interface Props {
   playDate:  string
   groups:    Group[]
   onClose:   () => void
+  // Course Library v1 — the frozen, setup-time snapshot (migration 041).
+  // When present, this is what pre-fills the hole review below, INSTEAD
+  // of the generic getDefaultHoles() template — never a fresh read from
+  // the library tables themselves, which is what makes an
+  // already-configured round immune to a later library edit. Absent
+  // entirely for a manually-configured round or any round created
+  // before Course Library existed, in which case behaviour is
+  // byte-identical to before this feature: the same generic template,
+  // same manual review/edit flow.
+  libraryHolesSnapshot?: { hole_number: number; par: number; stroke_index: number | null; distance: number | null }[] | null
+  teeName?: string | null
 }
 
 type Stage = 'review' | 'holes' | 'confirm' | 'starting'
 
 export default function BeginRoundModal({
   tripId, roundId, roundName, courseName, holeCount,
-  playDate, groups, onClose,
+  playDate, groups, onClose, libraryHolesSnapshot, teeName,
 }: Props) {
   const router = useRouter()
   const setScoringFocusActive = useScoringFocusStore(s => s.setActive)
@@ -193,7 +204,7 @@ export default function BeginRoundModal({
   useEffect(() => {
     modalScrollRef.current?.scrollTo({ top: 0 })
   }, [stage])
-  const [holes, setHoles]   = useState<HoleTemplate[]>(() => getDefaultHoles(holeCount))
+  const [holes, setHoles]   = useState<HoleTemplate[]>(() => deriveBeginRoundHoles(libraryHolesSnapshot, holeCount))
   // Playing Nine — only meaningful for 9-hole rounds; 18-hole rounds are
   // explicitly unaffected and never read this. Defaults to Front Nine
   // per the explicit requirement (Custom/To Be Confirmed can come later).
@@ -202,11 +213,18 @@ export default function BeginRoundModal({
   function handlePlayingNineChange(nine: PlayingNine) {
     setPlayingNine(nine)
     // Custom starts from the current holes as-is (whatever was already
-    // there, likely the Front Nine template) so the organiser edits from
-    // a familiar starting point rather than a blank/reset table — Front
-    // and Back genuinely reload their own template, since those are
-    // meant to be complete, ready-to-use starting points.
-    if (nine !== 'custom') setHoles(getDefaultHolesForNine(nine))
+    // there — Front/Back's own real snapshot data if one exists, per the
+    // fix below, or the generic template otherwise) so the organiser
+    // edits from a familiar starting point rather than a blank/reset
+    // table. Front and Back genuinely reload their own data: real
+    // library snapshot holes 1-9/10-18 when a snapshot exists (never
+    // re-fetched — the exact frozen array this component was given),
+    // falling back to the generic template only when there's truly
+    // nothing real to show for that range. This was the actual defect
+    // found during review: this used to call getDefaultHolesForNine()
+    // unconditionally, silently discarding real course data the moment
+    // Front/Back was tapped on a library-sourced round.
+    if (nine !== 'custom') setHoles(deriveNineHoles(libraryHolesSnapshot, nine))
   }
 
   const [error, setError]   = useState<string | null>(null)

@@ -113,6 +113,21 @@ export async function PATCH(request: NextRequest, { params }: Props) {
     // here, not a separate rounds column) — each array entry is its own
     // independent competition instance.
     side_comps?: { comp_type: string; hole_number: number }[]
+    // Course Library v1 — same "only if still upcoming" guard as side
+    // comps, same reasoning: changing the course/tee mid-round would
+    // invalidate holes already being scored against. library_holes_
+    // snapshot is whatever the wizard already had frozen (either freshly
+    // selected, or round-tripped unchanged from the round's own existing
+    // values via CourseLibrarySearch's initialSelection) — this route
+    // never re-fetches the library itself, so persisting exactly what
+    // the client sends can never "silently refresh from the current
+    // library": the only way this value changes at all is the organiser
+    // explicitly picking a different course/tee in the wizard.
+    library_tee_set_id?: string | null
+    tee_name?: string | null
+    course_rating?: number | null
+    slope_rating?: number | null
+    library_holes_snapshot?: { hole_number: number; par: number; stroke_index: number | null; distance: number | null }[] | null
   }> | undefined)
 
   if (rounds && rounds.length > 0) {
@@ -150,6 +165,18 @@ export async function PATCH(request: NextRequest, { params }: Props) {
         scoring_format: r.scoring_format ?? 'stableford',
         // No powerplay_hole_number — Powerplay is a side_comps row now,
         // reconciled below alongside every other competition instance.
+      }
+      // Course Library snapshot — only touched for a round still
+      // 'upcoming', same lock reasoning as Side Comps/Powerplay above.
+      // Writing null/undefined-as-null here for a manually-configured
+      // round is correct and expected, not a loss of data — a manual
+      // round never had a library snapshot to begin with.
+      if (isUpcoming) {
+        updatePayload.tee_set_source_id      = r.library_tee_set_id ?? null
+        updatePayload.tee_name               = r.tee_name ?? null
+        updatePayload.course_rating          = r.course_rating ?? null
+        updatePayload.slope_rating           = r.slope_rating ?? null
+        updatePayload.library_holes_snapshot = r.library_holes_snapshot ?? null
       }
 
       const { error: updateRoundError } = await admin
@@ -209,6 +236,15 @@ export async function PATCH(request: NextRequest, { params }: Props) {
         status:         'upcoming',
         // No powerplay_hole_number — Powerplay is a side_comps row,
         // inserted below with every other competition instance.
+        // A brand-new round is always 'upcoming' — safe to write the
+        // library snapshot fields directly, same reasoning as
+        // powerplay_hole_number used to have before Sprint 9's
+        // correction: nothing has locked it yet.
+        tee_set_source_id:      r.library_tee_set_id ?? null,
+        tee_name:               r.tee_name ?? null,
+        course_rating:          r.course_rating ?? null,
+        slope_rating:           r.slope_rating ?? null,
+        library_holes_snapshot: r.library_holes_snapshot ?? null,
       }))
 
       const { data: newRounds, error: insertRoundsError } = await admin.from('rounds').insert(insertRows).select('id')

@@ -125,6 +125,8 @@ export default function TripRoundsTab({ trip, isOrganiser, onTabChange }: Props)
           playDate={beginRound.play_date}
           groups={modalGroups}
           onClose={() => setBeginRound(null)}
+          libraryHolesSnapshot={beginRound.library_holes_snapshot ?? null}
+          teeName={beginRound.tee_name ?? null}
         />
       )}
     </>

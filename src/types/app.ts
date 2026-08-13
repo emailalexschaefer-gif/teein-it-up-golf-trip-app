@@ -134,6 +134,18 @@ export interface WizardRound {
   // never locked. Drives the "configuration locked once started" UI —
   // the client-side mirror of the DB trigger in migration 037.
   status?: string
+  // Course Library v1 — present only when this round was configured from
+  // the library (not manual setup). tee_set_source_id is a provenance
+  // reference only (migration 039's own comment on the column repeats
+  // this) — the actual hole data lives in library_holes_snapshot, frozen
+  // at the moment the organiser confirmed a course+tee here in the
+  // wizard, never re-read from the library later. A manually-configured
+  // round simply never has any of these set.
+  library_tee_set_id?: string | null
+  tee_name?: string | null
+  course_rating?: number | null
+  slope_rating?: number | null
+  library_holes_snapshot?: { hole_number: number; par: number; stroke_index: number | null; distance: number | null }[] | null
 }
 
 // ─── Offline queue ────────────────────────────────────────────────────────────
