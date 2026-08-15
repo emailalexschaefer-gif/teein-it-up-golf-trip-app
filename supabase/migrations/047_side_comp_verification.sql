@@ -118,6 +118,19 @@ $$;
 -- instruction) — computed against currently VERIFIED entries from other
 -- players only, so a pending claim is never compared against another
 -- player's own still-pending claim.
+--
+-- Production fix (found via a live migration failure, not anticipated
+-- up front): both functions below already existed in production from
+-- migration 038, with a DIFFERENT RETURNS TABLE shape than what's
+-- defined here. Postgres's CREATE OR REPLACE FUNCTION cannot change a
+-- function's return type — only its body — so redefining these with a
+-- new set of output columns requires dropping the old signature first.
+-- Confirmed safe before adding this: neither function is referenced by
+-- any other database object (trigger, view, another function) anywhere
+-- in this migration history, and neither has any GRANT statement
+-- targeting it specifically that would need reapplying. Both are only
+-- ever called externally, via the admin client's .rpc().
+DROP FUNCTION IF EXISTS public.submit_side_comp_value_entry(UUID, UUID, BOOLEAN, NUMERIC, UUID);
 
 CREATE OR REPLACE FUNCTION public.submit_side_comp_value_entry(
   p_side_comp_id UUID,
@@ -221,6 +234,11 @@ BEGIN
     v_leader_row.player_id, v_leader_row.full_name, v_leader_row.result_value;
 END;
 $$;
+
+-- Same production fix as submit_side_comp_value_entry above, same
+-- reasoning: this function also already existed in production from
+-- migration 038 with a different RETURNS TABLE shape.
+DROP FUNCTION IF EXISTS public.submit_longest_drive_entry(UUID, UUID, BOOLEAN, BOOLEAN, UUID);
 
 CREATE OR REPLACE FUNCTION public.submit_longest_drive_entry(
   p_side_comp_id     UUID,
