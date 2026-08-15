@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import LiveLeaderboard from '@/components/scoring/LiveLeaderboard'
+import { selectLeaderboardRound } from '@/lib/scoring/multiRound'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -14,27 +15,30 @@ export default async function LeaderboardPage({ params }: Props) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: rounds } = await supabase
+  const { data: rawRounds } = await supabase
     .from('rounds')
-    .select('id, name, status, play_date')
+    .select('id, name, status, play_date, created_at')
     .eq('trip_id', tripId)
-    .order('play_date', { ascending: false })
 
-  // Between rounds (R1/R2 complete, R3 not yet begun), no round has
-  // status 'active' — the old fallback of rounds?.[0] picked the
-  // latest-play_date row from this DESC-ordered list, which between
-  // rounds is always the upcoming round itself, showing an empty
-  // "0 players / no scores" board instead of the cumulative standings
-  // players actually want to see. LiveLeaderboard already computes full
-  // cumulative standings (R1, R2, ... TOTAL) for whatever round it's
-  // given — R2 here isn't "the wrong round shown by mistake", it's the
-  // correct source for "standings as of the last completed round".
-  // Round 3 only becomes the board once it actually has status
-  // 'active' (i.e. Begin Round has run) — this fix doesn't touch that
-  // transition at all, only what's shown in the gap before it.
-  const activeRound = rounds?.find(r => r.status === 'active')
-  const lastCompletedRound = rounds?.find(r => r.status === 'completed') // rounds is already play_date DESC, so the first completed match is the most recent
-  const round = activeRound ?? lastCompletedRound ?? rounds?.[0]
+  // Root cause of "Leaderboard still shows Round 1" even after later
+  // rounds complete: this query previously ordered by play_date alone
+  // (`.order('play_date', { ascending: false })`), with no deterministic
+  // tiebreaker. Rounds created together at trip setup (a single multi-
+  // row INSERT) can share an identical play_date if the organiser picked
+  // the same calendar date for both — exactly Darren's own "two rounds
+  // created at the same timestamp" test case — and a single-column
+  // ORDER BY gives no guaranteed, stable order among ties. Depending on
+  // query-plan happenstance, this could non-deterministically select
+  // Round 1 instead of Round 2 as "the most recent completed round."
+  //
+  // This is the EXACT bug class already found and fixed in the
+  // leaderboard API route (see that file's own "R2 LIVE shows R1 data"
+  // comment). selectLeaderboardRound (src/lib/scoring/multiRound.ts,
+  // now unit-tested) wraps the same already-proven
+  // sortRoundsChronologically tiebreaker (play_date, then created_at,
+  // then id) rather than re-solving the same problem a second way.
+  const round = selectLeaderboardRound((rawRounds ?? []) as { id: string; name: string; status: string; play_date: string; created_at: string }[])
+  const activeRound = round?.status === 'active' ? round : undefined
 
   return (
     <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '16px 16px 90px' }}>

@@ -50,6 +50,23 @@ export default function AppNav({ userName, avatarUrl }: Props) {
         background: 'linear-gradient(135deg, #0f2d1c 0%, #1a4731 100%)',
         borderBottom: '2px solid #c9a84c',
         boxShadow: '0 2px 16px rgba(0,0,0,0.35)',
+        // Root cause of the iOS overlap: the root layout correctly sets
+        // viewportFit: 'cover' + appleWebApp statusBarStyle: 'black-
+        // translucent' (needed for the app to render edge-to-edge at
+        // all, including behind the bottom home-indicator area that
+        // TripBottomNav already correctly compensates for) — but this
+        // header, the ONE shared header for every page except active
+        // scoring, never added the matching top-side compensation. With
+        // no safe-area padding, `sticky top-0` anchors this header's
+        // content into the exact same physical screen region as iOS's
+        // own status bar / Dynamic Island. That's not just a visual
+        // overlap: iOS's system chrome captures touches in that region
+        // at the OS level before they ever reach the page underneath,
+        // which is why the avatar/PASS controls were untappable, not
+        // merely misplaced. No separate pointer-events/z-index bug was
+        // found in this app's own CSS — this single missing padding
+        // fully explains both symptoms.
+        paddingTop: 'env(safe-area-inset-top, 0px)',
       }} className="sticky top-0 z-40 flex-shrink-0">
         <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
 
@@ -133,7 +150,13 @@ export default function AppNav({ userName, avatarUrl }: Props) {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="fixed top-16 right-4 z-50 w-52 animate-fadeIn" style={{
+          <div className="fixed right-4 z-50 w-52 animate-fadeIn" style={{
+            // Was a hardcoded `top-16` (64px) Tailwind class — no longer
+            // correct now that the header's actual height varies by
+            // env(safe-area-inset-top). Matches the header's own real
+            // height exactly: h-16 (64px) content plus whatever safe-area
+            // padding was added above it.
+            top: 'calc(64px + env(safe-area-inset-top, 0px))',
             background: '#f8f4eb',
             border: '1.5px solid #d9c9a3',
             borderRadius: 14,

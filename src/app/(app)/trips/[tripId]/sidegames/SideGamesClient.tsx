@@ -14,8 +14,12 @@ interface Competition {
   // "result" (best authoritative score, not a submitted leader).
   powerplayBest: { playerId: string; playerName: string; points: number } | null
 }
-interface SideGamesData {
+interface RoundSideGames {
+  roundId: string; roundNumber: number; roundName: string; courseName: string | null; status: string
   competitions: Competition[]
+}
+interface SideGamesData {
+  roundsData: RoundSideGames[]
 }
 
 const COMP_META: Record<Competition['compType'], { icon: string; label: string }> = {
@@ -25,19 +29,35 @@ const COMP_META: Record<Competition['compType'], { icon: string; label: string }
   powerplay:     { icon: '⚡', label: 'Powerplay' },
 }
 
-export default function SideGamesClient({ tripId, round }: { tripId: string; round: { id: string; name: string; course_name: string | null; status: string } | null }) {
+/**
+ * Event-level by default now, not round-specific — the earlier design
+ * (single active/most-recent round only, "never a merged view across
+ * rounds") was a deliberate choice at the time, but didn't match what
+ * players actually needed once trips grew past one round: Side Games
+ * results/history from completed rounds must stay visible, not vanish
+ * the moment the next round starts. Fetches every relevant round from
+ * the new event-level route in one call — grouped by round in the
+ * response already, so this component doesn't need to re-derive
+ * grouping, only render it. Individual-round drill-down still exists
+ * (the original single-round route, unchanged) — just not wired into
+ * this default screen, which was the whole point of the fix.
+ */
+export default function SideGamesClient({ tripId }: { tripId: string }) {
   const { data, isLoading } = useQuery<SideGamesData>({
-    queryKey: ['side-games', tripId, round?.id],
+    queryKey: ['side-games-event', tripId],
     queryFn: async () => {
-      const res = await fetch(`/api/trips/${tripId}/rounds/${round!.id}/side-games`)
+      const res = await fetch(`/api/trips/${tripId}/side-games`)
       if (!res.ok) throw new Error('failed')
       return res.json()
     },
-    enabled: !!round,
-    // Live during an active round — mirrors the leaderboard's own
-    // polling condition, no new refresh behaviour invented.
-    refetchInterval: round?.status === 'active' ? 8000 : false,
+    // Polls whenever ANY relevant round is active — matches the
+    // leaderboard's own reasoning (only refresh when something could
+    // actually be changing), just evaluated across the whole set rather
+    // than a single round.
+    refetchInterval: (query) => (query.state.data?.roundsData ?? []).some(r => r.status === 'active') ? 8000 : false,
   })
+
+  const roundsWithContent = (data?.roundsData ?? []).filter(r => r.competitions.length > 0)
 
   return (
     <div style={{
@@ -51,28 +71,34 @@ export default function SideGamesClient({ tripId, round }: { tripId: string; rou
         <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>Side Games</span>
       </div>
 
-      {!round ? (
-        <EmptyState text="No round has been set up yet." />
-      ) : isLoading ? (
+      {isLoading ? (
         <div style={{ textAlign: 'center', padding: '32px 0', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>
           Loading Side Games…
         </div>
-      ) : !data || data.competitions.length === 0 ? (
-        <EmptyState text="No Side Competitions or Powerplay are configured for this round." />
+      ) : roundsWithContent.length === 0 ? (
+        <EmptyState text="No Side Competitions or Powerplay have been configured yet." />
       ) : (
-        <>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#9ca3af', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            {round.name}{round.course_name ? ` — ${round.course_name}` : ''}
+        // Grouped by round, never merged — a round heading only shown
+        // when there's more than one round with content, matching the
+        // same "don't clutter a single-round trip" reasoning used
+        // elsewhere (e.g. Final Results' own round-grouping).
+        roundsWithContent.map(round => (
+          <div key={round.roundId} style={{ marginBottom: 20 }}>
+            {roundsWithContent.length > 1 && (
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#9ca3af', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Round {round.roundNumber} — {round.roundName}{round.courseName ? ` · ${round.courseName}` : ''}
+                {round.status === 'active' && <span style={{ color: '#16a34a', marginLeft: 6 }}>● LIVE</span>}
+              </div>
+            )}
+            {/* Every configured instance renders as its own card, keyed by
+                its own id — two NTPs or two Powerplay holes each get a
+                separate card, never merged. A side comp from Round 1 and
+                a same-type one from Round 2 are entirely separate
+                side_comp_ids, so they naturally never collide here either,
+                grouped under their own round section. */}
+            {round.competitions.map(comp => <CompetitionCard key={comp.id} comp={comp} />)}
           </div>
-
-          {/* Every configured instance renders as its own card, keyed by
-              its own id — two NTPs or two Powerplay holes each get a
-              separate card, never merged. Powerplay cards render
-              differently inside CompetitionCard (best score, not a
-              submitted leader) but are otherwise the same list, same
-              loop — not a separate section anymore. */}
-          {data.competitions.map(comp => <CompetitionCard key={comp.id} comp={comp} />)}
-        </>
+        ))
       )}
     </div>
   )

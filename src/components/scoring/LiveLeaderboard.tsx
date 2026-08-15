@@ -549,7 +549,48 @@ function InlineScorecard({ row, totalHoles }: { row: LeaderboardEntry; totalHole
 
   return (
     <div style={{ padding: '10px 14px 14px', background: '#faf9f6' }}>
-      <div style={{ overflowX: 'auto' }}>
+      {/* Fix Batch 5 — root cause: a fixed 5-fields-per-column table
+          (minWidth 560px for 18 holes) with 34px-wide columns and 8.5-14px
+          fonts, relying entirely on horizontal scroll on narrow screens.
+          Not a font/padding tweak — the table structure itself doesn't
+          fit a phone viewport. Below sm (640px, the same breakpoint
+          already used elsewhere in this app, e.g. AppNav's own "+ New
+          Trip" button), a stacked vertical list replaces it — one full-
+          width row per hole, so nothing is ever cramped into a ~34px
+          column and no horizontal scroll is needed regardless of hole
+          count. At sm and above, the existing table is unchanged —
+          confirmed working well there, not touched. Same underlying
+          row.perHole data either way; this is presentation-only. */}
+      <div className="sm:hidden" style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        {row.perHole.map((h, i) => (
+          <div
+            key={h.holeNumber}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '7px 4px', borderBottom: i < row.perHole.length - 1 ? '1px solid #ede7d8' : 'none',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 800, color: '#14532d', width: 26, flexShrink: 0 }}>
+                H{h.holeNumber}
+              </span>
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', whiteSpace: 'nowrap' }}>
+                Par {h.par} · SI {h.strokeIndex}
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexShrink: 0 }}>
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#14532d' }}>
+                {h.pickedUp ? 'P' : h.gross ?? '—'}
+              </span>
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#a1791f' }}>
+                {h.points} pt{h.points === 1 ? '' : 's'}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="hidden sm:block" style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: totalHoles > 9 ? 560 : 320 }}>
           <thead>
             <tr>

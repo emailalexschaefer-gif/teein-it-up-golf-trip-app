@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { computeCumulativeStandings, determineRoundWinners, determineChampions, seedLeadersLast, sortRoundsChronologically } from './multiRound'
+import { computeCumulativeStandings, determineRoundWinners, determineChampions, seedLeadersLast, sortRoundsChronologically, selectLeaderboardRound, selectRelevantSideGameRounds } from './multiRound'
 
 // ── sortRoundsChronologically ────────────────────────────────────────────────
 
@@ -328,4 +328,139 @@ test('determineChampions — two independent standings computations (e.g. two Po
   const standingsB = computeCumulativeStandings([[{ playerId: 'p1', playerName: 'P1', roundPoints: 4 }, { playerId: 'p2', playerName: 'P2', roundPoints: 9 }]])
   assert.deepEqual(determineChampions(standingsA).map(c => c.playerId), ['p1'])
   assert.deepEqual(determineChampions(standingsB).map(c => c.playerId), ['p2'])
+})
+
+// ── selectLeaderboardRound ───────────────────────────────────────────────────
+// The Leaderboard page's own round-selection logic, extracted specifically
+// because it previously had zero direct test coverage — exactly how a real
+// bug (no deterministic tiebreaker for rounds sharing a play_date) went
+// unnoticed. These follow Darren's own reported scenarios precisely.
+
+function round(id: string, status: string, playDate: string, createdAt = '2026-01-01T00:00:00Z') {
+  return { id, name: id, status, play_date: playDate, created_at: createdAt }
+}
+
+test('selectLeaderboardRound — scenario 1: Round 1 active', () => {
+  const rounds = [round('r1', 'active', '2026-08-01')]
+  assert.equal(selectLeaderboardRound(rounds)?.id, 'r1')
+})
+
+test('selectLeaderboardRound — scenario 2: Round 1 completed, Round 2 upcoming — shows Round 1 (cumulative through last completed), not an empty board', () => {
+  const rounds = [round('r1', 'completed', '2026-08-01'), round('r2', 'upcoming', '2026-08-02')]
+  assert.equal(selectLeaderboardRound(rounds)?.id, 'r1')
+})
+
+test('selectLeaderboardRound — scenario 3: Round 2 active (Round 1 completed)', () => {
+  const rounds = [round('r1', 'completed', '2026-08-01'), round('r2', 'active', '2026-08-02')]
+  assert.equal(selectLeaderboardRound(rounds)?.id, 'r2')
+})
+
+test('selectLeaderboardRound — scenario 4: Round 2 completed, Round 3 upcoming — shows Round 2, never falls back to Round 1', () => {
+  const rounds = [round('r1', 'completed', '2026-08-01'), round('r2', 'completed', '2026-08-02'), round('r3', 'upcoming', '2026-08-03')]
+  assert.equal(selectLeaderboardRound(rounds)?.id, 'r2')
+})
+
+test('selectLeaderboardRound — scenario 5: final round completed (event complete) — shows the LAST round, not Round 1', () => {
+  const rounds = [round('r1', 'completed', '2026-08-01'), round('r2', 'completed', '2026-08-02')]
+  assert.equal(selectLeaderboardRound(rounds)?.id, 'r2')
+})
+
+test('selectLeaderboardRound — scenario 6: three or more rounds, event complete — shows the genuinely final round', () => {
+  const rounds = [
+    round('r1', 'completed', '2026-08-01'), round('r2', 'completed', '2026-08-02'),
+    round('r3', 'completed', '2026-08-03'), round('r4', 'completed', '2026-08-04'),
+  ]
+  assert.equal(selectLeaderboardRound(rounds)?.id, 'r4')
+})
+
+test('selectLeaderboardRound — scenario 7: two rounds created at the same timestamp (identical play_date AND created_at) — this is the actual bug found: without a deterministic tiebreaker, this could non-deterministically resolve to Round 1', () => {
+  const rounds = [
+    round('r1', 'completed', '2026-08-01', '2026-08-01T09:00:00Z'),
+    round('r2', 'completed', '2026-08-01', '2026-08-01T09:00:00Z'), // identical play_date AND created_at — id is the only remaining tiebreaker
+  ]
+  const result = selectLeaderboardRound(rounds)
+  // Deterministic and repeatable — the exact identity matters less than
+  // that calling this twice never disagrees with itself, and that it's
+  // never influenced by array input order (both permutations checked).
+  const resultReversed = selectLeaderboardRound([...rounds].reverse())
+  assert.equal(result?.id, resultReversed?.id)
+  assert.ok(result?.id === 'r1' || result?.id === 'r2')
+})
+
+test('selectLeaderboardRound — Darren\'s exact worked example: Round 1 (Kurt 54, Darren 44) + Round 2 (Kurt 42, Darren 40), event complete, must resolve to Round 2 so cumulative totals (Kurt 96, Darren 84) are what gets shown — never silently falls back to Round 1\'s 54/44', () => {
+  const rounds = [round('round-1-id', 'completed', '2026-08-13'), round('round-2-id', 'completed', '2026-08-14')]
+  const selected = selectLeaderboardRound(rounds)
+  assert.equal(selected?.id, 'round-2-id') // NOT 'round-1-id' — the actual reported bug
+})
+
+test('selectLeaderboardRound — an active round always wins over a more recently completed one (mid-event, Round 2 active, Round 3 somehow already completed is not a realistic state, but active must still take priority per the explicit rule)', () => {
+  const rounds = [round('r1', 'completed', '2026-08-01'), round('r2', 'active', '2026-08-02')]
+  assert.equal(selectLeaderboardRound(rounds)?.status, 'active')
+})
+
+test('selectLeaderboardRound — no rounds at all returns undefined, not a crash', () => {
+  assert.equal(selectLeaderboardRound([]), undefined)
+})
+
+test('selectLeaderboardRound — only upcoming rounds (pre-event) falls back to the chronologically first, unchanged legacy behaviour', () => {
+  const rounds = [round('r2', 'upcoming', '2026-08-02'), round('r1', 'upcoming', '2026-08-01')]
+  assert.equal(selectLeaderboardRound(rounds)?.id, 'r1')
+})
+
+// ── selectRelevantSideGameRounds ────────────────────────────────────────────
+// Fix Batch 2 — Side Games' new event-level round selection. The
+// per-competition logic itself (leader derivation, verification
+// filtering, closure) is UNCHANGED — only relocated (extracted from the
+// single-round route into computeRoundSideGames, called identically by
+// both the drill-down and event-level routes) — so it isn't re-tested
+// here; it was already correct per the Stage 4 audit and remains an
+// admin-client-dependent function this sandbox can't unit test directly.
+// What's genuinely new is which ROUNDS get included, which is exactly
+// what these tests cover.
+
+test('selectRelevantSideGameRounds — during an active round: includes completed rounds plus the active one', () => {
+  const rounds = [round('r1', 'completed', '2026-08-01'), round('r2', 'active', '2026-08-02')]
+  const result = selectRelevantSideGameRounds(rounds)
+  assert.deepEqual(result.map(r => r.id), ['r1', 'r2'])
+})
+
+test('selectRelevantSideGameRounds — between rounds: only completed rounds, upcoming excluded entirely (not an empty placeholder)', () => {
+  const rounds = [round('r1', 'completed', '2026-08-01'), round('r2', 'completed', '2026-08-02'), round('r3', 'upcoming', '2026-08-03')]
+  const result = selectRelevantSideGameRounds(rounds)
+  assert.deepEqual(result.map(r => r.id), ['r1', 'r2'])
+})
+
+test('selectRelevantSideGameRounds — event complete: every completed round included, in chronological order', () => {
+  const rounds = [round('r3', 'completed', '2026-08-03'), round('r1', 'completed', '2026-08-01'), round('r2', 'completed', '2026-08-02')]
+  const result = selectRelevantSideGameRounds(rounds)
+  assert.deepEqual(result.map(r => r.id), ['r1', 'r2', 'r3'])
+})
+
+test('selectRelevantSideGameRounds — a brand-new trip with only upcoming rounds returns an empty list, not an error', () => {
+  const rounds = [round('r1', 'upcoming', '2026-08-01')]
+  assert.deepEqual(selectRelevantSideGameRounds(rounds), [])
+})
+
+test('selectRelevantSideGameRounds — two rounds created at the same timestamp still both appear, deterministically ordered regardless of input order', () => {
+  const rounds = [
+    round('r1', 'completed', '2026-08-01', '2026-08-01T09:00:00Z'),
+    round('r2', 'completed', '2026-08-01', '2026-08-01T09:00:00Z'),
+  ]
+  const forward = selectRelevantSideGameRounds(rounds)
+  const backward = selectRelevantSideGameRounds([...rounds].reverse())
+  assert.deepEqual(forward.map(r => r.id), backward.map(r => r.id))
+  assert.equal(forward.length, 2)
+})
+
+test('selectRelevantSideGameRounds — three or more rounds, mixed statuses: only completed + active included, in order', () => {
+  const rounds = [
+    round('r1', 'completed', '2026-08-01'), round('r2', 'completed', '2026-08-02'),
+    round('r3', 'active', '2026-08-03'), round('r4', 'upcoming', '2026-08-04'),
+  ]
+  const result = selectRelevantSideGameRounds(rounds)
+  assert.deepEqual(result.map(r => r.id), ['r1', 'r2', 'r3'])
+})
+
+test('selectRelevantSideGameRounds — no rounds at all returns an empty array, not a crash', () => {
+  assert.deepEqual(selectRelevantSideGameRounds([]), [])
 })

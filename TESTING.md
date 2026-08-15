@@ -1,5 +1,52 @@
 # Teein' It Up — Sprint 3 Testing Guide
 
+## NEXT TASK — Round-specific tee times (status: diagnosed, not implemented)
+
+**Status vocabulary from this point forward**: diagnosed → specified →
+implemented → deployed → live-tested. A feature is only "fixed" once
+it's confirmed present in the actual working tree — this section exists
+specifically because that distinction got blurred once already this
+project, and the fix was checking the files directly, not memory.
+
+### The diagnosis (confirmed twice against the actual working tree — once during the original investigation, once again before the Side Game Verification ZIP shipped)
+
+`trip_groups` is **trip-wide, not round-scoped**:
+```sql
+CREATE TABLE public.trip_groups (
+  id, trip_id, name, tee_time, sort_order, created_at
+)
+```
+There is exactly one `tee_time` per named group **for the entire trip**,
+shared identically across every round. This is not a bug in any read/
+write path — every consumer (`leaders-last/route.ts`,
+`BeginRoundModal.tsx`, `TripGroupsTab.tsx`) correctly reads and writes
+this single shared value. The problem is that the value itself has no
+round dimension to read or write in the first place.
+
+`rounds.tee_time` (a separate, pre-existing column, migration 004) is a
+single value per round — not per group-within-a-round — and isn't what
+Leaders Last or Begin Round's group-tee-time UI actually uses.
+
+### What's needed (not yet built)
+A genuinely new round ↔ group tee-time relationship — most likely a
+small new table (e.g. `round_group_tee_times(round_id, group_id,
+tee_time)`) that lets each round independently set, or leave unset, a
+tee time per group, with **no cross-round fallback** — an unset Round 2
+tee time must display as unset, never silently inherit Round 1's.
+
+This is real, scoped architecture work (new table + RLS, `TripGroupsTab`
+becoming round-aware, `leaders-last/route.ts` writing per-round times
+when re-seeding, `BeginRoundModal` reading the correct round's own
+times) — not a quick column addition. Deliberately deferred from both
+the bug-cleanup batch and Side Game Verification to avoid destabilising
+either while build both.
+
+### Confirmed NOT touched by Side Game Verification (Stages 1–4)
+Verified by direct file-diff before that ZIP shipped: none of the 12
+files changed for Side Game Verification touch `trip_groups`,
+`leaders-last/route.ts`, or `BeginRoundModal.tsx`'s tee-time logic. The
+two features are structurally independent.
+
 ## Diagnostic deployment — Side Competition round-trip fix
 
 **Purpose: isolated fix for one reported regression, nothing else changed.**

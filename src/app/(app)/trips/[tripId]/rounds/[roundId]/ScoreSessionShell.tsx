@@ -512,7 +512,12 @@ export default function ScoreSessionShell({
       {/* ── Toast ──────────────────────────────────────────────────────────── */}
       {toast && (
         <div style={{
-          position: 'fixed', top: 72, left: '50%', transform: 'translateX(-50%)',
+          // Same root cause/fix as AppNav.tsx's header and the shared
+          // .toast CSS class (globals.css) — a bare 72px doesn't account
+          // for env(safe-area-inset-top). pointerEvents: 'none' below
+          // already means this was never tap-blocking; fixed for correct
+          // visual positioning on iOS, same bug class, not unrelated.
+          position: 'fixed', top: 'calc(72px + env(safe-area-inset-top, 0px))', left: '50%', transform: 'translateX(-50%)',
           zIndex: 200, pointerEvents: 'none',
           background: 'rgba(10,30,18,0.97)', border: '1px solid rgba(201,168,76,0.66)',
           borderRadius: 22, padding: '8px 18px', whiteSpace: 'nowrap',

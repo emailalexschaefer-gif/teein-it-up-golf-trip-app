@@ -171,3 +171,56 @@ export function seedLeadersLast(standings: { playerId: string }[], groupSize: nu
   }
   return assignments
 }
+
+export interface LeaderboardRoundCandidate extends RoundOrderingInput {
+  status: string
+}
+
+/**
+ * The default Leaderboard page's round-selection logic, extracted as a
+ * pure function specifically so it's unit-tested — this was previously
+ * inline in the page component with no direct test coverage, which is
+ * exactly how a real bug (no deterministic tiebreaker for rounds with
+ * identical play_date) went unnoticed.
+ *
+ * Priority: an active round takes precedence (live scoring in
+ * progress); otherwise the most recently COMPLETED round (so between-
+ * round and full-event-complete states show cumulative standings rather
+ * than an empty or Round-1-only board); otherwise the chronologically
+ * first round (a genuinely pre-event state, unchanged fallback
+ * behaviour). Uses sortRoundsChronologically — the same already-tested
+ * helper that fixed the identical "tied play_date" bug class in the
+ * leaderboard API route — rather than re-solving the same problem a
+ * second, potentially inconsistent way.
+ */
+export function selectLeaderboardRound<T extends LeaderboardRoundCandidate>(rounds: T[]): T | undefined {
+  const chronological = sortRoundsChronologically(rounds) // oldest first
+  const activeRound = chronological.find(r => r.status === 'active')
+  if (activeRound) return activeRound
+  // Most recent completed = last match walking from the end, not the
+  // first match on a DESC-sorted copy — avoids allocating a second
+  // reversed array purely to find the same thing from the other side.
+  for (let i = chronological.length - 1; i >= 0; i--) {
+    if (chronological[i].status === 'completed') return chronological[i]
+  }
+  return chronological[0]
+}
+
+/**
+ * Which rounds' Side Games are relevant for the default (event-level)
+ * screen — every completed round (preserves all verified history so
+ * far) plus the active round if one exists (shows live state through
+ * it). Deliberately a single, uniform rule rather than three branches
+ * for "active/between-rounds/event-complete": each of those states is
+ * just what this same filter naturally produces given the rounds'
+ * actual statuses at that moment, not a state machine to keep in sync
+ * with computeRoundSideGames elsewhere. An 'upcoming' round is excluded
+ * entirely — nothing has happened on it yet, so it contributes nothing
+ * to show, not an empty placeholder. Ordered chronologically (using the
+ * same deterministic tiebreaker as selectLeaderboardRound, for the same
+ * reason — rounds created together can share a play_date), so the
+ * caller's own displayed round numbering is stable and correct.
+ */
+export function selectRelevantSideGameRounds<T extends LeaderboardRoundCandidate>(rounds: T[]): T[] {
+  return sortRoundsChronologically(rounds).filter(r => r.status === 'completed' || r.status === 'active')
+}

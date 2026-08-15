@@ -302,8 +302,24 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
           instead of jumping straight to the camera app. This is the fix
           for "tapping Moment opens the phone's file picker" — previously
           there was one input with no capture attribute at all, opened
-          immediately on tap, with no in-app choice screen first. */}
-      <input ref={cameraInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={handleSelect} style={{ display: 'none' }} />
+          immediately on tap, with no in-app choice screen first.
+          
+          Fix Batch 4 — the camera input's accept is deliberately the
+          broad `image/*` wildcard, not the same narrow comma-separated
+          list the gallery input uses. This is a documented iOS Safari
+          quirk, not a guess: combining capture="environment" with a
+          specific MIME-type list (rather than the wildcard) can make
+          iOS fail to reliably offer the camera at all — sometimes
+          falling back to Photo Library only, sometimes showing nothing.
+          This does NOT weaken format validation: handleSelect already
+          independently checks file.type against ACCEPTED_TYPES after
+          selection, regardless of how the file was picked — the accept
+          attribute was only ever a picker-UI hint, never the actual
+          gatekeeper, so broadening it here changes nothing about what
+          formats are actually accepted. The gallery input keeps its
+          narrower accept, since it has no capture attribute and isn't
+          affected by this same iOS-specific issue. */}
+      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleSelect} style={{ display: 'none' }} />
       <input ref={galleryInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleSelect} style={{ display: 'none' }} />
 
       {stage === 'closed' && !autoOpenCamera && (
@@ -318,6 +334,47 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
         >
           📷 Moment
         </button>
+      )}
+
+      {/* Fix Batch 4 — a visible, always-present fallback for the
+          autoOpenCamera path (Side Game Capture Moment). Previously this
+          entire block was suppressed whenever autoOpenCamera was set, on
+          the assumption the auto-triggered click always succeeds — if it
+          silently failed for any reason (the iOS accept-attribute issue
+          just fixed above, a permissions denial, or any future browser
+          quirk), the golfer was left looking at nothing but "Skip",
+          which is exactly the "Skip visually appears to be the only
+          available action" failure mode this fixes. Take Photo is styled
+          as the clear primary action, Choose from Gallery secondary —
+          matching the required hierarchy — and both remain reachable
+          even after the auto-click has already fired once. */}
+      {stage === 'closed' && autoOpenCamera && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <button
+            type="button"
+            onClick={() => cameraInputRef.current?.click()}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              padding: '10px 14px', borderRadius: 10, cursor: 'pointer',
+              background: '#14532d', border: 'none',
+              fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#fff',
+            }}
+          >
+            📷 Take Photo
+          </button>
+          <button
+            type="button"
+            onClick={() => galleryInputRef.current?.click()}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              padding: '9px 14px', borderRadius: 10, cursor: 'pointer',
+              background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.25)',
+              fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: 'rgba(255,255,255,0.85)',
+            }}
+          >
+            🖼️ Choose from Gallery
+          </button>
+        </div>
       )}
 
       {/* The composer choice screen itself — the actual redesign. Tapping

@@ -175,7 +175,14 @@
   /* ── Toast ───────────────────────────────────────────────────────────── */
   .toast {
     position: fixed;
-    top: 72px;
+    /* Same root cause as AppNav's header (see that file's own comment):
+       a bare 72px doesn't account for env(safe-area-inset-top), so on
+       iOS with viewport-fit: cover this could render partly behind the
+       status bar / Dynamic Island. pointer-events: none below already
+       means this was never a tap-blocking issue like the header was —
+       fixed here for correct visual positioning, the same bug class,
+       not a separate/unrelated change. */
+    top: calc(72px + env(safe-area-inset-top, 0px));
     left: 50%;
     transform: translateX(-50%);
     z-index: 300;
