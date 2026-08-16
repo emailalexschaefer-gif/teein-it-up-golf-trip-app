@@ -237,22 +237,20 @@ export default function EventMessages({
   return (
     <div>
       {isOrganiser && (
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#9ca3af', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Event Announcement · organiser-only, sent to everyone
-          </div>
+        <div style={{ marginBottom: 10 }}>
           {!composing ? (
             <button
               onClick={() => setComposing(true)}
               style={{
-                width: '100%', padding: 12, borderRadius: 10, background: '#14532d', color: '#fff',
+                width: '100%', padding: '13px 12px', borderRadius: 10, background: '#14532d', color: '#fff',
                 border: 'none', fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, cursor: 'pointer',
+                marginBottom: 8,
               }}
             >
               📢 Send Event Announcement
             </button>
           ) : (
-            <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid #eceae3', padding: 12 }}>
+            <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid #eceae3', padding: 12, marginBottom: 8 }}>
               <textarea
                 value={draft}
                 onChange={e => setDraft(e.target.value)}
@@ -280,6 +278,15 @@ export default function EventMessages({
               </div>
             </div>
           )}
+          {/* Layout fix — target order is button/form first, then this
+              helper text directly below it (previously the reverse).
+              Kept OUTSIDE both branches deliberately — "Do NOT hide the
+              Announcement helper text" means it must stay visible while
+              composing too, not just in the collapsed state. Text and
+              visibility rule unchanged, position only. */}
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Event Announcement · organiser-only, sent to everyone
+          </div>
         </div>
       )}
 
@@ -297,7 +304,7 @@ export default function EventMessages({
           one composer now covers both send-a-message and Moment
           capture for every role, matching the required layout order:
           Event Announcement, then Trip Chat, then the shared feed. */}
-      <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid #eceae3', padding: 12, marginBottom: 16 }}>
+      <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid #eceae3', padding: '10px 12px', marginBottom: 10 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5 }}>
             Trip Chat
@@ -386,7 +393,7 @@ export default function EventMessages({
           return (
             <div style={{
               background: '#fdf3d9', border: '1.5px solid #c9a84c', borderRadius: 12,
-              padding: '10px 14px', marginBottom: 14, boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
+              padding: '12px 14px', marginBottom: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
             }}>
               <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 800, color: '#a1791f', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>
                 📌 Pinned

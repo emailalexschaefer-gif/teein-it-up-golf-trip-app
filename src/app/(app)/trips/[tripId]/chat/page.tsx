@@ -32,8 +32,8 @@ export default async function ChatPage({ params }: Props) {
     .from('rounds').select('id').eq('trip_id', tripId).eq('status', 'active').maybeSingle()
 
   return (
-    <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '16px 16px 90px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+    <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '12px 16px 90px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <Link href={`/trips/${tripId}`} style={{ color: '#9ca3af', fontSize: 18, textDecoration: 'none' }}>←</Link>
         <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>Chat</span>
       </div>
