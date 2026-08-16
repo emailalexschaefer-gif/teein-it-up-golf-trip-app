@@ -135,6 +135,45 @@ export default function BeginRoundModal({
   const [pendingProfileId, setPendingProfileId] = useState<string | null>(null)
   const [handicapOverrides, setHandicapOverrides] = useState<Record<string, number>>({})
 
+  // Priority 3 — round-specific tee times. groupTeeTimes holds what's
+  // actually saved for THIS round (round_group_tee_times, fetched
+  // fresh on mount); teeTimeDrafts holds in-progress edits before they're
+  // saved, so a half-typed value never gets treated as final. Nothing
+  // here reads or writes trip_groups.tee_time — that field's only
+  // remaining role (Leaders Last's own group-ordering key) is untouched
+  // by this feature, per explicit instruction to preserve it.
+  const [groupTeeTimes, setGroupTeeTimes] = useState<Record<string, string | null>>({})
+  const [teeTimeDrafts, setTeeTimeDrafts] = useState<Record<string, string>>({})
+  const [savingTeeTimeFor, setSavingTeeTimeFor] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/trips/${tripId}/rounds/${roundId}/group-tee-times`)
+      .then(res => res.ok ? res.json() : null)
+      .then(body => {
+        if (cancelled || !body) return
+        const map: Record<string, string | null> = {}
+        for (const row of (body.teeTimes ?? []) as { group_id: string; tee_time: string | null }[]) map[row.group_id] = row.tee_time
+        setGroupTeeTimes(map)
+      })
+      .catch(() => { /* leaves groupTeeTimes empty — the UI shows "TBC" for every group rather than guessing */ })
+    return () => { cancelled = true }
+  }, [tripId, roundId])
+
+  async function saveGroupTeeTime(groupId: string) {
+    const value = teeTimeDrafts[groupId]?.trim() || null
+    setSavingTeeTimeFor(groupId)
+    try {
+      const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/group-tee-times`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ groupId, teeTime: value }),
+      })
+      if (res.ok) {
+        setGroupTeeTimes(prev => ({ ...prev, [groupId]: value }))
+        setTeeTimeDrafts(prev => { const next = { ...prev }; delete next[groupId]; return next })
+      }
+    } catch { /* draft stays visible so the organiser can retry, rather than silently reverting */ }
+    setSavingTeeTimeFor(null)
+  }
+
   function dailyHandicapFor(gaHandicap: number | null): number | null {
     if (gaHandicap === null) return null
     if (slopeRating != null) {
@@ -414,7 +453,7 @@ export default function BeginRoundModal({
             <>
               {/* Round info */}
               {(() => {
-                const groupTimes = localGroups.map(g => g.tee_time).filter(Boolean).sort() as string[]
+                const groupTimes = localGroups.map(g => groupTeeTimes[g.id]).filter(Boolean).sort() as string[]
                 const teeTimeDisplay = groupTimes.length === 0 ? 'TBC'
                   : groupTimes.length === 1 ? groupTimes[0]
                   : `${groupTimes[0]}–${groupTimes[groupTimes.length - 1]}`
@@ -510,13 +549,33 @@ export default function BeginRoundModal({
                     background: '#ffffff', border: '1.5px solid #d9c9a3',
                     borderRadius: 12, padding: '12px 14px', marginBottom: 10,
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
                       <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: '#1a4731' }}>{g.name}</span>
-                      {g.tee_time && (
-                        <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#c9a84c', fontWeight: 700, background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.3)', borderRadius: 6, padding: '2px 8px' }}>
-                          ⏱ {g.tee_time}
-                        </span>
-                      )}
+                      {/* Priority 3 — this round's own tee time, editable
+                          directly here rather than a passive badge.
+                          Reads/writes round_group_tee_times only —
+                          editing this can never touch another round's
+                          saved value, since each row is keyed by
+                          (round_id, group_id). Unset shows as "TBC",
+                          never silently inherited from a prior round. */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                        <input
+                          type="time"
+                          value={teeTimeDrafts[g.id] ?? groupTeeTimes[g.id] ?? ''}
+                          onChange={e => setTeeTimeDrafts(prev => ({ ...prev, [g.id]: e.target.value }))}
+                          style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7a5c00', border: '1px solid rgba(201,168,76,0.4)', borderRadius: 6, padding: '2px 6px', width: 88 }}
+                        />
+                        {g.id in teeTimeDrafts && teeTimeDrafts[g.id] !== (groupTeeTimes[g.id] ?? '') && (
+                          <button
+                            type="button"
+                            onClick={() => void saveGroupTeeTime(g.id)}
+                            disabled={savingTeeTimeFor === g.id}
+                            style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#fff', background: '#1a4731', border: 'none', borderRadius: 5, padding: '3px 7px', cursor: 'pointer' }}
+                          >
+                            {savingTeeTimeFor === g.id ? '…' : 'Save'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {g.players.length === 0 ? (
                       <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#b45309' }}>⚠ No players assigned to this group.</p>

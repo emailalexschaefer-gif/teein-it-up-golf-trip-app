@@ -9362,28 +9362,48 @@ script now — after this fix and after redeploying — is a natural next
 verification step, alongside the live user-journey pass already
 recommended in the previous report.
 
-## NEXT TASK — Shotgun Start (status: not started)
 
-Deferred entirely from the "Remaining V1 Package" pass — genuinely
-larger architectural work than the other seven items in that batch, and
-risked destabilizing the scoring shells (`SelfMarkerScoreShell.tsx`,
-`ScoreSessionShell.tsx`) if rushed. Two pieces were approved:
+## NEXT TASK — Shotgun Start (status: diagnosed, not implemented)
 
-1. **Starting hole selector** — lightweight, defaults to Hole 1,
-   pre-populated from an organiser-assigned group starting hole when
-   available. Low risk on its own.
-2. **Free hole navigation + circular order** — the harder piece. Every
-   place in the scoring shells that currently assumes holes are entered
-   1→18 sequentially (hole index math, "Next Hole", completion
-   detection, the scoring-anchor reset-on-hole-change effect) needs to
-   be re-examined for a shotgun round, where Next Hole must wrap
-   17→18→1→2 and completion means "all required holes done," not "hole
-   18 reached." Round validity/leaderboard/reconciliation must not
-   care about entry order — this is the part that touches the most
-   already-working code.
+Deferred again this pass — genuinely larger than the other items in the
+"V1 Completion Package" batch, and risks destabilizing the scoring
+shells if rushed.
 
-**Recommended approach for the next pass**: trace every place `holeIdx`
-gets incremented/compared in both scoring shells before writing
-anything, exactly like the tee-time and Champions investigations — this
-is very likely to reveal 2-3 specific spots that assume sequential
-order, not a from-scratch rewrite.
+### Where the sequential-order assumption actually lives
+`holeIdx` (a plain array INDEX into `holes`, not a hole NUMBER) drives
+navigation in both shells — confirmed 18 occurrences in
+`SelfMarkerScoreShell.tsx`, 21 in `ScoreSessionShell.tsx`. The concrete
+spots that assume sequential order:
+
+- `const [holeIdx, setHoleIdx] = useState(0)` — always starts at index
+  0 (hole 1). A starting-hole selector needs to seed this from the
+  assigned starting hole instead.
+- `setHoleIdx(h => h + 1)` / `setHoleIdx(h => h - 1)` (swipe navigation,
+  Next/Previous) — currently clamped at the array bounds
+  (`holeIdx < holes.length - 1` / `holeIdx > 0`), which is exactly what
+  needs to become circular (`(holeIdx + 1) % holes.length`) for a
+  shotgun round.
+- `holeNum = hole?.hole_number ?? holeIdx + 1` — this fallback assumes
+  index+1 == hole number, which holds today only because play always
+  starts at hole 1. Not a problem once `holes[holeIdx]` is always the
+  authoritative source (it already usually is), but worth confirming
+  the fallback path is never actually hit in practice before relying on
+  it for a shotgun round.
+- The `allDone`/completion check (`holes.every(h => ...)`) already
+  iterates all holes regardless of order — this part is likely already
+  correct for "completes only when all required holes are done, not
+  sequential order" and may not need changing at all. Worth confirming
+  with a real test before assuming a change is needed here.
+
+### Recommended approach for the next pass
+1. Starting-hole selection first (lower risk, mostly Begin Round UI +
+   a new column) — get this shipped and tested on its own before
+   touching hole navigation at all.
+2. Trace every `holeIdx` write (not just read) in both shells against
+   the list above before changing anything, exactly like this
+   diagnosis started to do.
+3. Side Games/leaderboard/reconciliation reading by hole *number*
+   (not index) already appears architecturally safe — Side Games in
+   particular is keyed by `side_comps.hole_number`, not array position
+   — but confirm this holds once free navigation is actually built,
+   don't assume it from this reading alone.

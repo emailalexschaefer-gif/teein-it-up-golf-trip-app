@@ -91,13 +91,29 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
   const standings = computeCumulativeStandings(allTotals) // best-to-worst, matches seedLeadersLast's expected input
 
   // Existing groups for this trip, ordered by tee_time — earliest first.
-  // Groups with no tee_time set sort last (NULLS LAST), since there's no
-  // way to know where an untimed group belongs in the sequence.
-  const groupsRes = await admin
-    .from('trip_groups').select('id, tee_time')
-    .eq('trip_id', tripId)
-    .order('tee_time', { ascending: true, nullsFirst: false })
-  const groups: { id: string; tee_time: string | null }[] = groupsRes.data ?? []
+  // Priority 3 — now prefers THIS round's own round_group_tee_times
+  // value when one has been set, falling back to trip_groups.tee_time
+  // only as a sorting default when the organiser hasn't set a round-
+  // specific time yet. This fallback is deliberately safe here in a way
+  // it wouldn't be in a user-facing display: Leaders Last only needs
+  // SOME sensible ordering to decide who tees off first in the next
+  // round, not an authoritative "this is the official time" claim —
+  // that claim only ever comes from Begin Round's own editable field,
+  // never from this internal sort. Groups with no time at all (neither
+  // round-specific nor trip-wide) still sort last.
+  const [groupsRes, roundTeeTimesRes] = await Promise.all([
+    admin.from('trip_groups').select('id, tee_time').eq('trip_id', tripId),
+    admin.from('round_group_tee_times').select('group_id, tee_time').eq('round_id', roundId),
+  ])
+  const roundTeeTimeByGroup = new Map((roundTeeTimesRes.data ?? []).map((r: { group_id: string; tee_time: string | null }) => [r.group_id, r.tee_time]))
+  const groups: { id: string; tee_time: string | null }[] = (groupsRes.data ?? [])
+    .map((g: { id: string; tee_time: string | null }) => ({ id: g.id, tee_time: roundTeeTimeByGroup.get(g.id) ?? g.tee_time }))
+    .sort((a, b) => {
+      if (a.tee_time === null && b.tee_time === null) return 0
+      if (a.tee_time === null) return 1
+      if (b.tee_time === null) return -1
+      return a.tee_time.localeCompare(b.tee_time)
+    })
 
   if (groups.length === 0) {
     return NextResponse.json({ error: 'No playing groups exist yet — create groups before reseeding.' }, { status: 400 })

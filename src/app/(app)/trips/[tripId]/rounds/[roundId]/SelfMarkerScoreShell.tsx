@@ -385,7 +385,7 @@ export default function SelfMarkerScoreShell({
   // resolves on first load, seeded with that same data via `initialData` so
   // there's no loading flash, then keeps it fresh via polling + window-focus
   // + reconnect — all without touching holeIdx or any in-progress draft.
-  const { data: liveData } = useQuery<LiveScores>({
+  const { data: liveData, refetch: refetchLive } = useQuery<LiveScores>({
     queryKey: ['round-my-scores', tripId, round.id],
     queryFn: () => fetchLiveScores(tripId, round.id),
     initialData: {
@@ -419,6 +419,50 @@ export default function SelfMarkerScoreShell({
   const currentMy = liveData.myScorecard
   const currentMarked = liveData.markedScorecard
   const currentMarkedByName = liveData.markedByName
+
+  // Priority 2 — Playing Partner selection UI, for groups larger than
+  // two. A group of exactly two is auto-paired at Begin Round (unchanged
+  // — currentMarked is already populated by the time they reach
+  // scoring, so this effect's own condition below never fires for
+  // them, satisfying "for 2-player groups, auto-select each other with
+  // no extra step" without any special-casing here). null =
+  // not yet checked; [] = checked, nothing to choose from (solo group,
+  // or everyone else already paired) — both correctly fall through to
+  // normal scoring without a marker, exactly like today's existing
+  // "no marker assigned" handling elsewhere in this file.
+  const [partnerCandidates, setPartnerCandidates] = useState<{ id: string; name: string }[] | null>(null)
+  const [selectingPartnerId, setSelectingPartnerId] = useState<string | null>(null)
+  const [partnerSelectError, setPartnerSelectError] = useState('')
+  useEffect(() => {
+    if (!requiresMarker || currentMarked) return
+    let cancelled = false
+    fetch(`/api/trips/${tripId}/rounds/${round.id}/playing-partner`)
+      .then(res => res.ok ? res.json() : null)
+      .then(body => { if (!cancelled && body) setPartnerCandidates(body.paired ? [] : (body.candidates ?? [])) })
+      .catch(() => { if (!cancelled) setPartnerCandidates([]) }) // fail safe to "nothing to choose" — never blocks scoring
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately re-checks only when currentMarked's presence changes (becomes truthy once chosen, refetched via the existing liveData query), not on every unrelated re-render
+  }, [requiresMarker, !!currentMarked, tripId, round.id])
+
+  async function choosePartner(partnerId: string) {
+    setSelectingPartnerId(partnerId)
+    setPartnerSelectError('')
+    try {
+      const res = await fetch(`/api/trips/${tripId}/rounds/${round.id}/playing-partner`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partnerId }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setPartnerSelectError(body.error ?? "Couldn't set your Playing Partner. Please try again.")
+        setSelectingPartnerId(null)
+        return
+      }
+      await refetchLive() // pulls the fresh currentMarked, which clears this screen naturally
+    } catch {
+      setPartnerSelectError("Couldn't set your Playing Partner. Check your connection and try again.")
+      setSelectingPartnerId(null)
+    }
+  }
   // Scores are locked once the player's own scorecard has been submitted
   // — reuses the existing scorecards.status/submitted_at columns
   // (migration 004), not a new flag.
@@ -713,6 +757,44 @@ export default function SelfMarkerScoreShell({
   const partnerName = currentMarked?.profiles?.full_name ?? null
 
   // ── End-of-round reconciliation ─────────────────────────────────────────────
+  // Priority 2 — the actual selection screen. Placed before the
+  // reconciliation branch below: a player with no partner yet can't
+  // meaningfully reach Round Summary's comparison (there's nothing to
+  // compare against), so this takes priority. Never shown for a 2-
+  // player group (currentMarked already set by then) or a solo group
+  // (partnerCandidates resolves to [], falling straight through to
+  // normal scoring below, unchanged).
+  if (requiresMarker && !currentMarked && partnerCandidates && partnerCandidates.length > 0) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#faf9f6', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '24px 20px' }}>
+        <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 19, fontWeight: 800, marginBottom: 6, textAlign: 'center' }}>
+          Choose your Playing Partner
+        </div>
+        <div style={{ fontFamily: 'var(--font-body)', color: '#7a7260', fontSize: 13, marginBottom: 20, textAlign: 'center' }}>
+          You'll record your own score and theirs — they'll do the same for you.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {partnerCandidates.map(c => (
+            <button
+              key={c.id}
+              onClick={() => void choosePartner(c.id)}
+              disabled={selectingPartnerId !== null}
+              style={{
+                padding: '14px 16px', borderRadius: 12, border: '1.5px solid #d9c9a3', background: '#ffffff',
+                fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 700, color: '#14532d',
+                cursor: selectingPartnerId ? 'default' : 'pointer', opacity: selectingPartnerId && selectingPartnerId !== c.id ? 0.5 : 1,
+                textAlign: 'left',
+              }}
+            >
+              {selectingPartnerId === c.id ? '…' : c.name}
+            </button>
+          ))}
+        </div>
+        {partnerSelectError && <p style={{ color: '#dc2626', fontSize: 12.5, marginTop: 12, fontFamily: 'var(--font-body)', textAlign: 'center' }}>{partnerSelectError}</p>}
+      </div>
+    )
+  }
+
   if (showReconciliation) {
     const PENDING: ComparisonStatus[] = ['pending_marker', 'pending_self', 'not_started']
 

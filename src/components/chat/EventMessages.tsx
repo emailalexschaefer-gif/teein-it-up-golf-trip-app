@@ -61,18 +61,41 @@ const KIND_META: Record<Kind, { icon: string; label: string; bg: string; border:
 }
 
 export default function EventMessages({
-  tripId, isOrganiser, myGroupId, roundId, holeNumber,
+  tripId, isOrganiser: isOrganiserProp, myGroupId, roundId, holeNumber,
 }: {
   tripId: string; isOrganiser: boolean; myGroupId: string | null; myGroupName: string | null
   roundId?: string | null; holeNumber?: number | null
 }) {
   const queryClient = useQueryClient()
 
+  // Item 1 — Chat role leakage fix. isOrganiserProp is the server-
+  // rendered value (correct on the actual request, but see the comment
+  // in my-role/route.ts for why a stale client-side router-cache replay
+  // could briefly disagree with it). confirmedOrganiser starts at
+  // `false` regardless of the prop — a fresh player never renders
+  // organiser controls even for an instant while this resolves — and is
+  // only ever set `true` once the auth-scoped /my-role fetch actually
+  // confirms it. This can only ever narrow the prop's value toward
+  // "not organiser", never expand it: even if the prop said true, the
+  // UI stays hidden until independently confirmed.
+  const [confirmedOrganiser, setConfirmedOrganiser] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    if (!isOrganiserProp) return // nothing to confirm — already correctly hidden
+    fetch(`/api/trips/${tripId}/my-role`)
+      .then(res => res.ok ? res.json() : null)
+      .then(body => { if (!cancelled && body?.role === 'organiser') setConfirmedOrganiser(true) })
+      .catch(() => { /* stays false — safe default on any failure */ })
+    return () => { cancelled = true }
+  }, [tripId, isOrganiserProp])
+  const isOrganiser = confirmedOrganiser
+
   // Organiser announcement composer — unchanged.
   const [composing, setComposing] = useState(false)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
+  const [pinOnSend, setPinOnSend] = useState(false)
 
   // Participant chat composer (Sprint 6, Part 7: "Players can send
   // Messages"). Product decision (this pass): normal player chat is
@@ -197,8 +220,16 @@ export default function EventMessages({
       queryClient.setQueryData<{ messages: EventMessage[] }>(['event-messages', tripId], (old) =>
         old ? { messages: [{ ...resData.sentMessage, sender: { full_name: 'You', role: 'organiser' }, recipient_group: null }, ...old.messages] } : { messages: [resData.sentMessage] }
       )
+      // Pin-on-send — reuses the existing Package 1 pin endpoint rather
+      // than a separate mechanism; the "one pinned message per trip"
+      // rule and its own confirmation-before-replacing behaviour are
+      // already enforced there, not duplicated here.
+      if (pinOnSend && resData.sentMessage.id) {
+        void handlePinToggle(resData.sentMessage.id, true)
+      }
     }
     setDraft('')
+    setPinOnSend(false)
     setComposing(false)
     void queryClient.invalidateQueries({ queryKey: ['event-messages', tripId] })
   }
@@ -229,12 +260,21 @@ export default function EventMessages({
                 rows={3}
                 style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 8, padding: 8, fontFamily: 'var(--font-body)', fontSize: 13, resize: 'vertical' }}
               />
+              {/* "optional 📌 Pin this announcement" — reuses the same
+                  pin endpoint the message-list pin buttons already call,
+                  fired right after a successful send rather than a
+                  separate action the organiser has to remember to do
+                  afterward. */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260', cursor: 'pointer' }}>
+                <input type="checkbox" checked={pinOnSend} onChange={e => setPinOnSend(e.target.checked)} />
+                📌 Pin this announcement
+              </label>
               {sendError && <p style={{ color: '#dc2626', fontSize: 11.5, marginTop: 6, fontFamily: 'var(--font-body)' }}>{sendError}</p>}
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <button onClick={handleSendAnnouncement} disabled={sending || !draft.trim()} style={{ flex: 1, padding: 10, borderRadius: 8, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: sending ? 'default' : 'pointer', opacity: sending || !draft.trim() ? 0.6 : 1 }}>
-                  {sending ? 'Sending…' : 'Send'}
+                  {sending ? 'Sending…' : 'Send Announcement'}
                 </button>
-                <button onClick={() => { setComposing(false); setDraft(''); setSendError('') }} style={{ flex: 1, padding: 10, borderRadius: 8, background: '#f3f4f6', border: '1px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                <button onClick={() => { setComposing(false); setDraft(''); setSendError(''); setPinOnSend(false) }} style={{ flex: 1, padding: 10, borderRadius: 8, background: '#f3f4f6', border: '1px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
                   Cancel
                 </button>
               </div>
@@ -243,64 +283,45 @@ export default function EventMessages({
         </div>
       )}
 
-      {/* Organiser's own Moment action — the actual fix. MomentCapture
-          already existed and worked correctly (including the Batch 4
-          iOS camera fix) — it was simply never rendered anywhere an
-          organiser could reach it; only the player-only "Trip Chat"
-          block below ever included it. Per explicit product decision: a
-          Moment is a Moment regardless of who captures it — no separate
-          organiser-only API, no different data shape, exactly the same
-          component and props the player branch already uses below.
-          Deliberately its own distinct block, not merged into the
-          Announcement composer above, so "Send Event Announcement" and
-          "Capture a Moment" read as two clearly separate actions, not
-          one composer with an attached button. My HQ is deliberately
-          not touched by this fix — Chat is where Moment creation lives
-          for both roles; surfacing Moments in My HQ is a separate,
-          future decision, not part of closing this gap. */}
-      {isOrganiser && (
-        <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid #eceae3', padding: 12, marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      {/* Item 1 fix — the actual bug: this composer was previously gated
+          `!isOrganiser`, meaning organisers got the Announcement
+          composer and a separate standalone Moment panel, but ZERO
+          normal chat input — "Do not leave organisers with only
+          Announcement + giant Moment panel and no normal chat." Now
+          shown for both roles, unconditionally — this IS "Trip Chat",
+          the same normal experience every player already had, with the
+          Moment action compact and inline (MomentCapture's own default
+          'closed' stage is already just the small "📷 Moment" pill;
+          nothing here forces it open). The organiser's previous
+          separate "Capture a Moment" panel is removed entirely — this
+          one composer now covers both send-a-message and Moment
+          capture for every role, matching the required layout order:
+          Event Announcement, then Trip Chat, then the shared feed. */}
+      <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid #eceae3', padding: 12, marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Capture a Moment
+            Trip Chat
           </div>
           <MomentCapture tripId={tripId} roundId={roundId} holeNumber={holeNumber} myGroupId={myGroupId} />
         </div>
-      )}
-
-      {/* Trip-wide chat composer for normal players. No longer gated on
-          myGroupId — chat is trip-wide now, so a player doesn't need a
-          group assignment to use it (previously, an unassigned player
-          saw no chat composer at all, which was itself a gap). Organiser
-          keeps the dedicated Event Announcement composer above as their
-          send mechanism, unchanged — this one is deliberately for
-          players, per the explicit "normal player chat" framing. */}
-      {!isOrganiser && (
-        <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid #eceae3', padding: 12, marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Trip Chat
-            </div>
-            <MomentCapture tripId={tripId} roundId={roundId} holeNumber={holeNumber} myGroupId={myGroupId} />
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              value={chatDraft}
-              onChange={e => setChatDraft(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !chatSending) handleSendChat() }}
-              placeholder="Message everyone…"
-              style={{ flex: 1, border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 10px', fontFamily: 'var(--font-body)', fontSize: 13 }}
-            />
-            <button
-              onClick={handleSendChat}
-              disabled={chatSending || !chatDraft.trim()}
-              style={{ padding: '8px 16px', borderRadius: 8, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: chatSending ? 'default' : 'pointer', opacity: chatSending || !chatDraft.trim() ? 0.6 : 1 }}
-            >
-              {chatSending ? '…' : 'Send'}
-            </button>
-          </div>
-          {chatError && <p style={{ color: '#dc2626', fontSize: 11.5, marginTop: 6, fontFamily: 'var(--font-body)' }}>{chatError}</p>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            value={chatDraft}
+            onChange={e => setChatDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !chatSending) handleSendChat() }}
+            placeholder="Message everyone…"
+            style={{ flex: 1, border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 10px', fontFamily: 'var(--font-body)', fontSize: 13 }}
+          />
+          <button
+            onClick={handleSendChat}
+            disabled={chatSending || !chatDraft.trim()}
+            style={{ padding: '8px 16px', borderRadius: 8, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: chatSending ? 'default' : 'pointer', opacity: chatSending || !chatDraft.trim() ? 0.6 : 1 }}
+          >
+            {chatSending ? '…' : 'Send'}
+          </button>
         </div>
-      )}
+        {chatError && <p style={{ color: '#dc2626', fontSize: 11.5, marginTop: 6, fontFamily: 'var(--font-body)' }}>{chatError}</p>}
+      </div>
 
       {newSinceScroll && (
         <button

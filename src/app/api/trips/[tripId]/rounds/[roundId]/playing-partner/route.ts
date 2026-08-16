@@ -1,6 +1,7 @@
 /**
+ * GET  /api/trips/[tripId]/rounds/[roundId]/playing-partner
  * POST /api/trips/[tripId]/rounds/[roundId]/playing-partner
- * Body: { partnerId: string }
+ * POST body: { partnerId: string }
  *
  * Priority 3 — Playing Partner selection, for groups larger than two
  * (a group of exactly two is still auto-paired at Begin Round, per
@@ -16,12 +17,57 @@
  * cannot silently overwrite it by calling this again; they'd need an
  * organiser to intervene, matching how marker reassignment already
  * works elsewhere in this app.
+ *
+ * GET returns the caller's own status (already paired, or not) plus
+ * the list of eligible candidates — other group-mates who also don't
+ * yet have a marker assigned for this round. A solo group, or a group
+ * where everyone else is already paired, correctly returns an empty
+ * candidate list rather than an error — the UI treats that as "nothing
+ * to choose", not a failure.
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
+
+export async function GET(_req: NextRequest, { params }: RouteProps) {
+  const { tripId, roundId } = await params
+  const supabase = await createClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
+
+  type AdminClient = ReturnType<typeof createAdminClient>
+  const admin: AdminClient = createAdminClient()
+
+  const memberCheck = await admin.from('trip_members').select('group_id').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
+  if (!memberCheck.data) return NextResponse.json({ error: 'Not a trip member.' }, { status: 403 })
+
+  const myMarkerRes = await admin.from('round_markers').select('marker_player_id').eq('round_id', roundId).eq('player_id', user.id).maybeSingle()
+  if (myMarkerRes.data) {
+    const partnerProfile = await admin.from('profiles').select('full_name').eq('id', myMarkerRes.data.marker_player_id).maybeSingle()
+    return NextResponse.json({ paired: true, partnerId: myMarkerRes.data.marker_player_id, partnerName: partnerProfile.data?.full_name ?? null, candidates: [] })
+  }
+
+  if (!memberCheck.data.group_id) return NextResponse.json({ paired: false, partnerId: null, partnerName: null, candidates: [] })
+
+  // Group-mates who play this round (have a scorecard) and don't
+  // already have a marker of their own — a candidate who's already
+  // paired with someone else is correctly excluded, not offered.
+  const [groupMembersRes, cardsRes, existingMarkersRes] = await Promise.all([
+    admin.from('trip_members').select('profile_id, profiles ( full_name )').eq('trip_id', tripId).eq('group_id', memberCheck.data.group_id),
+    admin.from('scorecards').select('player_id').eq('round_id', roundId).neq('status', 'withdrawn'),
+    admin.from('round_markers').select('player_id').eq('round_id', roundId),
+  ])
+  const cardPlayerIds = new Set((cardsRes.data ?? []).map((c: { player_id: string }) => c.player_id))
+  const alreadyPaired = new Set((existingMarkersRes.data ?? []).map((m: { player_id: string }) => m.player_id))
+
+  const candidates = ((groupMembersRes.data ?? []) as unknown as { profile_id: string; profiles: { full_name: string } | null }[])
+    .filter(m => m.profile_id !== user.id && cardPlayerIds.has(m.profile_id) && !alreadyPaired.has(m.profile_id))
+    .map(m => ({ id: m.profile_id, name: m.profiles?.full_name ?? 'Player' }))
+
+  return NextResponse.json({ paired: false, partnerId: null, partnerName: null, candidates })
+}
 
 export async function POST(req: NextRequest, { params }: RouteProps) {
   const { tripId, roundId } = await params

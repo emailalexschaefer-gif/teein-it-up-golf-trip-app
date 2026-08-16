@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import TournamentControl from '@/components/scoring/TournamentControl'
+import AdminScoreOverridePanel from '@/components/scoring/AdminScoreOverridePanel'
 import PlayerRoundView from '@/components/scoring/PlayerRoundView'
 import MyRoundSummary from '@/components/scoring/MyRoundSummary'
 
@@ -184,6 +185,17 @@ export default async function TournamentPage({ params }: Props) {
       ) : (
         <>
           <TournamentControl tripId={tripId} roundId={activeRound.id} roundStatus={activeRound.status} />
+
+          {/* Priority 4 — My HQ -> active round -> Admin Score Override.
+              Deliberately placed as its own clearly-separated section,
+              not folded into TournamentControl itself — this is an
+              occasional emergency tool (lost phone, dispute,
+              reconciliation deadlock), not part of the normal live-
+              scoring narrative TournamentControl shows every visit. */}
+          <div style={{ marginTop: 20 }}>
+            <div style={{ height: 1, background: '#eceae3', marginBottom: 16 }} />
+            <AdminScoreOverridePanel tripId={tripId} roundId={activeRound.id} />
+          </div>
 
           {organiserIsPlaying && (
             <div style={{ marginTop: 20 }}>

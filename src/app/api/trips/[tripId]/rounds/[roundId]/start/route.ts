@@ -100,17 +100,19 @@ async function autoGenerateMarkers(admin: AdminClient, tripId: string, roundId: 
       .map((m: { profile_id: string }) => m.profile_id)
 
     if (groupPlayerIds.length < 2) continue // solo group — nothing to pair
-    // Playing Partner (Priority 3): a genuine "player chooses their own
-    // partner" selection screen for groups larger than two is designed
-    // and has its endpoint ready (see /playing-partner/route.ts), but
-    // isn't wired into a selection UI yet. Auto-pairing is deliberately
-    // LEFT IN PLACE here for all group sizes rather than skipped for
-    // >2 — skipping it without the corresponding UI built would leave
-    // those players with no partner at all until they used a screen
-    // that doesn't exist yet, a real regression for exactly the players
-    // this feature is meant to help. Terminology (Playing Partner) is
-    // updated everywhere it's shown; the underlying pairing mechanism
-    // for groups >2 remains algorithmic for now, not player-chosen.
+    // Playing Partner (Priority 2/3): groups larger than two now let the
+    // player choose their own partner at the start of scoring (the
+    // selection screen in SelfMarkerScoreShell.tsx + its /playing-
+    // partner GET/POST endpoints), rather than being silently auto-
+    // paired. Only an exact pair (2 players) is still auto-assigned
+    // here, matching "auto-select each other and skip unnecessary
+    // choice" — this was intentionally left auto-paired for ALL group
+    // sizes in an earlier pass specifically because the selection UI
+    // didn't exist yet; now that it does (and gracefully falls through
+    // to normal scoring if a group somehow has no eligible candidates),
+    // skipping auto-generation for >2 no longer risks leaving anyone
+    // stranded without a partner.
+    if (groupPlayerIds.length > 2) continue
     if (groupPlayerIds.every(id => alreadyAssigned.has(id))) continue // already seeded
 
     try {
