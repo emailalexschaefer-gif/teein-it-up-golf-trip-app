@@ -292,13 +292,29 @@ function Dialog({ children, onClose }: React.PropsWithChildren<{ onClose: () => 
       <div onClick={onClose} style={{
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 50,
       }} />
-      {/* Panel */}
+      {/* Panel — Package 1 fix: previously had no height constraint at
+          all. On a small iPhone with the on-screen keyboard open
+          (required here, since confirming needs typing "DELETE"), the
+          available viewport shrinks enough that this panel's own bottom
+          content — Cancel/Delete Trip — could be pushed below the
+          visible area entirely, with no way to reach it. maxHeight +
+          overflowY makes the panel itself scroll internally once
+          content + keyboard would otherwise overflow, so the CTA is
+          always reachable by scrolling within the dialog rather than
+          disappearing off-screen. dvh (dynamic viewport height) is used
+          over vh specifically because it correctly accounts for mobile
+          browser chrome/keyboard changing the visible viewport — a
+          fixed vh value doesn't shrink when the keyboard opens. Fixes
+          both this dialog and the Archive dialog above, which shares
+          this same component and had the identical latent risk even
+          though only Delete was reported. */}
       <div style={{
         position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 51,
         background: '#faf6ed', borderRadius: '20px 20px 0 0',
         padding: '24px 20px 36px',
         boxShadow: '0 -4px 32px rgba(0,0,0,0.18)',
         maxWidth: 540, margin: '0 auto',
+        maxHeight: '85dvh', overflowY: 'auto',
       }}>
         {children}
       </div>

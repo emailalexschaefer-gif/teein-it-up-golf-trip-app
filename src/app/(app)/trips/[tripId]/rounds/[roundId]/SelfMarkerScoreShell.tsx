@@ -27,6 +27,7 @@ import PendingVerificationCard from '@/components/scoring/PendingVerificationCar
 // exists, rather than a fake badge shown regardless of data.
 interface Hole {
   id: string; hole_number: number; par: number; stroke_index: number
+  distance?: number | null
   is_powerplay?: boolean
   side_game_type?: 'nearest_pin' | 'longest_drive' | 'straightest_drive' | null
 }
@@ -514,6 +515,7 @@ export default function SelfMarkerScoreShell({
   const holeNum = hole?.hole_number ?? holeIdx + 1
   const par = hole?.par ?? 4
   const si = hole?.stroke_index ?? 1
+  const distance = hole?.distance ?? null
   // Sprint 9 Item 2 — this hole's active Side Competitions + whether it's
   // the Powerplay hole. Deliberately allows more than one to be true at
   // once (no "one competition per hole" rule yet — left flexible per
@@ -807,6 +809,24 @@ export default function SelfMarkerScoreShell({
 
     const grandTotal = outTotal + inTotal
 
+    // Package 1 — the marker's own independently-recorded total, using
+    // the exact same calculateStableford call as the player's own total
+    // above, just fed myMarker's captures instead of mySelf's. Only
+    // meaningful in self_and_marker mode with an actual marker assigned
+    // — requiresMarker/currentMarked guard this exactly like every other
+    // marker-dependent value on this screen already does.
+    const markerGrandTotal = (requiresMarker && currentMarked)
+      ? holes.reduce((sum, h) => {
+          const markerCapture = myMarker[h.hole_number] ?? null
+          if (!markerCapture) return sum
+          const pts = markerCapture.pickedUp ? 0
+            : markerCapture.grossScore !== null
+              ? calculateStableford({ grossScore: markerCapture.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
+              : 0
+          return sum + pts
+        }, 0)
+      : null
+
     return (
       <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '12px 16px 90px' }}>
         <div style={{ textAlign: 'center', marginBottom: 2 }}>
@@ -819,6 +839,41 @@ export default function SelfMarkerScoreShell({
             {grandTotal} pts
           </div>
         </div>
+
+        {/* Package 1 — prominent total comparison. Presentation only:
+            grandTotal/markerGrandTotal are the exact same per-hole
+            calculateStableford values already computed above and
+            rendered in the hole-by-hole rows below; this block doesn't
+            introduce any new calculation, only a clearer, higher-
+            visibility summary of numbers that already existed. */}
+        {requiresMarker && currentMarked && markerGrandTotal !== null && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-around',
+            background: '#fff', border: '1px solid #eceae3', borderRadius: 12, padding: '12px 14px', marginTop: 10,
+          }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4 }}>{myName}</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: '#14532d', marginTop: 2 }}>{grandTotal}</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              {grandTotal === markerGrandTotal ? (
+                <>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 18 }}>✓</div>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#16a34a' }}>Matched</div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 18 }}>⚠</div>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#dc2626' }}>{mismatches.length} hole{mismatches.length === 1 ? '' : 's'} to review</div>
+                </>
+              )}
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4 }}>{partnerName ?? 'Marker'}</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: '#14532d', marginTop: 2 }}>{markerGrandTotal}</div>
+            </div>
+          </div>
+        )}
 
         {/* Status block — three distinct states per the exact spec:
             mismatches remain, ready to confirm, or already locked. */}
@@ -1102,11 +1157,11 @@ export default function SelfMarkerScoreShell({
           ✕ Exit
         </Link>
         <div style={{ textAlign: 'right', lineHeight: 1.15 }}>
-          <div style={{ color: '#f5e6b8', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700 }}>
-            Hole {holeNum}
+          <div style={{ color: '#f5e6b8', fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 800, letterSpacing: 0.3 }}>
+            HOLE {holeNum}
           </div>
-          <div style={{ color: 'rgba(245,230,184,0.65)', fontFamily: 'var(--font-body)', fontSize: 10 }}>
-            Par {par} · SI {si}
+          <div style={{ color: 'rgba(245,230,184,0.75)', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600 }}>
+            {distance != null ? `${distance}m · ` : ''}Par {par} · SI {si}
           </div>
         </div>
         </div>
@@ -1388,7 +1443,7 @@ export default function SelfMarkerScoreShell({
         >
         {/* ── Card 1: YOUR SCORE ─────────────────────────────────────────── */}
         <ScoreCard
-          title="YOUR SCORE" name={myName} hcp={myHcp} par={par} si={si} strokes={myStrokes} holeNum={holeNum}
+          title="YOUR SCORE" name={myName} hcp={myHcp} par={par} si={si} strokes={myStrokes} holeNum={holeNum} distance={distance}
           gross={draftMyGross} pickedUp={draftMyPickedUp} pts={myPts} runningTotal={myRunningTotal}
           onPick={d => pick('mine', d)} onPar={() => pickPar('mine')} onTogglePickUp={() => togglePickUp('mine')}
           status={myComparison} onOpenSummary={() => setShowReconciliation(true)} isLockedForSide={isLocked}
@@ -1398,7 +1453,7 @@ export default function SelfMarkerScoreShell({
         {/* ── Card 2: YOUR MARKER (the partner I mark) ──────────────────── */}
         {requiresMarker && markedScorecard && partnerName && (
           <ScoreCard
-            title="YOUR MARKER" name={partnerName} hcp={partnerHcp} par={par} si={si} strokes={partnerStrokes} holeNum={holeNum}
+            title="YOUR MARKER" name={partnerName} hcp={partnerHcp} par={par} si={si} strokes={partnerStrokes} holeNum={holeNum} distance={distance}
             gross={draftPartnerGross} pickedUp={draftPartnerPickedUp} pts={partnerPts} runningTotal={partnerRunningTotal}
             onPick={d => pick('partner', d)} onPar={() => pickPar('partner')} onTogglePickUp={() => togglePickUp('partner')}
             status={partnerComparison} onOpenSummary={() => setShowReconciliation(true)} isLockedForSide={isPartnerLocked}
@@ -1654,9 +1709,10 @@ function MismatchBlock({
 }
 
 function ScoreCard({
-  title, name, hcp, par, si, strokes, holeNum, gross, pickedUp, pts, runningTotal, onPick, onPar, onTogglePickUp, status, onOpenSummary, isLockedForSide, activeSideComps, isPowerplayHole, basePts,
+  title, name, hcp, par, si, strokes, holeNum, distance, gross, pickedUp, pts, runningTotal, onPick, onPar, onTogglePickUp, status, onOpenSummary, isLockedForSide, activeSideComps, isPowerplayHole, basePts,
 }: {
   title: string; name: string; hcp: number; par: number; si: number; strokes: number; holeNum: number
+  distance?: number | null
   gross: number | null; pickedUp: boolean; pts: number | null; runningTotal: number
   onPick: (delta: number) => void; onPar: () => void; onTogglePickUp: () => void
   status: ComparisonStatus | null; onOpenSummary?: () => void; isLockedForSide?: boolean
@@ -1675,8 +1731,11 @@ function ScoreCard({
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#a1791f' }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: '#a1791f', lineHeight: 1 }}>
             H{holeNum}
+          </div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 600, color: '#b0975f', marginTop: 1 }}>
+            {distance != null ? `${distance}m · ` : ''}Par {par} · SI {si}
           </div>
           {(activeSideComps && activeSideComps.length > 0) || isPowerplayHole
             ? <HoleBadges activeSideComps={activeSideComps ?? []} isPowerplayHole={!!isPowerplayHole} />

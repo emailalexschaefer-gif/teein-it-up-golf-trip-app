@@ -350,14 +350,27 @@ function LeaderboardRow({ row, movement, isLast, isExpanded, onToggle, totalHole
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-            background: 'radial-gradient(#e8c96a,#c9a84c)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 11,
-          }}>
-            {initialsOf(row.name)}
-          </div>
+          {/* Package 1 — profile photo with initials fallback. Medal/
+              rank icon stays entirely separate (the position column
+              above, untouched) — this only affects the identity circle
+              itself. Ordering/scoring untouched: row.position and every
+              value below still comes from the exact same computed row,
+              this is purely which visual fills a 32px circle. */}
+          {row.avatarUrl ? (
+            <img
+              src={row.avatarUrl} alt=""
+              style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0, objectFit: 'cover', border: '1px solid rgba(0,0,0,0.06)' }}
+            />
+          ) : (
+            <div style={{
+              width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+              background: 'radial-gradient(#e8c96a,#c9a84c)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 11,
+            }}>
+              {initialsOf(row.name)}
+            </div>
+          )}
 
           <div style={{ flex: 1, minWidth: 0 }}>
             {/* Bug fix: previously forced to one line (whiteSpace: nowrap
@@ -462,14 +475,21 @@ function MultiRoundRow({ row, isCurrentUser, isLast, isExpanded, onToggle, board
           <div style={{ width: 18, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 12.5, color: row.position <= 3 ? '#a1791f' : '#9ca3af' }}>
             {MEDAL[row.position] ?? row.position}
           </div>
-          <div style={{
-            width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
-            background: 'radial-gradient(#e8c96a,#c9a84c)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 9.5,
-          }}>
-            {initialsOf(row.playerName)}
-          </div>
+          {boardRow?.avatarUrl ? (
+            <img
+              src={boardRow.avatarUrl} alt=""
+              style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0, objectFit: 'cover', border: '1px solid rgba(0,0,0,0.06)' }}
+            />
+          ) : (
+            <div style={{
+              width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
+              background: 'radial-gradient(#e8c96a,#c9a84c)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 9.5,
+            }}>
+              {initialsOf(row.playerName)}
+            </div>
+          )}
           {/* Bug fix: same as the single-round row above — this cell has
               even less room to work with (rank + avatar + however many
               round columns + TOTAL all compete for width on the same

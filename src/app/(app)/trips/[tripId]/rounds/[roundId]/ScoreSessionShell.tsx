@@ -11,7 +11,7 @@ import PendingVerificationCard from '@/components/scoring/PendingVerificationCar
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-interface Hole { id: string; hole_number: number; par: number; stroke_index: number }
+interface Hole { id: string; hole_number: number; par: number; stroke_index: number; distance?: number | null }
 
 // Sprint 9 — reused constant, same icons/labels as SelfMarkerScoreShell's
 // own SIDE_COMP_BANNER. Not imported from there (that file has no
@@ -755,8 +755,10 @@ export default function ScoreSessionShell({
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 16, fontWeight: 800, lineHeight: 1 }}>H{holeNum}</div>
-                <div style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 10.5 }}>Par {par} · Index {si}</div>
+                <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 20, fontWeight: 800, lineHeight: 1 }}>H{holeNum}</div>
+                <div style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 10.5, fontWeight: 600, marginTop: 1 }}>
+                  {hole?.distance != null ? `${hole.distance}m · ` : ''}Par {par} · SI {si}
+                </div>
                 {strokesReceived > 0 && (
                   <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 600, color: '#a1791f', marginTop: 1 }}>
                     Receives {strokesReceived} stroke{strokesReceived === 1 ? '' : 's'}

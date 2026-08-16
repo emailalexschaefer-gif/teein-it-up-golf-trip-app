@@ -7,7 +7,7 @@ import { formatTripDateRange } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
 import { useUpdateTripStatus } from '@/lib/queries/trips'
 import { TRIP_STATUS_LABELS, EVENT_TYPE_OPTIONS } from '@/types/app'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useQuery } from '@tanstack/react-query'
 import { tripKeys } from '@/lib/queries/trips'
 import type { TripStatus, TripRole } from '@/types/app'
 import TripOverviewTab from './tabs/TripOverviewTab'
@@ -95,6 +95,36 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
     Array.isArray(trip.trip_groups) ? trip.trip_groups.length : 0
   )
 
+  // Package 1 — shared-data freshness. Previously trip.trip_members came
+  // only from the server component's one-time fetch at page load, with
+  // no client-side revalidation at all — an organiser staying on
+  // Overview/Players while someone else joined would never see the new
+  // player without navigating away and back or pull-refreshing. This
+  // polls the trip's own member list every 20s (a plain fetch + React
+  // Query, the same infrastructure already used throughout this app —
+  // not a bespoke page-specific mechanism) and is used in place of the
+  // server-provided list once the first poll succeeds; before that, or
+  // if a poll ever fails, the original server-rendered data is used
+  // unchanged, so this can only ever make membership data fresher, never
+  // remove or break what was already correctly showing.
+  const membersQuery = useQuery<{ members: TripMemberRow[] }>({
+    queryKey: ['trip-members', trip.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/trips/${trip.id}/members`)
+      if (!res.ok) throw new Error('failed')
+      return res.json()
+    },
+    refetchInterval: 20000,
+    staleTime: 0,
+  })
+  const liveTripMembers = membersQuery.data?.members ?? trip.trip_members
+  // Spread once here rather than passing liveTripMembers as a separate
+  // prop to each tab — every tab already expects a full `trip` object
+  // shaped exactly like this, so this is the minimal change that gets
+  // fresher membership data to Overview/Players/Groups alike without
+  // touching any of those components' own internals.
+  const liveTrip = { ...trip, trip_members: liveTripMembers }
+
   // Role-based experience (Sprint 5 — Player Experience Flow): a player
   // should never see the organiser setup workflow (Overview/Players/
   // Groups/Rounds tabs) — they get a streamlined status dashboard
@@ -106,7 +136,7 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
   }
 
   const organiserIsPlaying = trip.organiser_is_playing ?? false
-  const playerCount  = trip.trip_members.filter(m => m.role === 'player').length + (organiserIsPlaying ? 1 : 0)
+  const playerCount  = liveTripMembers.filter(m => m.role === 'player').length + (organiserIsPlaying ? 1 : 0)
   const numGroups    = actualGroupCount  // always use real count from DB
   const eventLabel   = EVENT_TYPE_OPTIONS.find(o => o.value === trip.event_type)?.label ?? 'Golf Trip'
   const step         = workflowStep(trip.status)
@@ -376,7 +406,7 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
       <div style={{ background: '#faf6ed', padding: '14px 16px 80px', minHeight: '60vh' }}>
         {tab === 'overview' && (
           <TripOverviewTab
-            trip={trip} isOrganiser={isOrganiser}
+            trip={liveTrip} isOrganiser={isOrganiser}
             playerCount={playerCount} numGroups={numGroups}
             updateStatus={updateStatus} toast={toast} router={router}
             onTabChange={t => setTab(t)}
@@ -384,14 +414,14 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
         )}
         {tab === 'players' && (
           <TripPlayersTab
-            trip={trip} currentUserId={currentUserId}
+            trip={liveTrip} currentUserId={currentUserId}
             isOrganiser={isOrganiser} onRefresh={() => { router.refresh(); void queryClient.invalidateQueries({ queryKey: tripKeys.all }) }}
             onTabChange={(t) => setTab(t)}
           />
         )}
         {tab === 'groups' && (
           <TripGroupsTab
-            trip={trip} isOrganiser={isOrganiser}
+            trip={liveTrip} isOrganiser={isOrganiser}
             onRefresh={() => { router.refresh(); void queryClient.invalidateQueries({ queryKey: tripKeys.all }) }}
             onTabChange={(t) => setTab(t)}
             onGroupsLoaded={(count) => setActualGroupCount(count)}

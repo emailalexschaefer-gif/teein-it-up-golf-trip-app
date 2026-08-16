@@ -20,7 +20,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
   const { data: holes, error: hErr } = await admin
     .from('holes')
-    .select('id, hole_number, par, stroke_index')
+    .select('id, hole_number, par, stroke_index, distance')
     .eq('round_id', roundId)
     .order('hole_number', { ascending: true })
 

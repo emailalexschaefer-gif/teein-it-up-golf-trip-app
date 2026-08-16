@@ -78,24 +78,33 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
   const [error, setError] = useState<string | null>(null)
   const [lastResult, setLastResult] = useState<SideCompSubmitResult | null>(null)
 
-  // Load current state once on mount — my own prior claim (if any) and
-  // the current OFFICIAL (verified-only) leader, both from the GET,
-  // never inferred locally.
+  // Load current state — my own prior claim (if any) and the current
+  // OFFICIAL (verified-only) leader, both from the GET, never inferred
+  // locally. Two distinct code paths deliberately, not one function
+  // reused for both:
+  //
+  // initialLoad (mount, or tripId/sideCompId/currentUserId changing)
+  // resets every piece of state including the form inputs (myResultValue/
+  // myQualified) — this is the per-account reset fix already in place,
+  // preventing one user's stale typed value from bleeding into another's.
+  //
+  // pollStatus (every 15s thereafter, matching PendingVerificationCard's
+  // own interval) ONLY updates server-driven state — myStatus,
+  // currentLeader — and deliberately never touches myResultValue/
+  // myQualified. This is the actual Package 1 fix: previously this
+  // component fetched once on mount and never again, so a marker's
+  // Confirm/Correct/Reject (happening on a different device entirely)
+  // never reached the claimant's own screen until they navigated away
+  // and back. Polling closes that gap — but doing it by re-running the
+  // full reset-everything load would wipe out whatever the player is
+  // actively typing into the distance field the moment a poll lands
+  // mid-edit, trading one bug for a worse one. Splitting the two
+  // concerns avoids that entirely.
   useEffect(() => {
     let cancelled = false
-    async function load() {
+
+    async function initialLoad() {
       setLoading(true)
-      // Reset every piece of per-user state before fetching — this is
-      // the actual fix, not just adding currentUserId to the dependency
-      // array. Without this, switching accounts within the same mounted
-      // component (this effect now correctly re-fires on that, but a
-      // fetch takes a moment) would briefly — or, if the fetch ever
-      // fails, indefinitely — show the PREVIOUS user's myStatus/
-      // myResultValue/lastResult while the new user's own data is still
-      // loading. This is exactly the confirmed root cause of "TEST's
-      // freshly-typed 0.5m shown next to Alex's stale Verified ✓" — the
-      // old status badge and the newly-typed number were never from the
-      // same user's data in the first place.
       setCurrentLeader(null)
       setMyQualified(null)
       setMyResultValue('')
@@ -113,17 +122,26 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
           setHasSubmittedOnce(true)
           setMyQualified(body.myEntry.qualified)
           setMyStatus(body.myEntry.verificationStatus ?? null)
-          // Prefill from claimedValue (what the player actually entered),
-          // not resultValue (which stays null until a marker verifies) —
-          // the form should always show the player their own last claim,
-          // regardless of whether it's been reviewed yet.
           if (body.myEntry.claimedValue != null) setMyResultValue(String(body.myEntry.claimedValue))
         }
       } catch { /* ignore — panel just shows the form with no prior state */ }
       if (!cancelled) setLoading(false)
     }
-    void load()
-    return () => { cancelled = true }
+
+    async function pollStatus() {
+      try {
+        const res = await fetch(`/api/trips/${tripId}/side-comps/${sideCompId}/entries`)
+        if (!res.ok || cancelled) return
+        const body = await res.json()
+        if (cancelled) return
+        setCurrentLeader(body.currentLeader ?? null)
+        if (body.myEntry) setMyStatus(body.myEntry.verificationStatus ?? null)
+      } catch { /* ignore — next poll tries again; never surfaces an error for a background refresh */ }
+    }
+
+    void initialLoad()
+    const interval = setInterval(() => void pollStatus(), 15000)
+    return () => { cancelled = true; clearInterval(interval) }
   }, [tripId, sideCompId, currentUserId])
 
   async function submit(qualified: boolean, resultValue: number | null, claims: boolean | null) {

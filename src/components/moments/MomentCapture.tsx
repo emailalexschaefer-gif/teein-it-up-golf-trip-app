@@ -114,7 +114,6 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
   const queryClient = useQueryClient()
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const galleryInputRef = useRef<HTMLInputElement>(null)
-  const autoOpenedRef = useRef(false)
 
   const [stage, setStage] = useState<ComposerStage>('closed')
   const [previewFile, setPreviewFile] = useState<File | null>(null)
@@ -126,15 +125,13 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
   const [uploadStage, setUploadStage] = useState<'idle' | 'preparing' | 'uploading'>('idle')
   const [error, setError] = useState('')
 
-  // Fires once, only when a caller (the New Leader prompt) explicitly
-  // asks for it — never on a normal render, so this can never
-  // accidentally reopen the camera on its own.
-  useEffect(() => {
-    if (autoOpenCamera && !autoOpenedRef.current) {
-      autoOpenedRef.current = true
-      cameraInputRef.current?.click()
-    }
-  }, [autoOpenCamera])
+  // Package 1 fix: previously fired the camera automatically the moment
+  // a leading claim was made — the golfer had no chance to decline or
+  // choose gallery instead. Photo is explicitly optional now; this
+  // effect is gone entirely. The Take Photo / Choose from Gallery
+  // buttons below (originally added as a fallback for when the auto-
+  // click silently failed) are now the primary, always-shown UI for the
+  // autoOpenCamera path — nothing opens until the golfer taps one.
 
   function resetAll() {
     if (previewUrl) URL.revokeObjectURL(previewUrl)
