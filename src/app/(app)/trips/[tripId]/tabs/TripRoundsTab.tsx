@@ -138,6 +138,7 @@ export default function TripRoundsTab({ trip, isOrganiser, onTabChange }: Props)
           onClose={() => setBeginRound(null)}
           libraryHolesSnapshot={beginRound.library_holes_snapshot ?? null}
           teeName={beginRound.tee_name ?? null}
+          slopeRating={beginRound.slope_rating ?? null}
         />
       )}
     </>

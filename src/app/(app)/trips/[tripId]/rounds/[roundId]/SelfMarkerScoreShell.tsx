@@ -869,7 +869,7 @@ export default function SelfMarkerScoreShell({
               )}
             </div>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4 }}>{partnerName ?? 'Marker'}</div>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4 }}>{partnerName ?? 'Playing Partner'}</div>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: '#14532d', marginTop: 2 }}>{markerGrandTotal}</div>
             </div>
           </div>
@@ -1055,7 +1055,7 @@ export default function SelfMarkerScoreShell({
                     )}
                     <div style={{ display: 'flex', gap: 16, fontFamily: 'var(--font-body)', fontSize: 13, color: '#14532d' }}>
                       <div>{partnerName ?? 'Partner'}&apos;s score: <strong>{r.partnerSelfVal?.pickedUp ? 'Pick-up' : r.partnerSelfVal?.grossScore ?? '—'}</strong></div>
-                      <div>Your marker entry: <strong>{r.partnerMarkerVal?.pickedUp ? 'Pick-up' : r.partnerMarkerVal?.grossScore ?? '—'}</strong></div>
+                      <div>Your Playing Partner's entry: <strong>{r.partnerMarkerVal?.pickedUp ? 'Pick-up' : r.partnerMarkerVal?.grossScore ?? '—'}</strong></div>
                     </div>
                     <button
                       onClick={() => { setHoleIdx(holes.indexOf(r.hole)); setShowReconciliation(false) }}
@@ -1453,7 +1453,7 @@ export default function SelfMarkerScoreShell({
         {/* ── Card 2: YOUR MARKER (the partner I mark) ──────────────────── */}
         {requiresMarker && markedScorecard && partnerName && (
           <ScoreCard
-            title="YOUR MARKER" name={partnerName} hcp={partnerHcp} par={par} si={si} strokes={partnerStrokes} holeNum={holeNum} distance={distance}
+            title="YOUR PLAYING PARTNER" name={partnerName} hcp={partnerHcp} par={par} si={si} strokes={partnerStrokes} holeNum={holeNum} distance={distance}
             gross={draftPartnerGross} pickedUp={draftPartnerPickedUp} pts={partnerPts} runningTotal={partnerRunningTotal}
             onPick={d => pick('partner', d)} onPar={() => pickPar('partner')} onTogglePickUp={() => togglePickUp('partner')}
             status={partnerComparison} onOpenSummary={() => setShowReconciliation(true)} isLockedForSide={isPartnerLocked}
@@ -1480,7 +1480,7 @@ export default function SelfMarkerScoreShell({
               <MismatchBlock
                 key="mine"
                 aLabel="You" aCapture={mine} aHandicap={myHcp}
-                bLabel={partnerName ?? 'Your marker'} bCapture={theirs} bHandicap={partnerHcp}
+                bLabel={partnerName ?? 'Your Playing Partner'} bCapture={theirs} bHandicap={partnerHcp}
                 par={par} strokeIndex={si} isPowerplayHole={isPowerplayHole}
               />
             )
@@ -1491,7 +1491,7 @@ export default function SelfMarkerScoreShell({
             blocks.push(
               <MismatchBlock
                 key="partner"
-                aLabel={partnerName ?? 'Your marker'} aCapture={theirs} aHandicap={partnerHcp}
+                aLabel={partnerName ?? 'Your Playing Partner'} aCapture={theirs} aHandicap={partnerHcp}
                 bLabel="You" bCapture={mine} bHandicap={myHcp}
                 par={par} strokeIndex={si} isPowerplayHole={isPowerplayHole}
               />

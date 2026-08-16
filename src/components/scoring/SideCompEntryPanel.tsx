@@ -62,9 +62,9 @@ const QUALIFY_QUESTION: Record<Props['compType'], string> = {
 }
 
 const STATUS_LABEL: Record<SideCompVerificationStatus, { text: string; color: string }> = {
-  pending:  { text: 'Awaiting marker verification', color: '#a1791f' },
+  pending:  { text: 'Awaiting Playing Partner verification', color: '#a1791f' },
   verified: { text: 'Verified ✓', color: '#16a34a' },
-  rejected: { text: 'Not confirmed by your marker', color: '#9ca3af' },
+  rejected: { text: 'Not confirmed by your Playing Partner', color: '#9ca3af' },
 }
 
 export default function SideCompEntryPanel({ tripId, sideCompId, compType, label, icon, currentUserId, onWouldLeadIfVerified }: Props) {
@@ -225,8 +225,8 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
       {lastResult && (
         <div style={{ marginTop: 6, fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 800, color: lastResult.wouldLeadIfVerified ? '#16a34a' : '#6b7280' }}>
           {lastResult.wouldLeadIfVerified
-            ? '📸 Claim saved — awaiting your marker\u2019s verification'
-            : 'Claim saved — awaiting your marker\u2019s verification'}
+            ? '📸 Claim saved — awaiting your Playing Partner\u2019s verification'
+            : 'Claim saved — awaiting your Playing Partner\u2019s verification'}
         </div>
       )}
 

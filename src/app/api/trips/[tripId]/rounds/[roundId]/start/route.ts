@@ -15,6 +15,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolvePlayingHandicap } from '@/lib/scoring/defaultHoles'
+import { calculateDailyHandicap } from '@/lib/scoring/dailyHandicap'
 import { generateMarkerAssignments } from '@/lib/scoring/markerAssignment'
 import { z } from 'zod'
 
@@ -40,6 +41,12 @@ const HoleSchema = z.object({
 
 const StartSchema = z.object({
   holes: z.array(HoleSchema).min(9).max(18),
+  // Priority 1 — Daily Handicap. Optional per-player final round-only
+  // override (profile_id -> whole-number handicap), submitted by
+  // BeginRoundModal after the organiser reviews the calculated Daily
+  // Handicap and optionally adjusts it. Never written to trip_members —
+  // used only to compute this round's own scorecards.playing_handicap.
+  handicapOverrides: z.record(z.string(), z.number()).optional(),
 })
 
 interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
@@ -93,6 +100,17 @@ async function autoGenerateMarkers(admin: AdminClient, tripId: string, roundId: 
       .map((m: { profile_id: string }) => m.profile_id)
 
     if (groupPlayerIds.length < 2) continue // solo group — nothing to pair
+    // Playing Partner (Priority 3): a genuine "player chooses their own
+    // partner" selection screen for groups larger than two is designed
+    // and has its endpoint ready (see /playing-partner/route.ts), but
+    // isn't wired into a selection UI yet. Auto-pairing is deliberately
+    // LEFT IN PLACE here for all group sizes rather than skipped for
+    // >2 — skipping it without the corresponding UI built would leave
+    // those players with no partner at all until they used a screen
+    // that doesn't exist yet, a real regression for exactly the players
+    // this feature is meant to help. Terminology (Playing Partner) is
+    // updated everywhere it's shown; the underlying pairing mechanism
+    // for groups >2 remains algorithmic for now, not player-chosen.
     if (groupPlayerIds.every(id => alreadyAssigned.has(id))) continue // already seeded
 
     try {
@@ -145,7 +163,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   // first, then comparing trip_id explicitly, tells us which one this is.
   const roundByIdRes = await admin
     .from('rounds')
-    .select('id, status, holes, name, trip_id, score_capture_mode')
+    .select('id, status, holes, name, trip_id, score_capture_mode, slope_rating')
     .eq('id', roundId)
     .maybeSingle()
 
@@ -206,7 +224,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     }, { status: 400 })
   }
 
-  const { holes } = parsed.data
+  const { holes, handicapOverrides } = parsed.data
   const holeCount: number = round.holes ?? 18
 
   if (holes.length !== holeCount) {
@@ -305,11 +323,29 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index, distance: h.distance ?? null,
   }))
 
-  const scorecardData = assignedMembers.map((m: typeof assignedMembers[0]) => ({
-    player_id:        m.profile_id,
-    playing_handicap: resolvePlayingHandicap(m.playing_handicap, m.profiles?.handicap) ?? 0,
-    group_id:         m.group_id ?? null,
-  }))
+  const scorecardData = assignedMembers.map((m: typeof assignedMembers[0]) => {
+    const override = handicapOverrides?.[m.profile_id]
+    let finalHandicap: number
+    if (override !== undefined) {
+      finalHandicap = override
+    } else {
+      const ga = resolvePlayingHandicap(m.playing_handicap, m.profiles?.handicap)
+      if (ga !== null && round.slope_rating != null) {
+        try {
+          finalHandicap = calculateDailyHandicap({ gaHandicap: ga, slopeRating: round.slope_rating })
+        } catch {
+          finalHandicap = ga
+        }
+      } else {
+        finalHandicap = ga ?? 0
+      }
+    }
+    return {
+      player_id:        m.profile_id,
+      playing_handicap: finalHandicap,
+      group_id:         m.group_id ?? null,
+    }
+  })
 
   // ── Try RPC first, fall back to direct inserts ─────────────────────────────
   const { data: rpcResult, error: rpcError } = await admin.rpc('begin_round', {

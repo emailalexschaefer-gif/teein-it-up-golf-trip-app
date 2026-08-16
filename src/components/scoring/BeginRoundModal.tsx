@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { resolvePlayingHandicap, deriveBeginRoundHoles, deriveNineHoles } from '@/lib/scoring/defaultHoles'
 import type { HoleTemplate, PlayingNine } from '@/lib/scoring/defaultHoles'
+import { calculateDailyHandicap } from '@/lib/scoring/dailyHandicap'
 import { useScoringFocusStore } from '@/store/scoringFocusStore'
 
 interface Player {
@@ -41,13 +42,19 @@ interface Props {
   // same manual review/edit flow.
   libraryHolesSnapshot?: { hole_number: number; par: number; stroke_index: number | null; distance: number | null }[] | null
   teeName?: string | null
+  // Priority 1 — Daily Handicap. The frozen slope rating for this
+  // round's selected tee set (rounds.slope_rating, Course Library
+  // migration 041) — absent for a manually-configured round, in which
+  // case Daily Handicap calculation falls back to the existing
+  // unadjusted resolvePlayingHandicap value, unchanged from before.
+  slopeRating?: number | null
 }
 
 type Stage = 'review' | 'holes' | 'confirm' | 'starting'
 
 export default function BeginRoundModal({
   tripId, roundId, roundName, courseName, holeCount,
-  playDate, groups, onClose, libraryHolesSnapshot, teeName,
+  playDate, groups, onClose, libraryHolesSnapshot, teeName, slopeRating,
 }: Props) {
   const router = useRouter()
   const setScoringFocusActive = useScoringFocusStore(s => s.setActive)
@@ -107,47 +114,57 @@ export default function BeginRoundModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally fetch-once-on-mount; refetchSetupContext is called explicitly after mutations elsewhere, not on every render
   }, [])
 
-  // ── Handicap +/- and manual group changes (Round 2+) ──────────────────────
-  // Both reuse the existing members PATCH route — no new endpoint for
-  // either, per the explicit instruction. Optimistic: localGroups updates
-  // immediately for a responsive feel, then rolls back to the pre-edit
-  // value if the server call fails, with a visible error rather than
-  // silently reverting. This only ever touches trip_members.playing_handicap/
-  // group_id (the "current, adjustable" values) — never a scorecard, so a
-  // completed Round 1's snapshot is structurally unreachable from here.
+  // ── Handicap +/- (Priority 1 — Daily Handicap) ────────────────────────────
+  // Reworked: previously this PATCHed trip_members.playing_handicap
+  // directly, meaning an organiser's pre-round adjustment permanently
+  // changed the golfer's profile-level handicap for every future round
+  // too — exactly what "organiser adjustment must affect that round
+  // only" rules out. Now purely local state
+  // (roundHandicapOverrides, profile_id -> final adjusted value),
+  // initialised from the calculated Daily Handicap (GA Handicap x this
+  // round's own tee-set Slope Rating / 113 — calculateDailyHandicap,
+  // src/lib/scoring/dailyHandicap.ts, previously fully built and tested
+  // but never wired in because slope_rating had nowhere to live until
+  // Course Library added it to rounds/course_tee_sets) where the round
+  // has a library-sourced slope rating, falling back to the existing
+  // resolvePlayingHandicap (no slope adjustment) exactly as before when
+  // it doesn't — manual course setup is unaffected. Submitted only once,
+  // at Start Round, as an explicit override map — nothing is written to
+  // trip_members from this screen anymore.
   const [mutationError, setMutationError] = useState('')
   const [pendingProfileId, setPendingProfileId] = useState<string | null>(null)
+  const [handicapOverrides, setHandicapOverrides] = useState<Record<string, number>>({})
+
+  function dailyHandicapFor(gaHandicap: number | null): number | null {
+    if (gaHandicap === null) return null
+    if (slopeRating != null) {
+      try {
+        return calculateDailyHandicap({ gaHandicap, slopeRating })
+      } catch { /* falls through to the unadjusted value below on any calculation error */ }
+    }
+    return resolvePlayingHandicap(gaHandicap, null)
+  }
+
+  function baseRoundHandicap(p: { profile_id: string; playing_handicap: number | null; profile_handicap: number | null }): number | null {
+    const ga = resolvePlayingHandicap(p.playing_handicap, p.profile_handicap)
+    return dailyHandicapFor(ga)
+  }
+
+  function currentRoundHandicap(p: { profile_id: string; playing_handicap: number | null; profile_handicap: number | null }): number | null {
+    if (p.profile_id in handicapOverrides) return handicapOverrides[p.profile_id]
+    return baseRoundHandicap(p)
+  }
 
   function setLocalGroups(updater: (prev: Group[]) => Group[]) {
     setSetupContext(prev => prev ? { ...prev, groups: updater(prev.groups) } : prev)
   }
 
-  async function handleHandicapAdjust(profileId: string, delta: 1 | -1) {
+  function handleHandicapAdjust(profileId: string, delta: 1 | -1) {
     setMutationError('')
-    const previousGroups = localGroups
     const currentPlayer = localGroups.flatMap(g => g.players).find(p => p.profile_id === profileId)
     if (!currentPlayer) return
-    const currentHcp = resolvePlayingHandicap(currentPlayer.playing_handicap, currentPlayer.profile_handicap) ?? 0
-    const nextHcp = currentHcp + delta
-
-    setLocalGroups(prev => prev.map(g => ({
-      ...g,
-      players: g.players.map(p => p.profile_id === profileId ? { ...p, playing_handicap: nextHcp } : p),
-    })))
-
-    try {
-      // The PATCH route matches on trip_members.id, not profile_id — use
-      // currentPlayer.member_id (see Player interface / setup-context route).
-      const res = await fetch(`/api/trips/${tripId}/members/${currentPlayer.member_id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playing_handicap: nextHcp }),
-      })
-      if (!res.ok) throw new Error()
-    } catch {
-      setLocalGroups(() => previousGroups) // roll back exactly to the pre-edit state
-      setMutationError("Couldn't update that handicap. Please try again.")
-    }
+    const current = currentRoundHandicap(currentPlayer) ?? 0
+    setHandicapOverrides(prev => ({ ...prev, [profileId]: current + delta }))
   }
 
   async function handleGroupChange(profileId: string, newGroupId: string) {
@@ -256,6 +273,17 @@ export default function BeginRoundModal({
 
   const canBegin = hasGroups && allGroupsHavePlayers && allPlayersHaveHandicap
 
+  // Item 7 — Begin Round simplification. Valid library data means every
+  // hole in this round's frozen snapshot actually has a par and stroke
+  // index set (a partially-populated tee set — e.g. Flinders' still-
+  // unresolved distance total — can still be genuinely valid here,
+  // since par/SI are what the organiser actually needs to skip the
+  // editor for; distance is a bonus, not a gate). Manual/generic-
+  // template rounds have no snapshot at all and correctly always fall
+  // through to the existing full editor, unchanged.
+  const hasValidLibraryData = !!libraryHolesSnapshot && libraryHolesSnapshot.length === holeCount
+    && libraryHolesSnapshot.every(h => h.par != null && h.stroke_index != null)
+
   async function handleBegin() {
     setStarting(true); setError(null)
     let staySpinning = false
@@ -263,7 +291,7 @@ export default function BeginRoundModal({
       const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/start`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ holes }),
+        body:    JSON.stringify({ holes, handicapOverrides }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -396,6 +424,7 @@ export default function BeginRoundModal({
                   ['⛳ Holes', String(holeCount)],
                   ['🏆 Format', 'Stableford'],
                   ...(courseName ? [['📍 Course', courseName]] : []),
+                  ...(teeName ? [['⛳ Tees', teeName]] : []),
                 ]
                 return (
                   <div className="card p-4 mb-4" style={{ marginBottom: 14 }}>
@@ -493,7 +522,9 @@ export default function BeginRoundModal({
                       <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#b45309' }}>⚠ No players assigned to this group.</p>
                     ) : (
                       g.players.map(p => {
-                        const hcp = resolvePlayingHandicap(p.playing_handicap, p.profile_handicap)
+                        const gaHcp = resolvePlayingHandicap(p.playing_handicap, p.profile_handicap)
+                        const hcp = currentRoundHandicap(p)
+                        const dailyDiffersFromGa = slopeRating != null && gaHcp !== null && hcp !== null && hcp !== gaHcp
                         return (
                           <div key={p.profile_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 0', marginBottom: 4, gap: 8 }}>
                             <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#1a1a16', fontWeight: 500, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.full_name}</span>
@@ -503,7 +534,18 @@ export default function BeginRoundModal({
                                 "no Edit button, no modal" requirement. Only
                                 shown once setup context has loaded, so a
                                 tap can never silently no-op against a null
-                                context. */}
+                                context.
+                                Priority 1 — the value shown/adjusted here
+                                is now the calculated Daily Handicap (this
+                                round's own tee-set slope rating applied),
+                                not the raw GA Handicap directly. When the
+                                two differ, the GA figure is shown small
+                                alongside it so the organiser can see both
+                                explicitly, per "clearly show GA/Exact
+                                Handicap and calculated Daily/Playing
+                                Handicap." +/- adjusts only the local
+                                override for this round — nothing here
+                                writes to trip_members anymore. */}
                             {setupContext && !setupContextLoading ? (
                               <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                                 <button
@@ -512,8 +554,11 @@ export default function BeginRoundModal({
                                   aria-label={`Decrease ${p.full_name}'s handicap`}
                                   style={{ width: 30, height: 30, borderRadius: 8, border: '1.5px solid #d9c9a3', background: '#faf6ed', color: '#1a4731', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}
                                 >−</button>
-                                <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: hcp !== null ? '#7a7260' : '#b91c1c', fontWeight: 700, minWidth: 52, textAlign: 'center' }}>
+                                <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: hcp !== null ? '#7a7260' : '#b91c1c', fontWeight: 700, minWidth: 52, textAlign: 'center', lineHeight: 1.2 }}>
                                   {hcp !== null ? `HCP ${hcp}` : '⚠ No HCP'}
+                                  {dailyDiffersFromGa && (
+                                    <div style={{ fontSize: 9, fontWeight: 600, color: '#a1a89c' }}>GA {gaHcp}</div>
+                                  )}
                                 </span>
                                 <button
                                   type="button"
@@ -698,7 +743,7 @@ export default function BeginRoundModal({
                     {g.name}{g.tee_time ? ` · ⏱ ${g.tee_time}` : ''}
                   </p>
                   {g.players.map(p => {
-                    const hcp = resolvePlayingHandicap(p.playing_handicap, p.profile_handicap)
+                    const hcp = currentRoundHandicap(p)
                     return (
                       <div key={p.profile_id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f2e8d0' }}>
                         <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#1a1a16' }}>{p.full_name}</span>
@@ -723,11 +768,38 @@ export default function BeginRoundModal({
           borderTop: '1px solid #e8d9b8', background: '#f8f4eb',
         }}>
           {stage === 'review' && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button type="button" onClick={() => setStage('holes')} style={btnStyle('secondary')}>
-                Review Holes →
-              </button>
-              <button type="button" onClick={onClose} style={btnStyle('ghost')}>Cancel</button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {/* Item 7 — when this round's course/tee already has valid
+                  library data, the primary action skips straight to
+                  Start Round (the 'confirm' stage) instead of forcing
+                  the full par/SI editor every time. "Edit holes &
+                  indexes" remains available as an explicit secondary
+                  action for the genuine last-minute-change case, per
+                  "Provide secondary: Edit holes & indexes". Rounds
+                  without valid library data (manual setup, or created
+                  before Course Library existed) are completely
+                  unaffected — same single "Review Holes →" button as
+                  before, unconditionally opening the editor. */}
+              {hasValidLibraryData ? (
+                <>
+                  <button type="button" onClick={() => setStage('confirm')} style={btnStyle('primary')}>
+                    Start Round →
+                  </button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button type="button" onClick={() => setStage('holes')} style={{ ...btnStyle('ghost'), flex: 1 }}>
+                      Edit holes & indexes
+                    </button>
+                    <button type="button" onClick={onClose} style={{ ...btnStyle('ghost'), flex: 1 }}>Cancel</button>
+                  </div>
+                </>
+              ) : (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" onClick={() => setStage('holes')} style={btnStyle('secondary')}>
+                    Review Holes →
+                  </button>
+                  <button type="button" onClick={onClose} style={btnStyle('ghost')}>Cancel</button>
+                </div>
+              )}
             </div>
           )}
 

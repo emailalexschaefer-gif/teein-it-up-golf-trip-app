@@ -423,7 +423,7 @@ function MultiRoundHeaderRow({ rounds }: { rounds: { roundId: string; roundNumbe
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#faf9f6', borderBottom: '1px solid #eceae3' }}>
       <div style={{ flex: 1, minWidth: 0 }} />
       {rounds.map((r, i) => (
-        <div key={r.roundId} style={{ width: 52, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.4, color: '#9ca3af' }}>
+        <div key={r.roundId} style={{ width: 44, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.4, color: '#9ca3af' }}>
           R{r.roundNumber}{i === rounds.length - 1 ? ' LIVE' : ''}
         </div>
       ))}
@@ -490,21 +490,28 @@ function MultiRoundRow({ row, isCurrentUser, isLast, isExpanded, onToggle, board
               {initialsOf(row.playerName)}
             </div>
           )}
-          {/* Bug fix: same as the single-round row above — this cell has
-              even less room to work with (rank + avatar + however many
-              round columns + TOTAL all compete for width on the same
-              row), so it was the more visibly broken case on mobile
-              ("Darren Lappen (..."). Wraps instead of clipping; the
-              rank/avatar widths above were trimmed slightly (not the
-              font) to give the name more room without needing to shrink
-              anything the person actually reads. */}
-          <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d', lineHeight: 1.25, wordBreak: 'break-word', minWidth: 0 }}>
+          {/* Package 2 fix — root cause was wordBreak: 'break-word' with
+              no overflow/ellipsis handling, which force-broke a long
+              surname mid-word the moment the fixed-width columns (rank +
+              avatar + N round columns + TOTAL + chevron) left too little
+              room — "Alex Schaefer" became "Alex / Schae / fer". Switched
+              to single-line truncation: stays on one line whenever it
+              fits (most names, most screens), only truncates with an
+              ellipsis on the genuinely too-narrow case. Round-column
+              width also trimmed slightly below (52 -> 44) to reclaim
+              real room for the name on 2-3 round trips, without making
+              the numbers themselves cramped — TOTAL's own width is
+              untouched, preserving its visual prominence. */}
+          <div style={{
+            fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0,
+          }}>
             {row.playerName}{isCurrentUser ? ' (you)' : ''}
           </div>
         </div>
 
         {(row.rounds ?? []).map(r => (
-          <div key={r.roundId} style={{ width: 52, textAlign: 'center', flexShrink: 0 }}>
+          <div key={r.roundId} style={{ width: 44, textAlign: 'center', flexShrink: 0 }}>
             <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: r.isCurrentRound ? '#14532d' : '#4b5563' }}>
               {r.points}
             </div>

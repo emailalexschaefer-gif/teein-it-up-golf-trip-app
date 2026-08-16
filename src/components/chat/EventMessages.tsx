@@ -89,6 +89,22 @@ export default function EventMessages({
   const [chatSending, setChatSending] = useState(false)
   const [chatError, setChatError] = useState('')
 
+  // Item 8 — pin/unpin. "Pinning another message replaces the existing
+  // pin after a simple confirmation" — the confirm() below is that
+  // confirmation; the server enforces the one-pinned-per-trip rule
+  // regardless, so this is a UX courtesy, not the actual safety net.
+  async function handlePinToggle(messageId: string, pinning: boolean) {
+    const alreadyPinned = (data?.messages ?? []).some(m => m.is_pinned)
+    if (pinning && alreadyPinned && !window.confirm('Pinning this message will replace the currently pinned message. Continue?')) return
+    try {
+      const res = await fetch(`/api/trips/${tripId}/messages/${messageId}/pin`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinned: pinning }),
+      })
+      if (!res.ok) throw new Error()
+      void queryClient.invalidateQueries({ queryKey: ['event-messages', tripId] })
+    } catch { /* silent — the button simply doesn't visibly change if it failed, no destructive state to roll back */ }
+  }
+
   async function handleSendChat() {
     if (!chatDraft.trim()) return
     setChatSending(true)
@@ -338,6 +354,29 @@ export default function EventMessages({
             </p>
           </div>
         )}
+        {/* Item 8 — the pinned message shown prominently at the top,
+            separate from the chronological flow below (which also still
+            shows it, highlighted, in its original position — "original
+            message can remain in chronological chat"). Only rendered
+            when one exists; enforced server-side to be at most one. */}
+        {(() => {
+          const pinned = (data?.messages ?? []).find(m => m.is_pinned)
+          if (!pinned) return null
+          return (
+            <div style={{
+              background: '#fdf3d9', border: '1.5px solid #c9a84c', borderRadius: 12,
+              padding: '10px 14px', marginBottom: 14, boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
+            }}>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 800, color: '#a1791f', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>
+                📌 Pinned
+              </div>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#14532d', lineHeight: 1.5 }}>{pinned.message}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#a1791f', marginTop: 3 }}>
+                — {pinned.sender?.full_name ?? 'Organiser'}
+              </p>
+            </div>
+          )
+        })()}
         {data && data.messages.map(m => {
           const kind = kindOf(m)
           const meta = KIND_META[kind]
@@ -348,10 +387,26 @@ export default function EventMessages({
               borderRadius: 12, padding: '10px 14px', marginBottom: 8,
               boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                 <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: meta.labelColor }}>
                   {m.is_pinned && '📌 '}{meta.icon} {meta.label} · {recipientLabel(m)} · {relativeTime(m.created_at)}
                 </span>
+                {/* Item 8 — Trip Chat pinning. Organiser-only, per
+                    "players can read but cannot pin/unpin". A player
+                    who isn't the organiser simply never sees this
+                    control at all, rather than seeing it disabled. */}
+                {isOrganiser && (
+                  <button
+                    onClick={() => void handlePinToggle(m.id, !m.is_pinned)}
+                    style={{
+                      fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700,
+                      color: m.is_pinned ? '#a1791f' : '#9ca3af', background: 'none', border: 'none',
+                      cursor: 'pointer', padding: '2px 4px', flexShrink: 0,
+                    }}
+                  >
+                    {m.is_pinned ? 'Unpin' : '📌 Pin'}
+                  </button>
+                )}
               </div>
               {kind === 'moment' && m.momentImageUrl && (
                 <button

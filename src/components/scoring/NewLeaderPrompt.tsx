@@ -13,9 +13,9 @@ const HEADLINE: Record<string, () => string> = {
   longest_drive: () => '💥 THAT COULD BE THE LONGEST DRIVE!',
 }
 const SUBTEXT: Record<string, string> = {
-  nearest_pin: 'Grab a photo while you\'re still at the pin — your marker will confirm it.',
-  pros_approach: 'Grab a photo while you\'re still at the pin — your marker will confirm it.',
-  longest_drive: 'Grab a photo at your ball before playing the next shot — your marker will confirm it.',
+  nearest_pin: 'Grab a photo while you\'re still at the pin — your Playing Partner will confirm it.',
+  pros_approach: 'Grab a photo while you\'re still at the pin — your Playing Partner will confirm it.',
+  longest_drive: 'Grab a photo at your ball before playing the next shot — your Playing Partner will confirm it.',
 }
 
 export interface NewLeaderContext {
@@ -45,7 +45,7 @@ export interface NewLeaderContext {
  */
 export default function NewLeaderPrompt({ ctx, onDismiss }: { ctx: NewLeaderContext; onDismiss: () => void }) {
   const headline = HEADLINE[ctx.compType]?.() ?? '🏁 THAT COULD BE THE LEAD!'
-  const subtext = SUBTEXT[ctx.compType] ?? 'Grab a photo now — your marker will confirm it.'
+  const subtext = SUBTEXT[ctx.compType] ?? 'Grab a photo now — your Playing Partner will confirm it.'
 
   return (
     <div style={{
