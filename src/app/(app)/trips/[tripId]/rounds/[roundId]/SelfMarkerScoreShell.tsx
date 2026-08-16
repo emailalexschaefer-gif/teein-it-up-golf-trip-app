@@ -1055,7 +1055,7 @@ export default function SelfMarkerScoreShell({
                     )}
                     <div style={{ display: 'flex', gap: 16, fontFamily: 'var(--font-body)', fontSize: 13, color: '#14532d' }}>
                       <div>{partnerName ?? 'Partner'}&apos;s score: <strong>{r.partnerSelfVal?.pickedUp ? 'Pick-up' : r.partnerSelfVal?.grossScore ?? '—'}</strong></div>
-                      <div>Your Playing Partner's entry: <strong>{r.partnerMarkerVal?.pickedUp ? 'Pick-up' : r.partnerMarkerVal?.grossScore ?? '—'}</strong></div>
+                      <div>Your Playing Partner&apos;s entry: <strong>{r.partnerMarkerVal?.pickedUp ? 'Pick-up' : r.partnerMarkerVal?.grossScore ?? '—'}</strong></div>
                     </div>
                     <button
                       onClick={() => { setHoleIdx(holes.indexOf(r.hole)); setShowReconciliation(false) }}

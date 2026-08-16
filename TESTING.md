@@ -9361,3 +9361,29 @@ surfacing a real schema mismatch), re-running that same diagnostic
 script now — after this fix and after redeploying — is a natural next
 verification step, alongside the live user-journey pass already
 recommended in the previous report.
+
+## NEXT TASK — Shotgun Start (status: not started)
+
+Deferred entirely from the "Remaining V1 Package" pass — genuinely
+larger architectural work than the other seven items in that batch, and
+risked destabilizing the scoring shells (`SelfMarkerScoreShell.tsx`,
+`ScoreSessionShell.tsx`) if rushed. Two pieces were approved:
+
+1. **Starting hole selector** — lightweight, defaults to Hole 1,
+   pre-populated from an organiser-assigned group starting hole when
+   available. Low risk on its own.
+2. **Free hole navigation + circular order** — the harder piece. Every
+   place in the scoring shells that currently assumes holes are entered
+   1→18 sequentially (hole index math, "Next Hole", completion
+   detection, the scoring-anchor reset-on-hole-change effect) needs to
+   be re-examined for a shotgun round, where Next Hole must wrap
+   17→18→1→2 and completion means "all required holes done," not "hole
+   18 reached." Round validity/leaderboard/reconciliation must not
+   care about entry order — this is the part that touches the most
+   already-working code.
+
+**Recommended approach for the next pass**: trace every place `holeIdx`
+gets incremented/compared in both scoring shells before writing
+anything, exactly like the tee-time and Champions investigations — this
+is very likely to reveal 2-3 specific spots that assume sequential
+order, not a from-scratch rewrite.
