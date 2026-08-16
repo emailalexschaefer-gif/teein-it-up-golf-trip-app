@@ -85,6 +85,24 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
     let cancelled = false
     async function load() {
       setLoading(true)
+      // Reset every piece of per-user state before fetching — this is
+      // the actual fix, not just adding currentUserId to the dependency
+      // array. Without this, switching accounts within the same mounted
+      // component (this effect now correctly re-fires on that, but a
+      // fetch takes a moment) would briefly — or, if the fetch ever
+      // fails, indefinitely — show the PREVIOUS user's myStatus/
+      // myResultValue/lastResult while the new user's own data is still
+      // loading. This is exactly the confirmed root cause of "TEST's
+      // freshly-typed 0.5m shown next to Alex's stale Verified ✓" — the
+      // old status badge and the newly-typed number were never from the
+      // same user's data in the first place.
+      setCurrentLeader(null)
+      setMyQualified(null)
+      setMyResultValue('')
+      setMyStatus(null)
+      setHasSubmittedOnce(false)
+      setLastResult(null)
+      setError(null)
       try {
         const res = await fetch(`/api/trips/${tripId}/side-comps/${sideCompId}/entries`)
         if (!res.ok || cancelled) return
@@ -106,7 +124,7 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
     }
     void load()
     return () => { cancelled = true }
-  }, [tripId, sideCompId])
+  }, [tripId, sideCompId, currentUserId])
 
   async function submit(qualified: boolean, resultValue: number | null, claims: boolean | null) {
     setSubmitting(true)

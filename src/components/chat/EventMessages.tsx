@@ -227,6 +227,30 @@ export default function EventMessages({
         </div>
       )}
 
+      {/* Organiser's own Moment action — the actual fix. MomentCapture
+          already existed and worked correctly (including the Batch 4
+          iOS camera fix) — it was simply never rendered anywhere an
+          organiser could reach it; only the player-only "Trip Chat"
+          block below ever included it. Per explicit product decision: a
+          Moment is a Moment regardless of who captures it — no separate
+          organiser-only API, no different data shape, exactly the same
+          component and props the player branch already uses below.
+          Deliberately its own distinct block, not merged into the
+          Announcement composer above, so "Send Event Announcement" and
+          "Capture a Moment" read as two clearly separate actions, not
+          one composer with an attached button. My HQ is deliberately
+          not touched by this fix — Chat is where Moment creation lives
+          for both roles; surfacing Moments in My HQ is a separate,
+          future decision, not part of closing this gap. */}
+      {isOrganiser && (
+        <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid #eceae3', padding: 12, marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Capture a Moment
+          </div>
+          <MomentCapture tripId={tripId} roundId={roundId} holeNumber={holeNumber} myGroupId={myGroupId} />
+        </div>
+      )}
+
       {/* Trip-wide chat composer for normal players. No longer gated on
           myGroupId — chat is trip-wide now, so a player doesn't need a
           group assignment to use it (previously, an unassigned player

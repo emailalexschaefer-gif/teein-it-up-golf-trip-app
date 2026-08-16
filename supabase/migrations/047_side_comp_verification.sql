@@ -216,7 +216,7 @@ BEGIN
   -- claim (including this player's own prior pending value, if any).
   SELECT MIN(result_value) INTO v_best_verified
     FROM public.side_comp_entries
-    WHERE side_comp_id = p_side_comp_id AND verification_status = 'verified'
+    WHERE side_comp_id = p_side_comp_id AND side_comp_entries.verification_status = 'verified'
       AND result_value IS NOT NULL AND player_id <> p_player_id;
 
   v_would_lead := p_qualified AND (v_best_verified IS NULL OR p_result_value < v_best_verified);
@@ -406,7 +406,7 @@ BEGIN
   -- best must not log a duplicate leadership event.
   SELECT player_id INTO v_old_leader_id
     FROM public.side_comp_entries
-    WHERE side_comp_id = v_side_comp_id AND verification_status = 'verified' AND result_value IS NOT NULL
+    WHERE side_comp_id = v_side_comp_id AND side_comp_entries.verification_status = 'verified' AND result_value IS NOT NULL
     ORDER BY result_value ASC LIMIT 1;
 
   UPDATE public.side_comp_entries SET
@@ -416,7 +416,7 @@ BEGIN
 
   SELECT player_id INTO v_new_leader_id
     FROM public.side_comp_entries
-    WHERE side_comp_id = v_side_comp_id AND verification_status = 'verified' AND result_value IS NOT NULL
+    WHERE side_comp_id = v_side_comp_id AND side_comp_entries.verification_status = 'verified' AND result_value IS NOT NULL
     ORDER BY result_value ASC LIMIT 1;
 
   v_became_leader := (v_new_leader_id = v_player_id) AND (v_new_leader_id IS DISTINCT FROM v_old_leader_id);
