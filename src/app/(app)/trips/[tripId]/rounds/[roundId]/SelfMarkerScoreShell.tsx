@@ -771,7 +771,7 @@ export default function SelfMarkerScoreShell({
           Choose your Playing Partner
         </div>
         <div style={{ fontFamily: 'var(--font-body)', color: '#7a7260', fontSize: 13, marginBottom: 20, textAlign: 'center' }}>
-          You'll record your own score and theirs — they'll do the same for you.
+          You&apos;ll record your own score and theirs — they&apos;ll do the same for you.
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {partnerCandidates.map(c => (
