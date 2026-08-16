@@ -47,7 +47,7 @@ type Stage = 'review' | 'holes' | 'confirm' | 'starting'
 
 export default function BeginRoundModal({
   tripId, roundId, roundName, courseName, holeCount,
-  playDate, groups, onClose, libraryHolesSnapshot,
+  playDate, groups, onClose, libraryHolesSnapshot, teeName,
 }: Props) {
   const router = useRouter()
   const setScoringFocusActive = useScoringFocusStore(s => s.setActive)
@@ -204,7 +204,23 @@ export default function BeginRoundModal({
   useEffect(() => {
     modalScrollRef.current?.scrollTo({ top: 0 })
   }, [stage])
-  const [holes, setHoles]   = useState<HoleTemplate[]>(() => deriveBeginRoundHoles(libraryHolesSnapshot, holeCount))
+  const [holes, setHoles]   = useState<HoleTemplate[]>(() => {
+    // Fix Batch (course-data): exhaustive static tracing of the entire
+    // wizard -> API -> DB -> this component chain found every link
+    // structurally correct, and the absence of TeeSummaryCard's own
+    // "hole-by-hole data hasn't been added" warning (both at original
+    // selection time and when re-opening Edit Trip afterward) is strong
+    // evidence the snapshot genuinely is being persisted with real data.
+    // This dev-only log exists specifically to answer, from a real
+    // browser session, the one question static reading can't: what does
+    // this component actually receive at the moment it matters. Confirm
+    // no code changes this pass are speculative about it.
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.log('[BeginRoundModal] mount', { holeCount, snapshotLength: libraryHolesSnapshot?.length ?? null, teeName, firstHole: libraryHolesSnapshot?.[0] ?? null })
+    }
+    return deriveBeginRoundHoles(libraryHolesSnapshot, holeCount)
+  })
   // Playing Nine — only meaningful for 9-hole rounds; 18-hole rounds are
   // explicitly unaffected and never read this. Defaults to Front Nine
   // per the explicit requirement (Custom/To Be Confirmed can come later).
@@ -588,6 +604,23 @@ export default function BeginRoundModal({
                     ? <><strong>Back Nine loaded (holes 10-18).</strong> Real course hole numbers are kept — review and adjust par and stroke index to match your course before continuing.</>
                     : holeCount === 9 && playingNine === 'custom'
                     ? <><strong>Custom nine.</strong> Edit hole numbers, pars, and stroke indexes freely to match whatever holes are actually being played.</>
+                    : teeName && (!libraryHolesSnapshot || libraryHolesSnapshot.length === 0)
+                    // Fix Batch (verification/course-data): this branch is
+                    // new — previously any non-back/non-custom case fell
+                    // straight to the generic "Default hole template
+                    // loaded" message below, even when a library tee WAS
+                    // selected (teeName present) and simply has no hole-
+                    // level rows on file. That's a genuinely different,
+                    // more diagnosable situation than never having chosen
+                    // a course at all, and conflating the two made this
+                    // exact repro (Flinders Black Tees selected, correct
+                    // aggregate stats shown, but Hole Setup still generic)
+                    // look identical to a plain manual round. The
+                    // underlying fallback behaviour is unchanged — still
+                    // the same safe generic template, never fabricated
+                    // course data — only the explanation shown is more
+                    // precise now.
+                    ? <><strong>{teeName} has no hole-by-hole data on file yet.</strong> Showing a default template — review and adjust each hole&apos;s par and stroke index, or add hole data for this tee in Course Library Admin.</>
                     : <><strong>Default hole template loaded.</strong> Review and adjust each hole&apos;s par and stroke index to match your course before continuing.</>}
                 </p>
               </div>

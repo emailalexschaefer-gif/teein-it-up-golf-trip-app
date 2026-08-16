@@ -188,7 +188,9 @@ function RoundCard({ round, index, tripId, canBegin, onBeginRound }: RoundCardPr
           </div>
 
           {round.course_name && (
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600, color: '#3d3929', marginBottom: 4 }}>{round.course_name}</p>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600, color: '#3d3929', marginBottom: 4 }}>
+              {round.course_name}{round.tee_name ? ` · ${round.tee_name} Tees` : ''}
+            </p>
           )}
 
           <div className="flex items-center gap-3 flex-wrap" style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260', marginBottom: 10 }}>

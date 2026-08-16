@@ -221,14 +221,18 @@ function TeeSummaryCard({ courseLabel, tee, onChangeTee }: { courseLabel: string
   // official values." — every field below either shows the real stored
   // value or "—", never a computed/assumed fallback.
   const dash = (v: number | null) => v ?? '—'
+  const [showHoles, setShowHoles] = useState(false)
   return (
     <div className="bg-white rounded-xl border border-cream-300 p-3 space-y-2">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-text">{courseLabel} — {tee.name} Tees</p>
+        <p className="text-sm font-semibold text-brand-700 flex items-center gap-1.5">
+          <span aria-hidden="true">✓</span> {tee.name} Tees selected
+        </p>
         <button type="button" onClick={onChangeTee} className="text-xs text-text-muted hover:text-text transition-colors flex-shrink-0">
           Change tee
         </button>
       </div>
+      <p className="text-xs text-text-muted">{courseLabel}</p>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-muted">
         <span>{tee.holes.length || 18} Holes</span>
         <span>Par {dash(tee.par)}</span>
@@ -240,6 +244,39 @@ function TeeSummaryCard({ courseLabel, tee, onChangeTee }: { courseLabel: string
         <p className="text-[11px] text-text-muted italic pt-1 border-t border-cream-200">
           Hole-by-hole data hasn&apos;t been added for this tee yet — you can still continue and enter hole details manually on the next screen.
         </p>
+      )}
+      {tee.holes.length > 0 && (
+        <div className="pt-1 border-t border-cream-200">
+          <button
+            type="button"
+            onClick={() => setShowHoles(s => !s)}
+            className="text-xs text-brand-600 hover:text-brand-700 transition-colors"
+          >
+            {showHoles ? '▲ Hide' : '▼ View'} holes &amp; indexes
+          </button>
+          {showHoles && (
+            <table className="w-full text-[11px] text-text-muted mt-2" style={{ borderCollapse: 'collapse' }}>
+              <thead>
+                <tr className="text-left border-b border-cream-200">
+                  <th className="py-1 font-medium">Hole</th>
+                  <th className="py-1 font-medium">Par</th>
+                  <th className="py-1 font-medium">SI</th>
+                  <th className="py-1 font-medium">Distance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...tee.holes].sort((a, b) => a.hole_number - b.hole_number).map(h => (
+                  <tr key={h.hole_number} className="border-b border-cream-100">
+                    <td className="py-1">{h.hole_number}</td>
+                    <td className="py-1">{h.par}</td>
+                    <td className="py-1">{h.stroke_index ?? '—'}</td>
+                    <td className="py-1">{h.distance ? `${h.distance}m` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       )}
     </div>
   )
