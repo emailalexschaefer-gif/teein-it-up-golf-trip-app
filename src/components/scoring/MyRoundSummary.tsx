@@ -51,7 +51,7 @@ export default function MyRoundSummary({ tripId, roundId, roundStatus }: { tripI
 
       {data.markerName && (
         <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', textAlign: 'center', marginBottom: 10 }}>
-          Marked by {data.markerName}
+          Playing Partner: {data.markerName}
         </div>
       )}
 

@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import type { TripData } from './TripDetailClient'
 
@@ -21,6 +22,91 @@ function formatTeeTime(teeTime: string | null): string | null {
 
 function formatLabel(format: string): string {
   return format.charAt(0).toUpperCase() + format.slice(1).replace(/_/g, ' ')
+}
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0][0]?.toUpperCase() ?? '?'
+  return ((parts[0][0] ?? '') + (parts[parts.length - 1][0] ?? '')).toUpperCase()
+}
+
+/**
+ * Players Joined — social proof on the waiting-for-organiser screen.
+ * Deliberately reads trip.trip_members directly (the exact same prop
+ * TripDetailClient already passes down, and the exact same canonical
+ * data the organiser Players tab and My Events count are being fixed to
+ * use below) — no separate fetch, no separate source of truth to drift
+ * out of sync with those two. Read-only by construction: this component
+ * has no button, form, or mutation anywhere in it, for any role — the
+ * "read-only for normal players, no remove/edit controls" requirement
+ * isn't a permission check to get right, there's simply nothing here
+ * that could edit anything regardless of who's viewing it.
+ */
+function PlayersJoinedSection({ trip }: { trip: TripData }) {
+  const [showAll, setShowAll] = useState(false)
+  // Roster shows every joined member, including the organiser as a
+  // person — players should be able to see who's running the event
+  // even if the organiser isn't playing themselves. The COUNT in the
+  // heading is deliberately a different, narrower number: the exact
+  // same formula already established in TripDetailClient.tsx and the
+  // dashboard's player_count (role='player' members, plus the organiser
+  // only if organiser_is_playing) — this is the actual fix requested,
+  // so this screen's number can never drift from the event card or the
+  // organiser Players tab. Showing every member in the roster while
+  // counting only true players in the heading isn't an inconsistency —
+  // "Players Joined (12)" and "12 players" on the event card describe
+  // the same 12 people; the roster just also happens to show the
+  // organiser underneath that count when they're not one of the 12.
+  const roster = trip.trip_members
+  const playerCount = trip.trip_members.filter(m => m.role === 'player').length + (trip.organiser_is_playing ? 1 : 0)
+  const visible = showAll ? roster : roster.slice(0, 8)
+
+  if (roster.length === 0) return null
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+        Players Joined ({playerCount})
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {visible.map(m => (
+          <div key={m.profile_id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#ffffff', border: '1px solid #eceae3', borderRadius: 10, padding: '7px 10px' }}>
+            {m.profiles?.avatar_url ? (
+              <img src={m.profiles.avatar_url} alt="" style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+            ) : (
+              <div style={{
+                width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+                background: 'radial-gradient(#e8c96a,#c9a84c)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 11,
+              }}>
+                {initialsOf(m.profiles?.full_name ?? '?')}
+              </div>
+            )}
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#1a1a16', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {m.profiles?.full_name ?? 'Player'}
+            </span>
+            {m.profiles?.handicap != null && (
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', fontWeight: 700, flexShrink: 0 }}>
+                HCP {m.profiles.handicap}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+      {roster.length > 8 && (
+        <button
+          onClick={() => setShowAll(v => !v)}
+          style={{
+            display: 'block', width: '100%', marginTop: 8, padding: '8px 0', background: 'none',
+            border: 'none', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#a1791f', cursor: 'pointer',
+          }}
+        >
+          {showAll ? 'Show less' : `View all ${roster.length} players`}
+        </button>
+      )}
+    </div>
+  )
 }
 
 export default function PlayerHomeCard({ trip, currentUserId }: Props) {
@@ -120,6 +206,7 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
                   </span>
                 </div>
               )}
+              <PlayersJoinedSection trip={trip} />
               {focusRound?.status === 'active' && (
                 <Link
                   href={`/trips/${trip.id}/rounds/${focusRound.id}`}

@@ -1349,7 +1349,7 @@ export default function SelfMarkerScoreShell({
 
           {!scorecardExpanded && currentMarkedByName && (
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#b0b6be', padding: '2px 2px 0' }}>
-              Marked by {currentMarkedByName}
+              Playing Partner: {currentMarkedByName}
             </div>
           )}
 
@@ -1436,7 +1436,7 @@ export default function SelfMarkerScoreShell({
 
           {scorecardExpanded && currentMarkedByName && (
             <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 10, color: '#b0b6be', marginTop: 6 }}>
-              Marked by {currentMarkedByName}
+              Playing Partner: {currentMarkedByName}
             </div>
           )}
         </div>
@@ -1523,9 +1523,9 @@ export default function SelfMarkerScoreShell({
           ref={scoringAnchorRef}
           style={{ display: 'flex', flexDirection: 'column' }}
         >
-        {/* ── Card 1: YOUR SCORE ─────────────────────────────────────────── */}
+        {/* ── Card 1: MY SCORE ───────────────────────────────────────────── */}
         <ScoreCard
-          title="YOUR SCORE" name={myName} hcp={myHcp} par={par} si={si} strokes={myStrokes} holeNum={holeNum} distance={distance}
+          title="MY SCORE" name={myName} hcp={myHcp} par={par} si={si} strokes={myStrokes} holeNum={holeNum} distance={distance}
           gross={draftMyGross} pickedUp={draftMyPickedUp} pts={myPts} runningTotal={myRunningTotal}
           onPick={d => pick('mine', d)} onPar={() => pickPar('mine')} onTogglePickUp={() => togglePickUp('mine')}
           status={myComparison} onOpenSummary={() => setShowReconciliation(true)} isLockedForSide={isLocked}
@@ -1587,7 +1587,7 @@ export default function SelfMarkerScoreShell({
         {/* Live Leaderboard — a toggled overlay, not a navigation. Full-
             width, visually secondary to score entry (outlined, not
             filled green like Confirm Score), placed exactly where
-            specified: below Your Marker, above the organiser link, with
+            specified: below Playing Partner, above the organiser link, with
             enough margin that it isn't confused with that link. */}
         <button
           onClick={() => setShowLeaderboard(true)}

@@ -155,7 +155,7 @@ export default function PlayerRoundView({ tripId, roundId, roundStatus }: { trip
               </div>
             )}
             {data.markerName && (
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af' }}>Marked by {data.markerName}</div>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af' }}>Playing Partner: {data.markerName}</div>
             )}
           </div>
         </>
