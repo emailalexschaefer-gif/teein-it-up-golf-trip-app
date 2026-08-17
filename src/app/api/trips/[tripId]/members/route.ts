@@ -27,7 +27,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
   const { data: members, error } = await admin
     .from('trip_members')
-    .select('id, role, profile_id, group_id, playing_handicap, profiles ( id, full_name, avatar_url, handicap )')
+    .select('id, role, profile_id, group_id, playing_handicap, profiles ( id, full_name, avatar_url, handicap, golf_club, occupation )')
     .eq('trip_id', tripId)
     .order('joined_at', { ascending: true })
 

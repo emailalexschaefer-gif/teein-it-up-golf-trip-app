@@ -17,7 +17,7 @@ import PlayerHomeCard  from './PlayerHomeCard'
 import TripRoundsTab   from './tabs/TripRoundsTab'
 import { toWizardSideCompPrefill } from '@/lib/trips/sideCompRoundTrip'
 
-export interface MemberProfile { id: string; full_name: string; avatar_url: string | null; handicap?: number | null }
+export interface MemberProfile { id: string; full_name: string; avatar_url: string | null; handicap?: number | null; golf_club?: string | null; occupation?: string | null }
 export interface TripMemberRow {
   id: string; role: string; profile_id: string; group_id?: string | null
   playing_handicap?: number | null

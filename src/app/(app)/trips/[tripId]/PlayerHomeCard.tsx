@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import type { TripData } from './TripDetailClient'
+import type { TripData, TripMemberRow } from './TripDetailClient'
 
 interface Props {
   trip: TripData
@@ -43,24 +43,52 @@ function initialsOf(name: string): string {
  * isn't a permission check to get right, there's simply nothing here
  * that could edit anything regardless of who's viewing it.
  */
+/**
+ * Deployment/bug fix — the count on this screen and the dashboard's
+ * event tile both correctly showed "2", but the roster itself only
+ * rendered one card. Root cause: this component previously read
+ * trip.trip_members directly — the RLS-subject server-rendered prop
+ * from page.tsx, fetched once via a query nested through trips and
+ * further through profiles. A far simpler, separately-computed COUNT
+ * (this component's own formula, and the dashboard's) apparently
+ * resolved correctly under the RLS policy in its current production
+ * state, while this specific nested-query shape did not reliably
+ * surface every member's row — only the viewing player's own row was
+ * guaranteed visible. See migration 054 for the suspected underlying
+ * RLS cause (a likely-unapplied recursion fix from migration 008).
+ *
+ * Fix: poll /api/trips/[tripId]/members — the exact same admin-backed,
+ * RLS-bypassing endpoint TripDetailClient.tsx already uses for the
+ * organiser Players/Overview/Groups tabs (added in an earlier pass).
+ * This is now the one canonical source for all three surfaces
+ * (dashboard tile still uses its own query — see accompanying fix in
+ * src/lib/queries/trips.ts — but this screen and the organiser tabs now
+ * genuinely share the same data path, not just the same shape). Falls
+ * back to the server-rendered trip.trip_members prop only until the
+ * first poll resolves, so there's no loading flash to an empty roster.
+ */
 function PlayersJoinedSection({ trip }: { trip: TripData }) {
   const [showAll, setShowAll] = useState(false)
-  // Roster shows every joined member, including the organiser as a
-  // person — players should be able to see who's running the event
-  // even if the organiser isn't playing themselves. The COUNT in the
-  // heading is deliberately a different, narrower number: the exact
-  // same formula already established in TripDetailClient.tsx and the
-  // dashboard's player_count (role='player' members, plus the organiser
-  // only if organiser_is_playing) — this is the actual fix requested,
-  // so this screen's number can never drift from the event card or the
-  // organiser Players tab. Showing every member in the roster while
-  // counting only true players in the heading isn't an inconsistency —
-  // "Players Joined (12)" and "12 players" on the event card describe
-  // the same 12 people; the roster just also happens to show the
-  // organiser underneath that count when they're not one of the 12.
-  const roster = trip.trip_members
-  const playerCount = trip.trip_members.filter(m => m.role === 'player').length + (trip.organiser_is_playing ? 1 : 0)
+  const [liveMembers, setLiveMembers] = useState<TripMemberRow[] | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/trips/${trip.id}/members`)
+      .then(res => res.ok ? res.json() : null)
+      .then(body => { if (!cancelled && body?.members) setLiveMembers(body.members) })
+      .catch(() => { /* stays on the prop-based fallback below rather than showing an error for a read-only social widget */ })
+    return () => { cancelled = true }
+  }, [trip.id])
+
+  const roster = liveMembers ?? trip.trip_members
+  // Same canonical formula as TripDetailClient.tsx and the dashboard's
+  // player_count — role='player' members, plus the organiser only if
+  // organiser_is_playing. The roster below still shows every joined
+  // member (organiser included, as a person) — only this heading number
+  // is the narrower, canonical "players" count.
+  const playerCount = roster.filter(m => m.role === 'player').length + (trip.organiser_is_playing ? 1 : 0)
   const visible = showAll ? roster : roster.slice(0, 8)
+  const [selectedPlayer, setSelectedPlayer] = useState<TripMemberRow | null>(null)
 
   if (roster.length === 0) return null
 
@@ -71,7 +99,14 @@ function PlayersJoinedSection({ trip }: { trip: TripData }) {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {visible.map(m => (
-          <div key={m.profile_id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#ffffff', border: '1px solid #eceae3', borderRadius: 10, padding: '7px 10px' }}>
+          <button
+            key={m.profile_id}
+            onClick={() => setSelectedPlayer(m)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10, background: '#ffffff', border: '1px solid #eceae3',
+              borderRadius: 10, padding: '7px 10px', width: '100%', textAlign: 'left', cursor: 'pointer',
+            }}
+          >
             {m.profiles?.avatar_url ? (
               <img src={m.profiles.avatar_url} alt="" style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
             ) : (
@@ -91,7 +126,7 @@ function PlayersJoinedSection({ trip }: { trip: TripData }) {
                 HCP {m.profiles.handicap}
               </span>
             )}
-          </div>
+          </button>
         ))}
       </div>
       {roster.length > 8 && (
@@ -104,6 +139,80 @@ function PlayersJoinedSection({ trip }: { trip: TripData }) {
         >
           {showAll ? 'Show less' : `View all ${roster.length} players`}
         </button>
+      )}
+
+      {/* Item 3 — "Join the Chat". Deliberately just a Link into the
+          existing /trips/[tripId]/chat route — no new chat surface, no
+          group-specific variant, exactly the same shared feed every
+          other chat entry point in this app already goes to. */}
+      <Link
+        href={`/trips/${trip.id}/chat`}
+        style={{
+          display: 'block', marginTop: 10, padding: '12px 14px', borderRadius: 12,
+          background: 'linear-gradient(135deg,#14532d,#1a6b3a)', textDecoration: 'none', textAlign: 'center',
+          boxShadow: '0 4px 14px rgba(20,83,45,0.25)',
+        }}
+      >
+        <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 14, color: '#fff' }}>💬 Join the Chat</div>
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'rgba(255,255,255,0.75)', marginTop: 2 }}>
+          Meet the crew and start the banter →
+        </div>
+      </Link>
+
+      {/* Item 2 — tappable player card. Lightweight by design: only the
+          fields the brief explicitly named (photo, name, handicap, golf
+          club, occupation), each shown only when actually present —
+          "missing optional fields should simply be omitted" is the
+          literal render condition below, not a placeholder/blank state.
+          No email, no private account data — this reads from the exact
+          same /members response already fetched above, which itself
+          never selects anything beyond these fields in the first place,
+          so there's nothing sensitive available here to accidentally
+          expose even by mistake. */}
+      {selectedPlayer && (
+        <div
+          onClick={() => setSelectedPlayer(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 50, display: 'flex', alignItems: 'flex-end' }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#faf6ed', borderRadius: '20px 20px 0 0', padding: '24px 20px 32px',
+              width: '100%', maxWidth: 540, margin: '0 auto', boxShadow: '0 -4px 32px rgba(0,0,0,0.18)',
+            }}
+          >
+            <div style={{ textAlign: 'center' }}>
+              {selectedPlayer.profiles?.avatar_url ? (
+                <img src={selectedPlayer.profiles.avatar_url} alt="" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', margin: '0 auto 12px' }} />
+              ) : (
+                <div style={{
+                  width: 72, height: 72, borderRadius: '50%', margin: '0 auto 12px',
+                  background: 'radial-gradient(#e8c96a,#c9a84c)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 24,
+                }}>
+                  {initialsOf(selectedPlayer.profiles?.full_name ?? '?')}
+                </div>
+              )}
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 800, color: '#14532d' }}>
+                {selectedPlayer.profiles?.full_name ?? 'Player'}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 10, fontFamily: 'var(--font-body)', fontSize: 13, color: '#7a7260' }}>
+                {selectedPlayer.profiles?.handicap != null && <div>⛳ Handicap {selectedPlayer.profiles.handicap}</div>}
+                {selectedPlayer.profiles?.golf_club && <div>🏌️ {selectedPlayer.profiles.golf_club}</div>}
+                {selectedPlayer.profiles?.occupation && <div>💼 {selectedPlayer.profiles.occupation}</div>}
+              </div>
+            </div>
+            <button
+              onClick={() => setSelectedPlayer(null)}
+              style={{
+                display: 'block', width: '100%', marginTop: 18, padding: 11, borderRadius: 10,
+                background: '#f3f4f6', border: '1px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer',
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

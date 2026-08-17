@@ -131,7 +131,22 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
           <InfoRow label="Type"   value={eventLabel} />
           <InfoRow label="Dates"  value={formatTripDateRange(trip.start_date, trip.end_date)} />
           {trip.location    && <InfoRow label="Location"    value={trip.location} />}
-          {trip.description && <InfoRow label="About"       value={trip.description} />}
+          {trip.description && (
+            <div className="flex gap-3">
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a89e88', width: 72, flexShrink: 0, paddingTop: 1 }}>About</span>
+              {/* Bug fix — this previously reused InfoRow, which renders
+                  value as a bare <span> with no whitespace handling at
+                  all, collapsing every line break and blank line the
+                  organiser typed. Trip Information (TripInformationCard)
+                  already solved this correctly (whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word') — same treatment applied here,
+                  not reinvented. Display-only, same trip.description
+                  data, no data-model change. */}
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#1a1a16', flex: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}>
+                {trip.description}
+              </p>
+            </div>
+          )}
           {ppg > 0          && <InfoRow label="Group size"  value={`${ppg} players per group`} />}
           <InfoRow label="Status" value={TRIP_STATUS_LABELS[trip.status]} />
           {(trip.organiser_is_playing ?? false) && <InfoRow label="Organiser" value="Also playing" />}
