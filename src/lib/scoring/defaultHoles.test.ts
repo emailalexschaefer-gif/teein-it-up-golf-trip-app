@@ -60,8 +60,8 @@ test('deriveBeginRoundHoles — a real library snapshot is preferred over the ge
   ]
   const result = deriveBeginRoundHoles(snapshot, 18)
   assert.equal(result.length, 2) // only what the snapshot actually has, not padded to 18
-  assert.deepEqual(result[0], { hole_number: 1, par: 4, stroke_index: 7, distance: 350 })
-  assert.deepEqual(result[1], { hole_number: 2, par: 3, stroke_index: 15, distance: 145 })
+  assert.deepEqual(result[0], { hole_number: 1, par: 4, stroke_index: 7, distance: 350, pro_tip: null })
+  assert.deepEqual(result[1], { hole_number: 2, par: 3, stroke_index: 15, distance: 145, pro_tip: null })
 })
 
 test('deriveBeginRoundHoles — distance survives the derivation untouched, including when null', () => {
@@ -161,8 +161,8 @@ test('deriveNineHoles — Front Nine on a library snapshot preserves real par/st
   const result = deriveNineHoles(snapshot, 'front')
   assert.deepEqual(result.map(h => h.hole_number), [1, 2, 3, 4, 5, 6, 7, 8, 9])
   // Spot-check real, distinctive values survived untouched.
-  assert.deepEqual(result[0], { hole_number: 1, par: 4, stroke_index: 18, distance: 300 })
-  assert.deepEqual(result[4], { hole_number: 5, par: 3, stroke_index: 14, distance: 328 })
+  assert.deepEqual(result[0], { hole_number: 1, par: 4, stroke_index: 18, distance: 300, pro_tip: null })
+  assert.deepEqual(result[4], { hole_number: 5, par: 3, stroke_index: 14, distance: 328, pro_tip: null })
   // Never equal to the generic Front Nine template — proves this is
   // really reading the snapshot, not accidentally falling through.
   assert.notDeepEqual(result, getDefaultHolesForNine('front'))
@@ -172,8 +172,8 @@ test('deriveNineHoles — Back Nine on a library snapshot preserves real hole da
   const snapshot = fullEighteenHoleSnapshot()
   const result = deriveNineHoles(snapshot, 'back')
   assert.deepEqual(result.map(h => h.hole_number), [10, 11, 12, 13, 14, 15, 16, 17, 18])
-  assert.deepEqual(result[0], { hole_number: 10, par: 4, stroke_index: 9, distance: 363 })
-  assert.deepEqual(result[8], { hole_number: 18, par: 5, stroke_index: 1, distance: 419 })
+  assert.deepEqual(result[0], { hole_number: 10, par: 4, stroke_index: 9, distance: 363, pro_tip: null })
+  assert.deepEqual(result[8], { hole_number: 18, par: 5, stroke_index: 1, distance: 419, pro_tip: null })
   assert.notDeepEqual(result, getDefaultHolesForNine('back'))
 })
 

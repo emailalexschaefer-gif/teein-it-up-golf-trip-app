@@ -28,6 +28,7 @@ import PendingVerificationCard from '@/components/scoring/PendingVerificationCar
 interface Hole {
   id: string; hole_number: number; par: number; stroke_index: number
   distance?: number | null
+  pro_tip?: string | null
   is_powerplay?: boolean
   side_game_type?: 'nearest_pin' | 'longest_drive' | 'straightest_drive' | null
 }
@@ -198,6 +199,26 @@ export default function SelfMarkerScoreShell({
   const [holes, setHoles] = useState<Hole[]>([])
   const [loadingHoles, setLoadingHoles] = useState(true)
   const [holeIdx, setHoleIdx] = useState(0)
+  // Shotgun Start. startInfo is fetched once on mount (my-starting-hole,
+  // resolves the caller's own group server-side). holeIdxSeeded ensures
+  // the seeding effect below runs exactly once — never re-seeds on a
+  // later re-render, which would otherwise yank a player back to their
+  // starting hole mid-round every time this data happened to refetch.
+  // pendingStartHolePick is the local-only (never persisted) fallback
+  // for a shotgun round with no group assignment yet — "a fallback, not
+  // organiser admin work forced onto players": the player just needs
+  // somewhere to start, they can still navigate anywhere afterward.
+  const [startInfo, setStartInfo] = useState<{ startType: 'standard' | 'shotgun'; startingHole: number | null } | null>(null)
+  const [pendingStartHolePick, setPendingStartHolePick] = useState<number | null>(null)
+  const holeIdxSeededRef = useRef(false)
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/trips/${tripId}/rounds/${round.id}/my-starting-hole`)
+      .then(res => res.ok ? res.json() : null)
+      .then(body => { if (!cancelled && body) setStartInfo(body) })
+      .catch(() => { if (!cancelled) setStartInfo({ startType: 'standard', startingHole: null }) }) // fails safe to standard behaviour
+    return () => { cancelled = true }
+  }, [tripId, round.id])
   // Sprint 9 Item 2 — Side Competitions + Powerplay, read-only scoring
   // awareness. Fetched once alongside holes (same round-scoped request,
   // see holes/route.ts) — no write/entry flow reads or writes these yet.
@@ -246,6 +267,15 @@ export default function SelfMarkerScoreShell({
   // preservation requirement (hole number, draft scores, sync state)
   // true automatically rather than needing separate state-passing.
   const [showLeaderboard, setShowLeaderboard] = useState(false)
+  // Pro Tip — collapsed by default on every hole, per explicit
+  // instruction ("changing holes should not leave a giant expanded
+  // panel unexpectedly covering the scoring UI"). Reset via the effect
+  // below, keyed on holeIdx, rather than just defaulting to false once
+  // — without the reset, an expanded tip on Hole 3 would stay expanded
+  // after navigating to Hole 4 (React state doesn't auto-reset just
+  // because the underlying data changed).
+  const [proTipExpanded, setProTipExpanded] = useState(false)
+  useEffect(() => { setProTipExpanded(false) }, [holeIdx])
 
   // Scoring focus mode — signals AppNav/TripBottomNav to hide themselves
   // while actively entering scores, restoring them for Round Summary and
@@ -486,6 +516,25 @@ export default function SelfMarkerScoreShell({
     void load()
   }, [tripId, round.id])
 
+  // Seed holeIdx from the resolved starting hole — exactly once, only
+  // once both holes and startInfo have actually loaded (guarded by the
+  // ref, not by re-running this effect conditionally, which is what
+  // makes "exactly once" actually true regardless of render order).
+  // Standard rounds and shotgun rounds with no resolved starting hole
+  // yet both correctly leave holeIdx at its default 0 (hole 1) —
+  // nothing here changes standard-round behaviour at all.
+  useEffect(() => {
+    if (holeIdxSeededRef.current) return
+    if (holes.length === 0 || !startInfo) return
+    const resolvedStartHole = startInfo.startType === 'shotgun' ? (startInfo.startingHole ?? pendingStartHolePick) : null
+    if (startInfo.startType === 'shotgun' && resolvedStartHole === null) return // waiting on the fallback picker below
+    holeIdxSeededRef.current = true
+    if (resolvedStartHole !== null) {
+      const idx = holes.findIndex(h => h.hole_number === resolvedStartHole)
+      if (idx >= 0) setHoleIdx(idx)
+    }
+  }, [holes, startInfo, pendingStartHolePick])
+
   // ── Hydrate from live query data, then overlay unsynced local queue entries ─
   useEffect(() => {
     if (holes.length === 0 || !currentMy) return
@@ -679,9 +728,22 @@ export default function SelfMarkerScoreShell({
       setPartnerMarker(prev => ({ ...prev, [holeNum]: partnerValue }))
     }
 
-    const isLastHole = holeIdx >= holes.length - 1
+    // Shotgun Start — "last array position" means nothing in a circular
+    // sequence, so it's no longer what decides whether to advance or
+    // stop. The SEPARATE allDone check elsewhere in this file (watches
+    // captured scores directly, holes.every(...) — already genuinely
+    // order-independent, confirmed unchanged) is what actually triggers
+    // Round Summary once every hole is truly done, for both standard
+    // and shotgun rounds alike. This auto-advance just always moves to
+    // the next hole for shotgun (wrapping circularly); for standard
+    // rounds the exact original "stop at the last hole" behaviour is
+    // preserved untouched.
+    const isShotgunRound = startInfo?.startType === 'shotgun'
+    const isLastHole = !isShotgunRound && holeIdx >= holes.length - 1
     setTimeout(() => {
-      if (!isLastHole) {
+      if (isShotgunRound) {
+        setHoleIdx(i => (i + 1) % holes.length)
+      } else if (!isLastHole) {
         setHoleIdx(i => i + 1)
       } else if (requiresMarker) {
         // Individual mode has no comparison/reconciliation requirement at
@@ -726,8 +788,19 @@ export default function SelfMarkerScoreShell({
     const dy = e.changedTouches[0].clientY - swipeStartY.current
     swipeStartX.current = null; swipeStartY.current = null
     if (Math.abs(dx) < 50 || Math.abs(dy) > Math.abs(dx) * 0.8) return
-    if (dx < 0 && holeIdx < holes.length - 1) setHoleIdx(h => h + 1)
-    if (dx > 0 && holeIdx > 0) setHoleIdx(h => h - 1)
+    // Shotgun Start — circular wrap, only for shotgun rounds. Standard
+    // rounds keep the exact original clamped-at-bounds behaviour
+    // (startInfo?.startType !== 'shotgun' is true both before startInfo
+    // has loaded and for genuinely standard rounds — safe default
+    // either way, since clamped is what every round already does today).
+    const isShotgun = startInfo?.startType === 'shotgun'
+    if (isShotgun) {
+      if (dx < 0) setHoleIdx(h => (h + 1) % holes.length)
+      if (dx > 0) setHoleIdx(h => (h - 1 + holes.length) % holes.length)
+    } else {
+      if (dx < 0 && holeIdx < holes.length - 1) setHoleIdx(h => h + 1)
+      if (dx > 0 && holeIdx > 0) setHoleIdx(h => h - 1)
+    }
   }
 
   const displaySyncLabel = pendingCount > 0 || syncState === 'syncing' ? `⏳ ${syncLabel}`
@@ -757,6 +830,41 @@ export default function SelfMarkerScoreShell({
   const partnerName = currentMarked?.profiles?.full_name ?? null
 
   // ── End-of-round reconciliation ─────────────────────────────────────────────
+  // Shotgun Start fallback picker — takes priority over even the
+  // Playing Partner gate below, since a player needs to know where
+  // they're starting before anything else makes sense. Only ever shown
+  // when the round is genuinely shotgun AND no organiser assignment
+  // exists for this player's group — an assigned group, and every
+  // standard round, skip this entirely (holeIdx was already seeded
+  // correctly, or correctly left at 0).
+  if (startInfo?.startType === 'shotgun' && startInfo.startingHole === null && pendingStartHolePick === null && holes.length > 0) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#faf9f6', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '24px 20px' }}>
+        <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 19, fontWeight: 800, marginBottom: 6, textAlign: 'center' }}>
+          What hole are you starting on?
+        </div>
+        <div style={{ fontFamily: 'var(--font-body)', color: '#7a7260', fontSize: 13, marginBottom: 20, textAlign: 'center' }}>
+          This is a shotgun start — your organiser hasn&apos;t assigned your group a hole yet.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8 }}>
+          {holes.map(h => (
+            <button
+              key={h.hole_number}
+              onClick={() => setPendingStartHolePick(h.hole_number)}
+              style={{
+                padding: '12px 0', borderRadius: 10, border: h.hole_number === 1 ? '1.5px solid #1a4731' : '1.5px solid #d9c9a3',
+                background: h.hole_number === 1 ? '#1a4731' : '#ffffff', color: h.hole_number === 1 ? '#fff' : '#14532d',
+                fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: 'pointer',
+              }}
+            >
+              {h.hole_number}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   // Priority 2 — the actual selection screen. Placed before the
   // reconciliation branch below: a player with no partner yet can't
   // meaningfully reach Round Summary's comparison (there's nothing to
@@ -1544,6 +1652,34 @@ export default function SelfMarkerScoreShell({
         )}
         </div>
 
+        {/* Pro Tip — collapsed by default, text only (no audio yet, per
+            explicit instruction — structured so 🔊 Listen can be added
+            later without redesigning this). "No tip should produce no
+            empty/ugly placeholder" — this whole block renders nothing
+            at all when hole?.pro_tip is falsy, not a disabled/empty
+            state. Placed here deliberately: below both scoring panels,
+            above reconciliation/leaderboard — not at the top, where the
+            hole header/horizontal scorecard area is already crowded. */}
+        {hole?.pro_tip && (
+          <div style={{ background: '#fdf3d9', border: '1px solid #e8c96a', borderRadius: 12, marginBottom: 10, overflow: 'hidden' }}>
+            <button
+              onClick={() => setProTipExpanded(v => !v)}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer',
+              }}
+            >
+              <span style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#a1791f' }}>🏌️ Pro Tip</span>
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#a1791f' }}>{proTipExpanded ? '▴' : '▾'}</span>
+            </button>
+            {proTipExpanded && (
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#5c4a1f', padding: '0 14px 12px', margin: 0, lineHeight: 1.5 }}>
+                {hole.pro_tip}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Inline reconciliation panel — appears only when a genuine
             mismatch exists on either side, using the exact same
             myComparison/partnerComparison values already driving each
@@ -1683,22 +1819,29 @@ export default function SelfMarkerScoreShell({
 
         <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
           <button
-            onClick={() => setHoleIdx(i => Math.max(0, i - 1))}
-            disabled={holeIdx === 0}
+            onClick={() => setHoleIdx(i => startInfo?.startType === 'shotgun' ? (i - 1 + holes.length) % holes.length : Math.max(0, i - 1))}
+            disabled={startInfo?.startType !== 'shotgun' && holeIdx === 0}
             style={{
               flex: 1, padding: 9, borderRadius: 9,
-              background: holeIdx === 0 ? '#f3f4f6' : '#ffffff',
+              background: (startInfo?.startType !== 'shotgun' && holeIdx === 0) ? '#f3f4f6' : '#ffffff',
               border: '1.5px solid #d1d5db',
-              color: holeIdx === 0 ? '#c3c8ce' : '#14532d',
+              color: (startInfo?.startType !== 'shotgun' && holeIdx === 0) ? '#c3c8ce' : '#14532d',
               fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12,
-              cursor: holeIdx === 0 ? 'default' : 'pointer',
+              cursor: (startInfo?.startType !== 'shotgun' && holeIdx === 0) ? 'default' : 'pointer',
             }}
           >
             ← Previous Hole
           </button>
-          {holeIdx < holes.length - 1 ? (
+          {/* Shotgun Start — "reached the array's last hole" no longer
+              means anything for a circular sequence, so Next Hole
+              always just advances (wrapping) rather than sometimes
+              becoming this button. Round Summary gets its own always-
+              available link below instead — reachable the moment
+              allDone is genuinely true (every hole scored, any order),
+              not tied to array position. */}
+          {startInfo?.startType === 'shotgun' || holeIdx < holes.length - 1 ? (
             <button
-              onClick={() => setHoleIdx(i => Math.min(holes.length - 1, i + 1))}
+              onClick={() => setHoleIdx(i => startInfo?.startType === 'shotgun' ? (i + 1) % holes.length : Math.min(holes.length - 1, i + 1))}
               style={{ flex: 1, padding: 9, borderRadius: 9, background: '#ffffff', border: '1.5px solid #d1d5db', color: '#14532d', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
             >
               Next Hole →
@@ -1712,6 +1855,14 @@ export default function SelfMarkerScoreShell({
             </button>
           )}
         </div>
+        {startInfo?.startType === 'shotgun' && (
+          <button
+            onClick={() => setShowReconciliation(true)}
+            style={{ width: '100%', marginTop: 6, padding: 8, borderRadius: 9, background: 'none', border: '1px solid #d9c9a3', color: '#a1791f', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 11.5, cursor: 'pointer' }}
+          >
+            Round Summary →
+          </button>
+        )}
       </div>
     </div>
   )

@@ -35,34 +35,47 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   if (!roundCheck.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
 
   const [holesRes, scorecardsRes] = await Promise.all([
-    admin.from('holes').select('id, hole_number, par').eq('round_id', roundId).order('hole_number', { ascending: true }),
+    admin.from('holes').select('id, hole_number, par, stroke_index').eq('round_id', roundId).order('hole_number', { ascending: true }),
     admin.from('scorecards')
-      .select('id, player_id, profiles:player_id ( full_name ), trip_members!inner ( group_id, trip_groups:group_id ( name ) ), score_entries ( id, hole_id, gross_score, is_no_return, stableford_pts, capture_role, admin_overridden )')
+      .select('id, player_id, playing_handicap, profiles:player_id ( full_name ), trip_members!inner ( group_id, trip_groups:group_id ( name ) ), score_entries ( id, hole_id, gross_score, is_no_return, stableford_pts, capture_role, admin_overridden )')
       .eq('round_id', roundId).neq('status', 'withdrawn'),
   ])
 
   type ScorecardRow = {
-    id: string; player_id: string
+    id: string; player_id: string; playing_handicap: number | null
     profiles: { full_name: string } | null
     trip_members: { group_id: string | null; trip_groups: { name: string } | null } | null
     score_entries: { id: string; hole_id: string; gross_score: number | null; is_no_return: boolean; stableford_pts: number | null; capture_role: string; admin_overridden: boolean }[]
   }
 
-  const players = ((scorecardsRes.data ?? []) as unknown as ScorecardRow[]).map(sc => ({
-    scorecardId: sc.id,
-    playerId: sc.player_id,
-    playerName: sc.profiles?.full_name ?? 'Player',
-    groupId: sc.trip_members?.group_id ?? null,
-    groupName: sc.trip_members?.trip_groups?.name ?? 'Ungrouped',
-    holes: (holesRes.data ?? []).map((h: { id: string; hole_number: number; par: number }) => {
+  const holeCount = (holesRes.data ?? []).length
+
+  const players = ((scorecardsRes.data ?? []) as unknown as ScorecardRow[]).map(sc => {
+    const holes = (holesRes.data ?? []).map((h: { id: string; hole_number: number; par: number; stroke_index: number }) => {
       const entry = sc.score_entries.find(e => e.hole_id === h.id && e.capture_role === 'self')
       return {
-        holeNumber: h.hole_number, par: h.par,
+        holeNumber: h.hole_number, par: h.par, strokeIndex: h.stroke_index,
         grossScore: entry?.gross_score ?? null, isNoReturn: entry?.is_no_return ?? false,
         stablefordPts: entry?.stableford_pts ?? null, adminOverridden: entry?.admin_overridden ?? false,
       }
-    }),
-  }))
+    })
+    return {
+      scorecardId: sc.id,
+      playerId: sc.player_id,
+      playerName: sc.profiles?.full_name ?? 'Player',
+      playingHandicap: sc.playing_handicap,
+      holesInRound: holeCount,
+      groupId: sc.trip_members?.group_id ?? null,
+      groupName: sc.trip_members?.trip_groups?.name ?? 'Ungrouped',
+      // Round total — sum of currently-recorded points, the same
+      // baseline the confirmation preview's "before" figure uses. Only
+      // ever a read/display value here; the actual authoritative total
+      // is whatever score_entries/the existing triggers already
+      // compute, this is just surfacing it for this UI.
+      roundTotal: holes.reduce((sum, h) => sum + (h.stablefordPts ?? 0), 0),
+      holes,
+    }
+  })
 
   // Grouped by group for the drill-down UI's first level.
   const groupsMap = new Map<string, { groupId: string | null; groupName: string; players: typeof players }>()

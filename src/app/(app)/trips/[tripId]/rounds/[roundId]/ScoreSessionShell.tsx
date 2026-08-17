@@ -94,16 +94,40 @@ function initialsOf(name: string): string {
 type ScoreMap = Record<string, Record<number, number | null>>
 type ConfirmMap = Record<string, Record<number, boolean>>
 
+// Shotgun Start — builds a circular index order into `holes` starting
+// from the array index of a given hole number, wrapping around. Used
+// only by findResumePosition below; a plain 0..length-1 order is
+// returned when startHoleNumber is null (standard rounds, or a
+// shotgun group with no assignment), which is exactly the original
+// scan order — so passing null preserves existing behaviour exactly.
+function circularSearchOrder(holes: Hole[], startHoleNumber: number | null): number[] {
+  if (startHoleNumber === null) return holes.map((_, i) => i)
+  const startIdx = holes.findIndex(h => h.hole_number === startHoleNumber)
+  if (startIdx < 0) return holes.map((_, i) => i)
+  return holes.map((_, i) => (startIdx + i) % holes.length)
+}
+
 // Find the first hole (by array index) where not every card in the group
 // has a confirmed score, and the first not-yet-confirmed card on that hole.
 // Used both for the initial "resume where I left off" position and whenever
 // an organiser switches to a different playing group.
+//
+// Shotgun Start — startHoleNumber (this group's assigned starting hole,
+// or null) shifts which index the scan effectively starts from via
+// circularSearchOrder above, so a freshly-started shotgun round
+// correctly resumes at its own starting hole rather than always
+// finding Hole 1 "incomplete" and resuming there regardless of where
+// the group actually tee'd off. targetHoleIdx still defaults to the
+// scan's own last-visited index if every hole is somehow already done
+// (unchanged fallback behaviour, just now over the circular order when
+// applicable).
 function findResumePosition(
-  holes: Hole[], group: GroupScorecard[], confirmed: ConfirmMap
+  holes: Hole[], group: GroupScorecard[], confirmed: ConfirmMap, startHoleNumber: number | null = null
 ): { holeIdx: number; activeIdx: number } {
   if (holes.length === 0 || group.length === 0) return { holeIdx: 0, activeIdx: 0 }
-  let targetHoleIdx = holes.length - 1
-  for (let i = 0; i < holes.length; i++) {
+  const order = circularSearchOrder(holes, startHoleNumber)
+  let targetHoleIdx = order[order.length - 1]
+  for (const i of order) {
     const h = holes[i]
     const allDone = group.every(c => confirmed[c.id]?.[h.hole_number])
     if (!allDone) { targetHoleIdx = i; break }
@@ -136,6 +160,34 @@ export default function ScoreSessionShell({
   const [scores, setScores]             = useState<ScoreMap>({})
   const [confirmed, setConfirmed]       = useState<ConfirmMap>({})
   const [holeIdx, setHoleIdx]           = useState(0) // 0-indexed into holes array, shared across the group
+
+  // Shotgun Start parity fix — fetched once via the same organiser-
+  // facing /starting-holes GET the Begin Round UI already uses (its GET
+  // handler is open to any trip member, not organiser-only, so this is
+  // a legitimate reuse regardless of who's using this shell). Keyed by
+  // group_id so switchGroup (below) can resolve the RIGHT starting hole
+  // for whichever group is currently being scored — group_scorer mode
+  // can score any group in sequence, each potentially with its own
+  // different starting hole, unlike SelfMarkerScoreShell's simpler "my
+  // own group only" case.
+  const [startType, setStartType] = useState<'standard' | 'shotgun'>('standard')
+  const [startingHoleByGroup, setStartingHoleByGroup] = useState<Record<string, number>>({})
+  const [startInfoLoaded, setStartInfoLoaded] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/trips/${tripId}/rounds/${round.id}/starting-holes`)
+      .then(res => res.ok ? res.json() : null)
+      .then(body => {
+        if (cancelled || !body) return
+        setStartType(body.startType === 'shotgun' ? 'shotgun' : 'standard')
+        const map: Record<string, number> = {}
+        for (const row of (body.startingHoles ?? []) as { group_id: string; starting_hole: number }[]) map[row.group_id] = row.starting_hole
+        setStartingHoleByGroup(map)
+      })
+      .catch(() => { /* fails safe to standard behaviour, same reasoning as SelfMarkerScoreShell */ })
+      .finally(() => { if (!cancelled) setStartInfoLoaded(true) })
+    return () => { cancelled = true }
+  }, [tripId, round.id])
 
   // Scoring Anchor (Sprint 5G) — same mechanism as SelfMarkerScoreShell:
   // fires only on holeIdx change (Next/Previous/strip-tap/auto-advance all
@@ -251,10 +303,21 @@ export default function ScoreSessionShell({
       setScores(nextScores)
       setConfirmed(nextConfirmed)
 
-      // Resume at the right spot — once only, on initial load.
-      if (!resumedRef.current) {
+      // Resume at the right spot — once only, on initial load. Gated on
+      // startInfoLoaded (not just holes/allVisibleScorecards below) so
+      // this can't fire before the starting-holes fetch resolves and
+      // permanently lock in the wrong (standard) resume order — since
+      // resumedRef.current blocks this from ever running a second time,
+      // getting the gate wrong here would be a real, silent bug for
+      // shotgun rounds specifically.
+      if (!resumedRef.current && startInfoLoaded) {
         resumedRef.current = true
-        const { holeIdx: rh, activeIdx: ra } = findResumePosition(holes, currentGroup, nextConfirmed)
+        const currentGroupId = allGroups ? (allGroups[activeGroupIdx]?.groupId ?? null) : null
+        const singleEntry = Object.entries(startingHoleByGroup)
+        const resolvedStartHole = startType === 'shotgun'
+          ? (currentGroupId ? startingHoleByGroup[currentGroupId] ?? null : (singleEntry.length === 1 ? singleEntry[0][1] : null))
+          : null
+        const { holeIdx: rh, activeIdx: ra } = findResumePosition(holes, currentGroup, nextConfirmed, resolvedStartHole)
         setHoleIdx(rh)
         setActiveIdx(ra)
       }
@@ -262,7 +325,7 @@ export default function ScoreSessionShell({
     void hydrate()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [holes, allVisibleScorecards])
+  }, [holes, allVisibleScorecards, startInfoLoaded])
 
   // ── Offline queue: register listeners once ─────────────────────────────────
   useEffect(() => {
@@ -284,7 +347,9 @@ export default function ScoreSessionShell({
     if (!allGroups) return
     setActiveGroupIdx(idx)
     const grp = allGroups[idx]?.scorecards ?? []
-    const { holeIdx: rh, activeIdx: ra } = findResumePosition(holes, grp, confirmed)
+    const groupId = allGroups[idx]?.groupId ?? null
+    const resolvedStartHole = startType === 'shotgun' && groupId ? startingHoleByGroup[groupId] ?? null : null
+    const { holeIdx: rh, activeIdx: ra } = findResumePosition(holes, grp, confirmed, resolvedStartHole)
     setHoleIdx(rh)
     setActiveIdx(ra)
   }
@@ -375,18 +440,30 @@ export default function ScoreSessionShell({
     // Move to the next player in the group for this hole; once the last
     // player in the group has been scored, auto-advance to the next hole
     // and return to the first player. No menus, no extra taps.
+    //
+    // Shotgun Start parity fix — "stay put once nextHoleIdx reaches
+    // holes.length" only made sense when array position meant "reached
+    // Hole 18"; for a circular round there's no such stopping point, so
+    // shotgun always wraps and advances. Standard rounds keep the exact
+    // original "stay put at the end" behaviour.
     const isLastInGroup = activeIdx >= currentGroup.length - 1
-    const nextHoleIdx = holeIdx + 1
+    const isShotgunSession = startType === 'shotgun'
+    const nextHoleIdx = isShotgunSession ? (holeIdx + 1) % holes.length : holeIdx + 1
 
     setTimeout(() => {
       if (!isLastInGroup) {
         setActiveIdx(activeIdx + 1)
-      } else if (nextHoleIdx < holes.length) {
+      } else if (isShotgunSession || nextHoleIdx < holes.length) {
         setHoleIdx(nextHoleIdx)
         setActiveIdx(0)
       }
-      // If it's the last player on hole 18: stay put — finishing the round
-      // is a Sprint 5C/6 concern, not this screen's job.
+      // If it's the last player on the last hole of a standard round:
+      // stay put — finishing the round is a Sprint 5C/6 concern, not
+      // this screen's job. (Correction to my own comment above: this
+      // shell has no order-independent "allDone" completion trigger of
+      // its own at all — reaching the array's end was never anything
+      // more than a navigation bound here, never a completion signal —
+      // so wrapping it for shotgun removes nothing that existed.)
     }, 580)
     setTimeout(() => {
       setFlash(false); setFlashPts(0); setFlashMsg('')
@@ -426,8 +503,16 @@ export default function ScoreSessionShell({
     swipeStartX.current = null
     swipeStartY.current = null
     if (Math.abs(dx) < 50 || Math.abs(dy) > Math.abs(dx) * 0.8) return
-    if (dx < 0 && holeIdx < holes.length - 1) setHoleIdx(h => h + 1)
-    if (dx > 0 && holeIdx > 0) setHoleIdx(h => h - 1)
+    // Shotgun Start parity fix — same circular-wrap treatment already
+    // applied to SelfMarkerScoreShell. Standard rounds keep the exact
+    // original clamped behaviour.
+    if (startType === 'shotgun') {
+      if (dx < 0) setHoleIdx(h => (h + 1) % holes.length)
+      if (dx > 0) setHoleIdx(h => (h - 1 + holes.length) % holes.length)
+    } else {
+      if (dx < 0 && holeIdx < holes.length - 1) setHoleIdx(h => h + 1)
+      if (dx > 0 && holeIdx > 0) setHoleIdx(h => h - 1)
+    }
   }
 
   // ── Tile metadata for hole strip (reflects the ACTIVE player's card) ──────
@@ -841,22 +926,27 @@ export default function ScoreSessionShell({
 
           <div style={{ padding: '0 16px 8px', display: 'flex', gap: 8 }}>
             <button
-              onClick={() => setHoleIdx(i => Math.max(0, i - 1))}
-              disabled={holeIdx === 0}
+              onClick={() => setHoleIdx(i => startType === 'shotgun' ? (i - 1 + holes.length) % holes.length : Math.max(0, i - 1))}
+              disabled={startType !== 'shotgun' && holeIdx === 0}
               style={{
                 flex: 1, padding: 10, borderRadius: 10,
-                background: holeIdx === 0 ? '#f3f4f6' : '#ffffff',
+                background: (startType !== 'shotgun' && holeIdx === 0) ? '#f3f4f6' : '#ffffff',
                 border: '1.5px solid #d1d5db',
-                color: holeIdx === 0 ? '#c3c8ce' : '#14532d',
+                color: (startType !== 'shotgun' && holeIdx === 0) ? '#c3c8ce' : '#14532d',
                 fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5,
-                cursor: holeIdx === 0 ? 'default' : 'pointer',
+                cursor: (startType !== 'shotgun' && holeIdx === 0) ? 'default' : 'pointer',
               }}
             >
               ← Previous Hole
             </button>
-            {holeIdx < holes.length - 1 ? (
+            {/* Shotgun Start parity fix — same reasoning as
+                SelfMarkerScoreShell: "last array position" means
+                nothing circularly, so Next always advances (wrapping)
+                for shotgun. Round Summary gets its own always-available
+                link below instead of being tied to array position. */}
+            {startType === 'shotgun' || holeIdx < holes.length - 1 ? (
               <button
-                onClick={() => setHoleIdx(i => Math.min(holes.length - 1, i + 1))}
+                onClick={() => setHoleIdx(i => startType === 'shotgun' ? (i + 1) % holes.length : Math.min(holes.length - 1, i + 1))}
                 style={{ flex: 1, padding: 10, borderRadius: 10, background: '#ffffff', border: '1.5px solid #d1d5db', color: '#14532d', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}
               >
                 Next Hole →
@@ -870,6 +960,16 @@ export default function ScoreSessionShell({
               </Link>
             )}
           </div>
+          {startType === 'shotgun' && (
+            <div style={{ padding: '0 16px 8px' }}>
+              <Link
+                href={`/trips/${tripId}/leaderboard`}
+                style={{ display: 'block', width: '100%', padding: 8, borderRadius: 10, background: 'none', border: '1px solid #d9c9a3', color: '#a1791f', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 11.5, textAlign: 'center', textDecoration: 'none' }}
+              >
+                Round Summary →
+              </Link>
+            </div>
+          )}
 
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#9ca3af', textAlign: 'center', paddingTop: 2, paddingBottom: 2, letterSpacing: 0.3 }}>
             Swipe also works

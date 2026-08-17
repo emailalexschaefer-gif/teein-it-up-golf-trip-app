@@ -174,6 +174,57 @@ export default function BeginRoundModal({
     setSavingTeeTimeFor(null)
   }
 
+  // Shotgun Start. startType is a round-level property (rounds.start_type,
+  // migration 055) — 'standard' preserves every existing behaviour
+  // exactly; only 'shotgun' activates the per-group starting-hole
+  // assignment below, mirroring groupTeeTimes' own fetch-draft-save
+  // pattern rather than inventing a new one. startingHoleDrafts holds
+  // in-progress selections before saving, same reasoning as
+  // teeTimeDrafts.
+  const [startType, setStartType] = useState<'standard' | 'shotgun'>('standard')
+  const [startingHoles, setStartingHoles] = useState<Record<string, number | null>>({})
+  const [startingHoleDrafts, setStartingHoleDrafts] = useState<Record<string, number>>({})
+  const [savingStartingHoleFor, setSavingStartingHoleFor] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/trips/${tripId}/rounds/${roundId}/starting-holes`)
+      .then(res => res.ok ? res.json() : null)
+      .then(body => {
+        if (cancelled || !body) return
+        setStartType(body.startType === 'shotgun' ? 'shotgun' : 'standard')
+        const map: Record<string, number | null> = {}
+        for (const row of (body.startingHoles ?? []) as { group_id: string; starting_hole: number }[]) map[row.group_id] = row.starting_hole
+        setStartingHoles(map)
+      })
+      .catch(() => { /* leaves startType at its default 'standard' — never silently claims shotgun when it can't confirm it */ })
+    return () => { cancelled = true }
+  }, [tripId, roundId])
+
+  async function setRoundStartType(next: 'standard' | 'shotgun') {
+    setStartType(next) // optimistic — this is a low-stakes toggle, not worth a loading state
+    try {
+      await fetch(`/api/trips/${tripId}/rounds/${roundId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ start_type: next }),
+      })
+    } catch { /* the value is re-fetched fresh on every mount, so a failed save here just reverts next time this modal opens — no silent inconsistency persists */ }
+  }
+
+  async function saveStartingHole(groupId: string) {
+    const value = startingHoleDrafts[groupId]
+    if (value === undefined) return
+    setSavingStartingHoleFor(groupId)
+    try {
+      const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/starting-holes`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ groupId, startingHole: value }),
+      })
+      if (res.ok) {
+        setStartingHoles(prev => ({ ...prev, [groupId]: value }))
+        setStartingHoleDrafts(prev => { const next = { ...prev }; delete next[groupId]; return next })
+      }
+    } catch { /* draft stays visible so the organiser can retry */ }
+    setSavingStartingHoleFor(null)
+  }
+
   function dailyHandicapFor(gaHandicap: number | null): number | null {
     if (gaHandicap === null) return null
     if (slopeRating != null) {
@@ -542,6 +593,28 @@ export default function BeginRoundModal({
                 <Warning>No playing groups have been set up. Return to the Groups tab to create groups and assign players.</Warning>
               )}
 
+              {/* Shotgun Start — round-level toggle. Standard remains
+                  the default and preserves existing behaviour exactly;
+                  selecting Shotgun reveals the per-group starting-hole
+                  selectors below, nothing else changes here. */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                {(['standard', 'shotgun'] as const).map(t => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => void setRoundStartType(t)}
+                    style={{
+                      flex: 1, padding: '9px 0', borderRadius: 8, fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
+                      background: startType === t ? '#1a4731' : '#f3f4f6',
+                      color: startType === t ? '#fff' : '#374151',
+                      border: startType === t ? 'none' : '1px solid #d1d5db',
+                    }}
+                  >
+                    {t === 'standard' ? 'Standard Start' : 'Shotgun Start'}
+                  </button>
+                ))}
+              </div>
+
               {localGroups.map(g => {
                 const missingHcp = g.players.filter(p => resolvePlayingHandicap(p.playing_handicap, p.profile_handicap) === null)
                 return (
@@ -577,6 +650,36 @@ export default function BeginRoundModal({
                         )}
                       </div>
                     </div>
+                    {/* Shotgun Start — only shown when this round is
+                        actually configured as shotgun. Only holes that
+                        exist in this round's own configuration
+                        (holeCount) are offered, per "use only holes
+                        that actually exist in the configured round." */}
+                    {startType === 'shotgun' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                        <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a5c00', fontWeight: 700 }}>Start hole:</span>
+                        <select
+                          value={startingHoleDrafts[g.id] ?? startingHoles[g.id] ?? ''}
+                          onChange={e => setStartingHoleDrafts(prev => ({ ...prev, [g.id]: Number(e.target.value) }))}
+                          style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#1a4731', border: '1px solid rgba(201,168,76,0.4)', borderRadius: 6, padding: '2px 6px' }}
+                        >
+                          <option value="" disabled>Select…</option>
+                          {Array.from({ length: holeCount }, (_, i) => i + 1).map(h => (
+                            <option key={h} value={h}>Hole {h}</option>
+                          ))}
+                        </select>
+                        {g.id in startingHoleDrafts && startingHoleDrafts[g.id] !== startingHoles[g.id] && (
+                          <button
+                            type="button"
+                            onClick={() => void saveStartingHole(g.id)}
+                            disabled={savingStartingHoleFor === g.id}
+                            style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#fff', background: '#1a4731', border: 'none', borderRadius: 5, padding: '3px 7px', cursor: 'pointer' }}
+                          >
+                            {savingStartingHoleFor === g.id ? '…' : 'Save'}
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {g.players.length === 0 ? (
                       <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#b45309' }}>⚠ No players assigned to this group.</p>
                     ) : (

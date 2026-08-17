@@ -186,17 +186,6 @@ export default async function TournamentPage({ params }: Props) {
         <>
           <TournamentControl tripId={tripId} roundId={activeRound.id} roundStatus={activeRound.status} />
 
-          {/* Priority 4 — My HQ -> active round -> Admin Score Override.
-              Deliberately placed as its own clearly-separated section,
-              not folded into TournamentControl itself — this is an
-              occasional emergency tool (lost phone, dispute,
-              reconciliation deadlock), not part of the normal live-
-              scoring narrative TournamentControl shows every visit. */}
-          <div style={{ marginTop: 20 }}>
-            <div style={{ height: 1, background: '#eceae3', marginBottom: 16 }} />
-            <AdminScoreOverridePanel tripId={tripId} roundId={activeRound.id} />
-          </div>
-
           {organiserIsPlaying && (
             <div style={{ marginTop: 20 }}>
               <div style={{ height: 1, background: '#eceae3', marginBottom: 16 }} />
@@ -207,6 +196,28 @@ export default async function TournamentPage({ params }: Props) {
             </div>
           )}
         </>
+      )}
+
+      {/* Item 3 — Score Management. Deliberately moved OUTSIDE the
+          "has an active round" branch above — this previously only
+          rendered when a round happened to be active, meaning an
+          organiser trying to correct a COMPLETED round's score after
+          the event moved on had no way to reach this at all, directly
+          contradicting "Allow score correction for LIVE rounds, COMPLETE
+          rounds." Now shown whenever the trip has at least one live or
+          completed round, with its own round selector inside the panel
+          — not gated on which round happens to be "focused" right now.
+          Upcoming rounds are excluded (nothing to correct — genuinely no
+          scorecard exists yet), matching "Upcoming rounds have no
+          scorecard to edit." */}
+      {(rounds ?? []).some(r => r.status === 'active' || r.status === 'completed') && (
+        <div style={{ marginTop: 20 }}>
+          <div style={{ height: 1, background: '#eceae3', marginBottom: 16 }} />
+          <AdminScoreOverridePanel
+            tripId={tripId}
+            rounds={(rounds ?? []).filter(r => r.status === 'active' || r.status === 'completed')}
+          />
+        </div>
       )}
     </div>
   )

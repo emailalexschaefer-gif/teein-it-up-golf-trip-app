@@ -37,6 +37,10 @@ const HoleSchema = z.object({
   // state so a library-sourced round's distances survive into the
   // actual holes table, not just the setup-time snapshot.
   distance:     z.number().int().positive().nullable().optional(),
+  // Pro Tip — same reasoning as distance above: optional, no scoring
+  // calculation reads it, carried through purely so it survives into
+  // the actual holes table for the round it was configured against.
+  pro_tip:      z.string().nullable().optional(),
 })
 
 const StartSchema = z.object({
@@ -321,8 +325,8 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   }
 
   // ── Build data arrays ──────────────────────────────────────────────────────
-  const holeData = holes.map((h: { hole_number: number; par: number; stroke_index: number; distance?: number | null }) => ({
-    hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index, distance: h.distance ?? null,
+  const holeData = holes.map((h: { hole_number: number; par: number; stroke_index: number; distance?: number | null; pro_tip?: string | null }) => ({
+    hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index, distance: h.distance ?? null, pro_tip: h.pro_tip ?? null,
   }))
 
   const scorecardData = assignedMembers.map((m: typeof assignedMembers[0]) => {
@@ -421,8 +425,8 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
 
   // ── Direct insert fallback (works even if migration 016 not applied) ───────
   // Holes upsert
-  const holeRows = holeData.map((h: { hole_number: number; par: number; stroke_index: number; distance: number | null }) => ({
-    round_id: roundId, hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index, distance: h.distance,
+  const holeRows = holeData.map((h: { hole_number: number; par: number; stroke_index: number; distance: number | null; pro_tip?: string | null }) => ({
+    round_id: roundId, hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index, distance: h.distance, pro_tip: h.pro_tip ?? null,
   }))
 
   const { error: holesError } = await admin

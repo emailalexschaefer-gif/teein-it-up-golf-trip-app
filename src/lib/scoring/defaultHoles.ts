@@ -20,6 +20,10 @@ export interface HoleTemplate {
   // calculation), purely round-metadata preserved through to the
   // holes table for display.
   distance?: number | null
+  // Pro Tip — same reasoning as distance: optional, library-sourced
+  // only, never required by any scoring calculation. Carried through
+  // this template purely so it reaches the holes table snapshot.
+  pro_tip?: string | null
 }
 
 export const DEFAULT_18_HOLES: HoleTemplate[] = [
@@ -129,6 +133,7 @@ export interface LibraryHoleSnapshot {
   par: number
   stroke_index: number | null
   distance: number | null
+  pro_tip?: string | null
 }
 
 /**
@@ -165,7 +170,7 @@ export function deriveBeginRoundHoles(
     return libraryHolesSnapshot
       .filter(h => h.hole_number <= holeCount)
       .sort((a, b) => a.hole_number - b.hole_number)
-      .map(h => ({ hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index ?? h.hole_number, distance: h.distance }))
+      .map(h => ({ hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index ?? h.hole_number, distance: h.distance, pro_tip: h.pro_tip ?? null }))
   }
   return getDefaultHoles(holeCount)
 }
@@ -211,7 +216,7 @@ export function deriveNineHoles(
     const sliced = libraryHolesSnapshot
       .filter(h => h.hole_number >= lo && h.hole_number <= hi)
       .sort((a, b) => a.hole_number - b.hole_number)
-      .map(h => ({ hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index ?? h.hole_number, distance: h.distance }))
+      .map(h => ({ hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index ?? h.hole_number, distance: h.distance, pro_tip: h.pro_tip ?? null }))
     if (sliced.length > 0) return sliced
   }
   return getDefaultHolesForNine(nine)

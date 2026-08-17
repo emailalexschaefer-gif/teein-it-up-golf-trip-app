@@ -34,9 +34,15 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     holesByTeeSet.get(h.tee_set_id)!.push(h)
   }
 
+  // Pro Tip — course_id + hole_number scoped (migration 056), not
+  // tee_set_id scoped, so it's fetched and returned separately from the
+  // tee-set holes above, keyed by hole_number directly for the admin UI.
+  const proTipsRes = await admin.from('course_holes').select('hole_number, pro_tip').eq('course_id', courseId).order('hole_number', { ascending: true })
+
   return NextResponse.json({
     course: courseRes.data,
     teeSets: (teeSetsRes.data ?? []).map((t: { id: string }) => ({ ...t, holes: holesByTeeSet.get(t.id) ?? [] })),
+    proTips: proTipsRes.data ?? [],
   })
 }
 

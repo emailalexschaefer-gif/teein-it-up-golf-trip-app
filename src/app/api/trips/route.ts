@@ -13,6 +13,10 @@ const LibraryHoleSnapshotSchema = z.object({
   par:          z.number().int().min(3).max(6),
   stroke_index: z.number().int().min(1).max(18).nullable(),
   distance:     z.number().int().positive().nullable(),
+  // Pro Tip — without this, Zod's default strip-unknown-keys behaviour
+  // would silently drop pro_tip from every snapshot before it reaches
+  // the database, even though the client correctly sends it.
+  pro_tip:      z.string().nullable().optional(),
 })
 
 const RoundSchema = z.object({

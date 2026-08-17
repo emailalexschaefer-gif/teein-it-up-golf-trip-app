@@ -39,14 +39,22 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   }
 
   const teeSetIds = (teeSetsRes.data ?? []).map(t => t.id)
-  const holesRes = teeSetIds.length > 0
-    ? await supabase.from('course_tee_holes').select('tee_set_id, hole_number, par, stroke_index, distance').in('tee_set_id', teeSetIds).order('hole_number', { ascending: true })
-    : { data: [] as { tee_set_id: string; hole_number: number; par: number; stroke_index: number | null; distance: number | null }[] }
+  const [holesRes, proTipsRes] = await Promise.all([
+    teeSetIds.length > 0
+      ? supabase.from('course_tee_holes').select('tee_set_id, hole_number, par, stroke_index, distance').in('tee_set_id', teeSetIds).order('hole_number', { ascending: true })
+      : Promise.resolve({ data: [] as { tee_set_id: string; hole_number: number; par: number; stroke_index: number | null; distance: number | null }[] }),
+    // Pro Tip — course-level (course_id + hole_number), fetched once
+    // per course rather than once per tee set, then merged into every
+    // tee set's holes below by hole_number — this is exactly the
+    // duplication-avoidance the schema itself was designed around.
+    supabase.from('course_holes').select('hole_number, pro_tip').eq('course_id', courseId),
+  ])
+  const proTipByHole = new Map((proTipsRes.data ?? []).map(t => [t.hole_number, t.pro_tip]))
 
-  const holesByTeeSet = new Map<string, { hole_number: number; par: number; stroke_index: number | null; distance: number | null }[]>()
+  const holesByTeeSet = new Map<string, { hole_number: number; par: number; stroke_index: number | null; distance: number | null; pro_tip: string | null }[]>()
   for (const h of holesRes.data ?? []) {
     if (!holesByTeeSet.has(h.tee_set_id)) holesByTeeSet.set(h.tee_set_id, [])
-    holesByTeeSet.get(h.tee_set_id)!.push({ hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index, distance: h.distance })
+    holesByTeeSet.get(h.tee_set_id)!.push({ hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index, distance: h.distance, pro_tip: proTipByHole.get(h.hole_number) ?? null })
   }
 
   return NextResponse.json({

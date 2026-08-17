@@ -127,7 +127,7 @@ export async function PATCH(request: NextRequest, { params }: Props) {
     tee_name?: string | null
     course_rating?: number | null
     slope_rating?: number | null
-    library_holes_snapshot?: { hole_number: number; par: number; stroke_index: number | null; distance: number | null }[] | null
+    library_holes_snapshot?: { hole_number: number; par: number; stroke_index: number | null; distance: number | null; pro_tip?: string | null }[] | null
   }> | undefined)
 
   if (rounds && rounds.length > 0) {

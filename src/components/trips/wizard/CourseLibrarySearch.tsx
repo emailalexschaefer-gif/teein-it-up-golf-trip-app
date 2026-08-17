@@ -9,14 +9,14 @@ export interface LibraryCourseSelection {
   teeName: string
   courseRating: number | null
   slopeRating: number | null
-  holes: { hole_number: number; par: number; stroke_index: number | null; distance: number | null }[]
+  holes: { hole_number: number; par: number; stroke_index: number | null; distance: number | null; pro_tip: string | null }[]
 }
 
 interface CourseSearchResult { id: string; club_name: string; course_name: string; suburb: string | null; state: string | null }
 interface TeeSetResult {
   id: string; name: string; colour: string | null; gender: string | null
   par: number | null; total_distance: number | null; course_rating: number | null; slope_rating: number | null
-  holes: { hole_number: number; par: number; stroke_index: number | null; distance: number | null }[]
+  holes: { hole_number: number; par: number; stroke_index: number | null; distance: number | null; pro_tip: string | null }[]
 }
 
 /**

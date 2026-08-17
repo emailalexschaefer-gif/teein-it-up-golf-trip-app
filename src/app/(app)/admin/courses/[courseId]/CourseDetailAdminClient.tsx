@@ -14,10 +14,11 @@ interface TeeSet {
   par: number | null; total_distance: number | null; course_rating: number | null; slope_rating: number | null
   is_active: boolean; holes: Hole[]
 }
+interface ProTipRow { hole_number: number; pro_tip: string | null }
 
 export default function CourseDetailAdminClient({ courseId }: { courseId: string }) {
   const queryClient = useQueryClient()
-  const { data, isLoading } = useQuery<{ course: Course; teeSets: TeeSet[] }>({
+  const { data, isLoading } = useQuery<{ course: Course; teeSets: TeeSet[]; proTips: ProTipRow[] }>({
     queryKey: ['admin-course', courseId],
     queryFn: async () => {
       const res = await fetch(`/api/admin/courses/${courseId}`)
@@ -31,6 +32,12 @@ export default function CourseDetailAdminClient({ courseId }: { courseId: string
   if (isLoading || !data) {
     return <div style={{ padding: 24, textAlign: 'center', color: '#9ca3af', fontFamily: 'var(--font-body)', fontSize: 13 }}>Loading…</div>
   }
+
+  // Every hole number that actually exists across this course's tee
+  // sets — Pro Tip is course-level, but "which holes exist" still has
+  // to come from the tee-set data, since course_holes itself has no
+  // independent notion of how many holes this course has.
+  const knownHoleNumbers = Array.from(new Set(data.teeSets.flatMap(t => t.holes.map(h => h.hole_number)))).sort((a, b) => a - b)
 
   return (
     <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '16px 16px 90px' }}>
@@ -48,6 +55,67 @@ export default function CourseDetailAdminClient({ courseId }: { courseId: string
       </div>
       {data.teeSets.map(tee => <TeeSetCard key={tee.id} tee={tee} onSaved={refresh} />)}
       <AddTeeSetForm courseId={courseId} onCreated={refresh} />
+
+      {/* Pro Tip — deliberately course-level, not nested inside any one
+          tee set's editor above: the same strategic advice applies
+          across every tee colour, so it lives once per hole, here. */}
+      {knownHoleNumbers.length > 0 && (
+        <>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#a1791f', textTransform: 'uppercase', letterSpacing: 0.5, margin: '18px 0 8px' }}>
+            🏌️ Pro Tips
+          </div>
+          <ProTipsSection courseId={courseId} holeNumbers={knownHoleNumbers} proTips={data.proTips} onSaved={refresh} />
+        </>
+      )}
+    </div>
+  )
+}
+
+function ProTipsSection({ courseId, holeNumbers, proTips, onSaved }: { courseId: string; holeNumbers: number[]; proTips: ProTipRow[]; onSaved: () => void }) {
+  const tipByHole = new Map(proTips.map(t => [t.hole_number, t.pro_tip ?? '']))
+  return (
+    <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid #eceae3', padding: 12, marginBottom: 16 }}>
+      {holeNumbers.map(h => (
+        <ProTipRow key={h} courseId={courseId} holeNumber={h} initialTip={tipByHole.get(h) ?? ''} onSaved={onSaved} />
+      ))}
+    </div>
+  )
+}
+
+function ProTipRow({ courseId, holeNumber, initialTip, onSaved }: { courseId: string; holeNumber: number; initialTip: string; onSaved: () => void }) {
+  const [tip, setTip] = useState(initialTip)
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    setSaving(true)
+    try {
+      await fetch(`/api/admin/courses/${courseId}/pro-tips`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ holeNumber, proTip: tip }),
+      })
+      onSaved()
+    } catch { /* input keeps whatever was typed so the admin can retry */ }
+    setSaving(false)
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid #f3f1ea' }}>
+      <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#14532d', width: 26, flexShrink: 0, paddingTop: 8 }}>{holeNumber}</span>
+      <textarea
+        value={tip} onChange={e => setTip(e.target.value)}
+        placeholder="Optional — e.g. Favour the left centre of the fairway…"
+        rows={1}
+        style={{ flex: 1, border: '1px solid #d1d5db', borderRadius: 6, padding: '7px 9px', fontFamily: 'var(--font-body)', fontSize: 12.5, resize: 'vertical' }}
+      />
+      {tip !== initialTip && (
+        <button
+          onClick={() => void save()}
+          disabled={saving}
+          style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#fff', background: '#1a4731', border: 'none', borderRadius: 5, padding: '7px 10px', cursor: 'pointer', flexShrink: 0 }}
+        >
+          {saving ? '…' : 'Save'}
+        </button>
+      )}
     </div>
   )
 }
