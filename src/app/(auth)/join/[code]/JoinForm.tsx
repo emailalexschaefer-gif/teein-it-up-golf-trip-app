@@ -19,7 +19,24 @@ export default function JoinForm() {
   const [handicap, setHandicap]           = useState('')
   const [noHandicap, setNoHandicap]       = useState(false)
   const [authMode, setAuthMode]           = useState<AuthMode>('password')
-  const [formPath, setFormPath]           = useState<'existing' | 'new'>('existing')
+  // Default to 'new' rather than 'existing' — the actual fix for the
+  // unidentified-profile bug. Everything downstream (signInWithOtp's
+  // options.data.full_name, do-join's existing-profile-name check) was
+  // already correctly built; the gap was purely which form a brand-new
+  // invitee saw FIRST. Most people opening an event invitation link for
+  // the first time have never used this app and don't have a password
+  // — landing them on the 'existing' (email + password only, no name
+  // field) form by default meant the required Full Name field was only
+  // ever reached if they proactively noticed and tapped "New to Teein'
+  // It Up? Create an account" first, which "we should not depend on the
+  // player discovering" rules out. An existing user who lands here now
+  // sees an equally prominent "Already have an account? Sign in
+  // instead" link (unchanged, already present) to reach their simpler
+  // form in one tap — and even if an existing user somehow submitted
+  // through the 'new' path anyway, do-join's own
+  // `!profileResult?.data?.full_name` check still protects their
+  // established name from being overwritten, unchanged from before.
+  const [formPath, setFormPath]           = useState<'existing' | 'new'>('new')
   const [step, setStep]         = useState<Step>('checking')
   const [tripName, setTripName] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string>('')
