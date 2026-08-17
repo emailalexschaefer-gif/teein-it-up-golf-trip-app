@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import PlayingPartnerStatus from './PlayingPartnerStatus'
 import MomentViewer, { type MomentViewerData } from '@/components/moments/MomentViewer'
 
 interface GroupPlayer {
@@ -542,12 +543,23 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
         return <div style={{ marginBottom: 14 }}><StoryTimelineList items={storyCombined} /></div>
       })()}
 
+      {/* Deployment A — passive-only pairing visibility, replacing the
+          removed active reassignment link above. */}
+      <PlayingPartnerStatus tripId={tripId} roundId={roundId} />
+
       {/* ── Quick Actions — only real, existing destinations ───────────── */}
       <SectionTitle>Quick Actions</SectionTitle>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-        <Link href={`/trips/${tripId}/rounds/${roundId}/markers`} style={actionLinkStyle}>
-          Review Marker Assignments →
-        </Link>
+        {/* Deployment A — "Review Marker Assignments" (an active
+            reassign/regenerate workflow) removed from the normal round
+            setup path entirely, per explicit instruction: organiser
+            involvement in pairing is now limited to group creation and,
+            at most, passive visibility — this link was the one place an
+            organiser could actively override a player's own pairing
+            choice, which the new player-led Playing Partner model
+            deliberately doesn't want happening through routine
+            navigation. The underlying route/page still exist (not
+            deleted), simply no longer linked from here. */}
         <Link href={`/trips/${tripId}`} style={actionLinkStyle}>
           Edit Groups →
         </Link>

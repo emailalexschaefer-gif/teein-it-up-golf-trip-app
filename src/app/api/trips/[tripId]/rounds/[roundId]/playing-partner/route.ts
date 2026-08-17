@@ -15,8 +15,10 @@
  * may already have a round_markers row for this round — a player who
  * already has a partner (whether auto-assigned or previously chosen)
  * cannot silently overwrite it by calling this again; they'd need an
- * organiser to intervene, matching how marker reassignment already
- * works elsewhere in this app.
+ * organiser to intervene — the active reassignment workflow this once
+ * referred to has since been removed from normal navigation
+ * (Deployment A: organiser involvement is now group creation plus
+ * passive visibility only, per PlayingPartnerStatus.tsx).
  *
  * GET returns the caller's own status (already paired, or not) plus
  * the list of eligible candidates — other group-mates who also don't
