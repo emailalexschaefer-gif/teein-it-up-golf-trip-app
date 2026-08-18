@@ -5,6 +5,7 @@ import TournamentControl from '@/components/scoring/TournamentControl'
 import AdminScoreOverridePanel from '@/components/scoring/AdminScoreOverridePanel'
 import MyRoundClient from '@/components/scoring/MyRoundClient'
 import RoundSchedule from '@/components/scoring/RoundSchedule'
+import EventCountdown from '@/components/trips/EventCountdown'
 import MyRoundSummary from '@/components/scoring/MyRoundSummary'
 
 export const dynamic = 'force-dynamic'
@@ -84,6 +85,22 @@ export default async function TournamentPage({ params }: Props) {
         <Link href={`/trips/${tripId}`} style={{ color: '#9ca3af', fontSize: 18, textDecoration: 'none' }}>←</Link>
         <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>My HQ</span>
       </div>
+
+      {/* My HQ Countdown — same EventCountdown component, same focusRound
+          resolution the Event Schedule right below already uses (see
+          comment there: activeRound ?? nextUpcomingRound ??
+          mostRecentlyCompletedRound). Nothing new here at all — passing
+          focusRound directly reuses EventCountdown's own existing
+          self-hiding behaviour (round.status !== 'upcoming' -> renders
+          null), which already correctly covers every required case:
+          hidden while a round is active or fully complete, and
+          automatically retargets to Round 2 the moment focusRound
+          itself resolves to Round 2 (Round 1 completed). One source of
+          truth for both My Round and My HQ, by construction — this
+          isn't a second implementation that could drift out of sync,
+          it's the exact same focusRound value already governing the
+          Event Schedule immediately below. */}
+      {focusRound && <EventCountdown tripId={tripId} round={focusRound} />}
 
       {/* Priority 2 — Event Schedule now shown in My HQ too, reusing the
           exact same RoundSchedule component from My Round (read-only,

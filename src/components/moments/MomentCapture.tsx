@@ -4,6 +4,7 @@ import { useState, useRef } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useQueryClient } from '@tanstack/react-query'
+import ImageCropper from '@/components/shared/ImageCropper'
 
 function logStage(stage: string, detail?: unknown) {
   if (process.env.NODE_ENV !== 'production') {
@@ -108,7 +109,7 @@ interface Props {
   autoOpenCamera?: boolean
 }
 
-type ComposerStage = 'closed' | 'choosing' | 'photoPreview' | 'textMoment'
+type ComposerStage = 'closed' | 'choosing' | 'cropping' | 'photoPreview' | 'textMoment'
 
 export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, onPosted, sideCompContext, autoOpenCamera }: Props) {
   const queryClient = useQueryClient()
@@ -118,6 +119,7 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
   const [stage, setStage] = useState<ComposerStage>('closed')
   const [previewFile, setPreviewFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [cropSourceUrl, setCropSourceUrl] = useState<string | null>(null)
   const [previewFailed, setPreviewFailed] = useState(false)
   const [caption, setCaption] = useState('')
   const [audience, setAudience] = useState<'everyone' | 'group'>('everyone')
@@ -135,8 +137,10 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
 
   function resetAll() {
     if (previewUrl) URL.revokeObjectURL(previewUrl)
+    if (cropSourceUrl) URL.revokeObjectURL(cropSourceUrl)
     setPreviewFile(null)
     setPreviewUrl(null)
+    setCropSourceUrl(null)
     setPreviewFailed(false)
     setCaption('')
     setAudience('everyone')
@@ -157,15 +161,40 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
       setError('Please choose a JPEG, PNG, or WEBP image.')
       return
     }
-    // Always revoke any existing preview URL before creating a new one —
-    // fixes a real leak: picking a second photo without cancelling the
-    // first left the previous blob URL un-revoked.
+    // Priority 4 (Moments) — crop stage inserted here, before the
+    // existing photoPreview/upload flow. cropSourceUrl holds the RAW,
+    // unprocessed file; handleCropSave below produces the final
+    // previewFile from the player's chosen crop, and everything after
+    // that point (resolveUploadBlob, the storage upload, postMoment) is
+    // completely unchanged — this adds a stage in front of the existing
+    // pipeline, it doesn't touch the pipeline itself.
+    setError('')
+    if (cropSourceUrl) URL.revokeObjectURL(cropSourceUrl)
+    setCropSourceUrl(URL.createObjectURL(file))
+    setStage('cropping')
+  }
+
+  function handleCropCancel() {
+    // "Cancel crop -> no image uploaded... return cleanly to the prior
+    // screen" — prior screen is the Take Photo/Choose from Gallery
+    // choice, not fully closing the composer (a player who cancelled a
+    // bad crop very plausibly wants to pick a different photo next, not
+    // restart the whole Moment from scratch).
+    if (cropSourceUrl) URL.revokeObjectURL(cropSourceUrl)
+    setCropSourceUrl(null)
+    setStage('choosing')
+  }
+
+  function handleCropSave(croppedBlob: Blob) {
+    if (cropSourceUrl) URL.revokeObjectURL(cropSourceUrl)
+    setCropSourceUrl(null)
     if (previewUrl) URL.revokeObjectURL(previewUrl)
     setError('')
     setPreviewFailed(false)
-    setPreviewFile(file)
-    const url = URL.createObjectURL(file)
-    logStage('object-url-created', { url })
+    const croppedFile = new File([croppedBlob], 'moment.jpg', { type: 'image/jpeg' })
+    setPreviewFile(croppedFile)
+    const url = URL.createObjectURL(croppedFile)
+    logStage('crop-complete', { url, size: croppedFile.size })
     setPreviewUrl(url)
     setStage('photoPreview')
   }
@@ -421,6 +450,18 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
             <button type="button" onClick={resetAll} disabled={uploading} style={cancelButtonStyle}>Cancel</button>
           </div>
         </div>
+      )}
+
+      {stage === 'cropping' && cropSourceUrl && (
+        <ImageCropper
+          imageSrc={cropSourceUrl}
+          cropShape="rect"
+          aspect={4 / 3}
+          title="Frame Your Moment"
+          saveLabel="Use Photo"
+          onCancel={handleCropCancel}
+          onSave={handleCropSave}
+        />
       )}
 
       {stage === 'photoPreview' && (

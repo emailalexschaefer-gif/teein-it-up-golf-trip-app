@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import type { TripData, TripMemberRow } from './TripDetailClient'
 import EventCountdown from '@/components/trips/EventCountdown'
 import StartingGrid from '@/components/scoring/StartingGrid'
+import PlayerCardModal, { initialsOf, type PlayerCardData } from '@/components/shared/PlayerCardModal'
 import { formatTripDateRange } from '@/lib/utils'
 import TripInformationCard from '@/components/trips/TripInformationCard'
 
@@ -27,13 +28,6 @@ function formatTeeTime(teeTime: string | null): string | null {
 
 function formatLabel(format: string): string {
   return format.charAt(0).toUpperCase() + format.slice(1).replace(/_/g, ' ')
-}
-
-function initialsOf(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  if (parts.length === 1) return parts[0][0]?.toUpperCase() ?? '?'
-  return ((parts[0][0] ?? '') + (parts[parts.length - 1][0] ?? '')).toUpperCase()
 }
 
 /**
@@ -149,76 +143,15 @@ function PlayersJoinedSection({ trip, onSelectPlayer }: { trip: TripData; onSele
 }
 
 /**
- * Player card modal — extracted from PlayersJoinedSection so
- * StartingGrid can trigger the exact same modal (via the lifted
- * selectedPlayer state in PlayerHomeCard) rather than duplicating this
- * UI or building a second, subtly-different player card. Same fields,
- * same mobile safe-area/scroll handling as before extraction — nothing
- * about the modal itself changed, only which component owns it.
+ * Player card modal — regression fix: previously defined locally here.
+ * The Field and Live Leaderboard needed the exact same modal to
+ * restore their own lost tap-to-profile behaviour, and "do not create
+ * another profile component" meant extracting the one that already
+ * existed (src/components/shared/PlayerCardModal.tsx) rather than each
+ * surface growing its own copy. Imported below — nothing about the
+ * modal's fields, layout, or mobile handling changed, only which file
+ * owns it.
  */
-// Minimal shared shape for the player card modal — deliberately not
-// MemberProfile (which requires `id`, something StartingGrid's own
-// locally-typed member list doesn't carry) and not the full
-// TripMemberRow either. PlayerCardModal only ever reads these five
-// fields, so this is exactly what both PlayersJoinedSection's
-// TripMemberRow-based roster and StartingGrid's own differently-shaped
-// member list can each genuinely provide.
-interface PlayerCardData {
-  profiles: { full_name: string; avatar_url: string | null; handicap?: number | null; golf_club?: string | null; occupation?: string | null } | null
-}
-
-function PlayerCardModal({ player, onClose }: { player: PlayerCardData; onClose: () => void }) {
-  return (
-    <div
-      onClick={onClose}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 50, display: 'flex', alignItems: 'flex-end' }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          background: '#faf6ed', borderRadius: '20px 20px 0 0', padding: '24px 20px',
-          paddingBottom: 'calc(90px + env(safe-area-inset-bottom, 0px))',
-          width: '100%', maxWidth: 540, margin: '0 auto', boxShadow: '0 -4px 32px rgba(0,0,0,0.18)',
-          maxHeight: '85dvh', overflowY: 'auto',
-        }}
-      >
-        <div style={{ textAlign: 'center' }}>
-          {player.profiles?.avatar_url ? (
-            <img src={player.profiles.avatar_url} alt="" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', margin: '0 auto 12px' }} />
-          ) : (
-            <div style={{
-              width: 72, height: 72, borderRadius: '50%', margin: '0 auto 12px',
-              background: 'radial-gradient(#e8c96a,#c9a84c)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 24,
-            }}>
-              {initialsOf(player.profiles?.full_name ?? '?')}
-            </div>
-          )}
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 800, color: '#14532d' }}>
-            {player.profiles?.full_name ?? 'Player'}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 10, fontFamily: 'var(--font-body)', fontSize: 13, color: '#7a7260' }}>
-            {/* Icon polish — swapped per explicit feedback: golfer/
-                golf-player icon means Handicap, course-flag icon means
-                Golf Club, briefcase (unchanged) means Occupation. */}
-            {player.profiles?.handicap != null && <div>🏌️ Handicap {player.profiles.handicap}</div>}
-            {player.profiles?.golf_club && <div>⛳ {player.profiles.golf_club}</div>}
-            {player.profiles?.occupation && <div>💼 {player.profiles.occupation}</div>}
-          </div>
-        </div>
-        <button
-          onClick={onClose}
-          style={{
-            display: 'block', width: '100%', marginTop: 18, padding: 11, borderRadius: 10,
-            background: '#f3f4f6', border: '1px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer',
-          }}
-        >
-          Close
-        </button>
-      </div>
-    </div>
-  )
-}
 
 /**
  * Event Lobby delta — the read-only player Trip Information view.

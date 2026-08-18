@@ -8,6 +8,7 @@ import type { TripData } from '../TripDetailClient'
 import TripInformationCard from '@/components/trips/TripInformationCard'
 import { createClient } from '@/lib/supabase/client'
 import { processImageFile } from '@/lib/imageProcessing'
+import ImageCropper from '@/components/shared/ImageCropper'
 
 type Tab = 'overview' | 'players' | 'groups' | 'rounds'
 
@@ -374,23 +375,34 @@ function StatCell({ icon, value, sub, label }: { icon: string; value: number | s
 function EventLogoCard({ trip }: { trip: TripData }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null)
+  const [cropSourceUrl, setCropSourceUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [currentLogoUrl, setCurrentLogoUrl] = useState(trip.logo_url ?? null)
 
-  async function handleSelected(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { setError('Unsupported image type.'); return }
     if (file.size > 8 * 1024 * 1024) { setError('Image is too large.'); return }
     setError('')
+    // Priority 4/7 — same crop stage as ProfileForm, same reusable
+    // ImageCropper, different shape only: cropShape="rect" here (a
+    // square guide with grid lines, no circular mask) since event logos
+    // render in square/rounded containers throughout the app (event
+    // cards, invitation panel), never as a circular avatar.
+    setCropSourceUrl(URL.createObjectURL(file))
+  }
+
+  async function handleCropSave(croppedBlob: Blob) {
+    setCropSourceUrl(null)
     try {
-      const processed = await processImageFile(file)
+      const processed = await processImageFile(new File([croppedBlob], 'crop.jpg', { type: 'image/jpeg' }))
       setPreviewBlob(processed)
       setPreviewUrl(URL.createObjectURL(processed))
     } catch {
-      setError('Unsupported image type.')
+      setError('Could not process that image. Please try again.')
     }
   }
 
@@ -483,6 +495,16 @@ function EventLogoCard({ trip }: { trip: TripData }) {
           {error && <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#dc2626', marginTop: 4 }}>{error}</p>}
         </div>
       </div>
+
+      {cropSourceUrl && (
+        <ImageCropper
+          imageSrc={cropSourceUrl}
+          cropShape="rect"
+          title="Position Your Event Logo"
+          onCancel={() => setCropSourceUrl(null)}
+          onSave={blob => void handleCropSave(blob)}
+        />
+      )}
     </div>
   )
 }

@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import PlayerCardModal, { type PlayerCardData } from '@/components/shared/PlayerCardModal'
 
 interface PerHoleEntry {
   holeNumber: number
@@ -96,6 +97,26 @@ export default function LiveLeaderboard({
   // behaviour (only one at a time, per the explicit requirement), so
   // this is a single id, not a Set.
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null)
+  const [selectedPlayer, setSelectedPlayer] = useState<PlayerCardData | null>(null)
+  // Adapter, not a new profile shape — LeaderboardEntry uses
+  // name/avatarUrl (its own established field names throughout this
+  // file), while the shared PlayerCardModal expects
+  // profiles.full_name/avatar_url (matching the /members endpoint shape
+  // every other surface already uses). golf_club/occupation aren't part
+  // of LeaderboardEntry at all, so they're correctly absent here — the
+  // modal's own conditionals already omit missing fields gracefully.
+  function toPlayerCardData(row: LeaderboardEntry): PlayerCardData {
+    return { profiles: { full_name: row.name, avatar_url: row.avatarUrl, handicap: row.handicap } }
+  }
+  // Multi-round rows don't always have a matching boardRow (a player who
+  // hasn't started this specific round yet, for instance) — falls back
+  // to just the name, which the shared modal already renders correctly
+  // with no photo/handicap rather than blocking the tap entirely.
+  function toPlayerCardDataFromMultiRound(playerName: string, boardRow: LeaderboardEntry | undefined): PlayerCardData {
+    if (boardRow) return toPlayerCardData(boardRow)
+    return { profiles: { full_name: playerName, avatar_url: null } }
+  }
+  const [selectedPlayer, setSelectedPlayer] = useState<PlayerCardData | null>(null)
 
   const { data, isLoading, error, dataUpdatedAt } = useQuery<LeaderboardResponse>({
     queryKey: ['leaderboard', tripId, roundId],
@@ -249,6 +270,7 @@ export default function LiveLeaderboard({
                 onToggle={() => setExpandedPlayerId(id => id === row.playerId ? null : row.playerId)}
                 boardRow={boardByPlayerId.get(row.playerId)}
                 totalHoles={data.totalHoles}
+                onSelectPlayer={() => setSelectedPlayer(toPlayerCardDataFromMultiRound(row.playerName, boardByPlayerId.get(row.playerId)))}
               />
             ))}
 
@@ -265,6 +287,7 @@ export default function LiveLeaderboard({
                   onToggle={() => setExpandedPlayerId(id => id === cumMeOutsideTopThree.playerId ? null : cumMeOutsideTopThree.playerId)}
                   boardRow={boardByPlayerId.get(cumMeOutsideTopThree.playerId)}
                   totalHoles={data.totalHoles}
+                  onSelectPlayer={() => setSelectedPlayer(toPlayerCardDataFromMultiRound(cumMeOutsideTopThree.playerName, boardByPlayerId.get(cumMeOutsideTopThree.playerId)))}
                 />
               </>
             )}
@@ -293,7 +316,7 @@ export default function LiveLeaderboard({
               </div>
             )}
             {visibleRows.map((row, i) => (
-              <LeaderboardRow key={row.playerId} row={row} movement={movements[row.playerId] ?? 'same'} isLast={i === visibleRows.length - 1 && !meOutsideTopThree} isExpanded={expandedPlayerId === row.playerId} onToggle={() => setExpandedPlayerId(id => id === row.playerId ? null : row.playerId)} totalHoles={data.totalHoles} />
+              <LeaderboardRow key={row.playerId} row={row} movement={movements[row.playerId] ?? 'same'} isLast={i === visibleRows.length - 1 && !meOutsideTopThree} isExpanded={expandedPlayerId === row.playerId} onToggle={() => setExpandedPlayerId(id => id === row.playerId ? null : row.playerId)} totalHoles={data.totalHoles} onSelectPlayer={r => setSelectedPlayer(toPlayerCardData(r))} />
             ))}
 
             {/* Pinned "your position" row — only shown collapsed and only if
@@ -303,7 +326,7 @@ export default function LiveLeaderboard({
                 <div style={{ padding: '4px 14px', fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, letterSpacing: 0.6, color: '#9ca3af', background: '#faf9f6', borderTop: '1px solid #eceae3', borderBottom: '1px solid #eceae3' }}>
                   YOUR POSITION
                 </div>
-                <LeaderboardRow row={meOutsideTopThree} movement={movements[meOutsideTopThree.playerId] ?? 'same'} isLast isExpanded={expandedPlayerId === meOutsideTopThree.playerId} onToggle={() => setExpandedPlayerId(id => id === meOutsideTopThree.playerId ? null : meOutsideTopThree.playerId)} totalHoles={data.totalHoles} />
+                <LeaderboardRow row={meOutsideTopThree} movement={movements[meOutsideTopThree.playerId] ?? 'same'} isLast isExpanded={expandedPlayerId === meOutsideTopThree.playerId} onToggle={() => setExpandedPlayerId(id => id === meOutsideTopThree.playerId ? null : meOutsideTopThree.playerId)} totalHoles={data.totalHoles} onSelectPlayer={r => setSelectedPlayer(toPlayerCardData(r))} />
               </>
             )}
           </div>
@@ -323,13 +346,14 @@ export default function LiveLeaderboard({
           )}
         </>
       )}
+      {selectedPlayer && <PlayerCardModal player={selectedPlayer} onClose={() => setSelectedPlayer(null)} />}
     </div>
   )
 }
 
-interface LeaderboardRowProps { row: LeaderboardEntry; movement: Movement; isLast: boolean; isExpanded: boolean; onToggle: () => void; totalHoles: number }
+interface LeaderboardRowProps { row: LeaderboardEntry; movement: Movement; isLast: boolean; isExpanded: boolean; onToggle: () => void; totalHoles: number; onSelectPlayer: (row: LeaderboardEntry) => void }
 
-function LeaderboardRow({ row, movement, isLast, isExpanded, onToggle, totalHoles }: LeaderboardRowProps) {
+function LeaderboardRow({ row, movement, isLast, isExpanded, onToggle, totalHoles, onSelectPlayer }: LeaderboardRowProps) {
   return (
     <div style={{ borderBottom: isLast && !isExpanded ? 'none' : '1px solid #eceae3' }}>
       <div
@@ -350,27 +374,43 @@ function LeaderboardRow({ row, movement, isLast, isExpanded, onToggle, totalHole
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-          {/* Package 1 — profile photo with initials fallback. Medal/
-              rank icon stays entirely separate (the position column
-              above, untouched) — this only affects the identity circle
-              itself. Ordering/scoring untouched: row.position and every
-              value below still comes from the exact same computed row,
-              this is purely which visual fills a 32px circle. */}
-          {row.avatarUrl ? (
-            <img
-              src={row.avatarUrl} alt=""
-              style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0, objectFit: 'cover', border: '1px solid rgba(0,0,0,0.06)' }}
-            />
-          ) : (
-            <div style={{
-              width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-              background: 'radial-gradient(#e8c96a,#c9a84c)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 11,
-            }}>
-              {initialsOf(row.name)}
-            </div>
-          )}
+          {/* Regression fix — restores the previously-lost tap-to-profile
+              behaviour. The row itself is already claimed by
+              onToggle (scorecard expansion), so per the explicit
+              "provide a clear way to access both... without one
+              replacing the other" instruction, the avatar specifically
+              is its own tap target with stopPropagation — tapping the
+              photo opens the profile without also toggling the
+              scorecard; tapping anywhere else on the row still does.
+              Padding extends the actual touch target beyond the 32px
+              visual circle for mobile, without changing anything
+              visually. Same shared PlayerCardModal every other player
+              row already uses — golf_club/occupation aren't fetched by
+              this leaderboard query, so they're correctly just absent
+              here (the modal's own per-field conditionals already
+              handle that gracefully) rather than triggering a second
+              fetch to complete them. */}
+          <button
+            onClick={e => { e.stopPropagation(); onSelectPlayer(row) }}
+            aria-label={`View ${row.name}'s profile`}
+            style={{ padding: 6, margin: -6, border: 'none', background: 'none', cursor: 'pointer', flexShrink: 0, display: 'flex' }}
+          >
+            {row.avatarUrl ? (
+              <img
+                src={row.avatarUrl} alt=""
+                style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0, objectFit: 'cover', border: '1px solid rgba(0,0,0,0.06)' }}
+              />
+            ) : (
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                background: 'radial-gradient(#e8c96a,#c9a84c)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 11,
+              }}>
+                {initialsOf(row.name)}
+              </div>
+            )}
+          </button>
 
           <div style={{ flex: 1, minWidth: 0 }}>
             {/* Bug fix: previously forced to one line (whiteSpace: nowrap
@@ -443,6 +483,7 @@ interface MultiRoundRowProps {
   onToggle: () => void
   boardRow: LeaderboardEntry | undefined
   totalHoles: number
+  onSelectPlayer: () => void
 }
 
 /**
@@ -455,7 +496,7 @@ interface MultiRoundRowProps {
  * existing InlineScorecard — same component the single-round view uses,
  * fed from `boardRow` (this round's own board entry for this player).
  */
-function MultiRoundRow({ row, isCurrentUser, isLast, isExpanded, onToggle, boardRow, totalHoles }: MultiRoundRowProps) {
+function MultiRoundRow({ row, isCurrentUser, isLast, isExpanded, onToggle, boardRow, totalHoles, onSelectPlayer }: MultiRoundRowProps) {
   return (
     <div style={{ borderBottom: isLast && !isExpanded ? 'none' : '1px solid #eceae3' }}>
       <div
@@ -475,21 +516,31 @@ function MultiRoundRow({ row, isCurrentUser, isLast, isExpanded, onToggle, board
           <div style={{ width: 18, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 12.5, color: row.position <= 3 ? '#a1791f' : '#9ca3af' }}>
             {MEDAL[row.position] ?? row.position}
           </div>
-          {boardRow?.avatarUrl ? (
-            <img
-              src={boardRow.avatarUrl} alt=""
-              style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0, objectFit: 'cover', border: '1px solid rgba(0,0,0,0.06)' }}
-            />
-          ) : (
-            <div style={{
-              width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
-              background: 'radial-gradient(#e8c96a,#c9a84c)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 9.5,
-            }}>
-              {initialsOf(row.playerName)}
-            </div>
-          )}
+          {/* Regression fix — same avatar-as-separate-tap-target pattern
+              as the single-round row above; stopPropagation keeps
+              scorecard-expansion untouched for everywhere else on the
+              row. */}
+          <button
+            onClick={e => { e.stopPropagation(); onSelectPlayer() }}
+            aria-label={`View ${row.playerName}'s profile`}
+            style={{ padding: 5, margin: -5, border: 'none', background: 'none', cursor: 'pointer', flexShrink: 0, display: 'flex' }}
+          >
+            {boardRow?.avatarUrl ? (
+              <img
+                src={boardRow.avatarUrl} alt=""
+                style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0, objectFit: 'cover', border: '1px solid rgba(0,0,0,0.06)' }}
+              />
+            ) : (
+              <div style={{
+                width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
+                background: 'radial-gradient(#e8c96a,#c9a84c)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 9.5,
+              }}>
+                {initialsOf(row.playerName)}
+              </div>
+            )}
+          </button>
           {/* Package 2 fix — root cause was wordBreak: 'break-word' with
               no overflow/ellipsis handling, which force-broke a long
               surname mid-word the moment the fixed-width columns (rank +

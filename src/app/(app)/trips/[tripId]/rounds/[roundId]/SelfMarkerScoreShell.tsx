@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { calculateStableford } from '@/lib/scoring/stableford'
 import { getHandicapStrokesForHole } from '@/lib/scoring/strokeAllocation'
-import { compareCaptures, COMPARISON_LABEL, isZeroPointsMismatch, hasUnresolvedMismatch, type ComparisonStatus, type CaptureValue } from '@/lib/scoring/comparison'
+import { compareCaptures, COMPARISON_LABEL, isZeroPointsMismatch, type ComparisonStatus, type CaptureValue } from '@/lib/scoring/comparison'
 import { queueScoreEntry, getPendingCount, getQueuedEntriesForScorecards } from '@/lib/db/dexie'
 import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
 import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
@@ -713,7 +713,26 @@ export default function SelfMarkerScoreShell({
   // partnerComparison exactly as already computed for each card's
   // 'Needs review' label — no separate/duplicate comparison here.
   const hasBlockingMismatch = hasUnresolvedMismatch(myComparison, partnerComparison)
-  const canConfirm = !isLocked && (draftMyGross !== null || draftMyPickedUp) && !hasBlockingMismatch
+  // Priority 5/7 — non-blocking reconciliation during play. Previously
+  // a value here (hasUnresolvedMismatch(myComparison, partnerComparison))
+  // also gated per-hole confirmation — meaning queueScoreEntry (the ONLY
+  // place a score actually gets persisted, even to the local offline
+  // queue) never ran at all while a mismatch was outstanding. On an
+  // unreliable course connection, this could mean a player's own entered
+  // score was never saved anywhere until the mismatch was resolved,
+  // actively blocking real golf over a data-integrity check that has its
+  // own correct enforcement point already: isReadyToConfirm, gating the
+  // FINAL "Confirm Final Scores" button below (Round Summary), which
+  // already correctly requires every hole to be matched before the
+  // scorecard can become official. That's the blocking gate per
+  // Priority 7 — "during play: non-blocking; final confirmation:
+  // blocking" — this was simply being enforced one step too early. The
+  // comparison state itself (matched/pending_marker/pending_self/
+  // mismatch) is completely unchanged — src/lib/scoring/comparison.ts
+  // already models exactly the three situations the brief describes
+  // (matched, sync pending, reconciliation required); only the
+  // ENFORCEMENT point moves.
+  const canConfirm = !isLocked && (draftMyGross !== null || draftMyPickedUp)
     && (!requiresMarker || !currentMarked || draftPartnerGross !== null || draftPartnerPickedUp)
 
   async function confirmScore() {

@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { initials, avatarColor } from '@/lib/utils'
+import ImageCropper from '@/components/shared/ImageCropper'
 
 interface Props {
   userId: string
@@ -69,6 +70,7 @@ export default function ProfileForm({
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null)
+  const [cropSourceUrl, setCropSourceUrl] = useState<string | null>(null)
   const [uploadStage, setUploadStage] = useState<'idle' | 'preparing' | 'uploading' | 'done'>('idle')
 
   // Process a selected/captured file into a square, ~512px, compressed
@@ -113,14 +115,26 @@ export default function ProfileForm({
       return
     }
 
+    // Priority 4/6 — crop stage inserted here, before the existing
+    // pipeline. cropSourceUrl holds the RAW, unprocessed file — cropping
+    // needs the original image, not something already center-cropped/
+    // resized. The existing processImageFile step now runs AFTER the
+    // player's chosen crop, in handleCropSave below, not here — this
+    // extends the existing pipeline (still resizes to a sensible final
+    // resolution, still compresses) rather than replacing it.
     setAvatarError('')
+    setCropSourceUrl(URL.createObjectURL(file))
+  }
+
+  async function handleCropSave(croppedBlob: Blob) {
+    setCropSourceUrl(null)
     setUploadStage('preparing')
     try {
-      const processed = await processImageFile(file)
+      const processed = await processImageFile(new File([croppedBlob], 'crop.jpg', { type: 'image/jpeg' }))
       setPreviewBlob(processed)
       setPreviewUrl(URL.createObjectURL(processed))
     } catch {
-      setAvatarError('Unsupported image type.')
+      setAvatarError('Could not process that image. Please try again.')
     } finally {
       setUploadStage('idle')
     }
@@ -616,6 +630,16 @@ export default function ProfileForm({
           To update a trip-specific handicap, go to the trip and use Edit HCP in the Players tab.
         </p>
       </div>
+
+      {cropSourceUrl && (
+        <ImageCropper
+          imageSrc={cropSourceUrl}
+          cropShape="round"
+          title="Position Your Photo"
+          onCancel={() => setCropSourceUrl(null)}
+          onSave={blob => void handleCropSave(blob)}
+        />
+      )}
     </div>
   )
 }

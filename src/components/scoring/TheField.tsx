@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import PlayerCardModal, { initialsOf, type PlayerCardData } from '@/components/shared/PlayerCardModal'
 
 /**
  * "The Field" — the pre-event Leaderboard state. Deliberately a
@@ -15,12 +16,21 @@ import { useEffect, useState } from 'react'
  * Reuses the same admin-backed /api/trips/[tripId]/members endpoint the
  * waiting-room roster and player-card modal already use — one canonical
  * player list, not a fourth query shape for the same underlying data.
+ *
+ * Regression fix — rows previously had no tap interaction at all (this
+ * component never had one to begin with; it's new, not a regression in
+ * this specific file, but the missing capability itself is the reported
+ * regression). Whole-row tap opens the same shared PlayerCardModal
+ * every other player-list surface uses — no competing interaction exists
+ * on this screen (no scorecard, no expansion), so the entire row can
+ * safely be the tap target.
  */
-interface FieldMember { profile_id: string; role: string; profiles: { full_name: string; avatar_url: string | null; handicap?: number | null } | null }
+interface FieldMember { profile_id: string; role: string; profiles: { full_name: string; avatar_url: string | null; handicap?: number | null; golf_club?: string | null; occupation?: string | null } | null }
 
 export default function TheField({ tripId }: { tripId: string }) {
   const [members, setMembers] = useState<FieldMember[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedPlayer, setSelectedPlayer] = useState<PlayerCardData | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -56,7 +66,14 @@ export default function TheField({ tripId }: { tripId: string }) {
           ranking. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {members.map(m => (
-          <div key={m.profile_id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#ffffff', border: '1px solid #eceae3', borderRadius: 10, padding: '9px 12px' }}>
+          <button
+            key={m.profile_id}
+            onClick={() => setSelectedPlayer(m)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10, background: '#ffffff', border: '1px solid #eceae3',
+              borderRadius: 10, padding: '9px 12px', width: '100%', textAlign: 'left', cursor: 'pointer',
+            }}
+          >
             {m.profiles?.avatar_url ? (
               <img src={m.profiles.avatar_url} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
             ) : (
@@ -65,7 +82,7 @@ export default function TheField({ tripId }: { tripId: string }) {
                 background: 'radial-gradient(#e8c96a,#c9a84c)', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 12,
               }}>
-                {(m.profiles?.full_name ?? '?').trim().split(/\s+/).filter(Boolean).map(p => p[0]).slice(0, 2).join('').toUpperCase() || '?'}
+                {initialsOf(m.profiles?.full_name ?? '?')}
               </div>
             )}
             <span style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 600, color: '#1a1a16', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -76,9 +93,11 @@ export default function TheField({ tripId }: { tripId: string }) {
                 HCP {m.profiles.handicap}
               </span>
             )}
-          </div>
+          </button>
         ))}
       </div>
+
+      {selectedPlayer && <PlayerCardModal player={selectedPlayer} onClose={() => setSelectedPlayer(null)} />}
     </div>
   )
 }
