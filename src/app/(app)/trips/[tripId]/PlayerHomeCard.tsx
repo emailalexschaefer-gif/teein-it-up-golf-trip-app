@@ -3,9 +3,10 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import type { TripData, TripMemberRow } from './TripDetailClient'
+import EventCountdown from '@/components/trips/EventCountdown'
+import StartingGrid from '@/components/scoring/StartingGrid'
 import { formatTripDateRange } from '@/lib/utils'
 import TripInformationCard from '@/components/trips/TripInformationCard'
-import EventCountdown from '@/components/trips/EventCountdown'
 
 interface Props {
   trip: TripData
@@ -70,7 +71,7 @@ function initialsOf(name: string): string {
  * back to the server-rendered trip.trip_members prop only until the
  * first poll resolves, so there's no loading flash to an empty roster.
  */
-function PlayersJoinedSection({ trip }: { trip: TripData }) {
+function PlayersJoinedSection({ trip, onSelectPlayer }: { trip: TripData; onSelectPlayer: (m: TripMemberRow) => void }) {
   const [showAll, setShowAll] = useState(false)
   const [liveMembers, setLiveMembers] = useState<TripMemberRow[] | null>(null)
 
@@ -91,7 +92,6 @@ function PlayersJoinedSection({ trip }: { trip: TripData }) {
   // is the narrower, canonical "players" count.
   const playerCount = roster.filter(m => m.role === 'player').length + (trip.organiser_is_playing ? 1 : 0)
   const visible = showAll ? roster : roster.slice(0, 8)
-  const [selectedPlayer, setSelectedPlayer] = useState<TripMemberRow | null>(null)
 
   if (roster.length === 0) return null
 
@@ -104,7 +104,7 @@ function PlayersJoinedSection({ trip }: { trip: TripData }) {
         {visible.map(m => (
           <button
             key={m.profile_id}
-            onClick={() => setSelectedPlayer(m)}
+            onClick={() => onSelectPlayer(m)}
             style={{
               display: 'flex', alignItems: 'center', gap: 10, background: '#ffffff', border: '1px solid #eceae3',
               borderRadius: 10, padding: '7px 10px', width: '100%', textAlign: 'left', cursor: 'pointer',
@@ -143,74 +143,75 @@ function PlayersJoinedSection({ trip }: { trip: TripData }) {
           {showAll ? 'Show less' : `View all ${roster.length} players`}
         </button>
       )}
+    </div>
+  )
+}
 
-      {/* Item 2 — tappable player card. Lightweight by design: only the
-          fields the brief explicitly named (photo, name, handicap, golf
-          club, occupation), each shown only when actually present —
-          "missing optional fields should simply be omitted" is the
-          literal render condition below, not a placeholder/blank state.
-          No email, no private account data — this reads from the exact
-          same /members response already fetched above, which itself
-          never selects anything beyond these fields in the first place,
-          so there's nothing sensitive available here to accidentally
-          expose even by mistake. */}
-      {selectedPlayer && (
-        <div
-          onClick={() => setSelectedPlayer(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 50, display: 'flex', alignItems: 'flex-end' }}
-        >
-          {/* Held mobile fix — previously had no bottom-nav clearance,
-              no safe-area inset, and no height/scroll constraint at
-              all, so the Close button could sit underneath the
-              persistent app nav on real devices. maxHeight + overflowY
-              (same proven pattern as the Delete Trip modal fix earlier
-              this session) handles a too-small viewport by scrolling
-              the sheet's own content; the explicit 90px + safe-area
-              bottom padding matches this app's own established bottom-
-              nav clearance convention (used throughout every full-page
-              screen's own padding), not an arbitrary new number. */}
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: '#faf6ed', borderRadius: '20px 20px 0 0', padding: '24px 20px',
-              paddingBottom: 'calc(90px + env(safe-area-inset-bottom, 0px))',
-              width: '100%', maxWidth: 540, margin: '0 auto', boxShadow: '0 -4px 32px rgba(0,0,0,0.18)',
-              maxHeight: '85dvh', overflowY: 'auto',
-            }}
-          >
-            <div style={{ textAlign: 'center' }}>
-              {selectedPlayer.profiles?.avatar_url ? (
-                <img src={selectedPlayer.profiles.avatar_url} alt="" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', margin: '0 auto 12px' }} />
-              ) : (
-                <div style={{
-                  width: 72, height: 72, borderRadius: '50%', margin: '0 auto 12px',
-                  background: 'radial-gradient(#e8c96a,#c9a84c)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 24,
-                }}>
-                  {initialsOf(selectedPlayer.profiles?.full_name ?? '?')}
-                </div>
-              )}
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 800, color: '#14532d' }}>
-                {selectedPlayer.profiles?.full_name ?? 'Player'}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 10, fontFamily: 'var(--font-body)', fontSize: 13, color: '#7a7260' }}>
-                {selectedPlayer.profiles?.handicap != null && <div>⛳ Handicap {selectedPlayer.profiles.handicap}</div>}
-                {selectedPlayer.profiles?.golf_club && <div>🏌️ {selectedPlayer.profiles.golf_club}</div>}
-                {selectedPlayer.profiles?.occupation && <div>💼 {selectedPlayer.profiles.occupation}</div>}
-              </div>
+/**
+ * Player card modal — extracted from PlayersJoinedSection so
+ * StartingGrid can trigger the exact same modal (via the lifted
+ * selectedPlayer state in PlayerHomeCard) rather than duplicating this
+ * UI or building a second, subtly-different player card. Same fields,
+ * same mobile safe-area/scroll handling as before extraction — nothing
+ * about the modal itself changed, only which component owns it.
+ */
+// Minimal shared shape for the player card modal — deliberately not
+// MemberProfile (which requires `id`, something StartingGrid's own
+// locally-typed member list doesn't carry) and not the full
+// TripMemberRow either. PlayerCardModal only ever reads these five
+// fields, so this is exactly what both PlayersJoinedSection's
+// TripMemberRow-based roster and StartingGrid's own differently-shaped
+// member list can each genuinely provide.
+interface PlayerCardData {
+  profiles: { full_name: string; avatar_url: string | null; handicap?: number | null; golf_club?: string | null; occupation?: string | null } | null
+}
+
+function PlayerCardModal({ player, onClose }: { player: PlayerCardData; onClose: () => void }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 50, display: 'flex', alignItems: 'flex-end' }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: '#faf6ed', borderRadius: '20px 20px 0 0', padding: '24px 20px',
+          paddingBottom: 'calc(90px + env(safe-area-inset-bottom, 0px))',
+          width: '100%', maxWidth: 540, margin: '0 auto', boxShadow: '0 -4px 32px rgba(0,0,0,0.18)',
+          maxHeight: '85dvh', overflowY: 'auto',
+        }}
+      >
+        <div style={{ textAlign: 'center' }}>
+          {player.profiles?.avatar_url ? (
+            <img src={player.profiles.avatar_url} alt="" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', margin: '0 auto 12px' }} />
+          ) : (
+            <div style={{
+              width: 72, height: 72, borderRadius: '50%', margin: '0 auto 12px',
+              background: 'radial-gradient(#e8c96a,#c9a84c)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 24,
+            }}>
+              {initialsOf(player.profiles?.full_name ?? '?')}
             </div>
-            <button
-              onClick={() => setSelectedPlayer(null)}
-              style={{
-                display: 'block', width: '100%', marginTop: 18, padding: 11, borderRadius: 10,
-                background: '#f3f4f6', border: '1px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer',
-              }}
-            >
-              Close
-            </button>
+          )}
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 800, color: '#14532d' }}>
+            {player.profiles?.full_name ?? 'Player'}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 10, fontFamily: 'var(--font-body)', fontSize: 13, color: '#7a7260' }}>
+            {player.profiles?.handicap != null && <div>⛳ Handicap {player.profiles.handicap}</div>}
+            {player.profiles?.golf_club && <div>🏌️ {player.profiles.golf_club}</div>}
+            {player.profiles?.occupation && <div>💼 {player.profiles.occupation}</div>}
           </div>
         </div>
-      )}
+        <button
+          onClick={onClose}
+          style={{
+            display: 'block', width: '100%', marginTop: 18, padding: 11, borderRadius: 10,
+            background: '#f3f4f6', border: '1px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer',
+          }}
+        >
+          Close
+        </button>
+      </div>
     </div>
   )
 }
@@ -303,6 +304,7 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
   // "Trip Information" for now, per instruction, only the internal
   // naming here is kept neutral where it costs nothing to do so.
   const [view, setView] = useState<'lobby' | 'eventInfo'>('lobby')
+  const [selectedPlayer, setSelectedPlayer] = useState<PlayerCardData | null>(null)
   const me = trip.trip_members.find(m => m.profile_id === currentUserId)
   const myGroup = me?.group_id ? trip.trip_groups?.find(g => g.id === me.group_id) : undefined
 
@@ -341,16 +343,21 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
             📍 {trip.location}
           </div>
         )}
-        {/* Event Lobby countdown — deliberately placed in the header/
-            branding area (below the trip name), not inside the white
-            status card below — "should feel like part of the event
-            branding rather than another administrative information
-            row." Only the chronologically-first round (rounds[0] —
-            already sorted by play_date below) drives this; the
-            component itself hides once that round is no longer
-            'upcoming', so nothing further is needed here to handle
-            Round 1 going live. */}
-        {rounds[0] && <EventCountdown tripId={trip.id} round={rounds[0]} />}
+        {/* Event Lobby countdown — round-aware fix: previously hardcoded
+            to rounds[0] (literally Round 1, forever), so once Round 1
+            completed the countdown simply vanished rather than
+            retargeting to Round 2. focusRound (computed above —
+            activeRound ?? upcomingRound ?? most-recent-completed) is the
+            exact "next relevant round" logic this screen already uses
+            for its own status card below; reusing it here means the
+            countdown now naturally follows the trip's actual progress
+            through multiple rounds. EventCountdown itself is untouched
+            — still the same single engine, still internally hiding
+            itself whenever the target round isn't 'upcoming' (which
+            correctly covers the "after the final round, no more
+            countdown" case too, since focusRound then resolves to a
+            completed round). */}
+        {focusRound && <EventCountdown tripId={trip.id} round={focusRound} />}
       </div>
 
       <div style={{ padding: '16px 16px 0' }}>
@@ -462,7 +469,23 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
                 </div>
               </Link>
 
-              <PlayersJoinedSection trip={trip} />
+              {/* Starting Grid — Deployment 1's core "don't expose
+                  organiser drafts" gate. groups_released is the single
+                  source of truth (migration 058); this reads it purely
+                  as presentation, not a second permission check —
+                  RLS/API access to group membership is unchanged, this
+                  only decides which of two already-correct views to
+                  render. focusRound must exist too, since a Starting
+                  Grid without a specific round to attach tee times/
+                  starting holes to wouldn't mean anything yet. */}
+              {trip.groups_released && focusRound && trip.trip_groups && trip.trip_groups.length > 0 ? (
+                <StartingGrid
+                  tripId={trip.id} roundId={focusRound.id} groups={trip.trip_groups}
+                  onSelectPlayer={m => setSelectedPlayer(m)}
+                />
+              ) : (
+                <PlayersJoinedSection trip={trip} onSelectPlayer={m => setSelectedPlayer(m)} />
+              )}
               {focusRound?.status === 'active' && (
                 <Link
                   href={`/trips/${trip.id}/rounds/${focusRound.id}`}
@@ -498,6 +521,8 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
           View Leaderboard
         </Link>
       </div>
+
+      {selectedPlayer && <PlayerCardModal player={selectedPlayer} onClose={() => setSelectedPlayer(null)} />}
     </div>
   )
 }

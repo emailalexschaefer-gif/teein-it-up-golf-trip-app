@@ -26,7 +26,7 @@ export default async function TournamentPage({ params }: Props) {
 
   const { data: rounds } = await supabase
     .from('rounds')
-    .select('id, name, status, play_date')
+    .select('id, name, status, play_date, course_name, tee_time')
     .eq('trip_id', tripId)
     .order('play_date', { ascending: false })
 
@@ -54,7 +54,7 @@ export default async function TournamentPage({ params }: Props) {
   // "Organiser who is also playing" — reuses the trip's existing
   // organiser_is_playing flag (the same signal this app has used for
   // this exact question since Sprint 5C.2), not a new per-round check.
-  const { data: tripRow } = await supabase.from('trips').select('organiser_is_playing').eq('id', tripId).maybeSingle()
+  const { data: tripRow } = await supabase.from('trips').select('organiser_is_playing, groups_released').eq('id', tripId).maybeSingle()
   const organiserIsPlaying = isOrganiser && (tripRow?.organiser_is_playing ?? false)
 
   if (!isOrganiser) {
@@ -70,7 +70,11 @@ export default async function TournamentPage({ params }: Props) {
             No rounds yet — your organiser hasn&apos;t set one up.
           </div>
         ) : (
-          <PlayerRoundView tripId={tripId} roundId={focusRound.id} roundStatus={focusRound.status} />
+          <PlayerRoundView
+            tripId={tripId} roundId={focusRound.id} roundStatus={focusRound.status}
+            roundName={focusRound.name} courseName={focusRound.course_name} playDate={focusRound.play_date}
+            teeTime={focusRound.tee_time} groupsReleased={tripRow?.groups_released ?? false}
+          />
         )}
       </div>
     )

@@ -76,7 +76,12 @@ export default function SideGamesClient({ tripId }: { tripId: string }) {
           Loading Side Games…
         </div>
       ) : roundsWithContent.length === 0 ? (
-        <EmptyState text="No Side Competitions or Powerplay have been configured yet." />
+        // Positive framing — the organiser may not have configured any
+        // Side Competitions/Powerplay for this trip yet, which is a
+        // completely normal, valid state (not every trip runs them),
+        // not something "missing." Explains what this area is rather
+        // than reporting an absence.
+        <EmptyState text="Nearest the Pin, Longest Drive, and Powerplay competitions will appear here whenever your organiser sets them up for a round." />
       ) : (
         // Grouped by round, never merged — a round heading only shown
         // when there's more than one round with content, matching the

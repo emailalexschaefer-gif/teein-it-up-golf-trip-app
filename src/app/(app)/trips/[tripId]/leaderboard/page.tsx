@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import LiveLeaderboard from '@/components/scoring/LiveLeaderboard'
+import TheField from '@/components/scoring/TheField'
 import { selectLeaderboardRound } from '@/lib/scoring/multiRound'
 
 export const dynamic = 'force-dynamic'
@@ -47,17 +48,19 @@ export default async function LeaderboardPage({ params }: Props) {
         <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>Leaderboard</span>
       </div>
 
-      {!round ? (
-        <div style={{ textAlign: 'center', padding: '40px 16px', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>
-          No rounds yet — the leaderboard appears once a round begins.
-        </div>
+      {!round || round.status === 'upcoming' ? (
+        // Pre-event state — no round yet, or a round exists but hasn't
+        // started (no scores to show). Previously this rendered
+        // negative dead-screen text ("No rounds yet...", "not currently
+        // live") — replaced with The Field, which uses the same player
+        // roster data the app already has rather than saying nothing's
+        // available yet.
+        <TheField tripId={tripId} />
       ) : (
         <div>
           {!activeRound && (
             <div style={{ marginBottom: 12, fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', textAlign: 'center' }}>
-              {round.status === 'completed'
-                ? `Current standings through ${round.name}`
-                : `Showing ${round.name} (not currently live)`}
+              Current standings through {round.name}
             </div>
           )}
           <LiveLeaderboard tripId={tripId} roundId={round.id} roundStatus={round.status} />

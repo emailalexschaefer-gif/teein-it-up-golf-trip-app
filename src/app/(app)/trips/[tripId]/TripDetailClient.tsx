@@ -41,6 +41,7 @@ export interface TripData {
   location: string | null; start_date: string; end_date: string
   status: TripStatus; invite_code: string
   expected_players?: number; players_per_group?: number; organiser_is_playing?: boolean
+  groups_released?: boolean
   trip_members: TripMemberRow[]; rounds: RoundRow[]; trip_groups?: Array<{ id: string; name?: string }>
 }
 

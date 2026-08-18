@@ -77,7 +77,7 @@ export default async function TripDetailPage({ params }: Props) {
       .select(`
         id, name, description, event_type, location,
         start_date, end_date, status, invite_code,
-        expected_players, players_per_group, organiser_is_playing,
+        expected_players, players_per_group, organiser_is_playing, groups_released,
         trip_members (
           id, role, profile_id, group_id, playing_handicap,
           profiles ( id, full_name, avatar_url, handicap )
@@ -111,6 +111,9 @@ export default async function TripDetailPage({ params }: Props) {
         msg.includes('course_rating') || msg.includes('slope_rating') ||
         msg.includes('library_holes_snapshot')
       )
+      // Deployment 1 (migration 058) — same resilience pattern again,
+      // for the one new column this deployment adds.
+      const isMissingGroupsReleased = msg.includes('does not exist') && msg.includes('groups_released')
       if (isMissingCol) {
         console.warn('[trip page] Sprint 3 columns missing — run 012_sprint3_schema.sql in Supabase SQL Editor')
         result = await db
@@ -141,6 +144,24 @@ export default async function TripDetailPage({ params }: Props) {
             ),
             rounds (
               id, name, course_name, play_date, tee_time, holes, scoring_format, status
+            )
+          `)
+          .eq('id', tripId).maybeSingle()
+      } else if (isMissingGroupsReleased) {
+        console.warn('[trip page] groups_released column missing — run 058_groups_released.sql in Supabase SQL Editor')
+        result = await db
+          .from('trips')
+          .select(`
+            id, name, description, event_type, location,
+            start_date, end_date, status, invite_code,
+            expected_players, players_per_group, organiser_is_playing,
+            trip_members (
+              id, role, profile_id, group_id, playing_handicap,
+              profiles ( id, full_name, avatar_url, handicap )
+            ),
+            rounds (
+              id, name, course_name, play_date, tee_time, holes, scoring_format, status,
+              tee_set_source_id, tee_name, course_rating, slope_rating, library_holes_snapshot
             )
           `)
           .eq('id', tripId).maybeSingle()

@@ -32,7 +32,12 @@ const STATUS_META: Record<string, { icon: string; title: string; color: string; 
   published:         { icon: '🏆', title: 'Results are ready',              color: '#a1791f', bg: '#fdf3d9' },
 }
 
-export default function PlayerRoundView({ tripId, roundId, roundStatus }: { tripId: string; roundId: string; roundStatus: string }) {
+export default function PlayerRoundView({
+  tripId, roundId, roundStatus, roundName, courseName, playDate, teeTime, groupsReleased,
+}: {
+  tripId: string; roundId: string; roundStatus: string
+  roundName?: string; courseName?: string | null; playDate?: string; teeTime?: string | null; groupsReleased?: boolean
+}) {
   const { data, isLoading, error, refetch } = useQuery<MyRoundData>({
     queryKey: ['my-round', tripId, roundId],
     queryFn: async () => {
@@ -52,6 +57,26 @@ export default function PlayerRoundView({ tripId, roundId, roundStatus }: { trip
         <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, marginBottom: 10 }}>Your round is temporarily unavailable.</p>
         <button onClick={() => refetch()} style={{ padding: '8px 18px', borderRadius: 10, background: '#ffffff', border: '1.5px solid #d1d5db', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#14532d', cursor: 'pointer' }}>Try Again</button>
       </div>
+    )
+  }
+
+  // Deployment 1 — pre-event My Round preview. Deliberately gated on
+  // roundStatus (the round's own lifecycle state, always meaningful)
+  // rather than data.hasScorecard/data.status — an upcoming round can
+  // have no scorecard, a scorecard with no scores, or anything in
+  // between depending on exactly when the organiser ran Begin Round's
+  // setup, but none of that matters here: nothing worth showing as
+  // "live" can exist yet either way, so every upcoming round gets the
+  // same honest preview rather than a different dead-state message per
+  // internal detail. Previously this was two separate negative
+  // messages ("You're not in this round yet...", "Your organiser is
+  // preparing...") depending on exactly that internal state.
+  if (roundStatus === 'upcoming') {
+    return (
+      <PreEventMyRound
+        roundName={roundName ?? data.roundName} courseName={courseName} playDate={playDate} teeTime={teeTime}
+        groupName={groupsReleased ? data.groupName : null}
+      />
     )
   }
 
@@ -243,6 +268,74 @@ function SectionLabel({ children }: { children: ReactNode }) {
       {children}
     </div>
   )
+}
+
+/**
+ * Deployment 1 — pre-event My Round preview. Only previews sections
+ * that genuinely exist below in this same file once the round is live
+ * — "How you're going" (Performance stats), My Group, "What happened
+ * today" (Golf Story), My Moments — deliberately not a "Side Games"
+ * card, since My Round has no dedicated Side Games section of its own
+ * (that's its own separate tab); inventing one here would violate "Do
+ * NOT invent fake features merely to fill space."
+ */
+function PreEventMyRound({
+  roundName, courseName, playDate, teeTime, groupName,
+}: { roundName?: string; courseName?: string | null; playDate?: string; teeTime?: string | null; groupName?: string | null }) {
+  const formattedDate = playDate
+    ? new Date(`${playDate}T00:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+    : null
+  const formattedTime = teeTime ? formatTeeTime(teeTime) : null
+
+  return (
+    <div>
+      <div style={{ background: 'linear-gradient(135deg,#0f2d1c,#1a4731)', borderRadius: 16, padding: '18px 18px', marginBottom: 16, textAlign: 'center' }}>
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'rgba(245,230,184,0.6)', marginBottom: 4 }}>
+          {roundName ?? 'Round'} · Upcoming
+        </div>
+        {courseName && <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#fff' }}>{courseName}</div>}
+        {(formattedDate || formattedTime) && (
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'rgba(245,230,184,0.75)', marginTop: 4 }}>
+            {[formattedDate, formattedTime].filter(Boolean).join(' · ')}
+          </div>
+        )}
+        {groupName && (
+          <div style={{ display: 'inline-block', marginTop: 10, padding: '4px 12px', borderRadius: 20, background: 'rgba(232,201,106,0.15)', border: '1px solid rgba(232,201,106,0.4)' }}>
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#e8c96a' }}>{groupName}</span>
+          </div>
+        )}
+      </div>
+
+      <SectionLabel>📊 My Performance</SectionLabel>
+      <PreviewCard>Your Stableford score and round statistics will build here as you play.</PreviewCard>
+
+      <SectionLabel>👥 My Group</SectionLabel>
+      <PreviewCard>{groupName ? `You're playing in ${groupName}.` : 'Your playing group will appear here once the organiser releases it.'}</PreviewCard>
+
+      <SectionLabel>📖 What Happened Today</SectionLabel>
+      <PreviewCard>Your scoring highlights and milestones will be captured here as your round unfolds.</PreviewCard>
+
+      <SectionLabel>📸 My Moments</SectionLabel>
+      <PreviewCard>Photos and memorable moments you capture during the round will appear here.</PreviewCard>
+    </div>
+  )
+}
+
+function PreviewCard({ children }: { children: ReactNode }) {
+  return (
+    <div style={{ background: '#ffffff', borderRadius: 14, border: '1px dashed #d9c9a3', padding: 16, marginBottom: 16 }}>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', lineHeight: 1.5 }}>{children}</p>
+    </div>
+  )
+}
+
+function formatTeeTime(teeTime: string): string {
+  const [hStr, mStr] = teeTime.split(':')
+  const h = Number(hStr)
+  if (Number.isNaN(h)) return teeTime
+  const period = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return `${h12}:${mStr} ${period}`
 }
 
 function Stat({ label, value, big }: { label: string; value: string | number; big?: boolean }) {
