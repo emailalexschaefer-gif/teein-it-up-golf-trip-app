@@ -137,5 +137,11 @@ export async function GET(request: NextRequest) {
   }
 
   console.log('[do-join] SUCCESS — redirecting to trip', trip.id)
-  return NextResponse.redirect(`${origin}/trips/${trip.id}`)
+  // ?joined=1 — read once by the trip page to show a brief "You've
+  // joined" confirmation, then stripped from the URL immediately
+  // (matching item F's exact wording). Deliberately only added on this
+  // genuinely-fresh-membership path, not the "already a member" early
+  // return above — a repeat visit to an already-joined trip should just
+  // open normally, not repeat a "you joined!" message every time.
+  return NextResponse.redirect(`${origin}/trips/${trip.id}?joined=1`)
 }

@@ -44,6 +44,7 @@ export async function PATCH(request: NextRequest, { params }: Props) {
   if (body.start_date  !== undefined) update.start_date  = body.start_date
   if (body.end_date    !== undefined) update.end_date    = body.end_date
   if (body.description !== undefined) update.description = body.description || null
+  if (body.logo_url    !== undefined) update.logo_url    = body.logo_url    || null
 
   // Sprint 3 columns — try first, fall back gracefully if not in schema yet
   const sprint3Fields: Record<string, unknown> = {}

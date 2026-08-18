@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import TournamentControl from '@/components/scoring/TournamentControl'
 import AdminScoreOverridePanel from '@/components/scoring/AdminScoreOverridePanel'
-import PlayerRoundView from '@/components/scoring/PlayerRoundView'
+import MyRoundClient from '@/components/scoring/MyRoundClient'
 import MyRoundSummary from '@/components/scoring/MyRoundSummary'
 
 export const dynamic = 'force-dynamic'
@@ -26,30 +26,26 @@ export default async function TournamentPage({ params }: Props) {
 
   const { data: rounds } = await supabase
     .from('rounds')
-    .select('id, name, status, play_date, course_name, tee_time')
+    .select('id, name, status, play_date, course_name, tee_time, holes, scoring_format, tee_name')
     .eq('trip_id', tripId)
     .order('play_date', { ascending: false })
 
   const activeRound = rounds?.find(r => r.status === 'active')
-  const upcomingRound = rounds?.find(r => r.status === 'upcoming')
+  // rounds is fetched DESC by play_date (line 31) — completedRounds
+  // below only ever uses .length, so that ordering doesn't matter here;
+  // the actual "most recent" lookup is mostRecentlyCompletedRound,
+  // computed from the ascending-sorted copy further down.
   const completedRounds = (rounds ?? []).filter(r => r.status === 'completed')
-  // Players want the most relevant round regardless of active/upcoming/
-  // completed (matching PlayerHomeCard's same logic); organisers only
-  // ever look at the active round in My HQ, same as before this change.
-  const focusRound = activeRound ?? upcomingRound ?? completedRounds[completedRounds.length - 1]
-
-  // ── Organiser "no active round" state — post-round navigation ──────────
-  // `rounds` above is sorted DESC by play_date (existing query), which is
-  // fine for `upcomingRound`/`completedRounds` as already used for the
-  // player-facing `focusRound` fallback, but for "which round comes next"
-  // specifically we need the true chronological order: the soonest
-  // upcoming round by play_date, and the most recently completed one.
-  // Computed locally here, ascending, rather than reusing/mutating the
-  // existing DESC-ordered variables those other call sites depend on.
   const roundsAscending = [...(rounds ?? [])].sort((a, b) => a.play_date.localeCompare(b.play_date))
   const mostRecentlyCompletedRound = [...roundsAscending].reverse().find(r => r.status === 'completed')
   const nextUpcomingRound = roundsAscending.find(r => r.status === 'upcoming')
   const eventFullyComplete = !activeRound && !nextUpcomingRound && completedRounds.length > 0
+
+  // Players want the most relevant round regardless of active/upcoming/
+  // completed (matching PlayerHomeCard's same logic — also fixed in
+  // this same change, see below). Organisers only ever look at the
+  // active round in My HQ, unaffected by this fix.
+  const focusRound = activeRound ?? nextUpcomingRound ?? mostRecentlyCompletedRound
 
   // "Organiser who is also playing" — reuses the trip's existing
   // organiser_is_playing flag (the same signal this app has used for
@@ -70,10 +66,9 @@ export default async function TournamentPage({ params }: Props) {
             No rounds yet — your organiser hasn&apos;t set one up.
           </div>
         ) : (
-          <PlayerRoundView
-            tripId={tripId} roundId={focusRound.id} roundStatus={focusRound.status}
-            roundName={focusRound.name} courseName={focusRound.course_name} playDate={focusRound.play_date}
-            teeTime={focusRound.tee_time} groupsReleased={tripRow?.groups_released ?? false}
+          <MyRoundClient
+            tripId={tripId} rounds={roundsAscending} defaultRoundId={focusRound.id}
+            groupsReleased={tripRow?.groups_released ?? false}
           />
         )}
       </div>

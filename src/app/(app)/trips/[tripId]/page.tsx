@@ -75,7 +75,7 @@ export default async function TripDetailPage({ params }: Props) {
     let result = await db
       .from('trips')
       .select(`
-        id, name, description, event_type, location,
+        id, name, description, event_type, location, logo_url,
         start_date, end_date, status, invite_code,
         expected_players, players_per_group, organiser_is_playing, groups_released,
         trip_members (
@@ -119,7 +119,7 @@ export default async function TripDetailPage({ params }: Props) {
         result = await db
           .from('trips')
           .select(`
-            id, name, description, event_type, location,
+            id, name, description, event_type, location, logo_url,
             start_date, end_date, status, invite_code,
             trip_members (
               id, role, profile_id,
@@ -135,7 +135,7 @@ export default async function TripDetailPage({ params }: Props) {
         result = await db
           .from('trips')
           .select(`
-            id, name, description, event_type, location,
+            id, name, description, event_type, location, logo_url,
             start_date, end_date, status, invite_code,
             expected_players, players_per_group, organiser_is_playing,
             trip_members (
@@ -152,7 +152,7 @@ export default async function TripDetailPage({ params }: Props) {
         result = await db
           .from('trips')
           .select(`
-            id, name, description, event_type, location,
+            id, name, description, event_type, location, logo_url,
             start_date, end_date, status, invite_code,
             expected_players, players_per_group, organiser_is_playing,
             trip_members (

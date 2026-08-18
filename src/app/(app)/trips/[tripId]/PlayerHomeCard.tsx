@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import type { TripData, TripMemberRow } from './TripDetailClient'
 import EventCountdown from '@/components/trips/EventCountdown'
 import StartingGrid from '@/components/scoring/StartingGrid'
@@ -305,6 +306,26 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
   // naming here is kept neutral where it costs nothing to do so.
   const [view, setView] = useState<'lobby' | 'eventInfo'>('lobby')
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerCardData | null>(null)
+  const router = useRouter()
+
+  // Item F — "brief positive confirmation." Read once on mount via
+  // window.location.search directly (not useSearchParams(), which
+  // requires a Suspense boundary this component tree doesn't have) —
+  // simplest safe way to read a one-time query param outside App
+  // Router's search-params machinery. router.replace strips it from the
+  // URL immediately after showing it, so refreshing or sharing the URL
+  // never repeats the confirmation or leaves it stuck in browser history.
+  const [justJoined, setJustJoined] = useState(false)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (new URLSearchParams(window.location.search).get('joined') === '1') {
+      setJustJoined(true)
+      router.replace(`/trips/${trip.id}`)
+      const t = setTimeout(() => setJustJoined(false), 4000)
+      return () => clearTimeout(t)
+    }
+  }, [trip.id, router])
+
   const me = trip.trip_members.find(m => m.profile_id === currentUserId)
   const myGroup = me?.group_id ? trip.trip_groups?.find(g => g.id === me.group_id) : undefined
 
@@ -324,6 +345,14 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
 
   return (
     <div className="-mx-4 -mt-5 pb-20 md:pb-0">
+      {justJoined && (
+        <div style={{
+          background: '#166534', color: '#fff', textAlign: 'center', padding: '10px 16px',
+          fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13,
+        }}>
+          ✓ You&apos;ve joined {trip.name}
+        </div>
+      )}
       <div style={{
         background: 'linear-gradient(135deg, #0f2d1c 0%, #1a4731 60%, #236040 100%)',
         borderBottom: '2px solid #c9a84c',

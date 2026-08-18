@@ -6,6 +6,8 @@ import { formatTripDateRange } from '@/lib/utils'
 import { TRIP_STATUS_LABELS, EVENT_TYPE_OPTIONS } from '@/types/app'
 import type { TripData } from '../TripDetailClient'
 import TripInformationCard from '@/components/trips/TripInformationCard'
+import { createClient } from '@/lib/supabase/client'
+import { processImageFile } from '@/lib/imageProcessing'
 
 type Tab = 'overview' | 'players' | 'groups' | 'rounds'
 
@@ -124,6 +126,16 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
             <StatCell icon="🏌️" value={numGroups} sub="groups" label="Groups" />
           </div>
         </div>
+
+        {/* Item A — event logo, organiser-only, right at the top of
+            Trip Details (the "sensible place... later" the brief asks
+            for — creation-wizard placement deliberately not attempted
+            in this pass, to avoid adding friction/regression risk to
+            an already-working wizard flow under this brief's own time
+            constraints). Players never see this control — trip.logo_url
+            already displays for everyone via TripCard's existing
+            graceful-fallback rendering, unchanged. */}
+        {isOrganiser && <EventLogoCard trip={trip} />}
 
         {/* ── Trip details ─────────────────────────────────────────────── */}
         <div className="card p-4 space-y-3">
@@ -343,6 +355,134 @@ function StatCell({ icon, value, sub, label }: { icon: string; value: number | s
       <p style={{ fontSize: 22, marginBottom: 2 }}>{icon}</p>
       <p style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, color: '#1a1a16', lineHeight: 1 }}>{value}</p>
       <p style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#7a7260', marginTop: 2 }}>{sub || label}</p>
+    </div>
+  )
+}
+
+/**
+ * Item A — event logo upload. Directly mirrors ProfileForm.tsx's own
+ * proven avatar-upload flow (same processImageFile crop, same preview-
+ * then-confirm step, same cache-busting on save) — the only genuine
+ * differences are the storage bucket ('event-logos' vs 'profile-
+ * photos'), the path prefix (trip.id vs the user's own id, matching
+ * migration 059's organiser-scoped RLS), and persisting to
+ * trips.logo_url via the existing PATCH /api/trips/[tripId] route
+ * (extended earlier in this same change) rather than a direct table
+ * update — trips already have a proper organiser-authorised API route
+ * for edits, unlike the profile table's simpler direct-update pattern.
+ */
+function EventLogoCard({ trip }: { trip: TripData }) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [currentLogoUrl, setCurrentLogoUrl] = useState(trip.logo_url ?? null)
+
+  async function handleSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { setError('Unsupported image type.'); return }
+    if (file.size > 8 * 1024 * 1024) { setError('Image is too large.'); return }
+    setError('')
+    try {
+      const processed = await processImageFile(file)
+      setPreviewBlob(processed)
+      setPreviewUrl(URL.createObjectURL(processed))
+    } catch {
+      setError('Unsupported image type.')
+    }
+  }
+
+  function cancelPreview() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl)
+    setPreviewUrl(null)
+    setPreviewBlob(null)
+  }
+
+  async function confirmUpload() {
+    if (!previewBlob) return
+    setBusy(true)
+    setError('')
+    const supabase = createClient()
+    const path = `${trip.id}/logo.jpg`
+
+    const { error: uploadErr } = await supabase.storage.from('event-logos').upload(path, previewBlob, { upsert: true, contentType: 'image/jpeg' })
+    if (uploadErr) {
+      setBusy(false)
+      setError(uploadErr.message?.toLowerCase().includes('bucket not found') ? 'Logo storage is not configured.' : 'Upload failed. Please try again.')
+      console.error('[event logo upload]', uploadErr)
+      return
+    }
+
+    const { data: urlData } = supabase.storage.from('event-logos').getPublicUrl(path)
+    const bustedUrl = `${urlData.publicUrl}?v=${Date.now()}`
+
+    const res = await fetch(`/api/trips/${trip.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ logo_url: bustedUrl }),
+    })
+    setBusy(false)
+    if (!res.ok) { setError('Upload failed. Please try again.'); return }
+    setCurrentLogoUrl(bustedUrl)
+    cancelPreview()
+  }
+
+  async function handleRemove() {
+    setBusy(true)
+    setError('')
+    const res = await fetch(`/api/trips/${trip.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ logo_url: null }),
+    })
+    setBusy(false)
+    if (!res.ok) { setError('Could not remove logo. Please try again.'); return }
+    setCurrentLogoUrl(null)
+  }
+
+  return (
+    <div className="card p-4 space-y-3">
+      <p className="s-label">Event Logo</p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{
+          width: 64, height: 64, borderRadius: 12, flexShrink: 0, overflow: 'hidden',
+          background: '#f2e8d0', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #eceae3',
+        }}>
+          {previewUrl ? (
+            <img src={previewUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : currentLogoUrl ? (
+            <img src={currentLogoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            <span style={{ fontSize: 24 }}>⛳</span>
+          )}
+        </div>
+        <div style={{ flex: 1 }}>
+          {previewUrl ? (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={confirmUpload} disabled={busy} style={{ padding: '7px 14px', borderRadius: 8, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>
+                {busy ? 'Saving…' : 'Save Logo'}
+              </button>
+              <button onClick={cancelPreview} disabled={busy} style={{ padding: '7px 14px', borderRadius: 8, background: '#f3f4f6', border: '1px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <label style={{ padding: '7px 14px', borderRadius: 8, background: '#ffffff', border: '1.5px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, color: '#14532d', cursor: 'pointer' }}>
+                {currentLogoUrl ? 'Change Logo' : 'Upload Logo'}
+                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleSelected} style={{ display: 'none' }} />
+              </label>
+              {currentLogoUrl && (
+                <button onClick={handleRemove} disabled={busy} style={{ padding: '7px 14px', borderRadius: 8, background: 'none', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, color: '#dc2626', cursor: 'pointer' }}>
+                  Remove
+                </button>
+              )}
+            </div>
+          )}
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
+            Optional — shown on your invitation link and event card. If left blank, Teein&apos; It Up&apos;s own branding is used instead.
+          </p>
+          {error && <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#dc2626', marginTop: 4 }}>{error}</p>}
+        </div>
+      </div>
     </div>
   )
 }

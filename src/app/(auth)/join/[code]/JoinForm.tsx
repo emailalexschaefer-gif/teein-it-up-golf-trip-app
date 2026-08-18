@@ -8,6 +8,37 @@ import HandicapPrompt from './HandicapPrompt'
 type Step = 'checking' | 'form' | 'needs_handicap' | 'check_email' | 'rate_limited' | 'invalid' | 'joining' | 'error'
 type AuthMode = 'password' | 'magic'
 
+/**
+ * Item I — dynamic date range for the invitation panel. "12–13
+ * September 2026" for a multi-day event, "18 September 2026" for a
+ * single day, matching the brief's exact examples. Returns null (not
+ * an empty string) when either date is missing, so the caller's own
+ * conditional rendering correctly omits the whole row rather than
+ * showing a broken partial date.
+ */
+function formatInviteDateRange(startDate: string | null, endDate: string | null): string | null {
+  if (!startDate) return null
+  const start = new Date(`${startDate}T00:00:00`)
+  if (Number.isNaN(start.getTime())) return null
+  const startMonth = start.toLocaleDateString('en-US', { month: 'long' })
+  const year = start.getFullYear()
+
+  if (!endDate || endDate === startDate) {
+    return `${start.getDate()} ${startMonth} ${year}`
+  }
+  const end = new Date(`${endDate}T00:00:00`)
+  if (Number.isNaN(end.getTime())) return `${start.getDate()} ${startMonth} ${year}`
+
+  // Same month: "12-13 September 2026". Different month/year: spell out
+  // both ends in full rather than guessing at a shorthand that could
+  // misread across a month/year boundary.
+  if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
+    return `${start.getDate()}\u2013${end.getDate()} ${startMonth} ${year}`
+  }
+  const endMonth = end.toLocaleDateString('en-US', { month: 'long' })
+  return `${start.getDate()} ${startMonth} ${year} \u2013 ${end.getDate()} ${endMonth} ${end.getFullYear()}`
+}
+
 export default function JoinForm() {
   const params     = useParams()
   const router     = useRouter()
@@ -39,6 +70,10 @@ export default function JoinForm() {
   const [formPath, setFormPath]           = useState<'existing' | 'new'>('new')
   const [step, setStep]         = useState<Step>('checking')
   const [tripName, setTripName] = useState<string | null>(null)
+  const [tripLogoUrl, setTripLogoUrl] = useState<string | null>(null)
+  const [tripStartDate, setTripStartDate] = useState<string | null>(null)
+  const [tripEndDate, setTripEndDate] = useState<string | null>(null)
+  const [roundCount, setRoundCount] = useState<number | null>(null)
   const [errorMsg, setErrorMsg] = useState<string>('')
 
   // Timeout guard — never spin forever
@@ -91,17 +126,29 @@ export default function JoinForm() {
         return
       }
 
-      // Not logged in — fetch trip name for display
+      // Not logged in — fetch trip identity for the invitation panel.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db: any = supabase
       const result = await db
-        .from('trips').select('name, status')
+        .from('trips').select('id, name, status, logo_url, start_date, end_date')
         .eq('invite_code', inviteCode).maybeSingle()
 
       if (!result.data || result.data.status === 'archived') {
         setStep('invalid')
       } else {
         setTripName(result.data.name)
+        setTripLogoUrl(result.data.logo_url ?? null)
+        setTripStartDate(result.data.start_date ?? null)
+        setTripEndDate(result.data.end_date ?? null)
+        // Round count is a nice-to-have for the invitation panel, not
+        // essential — a failure here (e.g. an RLS edge case on rounds
+        // for an unauthenticated visitor) should never block the whole
+        // invitation from rendering, matching "handle missing optional
+        // data gracefully."
+        try {
+          const roundsResult = await db.from('rounds').select('id', { count: 'exact', head: true }).eq('trip_id', result.data.id)
+          setRoundCount(typeof roundsResult.count === 'number' ? roundsResult.count : null)
+        } catch { setRoundCount(null) }
         setStep('form')
       }
     })
@@ -403,14 +450,60 @@ export default function JoinForm() {
 
   return (
     <>
+      {/* Invitation panel — matches the approved mock-up's dark/gold
+          "YOU'RE INVITED TO" card. Sits inside the existing cream auth
+          card (auth/layout.tsx, unchanged, shared by every auth route)
+          rather than restructuring that shared layout for this one
+          route — the background/branding/tagline it already provides
+          match the mock-up closely enough that rebuilding the whole
+          page shell wasn't worth the regression risk to login/signup/
+          reset-password, which all inherit the same layout. Populated
+          entirely from real trip data fetched above — nothing
+          hardcoded, and every field is conditionally rendered so
+          missing optional data (no logo, no rounds yet) degrades
+          gracefully rather than showing a broken/empty state. */}
+      {tripName && (
+        <div style={{
+          background: 'linear-gradient(135deg, #0f2d1c 0%, #1a4731 100%)',
+          border: '1.5px solid #c9a84c', borderRadius: 16, padding: '18px 18px', marginBottom: 20,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            {tripLogoUrl ? (
+              <img src={tripLogoUrl} alt="" style={{ width: 56, height: 56, borderRadius: 10, objectFit: 'cover', flexShrink: 0, border: '1px solid rgba(232,201,106,0.4)' }} />
+            ) : (
+              <div style={{
+                width: 56, height: 56, borderRadius: 10, flexShrink: 0, border: '1px solid rgba(232,201,106,0.4)',
+                background: 'rgba(232,201,106,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26,
+              }}>⛳</div>
+            )}
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: '#e8c96a' }}>
+                You&apos;re invited to
+              </div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 800, color: '#ffffff', lineHeight: 1.15, marginTop: 2 }}>
+                {tripName}
+              </div>
+            </div>
+          </div>
+          {(formatInviteDateRange(tripStartDate, tripEndDate) || roundCount !== null) && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(232,201,106,0.2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {formatInviteDateRange(tripStartDate, tripEndDate) && (
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'rgba(245,230,184,0.85)' }}>
+                  📅 {formatInviteDateRange(tripStartDate, tripEndDate)}
+                </div>
+              )}
+              {roundCount !== null && roundCount > 0 && (
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'rgba(245,230,184,0.85)' }}>
+                  🚩 {roundCount} Round{roundCount === 1 ? '' : 's'}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="text-center mb-6">
         <p className="text-2xl mb-1">⛳</p>
-        <h1 className="text-xl font-bold text-text">You&apos;re invited</h1>
-        {tripName && (
-          <p className="text-text-muted text-sm mt-1">
-            Join <strong className="text-text">{tripName}</strong>
-          </p>
-        )}
       </div>
 
       {formPath === 'existing' ? (
