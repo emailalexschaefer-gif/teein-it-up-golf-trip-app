@@ -116,7 +116,6 @@ export default function LiveLeaderboard({
     if (boardRow) return toPlayerCardData(boardRow)
     return { profiles: { full_name: playerName, avatar_url: null } }
   }
-  const [selectedPlayer, setSelectedPlayer] = useState<PlayerCardData | null>(null)
 
   const { data, isLoading, error, dataUpdatedAt } = useQuery<LeaderboardResponse>({
     queryKey: ['leaderboard', tripId, roundId],
