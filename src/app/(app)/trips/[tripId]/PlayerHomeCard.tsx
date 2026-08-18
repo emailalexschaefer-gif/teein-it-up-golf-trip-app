@@ -198,8 +198,11 @@ function PlayerCardModal({ player, onClose }: { player: PlayerCardData; onClose:
             {player.profiles?.full_name ?? 'Player'}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 10, fontFamily: 'var(--font-body)', fontSize: 13, color: '#7a7260' }}>
-            {player.profiles?.handicap != null && <div>⛳ Handicap {player.profiles.handicap}</div>}
-            {player.profiles?.golf_club && <div>🏌️ {player.profiles.golf_club}</div>}
+            {/* Icon polish — swapped per explicit feedback: golfer/
+                golf-player icon means Handicap, course-flag icon means
+                Golf Club, briefcase (unchanged) means Occupation. */}
+            {player.profiles?.handicap != null && <div>🏌️ Handicap {player.profiles.handicap}</div>}
+            {player.profiles?.golf_club && <div>⛳ {player.profiles.golf_club}</div>}
             {player.profiles?.occupation && <div>💼 {player.profiles.occupation}</div>}
           </div>
         </div>

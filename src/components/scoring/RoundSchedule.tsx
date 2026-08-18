@@ -29,10 +29,19 @@ function statusLabel(round: ScheduleRound, isDefaultSelection: boolean): { text:
 }
 
 export default function RoundSchedule({
-  rounds, selectedRoundId, defaultRoundId, onSelect,
+  rounds, selectedRoundId, defaultRoundId, onSelect, interactive = true,
 }: {
   rounds: ScheduleRound[]; selectedRoundId: string; defaultRoundId: string | null
-  onSelect: (roundId: string) => void
+  onSelect?: (roundId: string) => void
+  // My HQ (a Server Component) renders this as a read-only status
+  // display — Next.js doesn't allow passing function props from Server
+  // to Client Components, so rather than route a fake handler through
+  // that boundary, interactive=false makes the cards genuinely
+  // non-interactive (no cursor: pointer, no onClick at all) whenever no
+  // onSelect is actually usable. My Round (a Client Component) always
+  // passes real state-setting behaviour and gets the fully interactive
+  // version, unchanged.
+  interactive?: boolean
 }) {
   if (rounds.length === 0) return null
 
@@ -45,13 +54,14 @@ export default function RoundSchedule({
         {rounds.map((round, i) => {
           const isSelected = round.id === selectedRoundId
           const label = statusLabel(round, round.id === defaultRoundId)
+          const Card = interactive && onSelect ? 'button' : 'div'
           return (
-            <button
+            <Card
               key={round.id}
-              onClick={() => onSelect(round.id)}
+              {...(interactive && onSelect ? { onClick: () => onSelect(round.id) } : {})}
               style={{
                 display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left',
-                padding: '10px 12px', borderRadius: 12, cursor: 'pointer',
+                padding: '10px 12px', borderRadius: 12, cursor: interactive && onSelect ? 'pointer' : 'default',
                 background: isSelected ? '#ffffff' : '#faf9f6',
                 border: isSelected ? '2px solid #c9a84c' : '1px solid #eceae3',
                 boxShadow: isSelected ? '0 2px 10px rgba(201,168,76,0.18)' : 'none',
@@ -87,7 +97,7 @@ export default function RoundSchedule({
                   {round.scoring_format ? ` · ${round.scoring_format.charAt(0).toUpperCase()}${round.scoring_format.slice(1)}` : ''}
                 </div>
               </div>
-            </button>
+            </Card>
           )
         })}
       </div>

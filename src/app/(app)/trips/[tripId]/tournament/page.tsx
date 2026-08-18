@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import TournamentControl from '@/components/scoring/TournamentControl'
 import AdminScoreOverridePanel from '@/components/scoring/AdminScoreOverridePanel'
 import MyRoundClient from '@/components/scoring/MyRoundClient'
+import RoundSchedule from '@/components/scoring/RoundSchedule'
 import MyRoundSummary from '@/components/scoring/MyRoundSummary'
 
 export const dynamic = 'force-dynamic'
@@ -84,9 +85,21 @@ export default async function TournamentPage({ params }: Props) {
         <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>My HQ</span>
       </div>
 
+      {/* Priority 2 — Event Schedule now shown in My HQ too, reusing the
+          exact same RoundSchedule component from My Round (read-only,
+          no organiser actions anywhere in that file) rather than a
+          second implementation. Organiser controls (Begin Round, etc.)
+          remain exactly where they already are — the trip's Rounds tab
+          — this is presentation/navigation only, not a duplicate of
+          that management surface. */}
+      <RoundSchedule
+        rounds={roundsAscending} selectedRoundId={focusRound?.id ?? ''} defaultRoundId={focusRound?.id ?? null}
+        interactive={false}
+      />
+
       {!activeRound ? (
         <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', padding: '32px 20px', textAlign: 'center' }}>
-          {nextUpcomingRound ? (
+          {nextUpcomingRound && mostRecentlyCompletedRound ? (
             // A round has just closed and another is ready — the
             // "post-round" multi-round journey. mostRecentlyCompletedRound
             // and nextUpcomingRound are both resolved dynamically above
@@ -156,17 +169,25 @@ export default async function TournamentPage({ params }: Props) {
               </Link>
             </>
           ) : (
-            // Pre-event / nothing to reference yet — the original,
-            // unchanged empty state (round count is 0 or every round is
-            // still upcoming with none ever having started).
+            // Pre-event / nothing to reference yet — genuinely reachable
+            // now that the condition above requires
+            // mostRecentlyCompletedRound to exist, not just
+            // nextUpcomingRound. Copy lightly improved to match the
+            // established "no dead screens" language used elsewhere
+            // (Deployment 1); the full "control centre" module-preview
+            // rebuild (Live Leaderboard/Score Management/Side Games/
+            // Round Insights preview cards) is a larger build than fits
+            // safely in this pass alongside the urgent bug fix above —
+            // reporting that as the clear next step rather than
+            // attempting it under the same time pressure as the fix.
             <>
               <p style={{ fontSize: 32, marginBottom: 10 }}>⛳</p>
               <p style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 16, fontWeight: 800, marginBottom: 8 }}>
-                No active round
+                Your control centre
               </p>
               <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13, lineHeight: 1.5, marginBottom: 18 }}>
-                My HQ is the organiser&apos;s live command centre for today&apos;s round.
-                It fills in once a round begins.
+                My HQ comes alive once the round begins — live leaderboard,
+                score management and side games will all appear here.
               </p>
               <Link
                 href={`/trips/${tripId}?tab=rounds`}
