@@ -7,6 +7,7 @@ import type { TripData, TripMemberRow } from './TripDetailClient'
 import EventCountdown from '@/components/trips/EventCountdown'
 import StartingGrid from '@/components/scoring/StartingGrid'
 import PlayerCardModal, { initialsOf, type PlayerCardData } from '@/components/shared/PlayerCardModal'
+import WelcomeBrochure, { CollapsedWelcomeCard, isBrochureDismissed } from '@/components/trips/WelcomeBrochure'
 import { formatTripDateRange } from '@/lib/utils'
 import TripInformationCard from '@/components/trips/TripInformationCard'
 
@@ -263,6 +264,10 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
   }, [trip.id, router])
 
   const me = trip.trip_members.find(m => m.profile_id === currentUserId)
+  // Item 4 — real organiser name, not hardcoded. trip.trip_members is
+  // already fetched and available here; no new query needed.
+  const organiserName = trip.trip_members.find(m => m.role === 'organiser')?.profiles?.full_name ?? null
+  const [brochureExpanded, setBrochureExpanded] = useState(() => !isBrochureDismissed(trip.id))
   const myGroup = me?.group_id ? trip.trip_groups?.find(g => g.id === me.group_id) : undefined
 
   // Focus on the most relevant round: the active one if there is one,
@@ -326,6 +331,22 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
       </div>
 
       <div style={{ padding: '16px 16px 0' }}>
+        {/* Item 1/9 — Welcome Brochure, placed directly beneath the
+            event header/countdown and above the existing Lobby status.
+            Watermark image supplied for this feature; the strong dark
+            green gradient (inside WelcomeBrochure itself) keeps text
+            fully legible while the photography stays subtly visible
+            behind it. */}
+        {brochureExpanded ? (
+          <WelcomeBrochure
+            tripId={trip.id} tripName={trip.name}
+            watermarkUrl="/brand/lobby-brochure-watermark.png"
+            onDismiss={() => setBrochureExpanded(false)}
+          />
+        ) : (
+          <CollapsedWelcomeCard onReopen={() => setBrochureExpanded(true)} />
+        )}
+
         {/* Item 1 — the explicit "Event Lobby" reframing. Previously
             this label only existed in the back-link text ("← Back to
             Event Lobby") from the Trip Information view — the main
@@ -355,11 +376,6 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
             {focusRound?.tee_time && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#14532d' }}>
                 <span>⏰</span><span>Tee time {formatTeeTime(focusRound.tee_time)}</span>
-              </div>
-            )}
-            {focusRound && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#14532d' }}>
-                <span>🏌️</span><span>{formatLabel(focusRound.scoring_format)}</span>
               </div>
             )}
           </div>
@@ -393,7 +409,7 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
               {focusRound?.status === 'upcoming' && (
                 <div style={{ background: '#fdf3d9', border: '1px solid #e8c96a', borderRadius: 12, padding: '12px 14px', textAlign: 'center' }}>
                   <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#a1791f' }}>
-                    🟡 Waiting for organiser to start {focusRound.name}
+                    🟡 Waiting for {organiserName ?? 'the organiser'} to start {focusRound.name}
                   </span>
                 </div>
               )}
