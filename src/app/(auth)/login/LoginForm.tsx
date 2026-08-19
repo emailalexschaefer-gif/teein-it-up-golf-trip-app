@@ -15,7 +15,12 @@ export default function LoginForm() {
   const inviteCode   = searchParams.get('inviteCode') || ''
 
   // Support ?mode=signup|password|magic in URL
-  const initialMode = (searchParams.get('mode') as Mode | null) ?? 'magic'
+  // Priority 4 — password is now the default auth flow, matching the
+  // brief exactly: "must not be the primary/default flow" for Magic
+  // Link. Magic Link remains fully supported and reachable via its own
+  // toggle, unchanged — this is a one-word default change, not a
+  // removal of anything.
+  const initialMode = (searchParams.get('mode') as Mode | null) ?? 'password'
 
   const [mode, setMode]       = useState<Mode>(initialMode)
   const [email, setEmail]     = useState('')

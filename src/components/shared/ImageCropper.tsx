@@ -22,12 +22,35 @@ import Cropper, { type Area } from 'react-easy-crop'
  */
 export type CropShape = 'round' | 'rect'
 
+// Priority 3 — cropper processing failure investigation. Traced the
+// full pipeline per the brief's own list. The one genuine issue found:
+// img.crossOrigin = 'anonymous' was set unconditionally, including for
+// blob: URLs (which is what imageSrc always is here — created via
+// URL.createObjectURL in both MomentCapture and EventLogoCard). Blob
+// URLs are inherently same-origin and need no CORS handling at all;
+// setting crossOrigin on them anyway is a well-documented cross-browser
+// inconsistency — some mobile browser versions (Android Chrome
+// included, historically) can fail to load an <img> entirely when
+// crossOrigin is set on a same-origin blob URL, rather than simply
+// ignoring the unnecessary attribute. Removed — there was never a
+// cross-origin image involved here to protect against in the first
+// place. Everything else in this function (canvas dimensions from the
+// crop area, drawImage, toBlob, MIME type) traced correctly and needed
+// no change.
+//
+// Distinct, stage-specific error messages added for diagnosis (dev
+// console only — production UI in ImageCropper.tsx stays as one clean
+// message, per "the production UI can remain clean").
 async function getCroppedImageBlob(imageSrc: string, cropPixels: Area): Promise<Blob> {
+  if (!cropPixels.width || !cropPixels.height || Number.isNaN(cropPixels.width) || Number.isNaN(cropPixels.height)) {
+    console.error('[ImageCropper] invalid crop dimensions', cropPixels)
+    throw new Error('Crop generation failed: invalid crop area.')
+  }
+
   const image = await new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image()
-    img.crossOrigin = 'anonymous'
     img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error('Could not load image for cropping'))
+    img.onerror = () => reject(new Error('Crop generation failed: could not decode the selected image.'))
     img.src = imageSrc
   })
 
@@ -35,17 +58,32 @@ async function getCroppedImageBlob(imageSrc: string, cropPixels: Area): Promise<
   canvas.width = Math.round(cropPixels.width)
   canvas.height = Math.round(cropPixels.height)
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Canvas not supported')
+  if (!ctx) {
+    console.error('[ImageCropper] 2D canvas context unavailable')
+    throw new Error('Crop generation failed: canvas not supported on this device.')
+  }
 
-  ctx.drawImage(
-    image,
-    cropPixels.x, cropPixels.y, cropPixels.width, cropPixels.height,
-    0, 0, canvas.width, canvas.height,
-  )
+  try {
+    ctx.drawImage(
+      image,
+      cropPixels.x, cropPixels.y, cropPixels.width, cropPixels.height,
+      0, 0, canvas.width, canvas.height,
+    )
+  } catch (err) {
+    console.error('[ImageCropper] drawImage failed', err)
+    throw new Error('Crop generation failed: could not render the crop.')
+  }
 
   return new Promise((resolve, reject) => {
     canvas.toBlob(
-      blob => (blob ? resolve(blob) : reject(new Error('Could not extract cropped image'))),
+      blob => {
+        if (!blob) {
+          console.error('[ImageCropper] canvas.toBlob produced no output', { width: canvas.width, height: canvas.height })
+          reject(new Error('Crop generation failed: could not export the cropped image.'))
+          return
+        }
+        resolve(blob)
+      },
       'image/jpeg', 0.92, // higher quality than the final processImageFile pass — this is an intermediate step, not the final stored file
     )
   })
@@ -89,7 +127,14 @@ export default function ImageCropper({
     try {
       const blob = await getCroppedImageBlob(imageSrc, croppedAreaPixels)
       onSave(blob)
-    } catch {
+    } catch (err) {
+      // Priority 3 — the specific stage-labelled error from
+      // getCroppedImageBlob was previously discarded entirely (a bare
+      // catch {}), which is exactly why every failure surfaced as the
+      // same generic message with no way to diagnose which stage
+      // actually failed. Logged here (dev diagnosis), production UI
+      // message stays clean and unchanged.
+      console.error('[ImageCropper] crop save failed', err instanceof Error ? err.message : err)
       setError('Could not process that image. Please try again.')
       setSaving(false)
     }

@@ -300,7 +300,15 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
                 const fullMessage = `${shareText}\n\n${url}`
 
                 if (navigator.share) {
-                  try { await navigator.share({ title: `Join ${trip.name}`, text: shareText, url }); toast('Shared!', 'success') }
+                  // Priority 7 fix — navigator.share's own `title` field
+                  // is what produced the redundant first line: many
+                  // share targets (WhatsApp, SMS, etc.) render `title`
+                  // as its own line above `text`, so "Join {name}"
+                  // appeared immediately followed by the shareText's own
+                  // "You've been invited to {name}...", repeating the
+                  // event name twice. Omitted entirely — text + url is
+                  // the complete, correct message on its own.
+                  try { await navigator.share({ text: shareText, url }); toast('Shared!', 'success') }
                   catch { /* user cancelled */ }
                 } else {
                   try { await navigator.clipboard.writeText(fullMessage); toast('Invitation copied — ready to share', 'success') }

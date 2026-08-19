@@ -54,6 +54,23 @@ function NewTripForm() {
     setError(null)
     try {
       if (isEditing) {
+        // Priority 2 — event logo persistence. Investigated the full
+        // trace: logo_url was never part of WizardTripDetails at all
+        // (not in the type, not in defaultDetails(), not in the
+        // editUrl prefill built in TripDetailClient.tsx), so
+        // JSON.stringify({...details}) below genuinely omits the key
+        // entirely rather than sending null/''. The existing PATCH
+        // route already implements "omitted -> leave untouched"
+        // semantics correctly. Could not find a mechanism in this
+        // specific flow that would actually clear the database value —
+        // this needs live verification to confirm whether the reported
+        // loss was a genuine data-loss bug or the wizard's own total
+        // lack of any logo awareness creating that impression. Logo
+        // editing has its own dedicated, already-correct UI
+        // (EventLogoCard in TripOverviewTab) — this wizard was never
+        // meant to manage it, and WizardTripDetails should never gain a
+        // logo_url field, since doing so would risk this spread
+        // starting to send it explicitly.
         // PATCH existing trip
         const res = await fetch(`/api/trips/${editingTripId}`, {
           method:  'PATCH',

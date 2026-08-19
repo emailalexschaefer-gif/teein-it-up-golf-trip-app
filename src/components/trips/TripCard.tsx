@@ -75,23 +75,28 @@ export default function TripCard({ trip }: { trip: TripSummary }) {
           {/* Content */}
           <div style={{ flex: 1, minWidth: 0 }}>
 
-            {/* Row 1: Name + status */}
-            <div className="flex items-start justify-between gap-2" style={{ marginBottom: 3 }}>
-              <h3 style={{
-                fontFamily: 'var(--font-display)', fontWeight: 700,
-                color: '#1a1a16', fontSize: 17, lineHeight: 1.2,
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                flex: 1,
-              }}>
-                {trip.name}
-              </h3>
-              <span className={cn(
-                'flex-shrink-0 text-xs font-semibold px-2.5 py-0.5 rounded-full border',
-                pill,
-              )} style={{ fontFamily: 'var(--font-body)', fontSize: 10.5 }}>
-                {TRIP_STATUS_LABELS[trip.status]}
-              </span>
-            </div>
+            {/* Row 1: event identity — name only, own full-width row.
+                Priority 8 fix: previously shared this row with the
+                status pill (flex-shrink: 0 eating into the name's
+                available width via flex: 1 + nowrap/ellipsis), which is
+                exactly why "Alex & Dave Friday Series" truncated to
+                "Alex & Dave Friday S...". Name now gets the full row
+                width and can wrap to two lines rather than truncate —
+                losing information via "..." on an event's own name is
+                worse than a compact two-line title. Status moved into
+                the metadata row below, where it competes with much
+                smaller, already-short content instead. */}
+            <h3 style={{
+              fontFamily: 'var(--font-display)', fontWeight: 700,
+              color: '#1a1a16', fontSize: 17, lineHeight: 1.25,
+              marginBottom: 3,
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}>
+              {trip.name}
+            </h3>
 
             {/* Row 2: Dates */}
             <p style={{
@@ -104,8 +109,18 @@ export default function TripCard({ trip }: { trip: TripSummary }) {
                 : null}
             </p>
 
-            {/* Row 3: Stats */}
+            {/* Row 3: Stats + status — status pill now lives here,
+                alongside content that's already short/compact by
+                nature, rather than competing with the title. */}
             <div className="flex items-center flex-wrap" style={{ gap: '6px' }}>
+
+              <span className={cn(
+                'flex-shrink-0 text-xs font-semibold px-2.5 py-0.5 rounded-full border',
+                pill,
+              )} style={{ fontFamily: 'var(--font-body)', fontSize: 10.5 }}>
+                {TRIP_STATUS_LABELS[trip.status]}
+              </span>
+              <Sep />
 
               {/* Players */}
               <Stat>

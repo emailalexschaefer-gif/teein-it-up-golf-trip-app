@@ -401,7 +401,12 @@ function EventLogoCard({ trip }: { trip: TripData }) {
       const processed = await processImageFile(new File([croppedBlob], 'crop.jpg', { type: 'image/jpeg' }))
       setPreviewBlob(processed)
       setPreviewUrl(URL.createObjectURL(processed))
-    } catch {
+    } catch (err) {
+      // Priority 3 — same fix as ImageCropper's own handleSave: log the
+      // real error (image processing specifically, not the crop step
+      // itself, which already succeeded by the time this runs) instead
+      // of a bare catch {} that discarded it entirely.
+      console.error('[event logo] image processing failed', err instanceof Error ? err.message : err)
       setError('Could not process that image. Please try again.')
     }
   }
@@ -434,7 +439,17 @@ function EventLogoCard({ trip }: { trip: TripData }) {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ logo_url: bustedUrl }),
     })
     setBusy(false)
-    if (!res.ok) { setError('Upload failed. Please try again.'); return }
+    // Priority 3 — distinct message from the storage-upload failure
+    // above, matching "do not map every failure to one generic
+    // processing message" — the image is already safely in Storage by
+    // this point; what failed here is specifically saving the URL
+    // reference against the trip.
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      console.error('[event logo] saving logo_url failed', body?.error ?? res.status)
+      setError('Photo uploaded, but could not save it to your event. Please try again.')
+      return
+    }
     setCurrentLogoUrl(bustedUrl)
     cancelPreview()
   }
