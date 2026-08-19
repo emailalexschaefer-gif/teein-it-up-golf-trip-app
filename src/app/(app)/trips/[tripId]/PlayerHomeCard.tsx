@@ -8,6 +8,7 @@ import EventCountdown from '@/components/trips/EventCountdown'
 import StartingGrid from '@/components/scoring/StartingGrid'
 import PlayerCardModal, { initialsOf, type PlayerCardData } from '@/components/shared/PlayerCardModal'
 import WelcomeBrochure, { CollapsedWelcomeCard, isBrochureDismissed } from '@/components/trips/WelcomeBrochure'
+import InstallPwaCard from '@/components/trips/InstallPwaCard'
 import { formatTripDateRange } from '@/lib/utils'
 import TripInformationCard from '@/components/trips/TripInformationCard'
 
@@ -346,6 +347,14 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
         ) : (
           <CollapsedWelcomeCard onReopen={() => setBrochureExpanded(true)} />
         )}
+
+        {/* Add to Home Screen — deliberately placed after the brochure/
+            collapsed card, not before it, per "the player discovers
+            after walking into the clubhouse." Self-manages its own
+            visibility entirely (installed/unsupported/dismissed all
+            return null internally) — no parent-level condition needed
+            here beyond just rendering it. */}
+        <InstallPwaCard />
 
         {/* Item 1 — the explicit "Event Lobby" reframing. Previously
             this label only existed in the back-link text ("← Back to

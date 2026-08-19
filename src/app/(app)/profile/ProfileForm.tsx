@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { initials, avatarColor } from '@/lib/utils'
 import ImageCropper from '@/components/shared/ImageCropper'
+import { resetInstallCardDismissal } from '@/components/trips/InstallPwaCard'
 
 interface Props {
   userId: string
@@ -38,6 +39,7 @@ export default function ProfileForm({
   const [hcp, setHcp]               = useState(initialHandicap !== null ? String(initialHandicap) : '')
   const [noHcp, setNoHcp]           = useState(initialHandicap === null && initialName !== '') // null after first join = no hcp
   const [saveState, setSaveState]   = useState<SaveState>('idle')
+  const [installResetMsg, setInstallResetMsg] = useState(false)
   const [errorMsg, setErrorMsg]     = useState('')
   const [emailNote, setEmailNote]   = useState('')
 
@@ -616,6 +618,26 @@ export default function ProfileForm({
         }}>
           Reset password
         </Link>
+      </div>
+
+      {/* "Remains discoverable later" — resets the same dismissal flag
+          the Lobby card itself checks, so the concierge card appears
+          again the next time this player opens an Event Lobby. Kept to
+          a single link + brief confirmation rather than rendering the
+          full card or iOS sheet here — the actual install action still
+          only ever happens in the Lobby, where the real context (a
+          specific event) makes it feel incidental rather than a
+          settings-page chore. */}
+      <div style={{ marginTop: 8, textAlign: 'center' }}>
+        <button
+          onClick={() => { resetInstallCardDismissal(); setInstallResetMsg(true); setTimeout(() => setInstallResetMsg(false), 3000) }}
+          style={{
+            background: 'none', border: 'none', fontFamily: 'var(--font-body)', fontSize: 13,
+            color: '#1a4731', fontWeight: 600, cursor: 'pointer', padding: 0,
+          }}
+        >
+          📱 {installResetMsg ? 'You\u2019ll see it next time you open an event' : 'Show "Add to Home Screen" again'}
+        </button>
       </div>
 
       {/* Note about trip handicaps */}

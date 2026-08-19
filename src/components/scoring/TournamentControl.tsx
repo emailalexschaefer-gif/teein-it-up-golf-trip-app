@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import PlayingPartnerStatus from './PlayingPartnerStatus'
 import MomentViewer, { type MomentViewerData } from '@/components/moments/MomentViewer'
+import MakersBreakers from './MakersBreakers'
 
 interface GroupPlayer {
   playerId: string; name: string; holesPlayed: number; finished: boolean; hasMismatch: boolean; waitingForMarker: boolean
@@ -150,6 +151,7 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
     setTimeout(() => setNotifyTarget(null), 1200)
   }
   const [closing, setClosing] = useState(false)
+  const [showMakersBreakers, setShowMakersBreakers] = useState(false)
   const [closeError, setCloseError] = useState<string | null>(null)
 
   const { data, isLoading, error, refetch, isFetching } = useQuery<TournamentData>({
@@ -197,6 +199,13 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
       const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/close`, { method: 'POST' })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) { setCloseError(body.error ?? 'Could not close the round.'); return }
+      // Trigger sequence: Finish Round -> Reconcile -> Makers & Breakers
+      // -> Present Side Games/Round Winners. router.refresh()/refetch()
+      // still run immediately so the underlying data is fresh by the
+      // time the organiser dismisses the overlay — Makers & Breakers
+      // itself does its own independent fetch of the now-completed
+      // round's data via the highlights API route.
+      setShowMakersBreakers(true)
       router.refresh()
       refetch()
     } catch {
@@ -208,6 +217,18 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
 
   if (isLoading) {
     return <div style={{ textAlign: 'center', padding: '40px 0', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>Loading My HQ…</div>
+  }
+  if (showMakersBreakers) {
+    // Takes over the whole My HQ view temporarily — matches the brief's
+    // explicit sequence (Finish Round -> Reconcile -> Makers & Breakers
+    // -> Present Side Games/Round Winners), not a modal layered on top
+    // of the normal My HQ content underneath.
+    return (
+      <MakersBreakers
+        tripId={tripId} roundId={roundId}
+        onProceedToResults={() => setShowMakersBreakers(false)}
+      />
+    )
   }
   if (error || !data) {
     return (
