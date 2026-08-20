@@ -730,12 +730,6 @@ export default function SelfMarkerScoreShell({
     else { if (isPartnerLocked) return; setDraftPartnerGross(null); setDraftPartnerPickedUp(p => !p) }
   }
 
-  // Confirm Score submits both myValue and partnerValue simultaneously
-  // (see below) — a genuine unresolved mismatch on either side must
-  // block confirmation, not just my own. Reuses myComparison/
-  // partnerComparison exactly as already computed for each card's
-  // 'Needs review' label — no separate/duplicate comparison here.
-  const hasBlockingMismatch = hasUnresolvedMismatch(myComparison, partnerComparison)
   // Priority 5/7 — non-blocking reconciliation during play. Previously
   // a value here (hasUnresolvedMismatch(myComparison, partnerComparison))
   // also gated per-hole confirmation — meaning queueScoreEntry (the ONLY
@@ -755,6 +749,20 @@ export default function SelfMarkerScoreShell({
   // already models exactly the three situations the brief describes
   // (matched, sync pending, reconciliation required); only the
   // ENFORCEMENT point moves.
+  //
+  // P0 fix — this file previously still had a leftover
+  // `const hasBlockingMismatch = hasUnresolvedMismatch(...)` declaration
+  // sitting directly above this comment: the earlier reconciliation
+  // change removed hasUnresolvedMismatch from the import statement
+  // (correctly believing the whole variable was gone), but missed that
+  // the declaration line itself was still present, now calling a
+  // function that no longer existed in scope. That's a genuine
+  // ReferenceError ("hasUnresolvedMismatch is not defined") thrown on
+  // every single render of this component — not conditional on any
+  // specific data state, which is exactly why it reproduced 100% of
+  // the time regardless of group size, marker status, or anything else
+  // investigated. Removed entirely — hasBlockingMismatch itself was
+  // already unused anywhere else in this file, confirmed by search.
   const canConfirm = !isLocked && (draftMyGross !== null || draftMyPickedUp)
     && (!requiresMarker || !currentMarked || draftPartnerGross !== null || draftPartnerPickedUp)
 
