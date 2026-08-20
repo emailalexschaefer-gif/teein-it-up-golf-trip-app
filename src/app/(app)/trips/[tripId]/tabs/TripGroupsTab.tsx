@@ -349,11 +349,17 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
               ? '✅ All playing groups are set'
               : '✅ All players assigned and tee times set'}
           </p>
-          <p style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.65)', fontSize: 12, marginTop: 3 }}>
-            {trip.status === 'groups_ready' || trip.status === 'ready' || trip.status === 'live' || trip.status === 'completed'
-              ? 'Your playing groups are confirmed. Review rounds or move to Ready to Start.'
-              : "Head to Overview to advance to Groups Ready when you're done."}
-          </p>
+          {/* P1 fix — the "Head to Overview to advance to Groups Ready
+              when you're done" instruction removed entirely (not
+              replaced) for the pre-groups_ready case, since status is
+              now automatically workflow-driven and this instruction no
+              longer describes a real manual step. The groups_ready+
+              copy below is untouched — it wasn't flagged as obsolete. */}
+          {(trip.status === 'groups_ready' || trip.status === 'ready' || trip.status === 'live' || trip.status === 'completed') && (
+            <p style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.65)', fontSize: 12, marginTop: 3 }}>
+              Your playing groups are confirmed. Review rounds or move to Ready to Start.
+            </p>
+          )}
         </div>
       )}
 

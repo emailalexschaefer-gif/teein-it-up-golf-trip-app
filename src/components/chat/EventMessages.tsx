@@ -3,8 +3,16 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import MomentCapture from '@/components/moments/MomentCapture'
+import dynamic from 'next/dynamic'
 import MomentViewer, { type MomentViewerData } from '@/components/moments/MomentViewer'
+
+// Same reasoning and same risk as SelfMarkerScoreShell.tsx's identical
+// change — MomentCapture's own import chain reaches the genuinely
+// unverified react-easy-crop dependency; ssr: false removes it from
+// server rendering regardless of whether it's confirmed as a root
+// cause anywhere specifically, since it's the correct pattern for a
+// browser-only library either way.
+const MomentCapture = dynamic(() => import('@/components/moments/MomentCapture'), { ssr: false })
 
 interface EventMessage {
   id: string

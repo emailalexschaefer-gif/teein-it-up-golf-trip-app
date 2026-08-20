@@ -13,7 +13,7 @@ import { useEffect, useState } from 'react'
  * PlayerHomeCard already wires its profile modal through.
  */
 interface Member { profile_id: string; group_id: string | null; role: string; profiles: { full_name: string; avatar_url: string | null; handicap?: number | null; golf_club?: string | null; occupation?: string | null } | null }
-interface GroupInfo { id: string; name?: string }
+export interface GroupInfo { id: string; name?: string; tee_time?: string | null }
 
 export default function StartingGrid({
   tripId, roundId, groups, onSelectPlayer,
@@ -60,11 +60,28 @@ export default function StartingGrid({
     if (!byGroup.has(m.group_id)) byGroup.set(m.group_id, [])
     byGroup.get(m.group_id)!.push(m)
   }
+  // P1 fix — the organiser's simple Groups screen sets tee_time
+  // directly on trip_groups (confirmed by reading TripGroupsTab.tsx's
+  // own query), which is a completely different field from the
+  // round-specific override table (round_group_tee_times) this
+  // component fetches via /group-tee-times. A round with no
+  // round-specific override set — the common case, since that's a more
+  // advanced per-round feature most organisers never touch — meant
+  // teeTimes[g.id] was always empty here even though the organiser's
+  // own screen plainly showed a time. Round-specific override still
+  // wins when it exists (matches the same hierarchy already
+  // established for the countdown: round-specific first, then the
+  // simpler trip-wide value) — this doesn't remove or replace that
+  // override, it just adds the missing fallback for when it isn't set.
+  function resolveTeeTime(groupId: string): string | null {
+    return teeTimes[groupId] ?? groups.find(g => g.id === groupId)?.tee_time ?? null
+  }
+
   // Groups ordered by tee time where set (matching Leaders Last's own
   // convention — earliest first, unset sorts last), falling back to
   // whatever order trip.trip_groups already provided.
   const orderedGroups = [...groups].sort((a, b) => {
-    const ta = teeTimes[a.id], tb = teeTimes[b.id]
+    const ta = resolveTeeTime(a.id), tb = resolveTeeTime(b.id)
     if (ta && tb) return ta.localeCompare(tb)
     if (ta) return -1
     if (tb) return 1
@@ -80,14 +97,21 @@ export default function StartingGrid({
         {orderedGroups.map((g, i) => {
           const groupMembers = byGroup.get(g.id) ?? []
           if (groupMembers.length === 0) return null
-          const teeTime = teeTimes[g.id]
+          const teeTime = resolveTeeTime(g.id)
           const hole = startingHoles[g.id]
           return (
             <div key={g.id}>
               <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 800, color: '#a1791f', marginBottom: 6 }}>
                 {g.name ?? `Group ${i + 1}`}
-                {teeTime && <span> · {formatTeeTime(teeTime)}</span>}
-                {startType === 'shotgun' && hole != null && <span> · Starting Hole {hole}</span>}
+                {/* Item — exact display per the brief: shotgun shows
+                    "Start Hole N"; standard rounds explicitly show
+                    "Hole 1" rather than omitting it, since every
+                    standard round genuinely does start there — this
+                    isn't fabricated data, just stating the always-true
+                    default explicitly rather than leaving it implicit. */}
+                {teeTime && <span> · ⏰ {formatTeeTime(teeTime)}</span>}
+                {startType === 'shotgun' && hole != null && <span> · Start Hole {hole}</span>}
+                {startType !== 'shotgun' && <span> · Hole 1</span>}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {groupMembers.map(m => (

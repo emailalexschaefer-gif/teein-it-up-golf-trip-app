@@ -189,11 +189,11 @@ export default async function TripDetailPage({ params }: Props) {
   // Fetch actual groups (id + name) — used for the group count AND, for
   // the new player dashboard, to look up the current user's own group
   // name from their trip_members.group_id.
-  let fetchedGroups: { id: string; name: string }[] = []
+  let fetchedGroups: { id: string; name: string; tee_time: string | null }[] = []
   try {
     const groupsResult = await db
       .from('trip_groups')
-      .select('id, name')
+      .select('id, name, tee_time')
       .eq('trip_id', tripId)
       .order('sort_order')
     fetchedGroups = groupsResult.data ?? []

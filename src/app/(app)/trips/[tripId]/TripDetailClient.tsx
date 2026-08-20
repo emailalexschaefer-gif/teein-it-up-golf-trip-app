@@ -43,7 +43,7 @@ export interface TripData {
   expected_players?: number; players_per_group?: number; organiser_is_playing?: boolean
   groups_released?: boolean
   logo_url?: string | null
-  trip_members: TripMemberRow[]; rounds: RoundRow[]; trip_groups?: Array<{ id: string; name?: string }>
+  trip_members: TripMemberRow[]; rounds: RoundRow[]; trip_groups?: Array<{ id: string; name?: string; tee_time?: string | null }>
 }
 
 interface Props { trip: TripData; currentUserId: string; userRole: TripRole }

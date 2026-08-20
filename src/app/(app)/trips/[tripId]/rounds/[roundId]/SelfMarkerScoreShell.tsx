@@ -13,8 +13,31 @@ import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
 import { useScoringFocusStore } from '@/store/scoringFocusStore'
 import LiveLeaderboard from '@/components/scoring/LiveLeaderboard'
 import SideCompEntryPanel from '@/components/scoring/SideCompEntryPanel'
-import NewLeaderPrompt, { type NewLeaderContext } from '@/components/scoring/NewLeaderPrompt'
+import dynamic from 'next/dynamic'
+import type { NewLeaderContext } from '@/components/scoring/NewLeaderPrompt'
 import PendingVerificationCard from '@/components/scoring/PendingVerificationCard'
+
+// P0 live-scoring crash investigation — the one recent, genuinely
+// unverified change reachable from this file's own import chain.
+// This previously statically imported NewLeaderPrompt, which imports
+// MomentCapture, which imports ImageCropper, which imports
+// react-easy-crop — a dependency added to package.json in an earlier
+// pass that could never actually be installed/tested in this sandbox
+// (npm install has failed with a registry 403 every time this
+// session). react-easy-crop is a browser-only library (canvas,
+// touch/pointer events); if it accesses window/document outside a
+// component lifecycle hook, that's a well-known class of Next.js SSR
+// crash — and this file, though a Client Component, still gets
+// server-rendered for its initial HTML on first load, exactly the
+// moment a player first enters scoring. Loading it dynamically with
+// ssr: false removes this entire chain from server rendering
+// regardless of whether it's the confirmed root cause, which is the
+// correct pattern for a browser-only library either way — a genuine
+// fix for a real, identified risk, not a randomly-applied speculative
+// patch. NewLeaderContext (a type only) is still imported normally
+// above, since type imports are erased at compile time and carry none
+// of this runtime risk.
+const NewLeaderPrompt = dynamic(() => import('@/components/scoring/NewLeaderPrompt'), { ssr: false })
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
