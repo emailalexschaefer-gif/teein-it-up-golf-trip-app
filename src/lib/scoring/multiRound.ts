@@ -172,6 +172,51 @@ export function seedLeadersLast(standings: { playerId: string }[], groupSize: nu
   return assignments
 }
 
+/**
+ * Package 1 fix — builds the leaderboard header's per-round summary
+ * (roundId, roundNumber, isLive) from each round's own actual status,
+ * not array position. Extracted as a pure function specifically so
+ * it's unit-tested, matching this file's own established pattern
+ * (selectLeaderboardRound's exact same rationale) — this exact logic
+ * was previously inline in the API route as
+ * `i === rounds.length - 1 ? ' LIVE' : ''`, which happened to be
+ * correct only when the round being viewed genuinely was the active
+ * one, and silently mislabeled a completed round as "LIVE" the moment
+ * a player browsed back to an earlier round, or once the whole event
+ * finished.
+ */
+export interface RoundSummaryInput { id: string; status: string }
+
+export function buildRoundsSummary(sortedRelevantRounds: RoundSummaryInput[]): { roundId: string; roundNumber: number; isLive: boolean }[] {
+  return sortedRelevantRounds.map((r, idx) => ({
+    roundId: r.id, roundNumber: idx + 1, isLive: r.status === 'active',
+  }))
+}
+
+/**
+ * Previous | Current | Total leaderboard presentation — the newly
+ * approved scalable model replacing per-round (R1 | R2 | ... ) columns.
+ * Deliberately a pure derivation from data that's already correct
+ * (totalPoints from computeCumulativeStandings, current from the
+ * existing round_id-keyed per-round breakdown) rather than a new
+ * calculation — Total = Previous + Current always holds by
+ * construction, since Previous is defined as whatever's left after
+ * subtracting Current from the total. isFirstRound (no prior round to
+ * show at all, not merely a real prior round scored 0) is exposed
+ * separately so callers can render "—" for Previous specifically in
+ * that case, per the brief's own instruction.
+ */
+export interface PreviousCurrentTotal { previous: number; current: number; total: number; isFirstRound: boolean }
+
+export function derivePreviousCurrentTotal(totalPoints: number, currentRoundPoints: number, roundsPlayedCount: number): PreviousCurrentTotal {
+  return {
+    previous: totalPoints - currentRoundPoints,
+    current: currentRoundPoints,
+    total: totalPoints,
+    isFirstRound: roundsPlayedCount <= 1,
+  }
+}
+
 export interface LeaderboardRoundCandidate extends RoundOrderingInput {
   status: string
 }

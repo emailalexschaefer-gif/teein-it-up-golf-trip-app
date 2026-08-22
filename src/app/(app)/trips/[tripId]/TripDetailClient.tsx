@@ -35,6 +35,11 @@ export interface RoundRow {
   tee_set_source_id?: string | null; tee_name?: string | null
   course_rating?: number | null; slope_rating?: number | null
   library_holes_snapshot?: { hole_number: number; par: number; stroke_index: number | null; distance: number | null }[] | null
+  // Package 2 — round-specific "released to players" flag, replacing
+  // the trip-wide trips.groups_released for this specific gating
+  // purpose: Round 1 can be live/complete while Round 2 is still
+  // mid-preparation, so this needs to be per-round, not trip-wide.
+  setup_released?: boolean
 }
 export interface TripData {
   id: string; name: string; description: string | null; event_type: string | null

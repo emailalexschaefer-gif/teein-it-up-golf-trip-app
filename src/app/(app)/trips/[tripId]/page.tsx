@@ -201,6 +201,19 @@ export default async function TripDetailPage({ params }: Props) {
     // trip_groups table may not exist yet — default to empty
   }
 
+  // Package 2 — setup_released, fetched separately rather than added
+  // to the main query's own already-complex fallback chain (four
+  // existing branches for earlier missing-column cases). A separate
+  // query that fails gracefully here can't break the whole trip page
+  // even if migration 062 hasn't been applied to this environment yet.
+  let releasedByRoundId = new Map<string, boolean>()
+  try {
+    const releasedResult = await db.from('rounds').select('id, setup_released').eq('trip_id', tripId)
+    releasedByRoundId = new Map((releasedResult.data ?? []).map((r: { id: string; setup_released: boolean }) => [r.id, r.setup_released]))
+  } catch {
+    // setup_released column may not exist yet (migration 062 not applied) — every round defaults to not-released, which is the safe direction (players simply don't see a grid yet, never a broken/stale one)
+  }
+
   // Side Competitions — fetched as an explicit, separate, flat query
   // rather than nested inside the trips->rounds embed above. This is a
   // deliberate simplification, not a stylistic preference: a 3-level
@@ -237,7 +250,7 @@ export default async function TripDetailPage({ params }: Props) {
     ...rawTrip,
     trip_groups: fetchedGroups,
     rounds: [...(rawTrip.rounds ?? [])]
-      .map(r => ({ ...r, side_comps: sideCompsByRound.get(r.id) ?? [] }))
+      .map(r => ({ ...r, side_comps: sideCompsByRound.get(r.id) ?? [], setup_released: releasedByRoundId.get(r.id) ?? false }))
       .sort((a, b) => a.play_date.localeCompare(b.play_date)),
   }
 

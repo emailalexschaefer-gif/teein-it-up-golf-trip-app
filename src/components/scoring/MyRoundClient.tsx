@@ -20,9 +20,9 @@ import PlayerRoundView from './PlayerRoundView'
  * needing new plumbing.
  */
 export default function MyRoundClient({
-  tripId, rounds, defaultRoundId, groupsReleased,
+  tripId, rounds, defaultRoundId,
 }: {
-  tripId: string; rounds: ScheduleRound[]; defaultRoundId: string | null; groupsReleased: boolean
+  tripId: string; rounds: ScheduleRound[]; defaultRoundId: string | null
 }) {
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(defaultRoundId)
   const selected = rounds.find(r => r.id === selectedRoundId) ?? null
@@ -37,7 +37,7 @@ export default function MyRoundClient({
         <PlayerRoundView
           tripId={tripId} roundId={selected.id} roundStatus={selected.status}
           roundName={selected.name} courseName={selected.course_name} playDate={selected.play_date}
-          teeTime={selected.tee_time} groupsReleased={groupsReleased}
+          teeTime={selected.tee_time} groupsReleased={selected.setup_released ?? false}
         />
       ) : (
         <div style={{ textAlign: 'center', padding: '32px 16px', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>

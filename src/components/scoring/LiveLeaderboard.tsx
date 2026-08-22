@@ -12,6 +12,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import PlayerCardModal, { type PlayerCardData } from '@/components/shared/PlayerCardModal'
+import { derivePreviousCurrentTotal } from '@/lib/scoring/multiRound'
 
 interface PerHoleEntry {
   holeNumber: number
@@ -62,7 +63,7 @@ interface LeaderboardResponse {
   scoringNow: number
   finishedCount: number
   cumulativeStandings?: CumulativeStandingEntry[]
-  roundsSummary?: { roundId: string; roundNumber: number }[]
+  roundsSummary?: { roundId: string; roundNumber: number; isLive: boolean }[]
 }
 
 type Movement = 'up' | 'down' | 'same'
@@ -258,7 +259,7 @@ export default function LiveLeaderboard({
       {isMultiRound ? (
         <>
           <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
-            <MultiRoundHeaderRow rounds={data.roundsSummary ?? []} />
+            <MultiRoundHeaderRow />
             {cumVisibleRows.map((row, i) => (
               <MultiRoundRow
                 key={row.playerId}
@@ -452,20 +453,25 @@ function LeaderboardRow({ row, movement, isLast, isExpanded, onToggle, totalHole
 }
 
 /**
- * Column header row for the Round 2+ multi-round table: PLAYER | R1 | R2
- * LIVE | TOTAL, extending naturally for 3+ rounds. `rounds` comes
- * straight from the leaderboard API's roundsSummary — no separate
- * round-count logic on the client.
+ * Column header row for the Round 2+ leaderboard: PLAYER | PREVIOUS |
+ * CURRENT | TOTAL. Replaces the earlier per-round-column model
+ * (R1 | R2 LIVE | ... | TOTAL) per the newly approved scalable
+ * presentation spec — this same fixed three-column header now works
+ * identically for Round 2 or Round 20, with no round-count-specific
+ * layout logic. Historical individual-round detail still lives in My
+ * Golf and the per-round scorecard drill-down (unchanged, below) —
+ * this header is deliberately no longer trying to also be that.
  */
-function MultiRoundHeaderRow({ rounds }: { rounds: { roundId: string; roundNumber: number }[] }) {
+function MultiRoundHeaderRow() {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#faf9f6', borderBottom: '1px solid #eceae3' }}>
       <div style={{ flex: 1, minWidth: 0 }} />
-      {rounds.map((r, i) => (
-        <div key={r.roundId} style={{ width: 44, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.4, color: '#9ca3af' }}>
-          R{r.roundNumber}{i === rounds.length - 1 ? ' LIVE' : ''}
-        </div>
-      ))}
+      <div style={{ width: 52, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.4, color: '#9ca3af' }}>
+        PREVIOUS
+      </div>
+      <div style={{ width: 52, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.4, color: '#9ca3af' }}>
+        CURRENT
+      </div>
       <div style={{ width: 56, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.4, color: '#7a5c00' }}>
         TOTAL
       </div>
@@ -560,18 +566,41 @@ function MultiRoundRow({ row, isCurrentUser, isLast, isExpanded, onToggle, board
           </div>
         </div>
 
-        {(row.rounds ?? []).map(r => (
-          <div key={r.roundId} style={{ width: 44, textAlign: 'center', flexShrink: 0 }}>
-            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: r.isCurrentRound ? '#14532d' : '#4b5563' }}>
-              {r.points}
-            </div>
-            {r.isCurrentRound && (
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: '#9ca3af', marginTop: 1 }}>
-                {r.finished ? 'Finished' : (r.holesPlayed ?? 0) > 0 ? `Thru ${r.holesPlayed}` : 'Not started'}
+        {/* Previous | Current | Total — replaces the earlier per-round
+            (R1 | R2 | R3...) column model per the newly approved
+            scalable presentation spec. Previous and Current are both
+            derived from row.rounds — the exact same already-correct,
+            round_id-keyed per-round data the old column model used —
+            not a new calculation: Current is just this focus round's
+            own points (isCurrentRound), Previous is the total minus
+            that (equivalently, the sum of every OTHER round). This
+            works identically whether the event has 2 rounds or 20;
+            nothing here is round-count-specific. Round-specific
+            scorecard drill-down (below, on expand) and Side Games'
+            own round identity are both completely untouched — this is
+            presentation-only for the summary row. */}
+        {(() => {
+          const currentEntry = (row.rounds ?? []).find(r => r.isCurrentRound)
+          const { previous, current, isFirstRound } = derivePreviousCurrentTotal(row.totalPoints, currentEntry?.points ?? 0, (row.rounds ?? []).length)
+          return (
+            <>
+              <div style={{ width: 52, textAlign: 'center', flexShrink: 0 }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: '#4b5563' }}>
+                  {isFirstRound ? '—' : previous}
+                </div>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: '#9ca3af', marginTop: 1 }}>Previous</div>
               </div>
-            )}
-          </div>
-        ))}
+              <div style={{ width: 52, textAlign: 'center', flexShrink: 0 }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: '#14532d' }}>
+                  {current}
+                </div>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: '#9ca3af', marginTop: 1 }}>
+                  {currentEntry?.finished ? 'Finished' : (currentEntry?.holesPlayed ?? 0) > 0 ? `Thru ${currentEntry?.holesPlayed}` : 'Current'}
+                </div>
+              </div>
+            </>
+          )
+        })()}
 
         <div style={{ width: 56, textAlign: 'center', flexShrink: 0 }}>
           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 900, fontSize: 19, color: '#7a5c00' }}>

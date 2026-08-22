@@ -214,7 +214,7 @@ function RoundCard({ round, index, tripId, canBegin, onBeginRound }: RoundCardPr
                 color: '#0f2d1c', boxShadow: '0 3px 12px rgba(201,168,76,0.4)',
               }}
             >
-              Begin Round
+              Finalise Round →
             </button>
           )}
 

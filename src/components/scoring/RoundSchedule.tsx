@@ -14,6 +14,11 @@ export interface ScheduleRound {
   id: string; name: string; status: string; play_date: string
   course_name: string | null; tee_time: string | null; tee_name: string | null
   holes: number | null; scoring_format: string | null
+  // Package 2 — per-round released flag, threaded through so
+  // MyRoundClient can use each round's own setup_released rather than
+  // a single trip-wide value that would be wrong for whichever round
+  // ISN'T currently focused.
+  setup_released?: boolean
 }
 
 function statusLabel(round: ScheduleRound, isDefaultSelection: boolean): { text: string; bg: string; color: string; border: string } {

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { computeCumulativeStandings, determineRoundWinners, determineChampions, seedLeadersLast, sortRoundsChronologically, selectLeaderboardRound, selectRelevantSideGameRounds } from './multiRound'
+import { computeCumulativeStandings, determineRoundWinners, determineChampions, seedLeadersLast, sortRoundsChronologically, selectLeaderboardRound, selectRelevantSideGameRounds, buildRoundsSummary, derivePreviousCurrentTotal } from './multiRound'
 
 // ── sortRoundsChronologically ────────────────────────────────────────────────
 
@@ -463,4 +463,80 @@ test('selectRelevantSideGameRounds — three or more rounds, mixed statuses: onl
 
 test('selectRelevantSideGameRounds — no rounds at all returns an empty array, not a crash', () => {
   assert.deepEqual(selectRelevantSideGameRounds([]), [])
+})
+
+test('buildRoundsSummary — the exact regression: viewing a completed round no longer says LIVE', () => {
+  // Round 1 completed, Round 2 also completed (event finished, player
+  // browsing back to review Round 1) — the OLD i === length-1 heuristic
+  // would have labeled Round 1 (the last/only element in a
+  // single-element relevant-rounds array when viewing R1 specifically)
+  // as LIVE regardless of its real status.
+  const result = buildRoundsSummary([{ id: 'r1', status: 'completed' }])
+  assert.deepEqual(result, [{ roundId: 'r1', roundNumber: 1, isLive: false }])
+})
+
+test('buildRoundsSummary — Round 2 genuinely live is correctly labeled', () => {
+  const result = buildRoundsSummary([
+    { id: 'r1', status: 'completed' },
+    { id: 'r2', status: 'active' },
+  ])
+  assert.deepEqual(result, [
+    { roundId: 'r1', roundNumber: 1, isLive: false },
+    { roundId: 'r2', roundNumber: 2, isLive: true },
+  ])
+})
+
+test('buildRoundsSummary — both rounds completed (event fully finished) — neither is LIVE', () => {
+  const result = buildRoundsSummary([
+    { id: 'r1', status: 'completed' },
+    { id: 'r2', status: 'completed' },
+  ])
+  assert.equal(result.every(r => !r.isLive), true)
+})
+
+test('buildRoundsSummary — generic for 3+ rounds, live round can be in the middle', () => {
+  // Confirms this isn't secretly still position-based — a live round
+  // that ISN'T the last element must still be correctly flagged.
+  const result = buildRoundsSummary([
+    { id: 'r1', status: 'completed' },
+    { id: 'r2', status: 'active' },
+    { id: 'r3', status: 'completed' },
+  ])
+  assert.deepEqual(result.map(r => r.isLive), [false, true, false])
+})
+
+test('derivePreviousCurrentTotal — matches the brief\u2019s own worked example exactly (Alex: Previous 59, Current 53, Total 112)', () => {
+  const result = derivePreviousCurrentTotal(112, 53, 2)
+  assert.equal(result.previous, 59)
+  assert.equal(result.current, 53)
+  assert.equal(result.total, 112)
+  assert.equal(result.isFirstRound, false)
+})
+
+test('derivePreviousCurrentTotal — the brief\u2019s second worked example (Darren: Previous 47, Current 46, Total 93)', () => {
+  const result = derivePreviousCurrentTotal(93, 46, 2)
+  assert.equal(result.previous, 47)
+})
+
+test('derivePreviousCurrentTotal — Round 1 (no prior round) is flagged as isFirstRound, Previous is still numerically 0', () => {
+  const result = derivePreviousCurrentTotal(53, 53, 1)
+  assert.equal(result.isFirstRound, true)
+  assert.equal(result.previous, 0) // caller renders "—" for this case, not this function's job to format
+})
+
+test('derivePreviousCurrentTotal — Total always equals Previous + Current, by construction, for any input', () => {
+  for (const [total, current, count] of [[0, 0, 1], [200, 0, 3], [50, 50, 2], [37, 12, 5]] as [number, number, number][]) {
+    const result = derivePreviousCurrentTotal(total, current, count)
+    assert.equal(result.previous + result.current, result.total)
+  }
+})
+
+test('derivePreviousCurrentTotal — scales identically for Round 20 of a season as for Round 2', () => {
+  // "That architecture will work just as well for Round 20" — this
+  // function takes no round-count-specific input at all beyond the
+  // already-aggregated totalPoints, so there's nothing to special-case.
+  const round2 = derivePreviousCurrentTotal(112, 53, 2)
+  const round20 = derivePreviousCurrentTotal(1840, 53, 20)
+  assert.equal(round2.current, round20.current)
+  assert.notEqual(round2.previous, round20.previous)
 })

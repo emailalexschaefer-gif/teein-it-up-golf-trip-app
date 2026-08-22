@@ -468,7 +468,14 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
                   render. focusRound must exist too, since a Starting
                   Grid without a specific round to attach tee times/
                   starting holes to wouldn't mean anything yet. */}
-              {trip.groups_released && focusRound && trip.trip_groups && trip.trip_groups.length > 0 ? (
+              {/* Package 2 — gates on this specific round's own
+                  setup_released, not the trip-wide trips.groups_released.
+                  A trip can have Round 1 live/complete while Round 2 is
+                  still mid-preparation; the trip-wide flag couldn't
+                  represent that. trips.groups_released itself is left
+                  untouched elsewhere (not removed), since this is the
+                  narrower, more correct signal for this specific gate. */}
+              {focusRound?.setup_released && trip.trip_groups && trip.trip_groups.length > 0 ? (
                 <StartingGrid
                   tripId={trip.id} roundId={focusRound.id} groups={trip.trip_groups}
                   onSelectPlayer={m => setSelectedPlayer(m)}

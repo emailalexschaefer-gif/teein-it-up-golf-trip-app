@@ -1,0 +1,34 @@
+-- =============================================================================
+-- 062_round_setup_released.sql
+-- =============================================================================
+-- Package 2 — Round Finalisation.
+--
+-- Inspected first, per the explicit instruction, before adding this:
+--   - trip_groups is trip-level (no round_id) — organiser's live,
+--     mutable "current" group roster.
+--   - trip_members.group_id is also trip-level and mutable — a
+--     player's live, current group assignment.
+--   - scorecards.group_id and scorecards.playing_handicap already exist
+--     (migration 035) as PER-ROUND SNAPSHOTS, written by begin_round()
+--     at the moment a round starts — this is the existing historical-
+--     protection mechanism. It already works correctly: a completed
+--     round's scorecards keep their own snapshot regardless of any
+--     later change to the live trip_members.group_id.
+--   - rounds.status only has three values: upcoming, active, completed
+--     — there is no existing "released but not yet live" state
+--     anywhere in the schema.
+--
+-- This column is the one genuinely missing piece: a way to represent
+-- "the organiser has finalised this specific round's setup and
+-- players can now see their Starting Grid for it" as a state distinct
+-- from status='active' (live scoring) — status itself is intentionally
+-- left untouched by release; only Start Round still transitions it.
+--
+-- Deliberately NOT a duplicate of trips.groups_released (migration
+-- 058) — that flag is trip-wide and was built for the single-round-at-
+-- a-time case; this needs to be per-round so Round 1 can be
+-- live/complete while Round 2 is still mid-preparation, and vice versa.
+-- =============================================================================
+
+ALTER TABLE public.rounds
+  ADD COLUMN IF NOT EXISTS setup_released BOOLEAN NOT NULL DEFAULT false;

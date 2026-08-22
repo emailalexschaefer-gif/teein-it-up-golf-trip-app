@@ -179,45 +179,28 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
   return (
     <div className="space-y-4">
 
-      {/* Deployment 1 — groups release toggle. Only shown once groups
-          actually exist (nothing to release before then). Organiser
-          explicitly flips this when ready — players see the Starting
-          Grid the moment it's on, and see a "starting groups coming
-          soon" placeholder while it's off, regardless of what
-          group_id assignments already exist underneath. */}
+      {/* Package 2 — the old trip-wide "Release to players" toggle
+          previously lived here (Deployment 1). Removed, not left in
+          place misleadingly: the Starting Grid is now gated by each
+          round's own setup_released flag, set via that round's
+          Finalise Round -> "Confirm & Release to Players" instead — a
+          trip-wide toggle here could no longer make that happen, since
+          release is genuinely per-round now (Round 1 can be released/
+          live while Round 2 is still being prepared, which the old
+          single trip-wide flag couldn't represent at all). This screen
+          remains the trip-wide group-planning workspace per the
+          explicit "do not remove the existing Groups planning screen"
+          instruction — only the release action itself moved. */}
       {groups.length > 0 && isOrganiser && (
         <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          background: trip.groups_released ? '#f0fdf4' : '#fdf3d9',
-          border: `1.5px solid ${trip.groups_released ? '#86efac' : '#e8c96a'}`,
-          borderRadius: 12, padding: '12px 14px',
+          background: '#faf9f6', border: '1px solid #eceae3', borderRadius: 12, padding: '12px 14px',
         }}>
-          <div>
-            <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: trip.groups_released ? '#166534' : '#a1791f' }}>
-              {trip.groups_released ? '✓ Starting Grid released to players' : '🔒 Groups not yet released to players'}
-            </div>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7a7260', marginTop: 2 }}>
-              {trip.groups_released ? 'Players can see who they\u2019re playing with.' : 'Players see a placeholder until you release.'}
-            </div>
+          <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#374151' }}>
+            📋 Planning workspace
           </div>
-          <button
-            onClick={async () => {
-              const next = !trip.groups_released
-              try {
-                const res = await fetch(`/api/trips/${trip.id}/groups-released`, {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ released: next }),
-                })
-                if (res.ok) onRefresh()
-              } catch { /* onRefresh not called — toggle simply appears unchanged on failure, no false success state */ }
-            }}
-            style={{
-              flexShrink: 0, padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
-              background: trip.groups_released ? '#f3f4f6' : '#14532d', color: trip.groups_released ? '#374151' : '#fff',
-              fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5,
-            }}
-          >
-            {trip.groups_released ? 'Unrelease' : 'Release to players'}
-          </button>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7a7260', marginTop: 2 }}>
+            Prepare groups here anytime. To release a specific round&apos;s Starting Grid to players, use that round&apos;s Finalise Round → Confirm &amp; Release to Players.
+          </div>
         </div>
       )}
 

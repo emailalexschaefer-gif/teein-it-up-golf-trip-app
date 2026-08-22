@@ -4,7 +4,12 @@ import { useEffect, useState } from 'react'
 
 /**
  * Starting Grid — shown instead of the plain Players Joined roster once
- * trip.groups_released is true for the relevant round. Reuses three
+ * the focus round's own setup_released flag is true (Package 2 —
+ * updated from the earlier trip-wide trips.groups_released, since
+ * release is genuinely per-round: Round 1 can be released/live while
+ * Round 2 is still being prepared). This component itself is unaware
+ * of the flag either way — gating happens in the parent
+ * (PlayerHomeCard) before this even renders. Reuses three
  * already-existing, already-proven endpoints — no parallel data model:
  *  - /members (admin-backed roster, same source as the player card modal)
  *  - /rounds/[roundId]/group-tee-times (Priority 2's round-specific times)

@@ -26,11 +26,31 @@ export default async function TournamentPage({ params }: Props) {
 
   const isOrganiser = membership.role === 'organiser'
 
-  const { data: rounds } = await supabase
-    .from('rounds')
-    .select('id, name, status, play_date, course_name, tee_time, holes, scoring_format, tee_name')
-    .eq('trip_id', tripId)
-    .order('play_date', { ascending: false })
+  // Package 2 — setup_released added to this select. Wrapped with a
+  // fallback matching this project's established resilience pattern
+  // (page.tsx's own multi-branch fallback for exactly this class of
+  // "migration not yet applied" issue) — a query for a column that
+  // doesn't exist yet would otherwise throw and break the entire My
+  // Round/My HQ page, not just silently omit the field.
+  let rounds: { id: string; name: string; status: string; play_date: string; course_name: string | null; tee_time: string | null; holes: number; scoring_format: string; tee_name: string | null; setup_released?: boolean }[] | null = null
+  {
+    const roundsRes = await supabase
+      .from('rounds')
+      .select('id, name, status, play_date, course_name, tee_time, holes, scoring_format, tee_name, setup_released')
+      .eq('trip_id', tripId)
+      .order('play_date', { ascending: false })
+    if (roundsRes.error) {
+      console.warn('[tournament page] setup_released column missing — run 062_round_setup_released.sql in Supabase SQL Editor')
+      const fallbackRes = await supabase
+        .from('rounds')
+        .select('id, name, status, play_date, course_name, tee_time, holes, scoring_format, tee_name')
+        .eq('trip_id', tripId)
+        .order('play_date', { ascending: false })
+      rounds = (fallbackRes.data ?? []).map(r => ({ ...r, setup_released: false }))
+    } else {
+      rounds = roundsRes.data
+    }
+  }
 
   const activeRound = rounds?.find(r => r.status === 'active')
   // rounds is fetched DESC by play_date (line 31) — completedRounds
@@ -52,7 +72,7 @@ export default async function TournamentPage({ params }: Props) {
   // "Organiser who is also playing" — reuses the trip's existing
   // organiser_is_playing flag (the same signal this app has used for
   // this exact question since Sprint 5C.2), not a new per-round check.
-  const { data: tripRow } = await supabase.from('trips').select('organiser_is_playing, groups_released').eq('id', tripId).maybeSingle()
+  const { data: tripRow } = await supabase.from('trips').select('organiser_is_playing').eq('id', tripId).maybeSingle()
   const organiserIsPlaying = isOrganiser && (tripRow?.organiser_is_playing ?? false)
 
   if (!isOrganiser) {
@@ -70,7 +90,6 @@ export default async function TournamentPage({ params }: Props) {
         ) : (
           <MyRoundClient
             tripId={tripId} rounds={roundsAscending} defaultRoundId={focusRound.id}
-            groupsReleased={tripRow?.groups_released ?? false}
           />
         )}
       </div>

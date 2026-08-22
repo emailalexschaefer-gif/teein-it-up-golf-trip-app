@@ -50,7 +50,7 @@ interface Props {
   slopeRating?: number | null
 }
 
-type Stage = 'review' | 'holes' | 'confirm' | 'starting'
+type Stage = 'review' | 'holes' | 'confirm' | 'starting' | 'released' | 'launching'
 
 export default function BeginRoundModal({
   tripId, roundId, roundName, courseName, holeCount,
@@ -360,8 +360,22 @@ export default function BeginRoundModal({
   const allGroupsHavePlayers = localGroups.every(g => g.players.length > 0)
   const hasGroups = localGroups.length > 0
   const totalPlayers = localGroups.reduce((sum, g) => sum + g.players.length, 0)
+  const allGroupsHaveTeeTimes = localGroups.every(g => g.tee_time)
+  const allStartingHolesSet = startType !== 'shotgun' || localGroups.every(g => startingHoles[g.id] != null)
 
-  const canBegin = hasGroups && allGroupsHavePlayers && allPlayersHaveHandicap
+  // Item 8 — readiness summary, driven by the exact same checks that
+  // already gate the button below (not a second, parallel readiness
+  // model) — this just also surfaces them as individual line items.
+  const readinessItems = [
+    { label: `${totalPlayers} player${totalPlayers === 1 ? '' : 's'} assigned`, ok: hasGroups && allGroupsHavePlayers },
+    { label: `${localGroups.length} group${localGroups.length === 1 ? '' : 's'} complete`, ok: hasGroups && allGroupsHavePlayers },
+    { label: 'Handicaps confirmed', ok: allPlayersHaveHandicap },
+    { label: 'Tee times set', ok: allGroupsHaveTeeTimes },
+    { label: startType === 'shotgun' ? 'Shotgun Start selected' : 'Standard Start selected', ok: true },
+    ...(startType === 'shotgun' ? [{ label: 'Starting holes confirmed', ok: allStartingHolesSet }] : []),
+  ]
+
+  const canBegin = hasGroups && allGroupsHavePlayers && allPlayersHaveHandicap && allGroupsHaveTeeTimes && allStartingHolesSet
 
   // Item 7 — Begin Round simplification. Valid library data means every
   // hole in this round's frozen snapshot actually has a par and stroke
@@ -374,8 +388,33 @@ export default function BeginRoundModal({
   const hasValidLibraryData = !!libraryHolesSnapshot && libraryHolesSnapshot.length === holeCount
     && libraryHolesSnapshot.every(h => h.par != null && h.stroke_index != null)
 
-  async function handleBegin() {
+  async function handleRelease() {
     setStarting(true); setError(null)
+    try {
+      const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/release`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data.error ?? "We couldn't release this round. Please try again.")
+        setStage('confirm')
+        return
+      }
+      // Package 2 — deliberately does NOT navigate away or call
+      // begin_round()/start here. Release only publishes the Starting
+      // Grid to players; the round stays 'upcoming' until the organiser
+      // separately taps Start Round. This is the one architectural
+      // change Package 2 is actually about — previously this single
+      // button did both at once.
+      setStage('released')
+    } catch {
+      setError("We couldn't release this round. Please try again.")
+      setStage('confirm')
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  async function handleStartRound() {
+    setStage('launching'); setError(null)
     let staySpinning = false
     try {
       const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/start`, {
@@ -386,35 +425,24 @@ export default function BeginRoundModal({
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         if (res.status === 404) {
-          // The round genuinely doesn't exist anymore (deleted, or the id
-          // this modal was opened with has gone stale). Retrying against a
-          // dead id can't ever succeed — refresh the trip's data so the
-          // Rounds tab re-renders with whatever rounds actually exist now,
-          // and close the modal rather than leaving the user stuck on it.
           setError((data.error ?? 'This round no longer exists.') + ' Refreshing…')
           router.refresh()
-          staySpinning = true // keep the disabled/spinner state until close, intentionally
+          staySpinning = true
           setTimeout(() => onClose(), 1500)
           return
         }
-        setError(data.error ?? "We couldn't begin the round. Please try again.")
-        setStage('confirm')
+        setError(data.error ?? "We couldn't start the round. Please try again.")
+        setStage('released')
         return
       }
-      // Success — navigate to the active round shell. Keep the spinner
-      // state through the navigation rather than flipping it off right
-      // before the page changes.
       staySpinning = true
       router.push(`/trips/${tripId}/rounds/${roundId}`)
       router.refresh()
     } catch {
-      setError("We couldn't begin the round. Please try again.")
-      setStage('confirm')
+      setError("We couldn't start the round. Please try again.")
+      setStage('released')
     } finally {
-      // Guarantees 'starting' never gets stuck true after an error, on any
-      // exit path — except the two cases above where staying disabled
-      // during a close/navigation transition is the correct UX, not a bug.
-      if (!staySpinning) setStarting(false)
+      if (!staySpinning) setStage('released')
     }
   }
 
@@ -985,15 +1013,63 @@ export default function BeginRoundModal({
 
           {(stage === 'confirm' || stage === 'starting') && (
             <div style={{ display: 'flex', gap: 8, flexDirection: 'column' }}>
+              {/* Item 8 — readiness summary. Same checks driving canBegin
+                  below, just also shown as individual line items so the
+                  organiser can see exactly what's outstanding rather than
+                  a single opaque disabled button. */}
+              <div style={{ background: '#faf9f6', border: '1px solid #eceae3', borderRadius: 10, padding: '10px 12px', marginBottom: 4 }}>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#a1791f', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>
+                  Round Readiness
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {readinessItems.map((item, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-body)', fontSize: 12, color: item.ok ? '#374151' : '#a1791f' }}>
+                      <span>{item.ok ? '✅' : '⚠️'}</span>
+                      <span>{item.label}{!item.ok && !item.label.includes('selected') ? ' — incomplete' : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
               <button
                 type="button"
-                onClick={starting ? undefined : handleBegin}
+                onClick={starting ? undefined : handleRelease}
                 disabled={starting}
                 style={{ ...btnStyle(starting ? 'disabled' : 'gold'), cursor: starting ? 'not-allowed' : 'pointer' }}
               >
-                {starting ? 'Beginning round…' : 'Confirm & Begin Round'}
+                {starting ? 'Releasing…' : 'Confirm & Release to Players'}
               </button>
               <button type="button" onClick={() => setStage('holes')} style={btnStyle('ghost')} disabled={starting}>← Edit holes</button>
+            </div>
+          )}
+
+          {/* Package 2 — the released-but-not-live state. Release only
+              publishes the Starting Grid (rounds.setup_released); it
+              never touches rounds.status or creates scorecards.
+              Starting the round remains the organiser's own separate,
+              deliberate action, matching "it should not start the
+              round" and "starting the round remains a deliberate
+              action when players are physically ready to play." */}
+          {(stage === 'released' || stage === 'launching') && (
+            <div style={{ display: 'flex', gap: 8, flexDirection: 'column' }}>
+              <div style={{
+                background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10,
+                padding: '10px 14px', textAlign: 'center', marginBottom: 4,
+              }}>
+                <span style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#166534' }}>
+                  ✓ Round Ready — Released to Players
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={stage === 'launching' ? undefined : handleStartRound}
+                disabled={stage === 'launching'}
+                style={{ ...btnStyle(stage === 'launching' ? 'disabled' : 'primary'), cursor: stage === 'launching' ? 'not-allowed' : 'pointer' }}
+              >
+                {stage === 'launching' ? 'Starting round…' : '▶ Start Round'}
+              </button>
+              <button type="button" onClick={() => setStage('confirm')} style={btnStyle('ghost')} disabled={stage === 'launching'}>
+                Edit Round Setup
+              </button>
             </div>
           )}
         </div>

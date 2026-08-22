@@ -7,7 +7,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { computeCumulativeStandings, sortRoundsChronologically } from '@/lib/scoring/multiRound'
+import { computeCumulativeStandings, sortRoundsChronologically, buildRoundsSummary } from '@/lib/scoring/multiRound'
 
 // This is a polling endpoint — never cache it. Without this, Next.js could
 // serve one stale response to every poll instead of hitting Supabase fresh
@@ -144,7 +144,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   // don't invent another cumulative calculation" instruction; this only
   // adds the per-round columns alongside it.
   let roundsSummary: {
-    roundId: string; roundNumber: number
+    roundId: string; roundNumber: number; isLive: boolean
   }[] = []
   try {
     // Root cause of the "R2 LIVE shows R1 data" bug: rounds created
@@ -169,13 +169,14 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     // collision-prone column. Fully generic for Round 3, 4, ... — no
     // round-count-specific logic anywhere in this.
     const allRoundsRes = await admin
-      .from('rounds').select('id, play_date, created_at')
+      .from('rounds').select('id, play_date, created_at, status')
       .eq('trip_id', tripId)
       .in('status', ['completed', 'active']) // include this round's own live totals, not just fully-completed ones
     if (allRoundsRes.error) throw allRoundsRes.error
-    const sortedRounds = sortRoundsChronologically((allRoundsRes.data ?? []) as { id: string; play_date: string; created_at: string }[])
+    const sortedRounds = sortRoundsChronologically((allRoundsRes.data ?? []) as { id: string; play_date: string; created_at: string; status: string }[])
     const currentRoundIdx = sortedRounds.findIndex(r => r.id === roundId)
     const relevantRoundIds: string[] = currentRoundIdx === -1 ? [] : sortedRounds.slice(0, currentRoundIdx + 1).map(r => r.id)
+    const statusById = new Map(sortedRounds.map(r => [r.id, r.status]))
 
     if (relevantRoundIds.length > 0) {
       const perRoundTotals = await Promise.all(relevantRoundIds.map(async (rid) => {
@@ -197,7 +198,19 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
         }))
         cumulativeStandings = computeCumulativeStandings(perRoundTotals)
 
-        roundsSummary = relevantRoundIds.map((rid, idx) => ({ roundId: rid, roundNumber: idx + 1 }))
+        // Package 1 fix — status is now derived directly from each
+        // round's actual status via the extracted, unit-tested
+        // buildRoundsSummary (multiRound.ts), not inferred from array
+        // position. The previous version's header labeled whichever
+        // column happened to be LAST in the array as "LIVE"
+        // unconditionally — correct only when the roundId this route
+        // was called with genuinely was the active round, but silently
+        // wrong the moment a player browsed back to a completed round
+        // (via the schedule) or the event fully finished: the last
+        // column still said LIVE even though that round's own status
+        // was 'completed'.
+        const sortedRelevantRounds = relevantRoundIds.map(rid => ({ id: rid, status: statusById.get(rid) ?? 'completed' }))
+        roundsSummary = buildRoundsSummary(sortedRelevantRounds)
 
         // pointsByRound[playerId][roundId] = that player's points in that
         // round. isCurrentRound rows also carry live holesPlayed/finished
