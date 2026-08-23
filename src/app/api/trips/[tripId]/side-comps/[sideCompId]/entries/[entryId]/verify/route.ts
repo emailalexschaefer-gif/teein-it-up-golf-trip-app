@@ -17,6 +17,41 @@ import { createAdminClient } from '@/lib/supabase/admin'
 
 interface RouteProps { params: Promise<{ tripId: string; sideCompId: string; entryId: string }> }
 
+// New Chat distribution rule (Packages 1+2 final corrective) — do not
+// dump every captured event into Chat; automatically publish only
+// high-signal conversation starters, explicitly limited here to
+// verified Side Game lead changes. Reuses the exact event_messages
+// insert pattern already proven for Moments (moments/route.ts) rather
+// than a new posting mechanism — Chat needs no second feed or parallel
+// query, this is just another row in the same table. Deliberately
+// best-effort: if this insert fails, the verification itself still
+// succeeds and is returned to the caller unaffected — a missing chat
+// announcement is a lesser failure than losing a verification.
+const COMP_TYPE_LABEL: Record<string, string> = {
+  nearest_pin: 'Nearest the Pin', pros_approach: 'Pro\u2019s Approach', longest_drive: 'Longest Drive',
+}
+
+async function postLeadChangeAnnouncement(
+  admin: ReturnType<typeof createAdminClient>, tripId: string, verifierId: string,
+  compType: string, holeNumber: number | null, leaderName: string | null,
+) {
+  if (!leaderName) return
+  const label = COMP_TYPE_LABEL[compType] ?? compType
+  const holeText = holeNumber ? ` on Hole ${holeNumber}` : ''
+  const icon = compType === 'longest_drive' ? '💥' : '🎯'
+  const payload = {
+    trip_id: tripId, sender_user_id: verifierId, message_type: 'announcement',
+    recipient_type: 'all', recipient_group_id: null,
+    message: `${icon} ${leaderName} takes the ${label} lead${holeText}.`,
+  }
+  let { error } = await admin.from('event_messages').insert(payload)
+  if (error && error.code === '23514' && payload.recipient_type === 'all') {
+    const retry = await admin.from('event_messages').insert({ ...payload, recipient_type: 'event' })
+    error = retry.error
+  }
+  if (error) console.error('[side-comp verify] lead-change chat announcement failed (verification itself still saved)', { code: error.code, message: error.message })
+}
+
 export async function POST(req: NextRequest, { params }: RouteProps) {
   const { tripId, sideCompId, entryId } = await params
   const supabase = await createClient()
@@ -29,7 +64,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   const memberCheck = await admin.from('trip_members').select('role').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
   if (!memberCheck.data) return NextResponse.json({ error: 'Not a trip member.' }, { status: 403 })
 
-  const compRes = await admin.from('side_comps').select('id, comp_type, trip_id').eq('id', sideCompId).maybeSingle()
+  const compRes = await admin.from('side_comps').select('id, comp_type, trip_id, hole_number').eq('id', sideCompId).maybeSingle()
   if (!compRes.data || compRes.data.trip_id !== tripId) {
     return NextResponse.json({ error: 'Side competition not found.' }, { status: 404 })
   }
@@ -65,6 +100,9 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
       return NextResponse.json({ error: isAuthError ? "You're not the verifier for this claim." : "Couldn't save this verification. Please try again." }, { status: isAuthError ? 403 : 500 })
     }
     const row = data?.[0]
+    if (row?.became_official_leader) {
+      await postLeadChangeAnnouncement(admin, tripId, user.id, compRes.data.comp_type, compRes.data.hole_number, row.current_leader_name ?? null)
+    }
     return NextResponse.json({
       entryId: row?.entry_id ?? null,
       verificationStatus: row?.verification_status ?? null,
@@ -88,6 +126,9 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
       return NextResponse.json({ error: isAuthError ? "You're not the verifier for this claim." : "Couldn't save this verification. Please try again." }, { status: isAuthError ? 403 : 500 })
     }
     const row = data?.[0]
+    if (row?.became_official_leader) {
+      await postLeadChangeAnnouncement(admin, tripId, user.id, compRes.data.comp_type, compRes.data.hole_number, row.current_leader_name ?? null)
+    }
     return NextResponse.json({
       entryId: row?.entry_id ?? null,
       verificationStatus: row?.verification_status ?? null,

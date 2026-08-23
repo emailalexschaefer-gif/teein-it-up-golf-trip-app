@@ -50,7 +50,17 @@ export default function AdminScoreOverridePanel({ tripId, rounds }: { tripId: st
     } catch { /* panel simply shows nothing new until the next successful load */ }
     setLoading(false)
   }
-  useEffect(() => { void load(); setSelectedGroupId(null); setSelectedPlayer(null); setEditingHole(null) }, [tripId, selectedRoundId]) // eslint-disable-line react-hooks/exhaustive-deps
+  // A3 fix (Package 3) traded the group drill-down (selectedGroupId) for
+  // a flat, searchable player list — that state was intentionally
+  // removed. This effect's actual purpose (reset transient UI state when
+  // the organiser switches rounds) still applies, just to what replaced
+  // it: searchTerm is the equivalent "which subset is currently shown"
+  // state now, so that's what gets cleared here instead. The stale
+  // setSelectedGroupId(null) call — referencing a setter with no
+  // corresponding state left anywhere in this file — is removed, not
+  // patched with a dummy setter, since the underlying group-selection
+  // concept it managed no longer exists in this component at all.
+  useEffect(() => { void load(); setSearchTerm(''); setSelectedPlayer(null); setEditingHole(null) }, [tripId, selectedRoundId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const allPlayers = groups.flatMap(g => g.players)
   const searchResults = searchTerm.trim().length > 0
