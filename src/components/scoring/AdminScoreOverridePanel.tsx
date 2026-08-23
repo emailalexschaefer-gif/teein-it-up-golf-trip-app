@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { calculateStableford } from '@/lib/scoring/stableford'
+import { matchesPlayerSearch } from '@/lib/scoring/multiRound'
 
 /**
  * Priority 3 — Score Management, wired into My HQ. Two ways in, one
@@ -37,7 +38,6 @@ export default function AdminScoreOverridePanel({ tripId, rounds }: { tripId: st
   const [groups, setGroups] = useState<GroupRow[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerRow | null>(null)
   const [editingHole, setEditingHole] = useState<HoleRow | null>(null)
 
@@ -54,9 +54,8 @@ export default function AdminScoreOverridePanel({ tripId, rounds }: { tripId: st
 
   const allPlayers = groups.flatMap(g => g.players)
   const searchResults = searchTerm.trim().length > 0
-    ? allPlayers.filter(p => p.playerName.toLowerCase().includes(searchTerm.trim().toLowerCase()))
+    ? allPlayers.filter(p => matchesPlayerSearch(p.playerName, searchTerm))
     : []
-  const selectedGroup = groups.find(g => (g.groupId ?? 'ungrouped') === selectedGroupId)
   const selectedRound = rounds.find(r => r.id === selectedRoundId)
 
   return (
@@ -128,25 +127,31 @@ export default function AdminScoreOverridePanel({ tripId, rounds }: { tripId: st
                 </button>
               ))}
             </div>
-          ) : selectedGroup ? (
-            <div>
-              <button onClick={() => setSelectedGroupId(null)} style={backLinkStyle}>← Groups</button>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
-                {selectedGroup.players.map(p => (
-                  <button key={p.scorecardId} onClick={() => setSelectedPlayer(p)} style={rowButtonStyle}>{p.playerName}</button>
-                ))}
-              </div>
-            </div>
           ) : (
+            // A3 fix — previously defaulted to a group drill-down
+            // requiring an extra tap before any player was visible at
+            // all ("blank search box requiring Darren to guess names,"
+            // just via groups instead of literally-blank search). Now
+            // shows every player in the round immediately, matching the
+            // brief's exact example format (name / holes progress /
+            // Manage Scorecard). Search above still filters this same
+            // list; groups remain visible as a secondary label per row
+            // rather than a required navigation step.
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {groups.length === 0 && (
+              {allPlayers.length === 0 && (
                 <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af' }}>No scorecards for this round yet.</div>
               )}
-              {groups.map(g => (
-                <button key={g.groupId ?? 'ungrouped'} onClick={() => setSelectedGroupId(g.groupId ?? 'ungrouped')} style={rowButtonStyle}>
-                  {g.groupName} <span style={{ color: '#9ca3af', fontWeight: 500 }}>({g.players.length})</span>
-                </button>
-              ))}
+              {allPlayers.map(p => {
+                const holesPlayed = p.holes.filter(h => h.grossScore != null || h.isNoReturn).length
+                return (
+                  <button key={p.scorecardId} onClick={() => setSelectedPlayer(p)} style={rowButtonStyle}>
+                    <div style={{ fontWeight: 700 }}>{p.playerName}</div>
+                    <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 500, marginTop: 1 }}>
+                      {p.groupName} · {holesPlayed}/{p.holesInRound} holes · Manage Scorecard →
+                    </div>
+                  </button>
+                )
+              })}
             </div>
           )}
         </div>

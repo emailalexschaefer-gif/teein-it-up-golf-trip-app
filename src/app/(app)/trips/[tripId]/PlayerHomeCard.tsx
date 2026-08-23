@@ -7,6 +7,7 @@ import type { TripData, TripMemberRow } from './TripDetailClient'
 import EventCountdown from '@/components/trips/EventCountdown'
 import StartingGrid from '@/components/scoring/StartingGrid'
 import PlayerCardModal, { initialsOf, type PlayerCardData } from '@/components/shared/PlayerCardModal'
+import { resolveFocusRound } from '@/lib/scoring/multiRound'
 import WelcomeBrochure, { CollapsedWelcomeCard, isBrochureDismissed } from '@/components/trips/WelcomeBrochure'
 import InstallPwaCard from '@/components/trips/InstallPwaCard'
 import { formatTripDateRange } from '@/lib/utils'
@@ -279,7 +280,7 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
   const activeRound = rounds.find(r => r.status === 'active')
   const upcomingRound = rounds.find(r => r.status === 'upcoming')
   const completedRounds = rounds.filter(r => r.status === 'completed')
-  const focusRound = activeRound ?? upcomingRound ?? completedRounds[completedRounds.length - 1]
+  const focusRound = resolveFocusRound(activeRound, completedRounds[completedRounds.length - 1], upcomingRound)
 
   if (view === 'eventInfo') {
     return <PlayerEventInfoView trip={trip} onBack={() => setView('lobby')} />

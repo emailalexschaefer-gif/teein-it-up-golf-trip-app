@@ -3,15 +3,16 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import LiveLeaderboard from '@/components/scoring/LiveLeaderboard'
 import TheField from '@/components/scoring/TheField'
-import { selectLeaderboardRound } from '@/lib/scoring/multiRound'
+import { resolveRequestedOrDefaultRound } from '@/lib/scoring/multiRound'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-interface Props { params: Promise<{ tripId: string }> }
+interface Props { params: Promise<{ tripId: string }>; searchParams: Promise<{ roundId?: string }> }
 
-export default async function LeaderboardPage({ params }: Props) {
+export default async function LeaderboardPage({ params, searchParams }: Props) {
   const { tripId } = await params
+  const { roundId: requestedRoundId } = await searchParams
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -38,7 +39,18 @@ export default async function LeaderboardPage({ params }: Props) {
   // now unit-tested) wraps the same already-proven
   // sortRoundsChronologically tiebreaker (play_date, then created_at,
   // then id) rather than re-solving the same problem a second way.
-  const round = selectLeaderboardRound((rawRounds ?? []) as { id: string; name: string; status: string; play_date: string; created_at: string }[])
+  //
+  // Package 3 (D2) — a valid, explicit ?roundId= request now overrides
+  // the automatic selection entirely, rather than the page always
+  // showing whatever selectLeaderboardRound's own "current/live" logic
+  // picks. Without this, "View Final Results" for a specific completed
+  // round could never actually work — any link to this page would
+  // always land on the live round instead, regardless of which round
+  // was tapped. Falls back to the automatic pick if the param is
+  // missing or doesn't match any real round for this trip — this never
+  // silently 404s or shows nothing, it degrades to the existing,
+  // already-correct default behaviour.
+  const round = resolveRequestedOrDefaultRound((rawRounds ?? []) as { id: string; name: string; status: string; play_date: string; created_at: string }[], requestedRoundId)
   const activeRound = round?.status === 'active' ? round : undefined
 
   return (

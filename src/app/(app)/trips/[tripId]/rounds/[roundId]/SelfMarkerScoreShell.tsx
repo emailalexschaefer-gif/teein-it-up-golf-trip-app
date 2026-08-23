@@ -1080,13 +1080,17 @@ export default function SelfMarkerScoreShell({
           </div>
         </div>
 
-        {/* Package 1 — prominent total comparison. Presentation only:
-            grandTotal/markerGrandTotal are the exact same per-hole
-            calculateStableford values already computed above and
-            rendered in the hole-by-hole rows below; this block doesn't
-            introduce any new calculation, only a clearer, higher-
-            visibility summary of numbers that already existed. */}
-        {requiresMarker && currentMarked && markerGrandTotal !== null && (
+        {/* Package 3 (C2) — this comparison is only shown while
+            reconciliation is genuinely still in progress (!isLocked).
+            Previously this block had no isLocked gate at all — it kept
+            showing myName vs partnerName side-by-side even on an
+            already-completed, fully-verified round, continuing to
+            present the marker's copy as an equal competing result
+            indefinitely. Once locked, the simplified "Scorecard
+            Verified" block below takes over instead — marker data
+            itself is untouched and still exists for audit purposes,
+            it just no longer dominates the completed screen. */}
+        {requiresMarker && currentMarked && markerGrandTotal !== null && !isLocked && (
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-around',
             background: '#fff', border: '1px solid #eceae3', borderRadius: 12, padding: '12px 14px', marginTop: 10,
@@ -1111,6 +1115,30 @@ export default function SelfMarkerScoreShell({
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4 }}>{partnerName ?? 'Playing Partner'}</div>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: '#14532d', marginTop: 2 }}>{markerGrandTotal}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Package 3 (C2) — the simplified, official post-reconciliation
+            view. grandTotal here is the exact same value the comparison
+            block above already used — the player's own capture_role
+            'self' entries, which is also what the leaderboard,
+            cumulative totals, and every other downstream reader already
+            treats as authoritative (confirmed by inspection, not a new
+            convention introduced here). Marker data remains fully
+            intact underneath (visible via "Review holes" below) for
+            audit purposes; it's simply no longer presented as an equal,
+            ongoing comparison once the round is locked. */}
+        {isLocked && (
+          <div style={{
+            textAlign: 'center', background: '#f0fdf4', border: '1px solid #bbf7d0',
+            borderRadius: 12, padding: '16px 14px', marginTop: 10,
+          }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#166534' }}>
+              ✓ Scorecard Verified
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#4b5563', marginTop: 4 }}>
+              {holes.length} holes
             </div>
           </div>
         )}
@@ -1180,14 +1208,51 @@ export default function SelfMarkerScoreShell({
           </div>
         )}
 
-        {isLocked && (
+        {/* Bug 3/4 (field-test corrective) — previously one identical
+            block for every role: generic "Results submitted...
+            Waiting for the organiser to announce the results," with no
+            next action for the organiser at all (they had to know
+            independently to go find My HQ) and wording for the player
+            that undersold what had actually happened. Split by role:
+            the organiser gets an explicit CTA into the exact next step
+            (My HQ, to review and close the round — this never closes
+            it automatically, the organiser still explicitly does that
+            from My HQ, per the explicit "do not automatically close
+            the round" instruction); the player gets the brief's exact
+            wording for the post-submission waiting state. Ordinary
+            navigation (bottom nav — Leaderboard, Side Games, My Golf,
+            Chat) is completely unaffected by this block either way,
+            since this is just content within the existing scoring
+            page, not a modal or a redirect. */}
+        {isLocked && isOrganiser && (
           <div style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 12, padding: 14, marginTop: 10, marginBottom: 16, textAlign: 'center' }}>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#16a34a', marginBottom: 4 }}>
               ✅ Results submitted
             </div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280', lineHeight: 1.5, marginBottom: 12 }}>
+              All scores are reconciled. Go to My HQ to review and close the round.
+            </div>
+            <Link
+              href={`/trips/${tripId}/tournament`}
+              style={{
+                display: 'inline-block', padding: '10px 20px', borderRadius: 10,
+                background: 'linear-gradient(135deg,#2d7a52,#16a34a)', color: '#fff',
+                fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, textDecoration: 'none',
+              }}
+            >
+              Go to My HQ →
+            </Link>
+          </div>
+        )}
+
+        {isLocked && !isOrganiser && (
+          <div style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 12, padding: 14, marginTop: 10, marginBottom: 16, textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#16a34a', marginBottom: 4 }}>
+              🏁 {round.name} Complete
+            </div>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280', lineHeight: 1.5 }}>
-              Your scorecard has been confirmed and locked.
-              Waiting for the organiser to announce the results.
+              Your scorecard has been submitted.
+              Waiting for the organiser to publish the final results.
             </div>
           </div>
         )}

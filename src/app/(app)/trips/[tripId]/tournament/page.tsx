@@ -5,8 +5,10 @@ import TournamentControl from '@/components/scoring/TournamentControl'
 import AdminScoreOverridePanel from '@/components/scoring/AdminScoreOverridePanel'
 import MyRoundClient from '@/components/scoring/MyRoundClient'
 import RoundSchedule from '@/components/scoring/RoundSchedule'
+import RoundHighlightsCard from '@/components/scoring/RoundHighlightsCard'
 import EventCountdown from '@/components/trips/EventCountdown'
 import MyRoundSummary from '@/components/scoring/MyRoundSummary'
+import { resolveFocusRound } from '@/lib/scoring/multiRound'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -67,7 +69,7 @@ export default async function TournamentPage({ params }: Props) {
   // completed (matching PlayerHomeCard's same logic — also fixed in
   // this same change, see below). Organisers only ever look at the
   // active round in My HQ, unaffected by this fix.
-  const focusRound = activeRound ?? nextUpcomingRound ?? mostRecentlyCompletedRound
+  const focusRound = resolveFocusRound(activeRound, mostRecentlyCompletedRound, nextUpcomingRound)
 
   // "Organiser who is also playing" — reuses the trip's existing
   // organiser_is_playing flag (the same signal this app has used for
@@ -107,18 +109,19 @@ export default async function TournamentPage({ params }: Props) {
 
       {/* My HQ Countdown — same EventCountdown component, same focusRound
           resolution the Event Schedule right below already uses (see
-          comment there: activeRound ?? nextUpcomingRound ??
-          mostRecentlyCompletedRound). Nothing new here at all — passing
+          comment there: activeRound ?? mostRecentlyCompletedRound ??
+          nextUpcomingRound). Nothing new here at all — passing
           focusRound directly reuses EventCountdown's own existing
           self-hiding behaviour (round.status !== 'upcoming' -> renders
           null), which already correctly covers every required case:
           hidden while a round is active or fully complete, and
           automatically retargets to Round 2 the moment focusRound
-          itself resolves to Round 2 (Round 1 completed). One source of
-          truth for both My Round and My HQ, by construction — this
-          isn't a second implementation that could drift out of sync,
-          it's the exact same focusRound value already governing the
-          Event Schedule immediately below. */}
+          itself resolves to Round 2 (Round 1 completed AND Round 2
+          genuinely live). One source of truth for both My Round and
+          My HQ, by construction — this isn't a second implementation
+          that could drift out of sync, it's the exact same focusRound
+          value already governing the Event Schedule immediately
+          below. */}
       {focusRound && <EventCountdown tripId={tripId} round={focusRound} />}
 
       {/* Priority 2 — Event Schedule now shown in My HQ too, reusing the
@@ -130,8 +133,19 @@ export default async function TournamentPage({ params }: Props) {
           that management surface. */}
       <RoundSchedule
         rounds={roundsAscending} selectedRoundId={focusRound?.id ?? ''} defaultRoundId={focusRound?.id ?? null}
-        interactive={false}
+        interactive={false} tripId={tripId}
       />
+
+      {/* Package 4, item 11 — persistent, always-reachable, not tied to
+          any ephemeral "just closed the round" moment. Shown whenever
+          the organiser's own focus round (fixed above to correctly stay
+          on the just-completed round rather than jumping to the next
+          upcoming one) is genuinely completed — covers both "just
+          finished, next round upcoming" and "final round, event fully
+          complete." */}
+      {focusRound?.status === 'completed' && (
+        <RoundHighlightsCard tripId={tripId} roundId={focusRound.id} roundName={focusRound.name} />
+      )}
 
       {!activeRound ? (
         <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', padding: '32px 20px', textAlign: 'center' }}>

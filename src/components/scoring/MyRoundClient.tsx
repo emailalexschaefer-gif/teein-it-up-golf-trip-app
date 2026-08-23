@@ -31,7 +31,7 @@ export default function MyRoundClient({
     <div>
       <RoundSchedule
         rounds={rounds} selectedRoundId={selectedRoundId ?? ''} defaultRoundId={defaultRoundId}
-        onSelect={setSelectedRoundId}
+        onSelect={setSelectedRoundId} tripId={tripId}
       />
       {selected ? (
         <PlayerRoundView

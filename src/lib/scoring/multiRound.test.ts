@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { computeCumulativeStandings, determineRoundWinners, determineChampions, seedLeadersLast, sortRoundsChronologically, selectLeaderboardRound, selectRelevantSideGameRounds, buildRoundsSummary, derivePreviousCurrentTotal } from './multiRound'
+import { computeCumulativeStandings, determineRoundWinners, determineChampions, seedLeadersLast, sortRoundsChronologically, selectLeaderboardRound, selectRelevantSideGameRounds, buildRoundsSummary, derivePreviousCurrentTotal, resolveRequestedOrDefaultRound, matchesPlayerSearch, resolveFocusRound } from './multiRound'
 
 // ── sortRoundsChronologically ────────────────────────────────────────────────
 
@@ -539,4 +539,89 @@ test('derivePreviousCurrentTotal — scales identically for Round 20 of a season
   const round20 = derivePreviousCurrentTotal(1840, 53, 20)
   assert.equal(round2.current, round20.current)
   assert.notEqual(round2.previous, round20.previous)
+})
+
+// ── Package 3 (G) ──────────────────────────────────────────────────────
+
+test('matchesPlayerSearch — first-name search finds the player (G2)', () => {
+  assert.equal(matchesPlayerSearch('Alex Schaefer', 'Alex'), true)
+})
+
+test('matchesPlayerSearch — surname search finds the player (G3)', () => {
+  assert.equal(matchesPlayerSearch('Alex Schaefer', 'Schaefer'), true)
+})
+
+test('matchesPlayerSearch — case-insensitive in both directions', () => {
+  assert.equal(matchesPlayerSearch('Alex Schaefer', 'ALEX'), true)
+  assert.equal(matchesPlayerSearch('ALEX SCHAEFER', 'alex'), true)
+})
+
+test('matchesPlayerSearch — does not match an unrelated name', () => {
+  assert.equal(matchesPlayerSearch('Alex Schaefer', 'Darren'), false)
+})
+
+test('matchesPlayerSearch — empty search term matches everyone (used for the "show all" default view)', () => {
+  assert.equal(matchesPlayerSearch('Alex Schaefer', ''), true)
+  assert.equal(matchesPlayerSearch('Alex Schaefer', '   '), true)
+})
+
+test('resolveRequestedOrDefaultRound — explicit roundId resolves the exact requested round (G6)', () => {
+  const rounds = [
+    { id: 'r1', status: 'completed', play_date: '2026-08-21', created_at: '2026-08-01T00:00:00Z' },
+    { id: 'r2', status: 'active', play_date: '2026-08-28', created_at: '2026-08-01T00:00:01Z' },
+  ]
+  const result = resolveRequestedOrDefaultRound(rounds, 'r1')
+  assert.equal(result?.id, 'r1')
+})
+
+test('resolveRequestedOrDefaultRound — a completed round request is never silently replaced by the live round (G7)', () => {
+  // The exact regression this exists to prevent: "Round 1 -> View Final
+  // Results must show Round 1, even while Round 2 is LIVE."
+  const rounds = [
+    { id: 'r1', status: 'completed', play_date: '2026-08-21', created_at: '2026-08-01T00:00:00Z' },
+    { id: 'r2', status: 'active', play_date: '2026-08-28', created_at: '2026-08-01T00:00:01Z' },
+  ]
+  const result = resolveRequestedOrDefaultRound(rounds, 'r1')
+  assert.equal(result?.status, 'completed')
+  assert.notEqual(result?.id, 'r2')
+})
+
+test('resolveRequestedOrDefaultRound — missing/invalid roundId falls back to the automatic pick, not a broken page', () => {
+  const rounds = [
+    { id: 'r1', status: 'completed', play_date: '2026-08-21', created_at: '2026-08-01T00:00:00Z' },
+    { id: 'r2', status: 'active', play_date: '2026-08-28', created_at: '2026-08-01T00:00:01Z' },
+  ]
+  assert.equal(resolveRequestedOrDefaultRound(rounds, undefined)?.id, 'r2') // no request -> automatic (active) pick
+  assert.equal(resolveRequestedOrDefaultRound(rounds, 'does-not-exist')?.id, 'r2') // invalid request -> same automatic fallback
+})
+
+// ── Package 4 (item 4) ─────────────────────────────────────────────────
+
+test('resolveFocusRound — the exact field-test regression: Round 1 just completed, Round 2 upcoming (not live)', () => {
+  // This is precisely the scenario that made Makers & Breakers
+  // unreachable: My HQ must stay on Round 1 here, not jump to Round 2.
+  const r1 = { id: 'r1', status: 'completed' }
+  const r2 = { id: 'r2', status: 'upcoming' }
+  const result = resolveFocusRound(undefined, r1, r2)
+  assert.equal(result?.id, 'r1')
+})
+
+test('resolveFocusRound — active round always wins regardless of completed/upcoming', () => {
+  const active = { id: 'r2', status: 'active' }
+  const completed = { id: 'r1', status: 'completed' }
+  const upcoming = { id: 'r3', status: 'upcoming' }
+  const result = resolveFocusRound(active, completed, upcoming)
+  assert.equal(result?.id, 'r2')
+})
+
+test('resolveFocusRound — pre-event case is completely unaffected (nothing has ever completed yet)', () => {
+  const upcoming = { id: 'r1', status: 'upcoming' }
+  const result = resolveFocusRound(undefined, undefined, upcoming)
+  assert.equal(result?.id, 'r1')
+})
+
+test('resolveFocusRound — event fully complete (no upcoming round left at all) still resolves to the last completed round', () => {
+  const completed = { id: 'r2', status: 'completed' }
+  const result = resolveFocusRound(undefined, completed, undefined)
+  assert.equal(result?.id, 'r2')
 })

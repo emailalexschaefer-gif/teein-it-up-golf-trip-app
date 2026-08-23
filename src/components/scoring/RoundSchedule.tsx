@@ -1,5 +1,7 @@
 'use client'
 
+import Link from 'next/link'
+
 /**
  * Event Schedule — the macro level of My Round's two-tier hierarchy.
  * Read-only by construction: no Begin Round, no Edit, no organiser
@@ -34,7 +36,7 @@ function statusLabel(round: ScheduleRound, isDefaultSelection: boolean): { text:
 }
 
 export default function RoundSchedule({
-  rounds, selectedRoundId, defaultRoundId, onSelect, interactive = true,
+  rounds, selectedRoundId, defaultRoundId, onSelect, interactive = true, tripId,
 }: {
   rounds: ScheduleRound[]; selectedRoundId: string; defaultRoundId: string | null
   onSelect?: (roundId: string) => void
@@ -47,6 +49,11 @@ export default function RoundSchedule({
   // passes real state-setting behaviour and gets the fully interactive
   // version, unchanged.
   interactive?: boolean
+  // Package 3 (D1/D2) — needed to build the "View Final Results" link
+  // target for a completed round in the read-only (My HQ) context.
+  // Plain string, safe to pass from a Server Component unlike a
+  // function prop.
+  tripId: string
 }) {
   if (rounds.length === 0) return null
 
@@ -59,14 +66,24 @@ export default function RoundSchedule({
         {rounds.map((round, i) => {
           const isSelected = round.id === selectedRoundId
           const label = statusLabel(round, round.id === defaultRoundId)
-          const Card = interactive && onSelect ? 'button' : 'div'
+          // Package 3 (D1/D2) — a completed round in the read-only (My
+          // HQ) context now links directly to that EXACT round's final
+          // results (?roundId=<this round's own id>, never the
+          // trip-wide default/live selection) rather than being purely
+          // informational. Interactive (My Round) context is completely
+          // untouched — cards there still just change the local
+          // selection, matching the existing, working behaviour.
+          const isCompletedReadOnlyLink = !interactive && round.status === 'completed'
+          const Card = interactive && onSelect ? 'button' : isCompletedReadOnlyLink ? Link : 'div'
           return (
             <Card
               key={round.id}
               {...(interactive && onSelect ? { onClick: () => onSelect(round.id) } : {})}
+              {...(isCompletedReadOnlyLink ? { href: `/trips/${tripId}/leaderboard?roundId=${round.id}` } : {})}
               style={{
                 display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left',
-                padding: '10px 12px', borderRadius: 12, cursor: interactive && onSelect ? 'pointer' : 'default',
+                padding: '10px 12px', borderRadius: 12, textDecoration: 'none',
+                cursor: (interactive && onSelect) || isCompletedReadOnlyLink ? 'pointer' : 'default',
                 background: isSelected ? '#ffffff' : '#faf9f6',
                 border: isSelected ? '2px solid #c9a84c' : '1px solid #eceae3',
                 boxShadow: isSelected ? '0 2px 10px rgba(201,168,76,0.18)' : 'none',
@@ -101,6 +118,11 @@ export default function RoundSchedule({
                   {round.holes ? ` · ⛳ ${round.holes} holes` : ''}
                   {round.scoring_format ? ` · ${round.scoring_format.charAt(0).toUpperCase()}${round.scoring_format.slice(1)}` : ''}
                 </div>
+                {isCompletedReadOnlyLink && (
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#166534', marginTop: 3 }}>
+                    View Final Results →
+                  </div>
+                )}
               </div>
             </Card>
           )

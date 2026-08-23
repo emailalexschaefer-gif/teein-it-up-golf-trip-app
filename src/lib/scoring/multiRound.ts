@@ -252,6 +252,60 @@ export function selectLeaderboardRound<T extends LeaderboardRoundCandidate>(roun
 }
 
 /**
+ * Package 3 (D2) — "View Final Results" navigation. A valid, explicit
+ * requestedRoundId overrides the automatic selectLeaderboardRound pick
+ * entirely; falls back to the automatic pick if the param is missing
+ * or doesn't match any real round for this trip (never a broken/blank
+ * page). Extracted specifically so this override behaviour is
+ * unit-tested rather than only living inline in the leaderboard page,
+ * matching every other selection function in this file.
+ */
+export function resolveRequestedOrDefaultRound<T extends LeaderboardRoundCandidate>(rounds: T[], requestedRoundId: string | undefined): T | undefined {
+  const requested = requestedRoundId ? rounds.find(r => r.id === requestedRoundId) : undefined
+  return requested ?? selectLeaderboardRound(rounds)
+}
+
+/**
+ * Package 3 (A4) — case-insensitive first-name/surname/full-name search
+ * for Score Management. Extracted into its own function specifically
+ * for test coverage (item G2/G3), even though the logic itself is
+ * simple — this is exactly the kind of small predicate that's easy to
+ * silently break in a future refactor (e.g. accidentally requiring an
+ * exact match, or comparing before trimming/lowercasing) without a
+ * dedicated test catching it immediately.
+ */
+export function matchesPlayerSearch(playerName: string, searchTerm: string): boolean {
+  const term = searchTerm.trim().toLowerCase()
+  if (term.length === 0) return true
+  return playerName.toLowerCase().includes(term)
+}
+
+/**
+ * Package 4 (item 4) — "completed round remains the focus until next
+ * round starts." The actual root cause of "My HQ effectively moved
+ * forward to the next round," found by tracing both places this exact
+ * priority decision was independently made (tournament/page.tsx and
+ * PlayerHomeCard.tsx): both previously prioritised the next upcoming
+ * round over the just-completed one, so the moment Round 1 finished
+ * and Round 2 existed as 'upcoming' (not yet live), the page jumped
+ * straight to Round 2 — skipping the post-round celebration (and
+ * making the organiser's own Makers & Breakers entry point effectively
+ * unreachable) entirely.
+ *
+ * Extracted into one shared, tested function per "prefer shared fixes
+ * over screen-by-screen patches" — both call sites now go through
+ * this, rather than maintaining two independently-drifting copies of
+ * the same priority logic.
+ */
+export interface FocusRoundCandidate { id: string; status: string }
+
+export function resolveFocusRound<T extends FocusRoundCandidate>(
+  activeRound: T | undefined, mostRecentlyCompletedRound: T | undefined, nextUpcomingRound: T | undefined,
+): T | undefined {
+  return activeRound ?? mostRecentlyCompletedRound ?? nextUpcomingRound
+}
+
+/**
  * Which rounds' Side Games are relevant for the default (event-level)
  * screen — every completed round (preserves all verified history so
  * far) plus the active round if one exists (shows live state through

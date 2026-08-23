@@ -193,6 +193,27 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
     refetchOnWindowFocus: true,
   })
 
+  // Bug 5 (field-test corrective) — the Side Games Snapshot below was
+  // previously a hardcoded, unconditional placeholder string with no
+  // query behind it at all ("Not set up for this round yet" shown
+  // regardless of whether Side Games actually existed) — not a
+  // wrong-round-id bug, the snapshot was simply never wired to real
+  // data in the first place. Fetches the same computeRoundSideGames
+  // result the dedicated round-specific drill-down route already
+  // returns, explicitly scoped by this component's own roundId prop —
+  // never inferred from array position or "latest created," per the
+  // explicit instruction.
+  const { data: sideGamesData } = useQuery<{ competitions: SideGameCompetitionSummary[] }>({
+    queryKey: ['side-games-snapshot', tripId, roundId],
+    queryFn: async () => {
+      const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/side-games`)
+      if (!res.ok) throw new Error('failed')
+      return res.json()
+    },
+    staleTime: 10000,
+    refetchOnWindowFocus: true,
+  })
+
   async function handleClose() {
     setClosing(true); setCloseError(null)
     try {
@@ -526,13 +547,37 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
         View Full Leaderboard →
       </Link>
 
-      {/* ── Side Games Snapshot — placeholder only, no data model exists
-          yet, so no fabricated statuses. Matches how Moments is handled:
-          a real, honest "not yet available" state, not a broken button. ── */}
+      {/* Bug 5 (field-test corrective) — real, round-scoped Side Games
+          Snapshot, replacing the previous hardcoded placeholder that
+          unconditionally said "not set up" regardless of actual data.
+          Icon/label map copied from the established convention in
+          SideGamesClient.tsx, not reinvented. */}
       <SectionTitle>Side Games Snapshot</SectionTitle>
-      <Link href={`/trips/${tripId}/sidegames`} style={{ display: 'block', background: '#f3f4f6', border: '1px dashed #d1d5db', borderRadius: 12, padding: '12px 14px', marginBottom: 14, textDecoration: 'none', textAlign: 'center' }}>
-        <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af' }}>Not set up for this round yet — tap to open Side Games</span>
-      </Link>
+      {!sideGamesData || sideGamesData.competitions.length === 0 ? (
+        <Link href={`/trips/${tripId}/sidegames`} style={{ display: 'block', background: '#f3f4f6', border: '1px dashed #d1d5db', borderRadius: 12, padding: '12px 14px', marginBottom: 14, textDecoration: 'none', textAlign: 'center' }}>
+          <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af' }}>Not set up for this round yet — tap to open Side Games</span>
+        </Link>
+      ) : (
+        <Link href={`/trips/${tripId}/sidegames`} style={{ display: 'block', textDecoration: 'none', marginBottom: 14 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: '#faf9f6', border: '1px solid #eceae3', borderRadius: 12, padding: '12px 14px' }}>
+            {sideGamesData.competitions.map(c => {
+              const meta = SIDE_GAME_LABELS[c.compType] ?? { icon: '🏆', label: c.compType }
+              const leaderOrWinner = c.winner?.playerName ?? c.currentLeader?.playerName
+              return (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151' }}>
+                    {meta.icon} {meta.label}{c.holeNumber ? ` · H${c.holeNumber}` : ''}
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: c.isComplete ? '#166534' : '#a1791f' }}>
+                    {leaderOrWinner ?? 'No claims yet'}
+                  </span>
+                </div>
+              )
+            })}
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#14532d', marginTop: 4 }}>View Side Games →</span>
+          </div>
+        </Link>
+      )}
 
       {/* ── The Story — milestones only, never every hole or every score.
           Rebuilt from real entered_at timestamps (see the API route) —
@@ -754,9 +799,28 @@ const actionLinkStyle: CSSProperties = {
   textDecoration: 'none',
 }
 
+// Bug 5 — same icon/label convention as SideGamesClient.tsx, copied
+// verbatim rather than reimplemented differently in a second place.
+const SIDE_GAME_LABELS: Record<string, { icon: string; label: string }> = {
+  nearest_pin:   { icon: '🎯', label: 'Nearest the Pin' },
+  longest_drive: { icon: '💥', label: 'Longest Drive' },
+  pros_approach: { icon: '🎯', label: 'Pro\u2019s Approach' },
+  powerplay:     { icon: '⚡', label: 'Powerplay' },
+}
+
 interface Moment {
   id: string; caption: string | null; hole_number: number | null; created_at: string
   imageUrl: string | null; playerName: string
+}
+
+// Bug 5 — minimal subset of SideGameCompetition (src/lib/sideGames/
+// computeRoundSideGames.ts) actually needed for the Snapshot display.
+// Not re-declaring the full shape, just what this summary reads.
+interface SideGameCompetitionSummary {
+  id: string; compType: string; holeNumber: number | null
+  currentLeader: { playerName: string } | null
+  winner: { playerName: string } | null
+  isComplete: boolean
 }
 
 function EventStorySection({ tripId, golfStory }: { tripId: string; golfStory: StoryEntry[] }) {

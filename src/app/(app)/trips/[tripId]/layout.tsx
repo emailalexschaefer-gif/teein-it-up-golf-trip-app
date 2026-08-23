@@ -42,9 +42,23 @@ export default async function TripScopedLayout({ params, children }: Props) {
   // The active round, if any — used to make "Scorecard" in the bottom nav
   // jump straight into live scoring, and to detect a just-started round for
   // the notification banner. One lightweight query, reused by both.
+  //
+  // Bug 2 (field-test corrective) — root cause traced to exactly this
+  // query. This runs in the trip layout, meaning it re-executes on
+  // EVERY navigation within the trip, and previously had a 4-second
+  // timeout with a fully silent failure (.catch(() => null)) — no
+  // error shown anywhere, just activeRound quietly becoming null,
+  // which sends the Scorecard nav link's fallback straight to the
+  // Lobby (`scorecardHref = activeRoundId ? .../rounds/${id} : base`
+  // in TripBottomNav.tsx). On real course connectivity (the exact
+  // condition field testing exposed and a typical dev machine would
+  // never hit), a 4-second timeout is genuinely tight for a database
+  // round-trip over a weak connection — increased to 10 seconds, a
+  // meaningfully more forgiving margin for a real-world mobile
+  // network, while still bounded (never hangs the page indefinitely).
   const activeRoundResult = await withTimeout(
     supabase.from('rounds').select('id, name').eq('trip_id', tripId).eq('status', 'active').maybeSingle(),
-    4000,
+    10000,
   ).catch(() => null)
   const activeRound = activeRoundResult?.data ?? null
 

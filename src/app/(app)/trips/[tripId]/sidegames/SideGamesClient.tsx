@@ -87,11 +87,37 @@ export default function SideGamesClient({ tripId }: { tripId: string }) {
         // when there's more than one round with content, matching the
         // same "don't clutter a single-round trip" reasoning used
         // elsewhere (e.g. Final Results' own round-grouping).
-        roundsWithContent.map(round => (
+        //
+        // Bug 6 (field-test corrective) — roundsData itself stays
+        // chronologically ascending (oldest first), since that's also
+        // what determines each round's correct roundNumber elsewhere in
+        // this same response and in the /side-games route's own
+        // construction — reversing that shared ordering would risk
+        // breaking roundNumber for something that's purely a display
+        // concern here. This [...].reverse() only changes which order
+        // this specific list renders in (most recent round first, per
+        // the explicit "reverse that presentation priority" instruction
+        // — during Round 2, the player shouldn't have to scroll past
+        // Round 1's history to reach what's live now), on a small,
+        // already-materialised array — every round's own real
+        // roundId/roundNumber stays exactly as computed, nothing here
+        // infers identity from this reversed position.
+        [...roundsWithContent].reverse().map(round => (
           <div key={round.roundId} style={{ marginBottom: 20 }}>
             {roundsWithContent.length > 1 && (
               <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#9ca3af', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Round {round.roundNumber} — {round.roundName}{round.courseName ? ` · ${round.courseName}` : ''}
+                {/* Bug 6 (field-test corrective) — round.roundName is
+                    the organiser's own name for the round, which is
+                    typically already "Round 1"/"Round 2" by default.
+                    Prepending "Round {roundNumber} —" in front of a
+                    name that already says "Round 1" produced exactly
+                    the reported "ROUND 1 — ROUND 1 · Eagle Ridge Golf
+                    Club" duplicate. Using roundName directly reads
+                    correctly whether the organiser kept the default
+                    name or renamed it to something custom like "Final
+                    Round" — either way there's now only one round
+                    identifier, not two. */}
+                {round.roundName}{round.courseName ? ` · ${round.courseName}` : ''}
                 {round.status === 'active' && <span style={{ color: '#16a34a', marginLeft: 6 }}>● LIVE</span>}
               </div>
             )}
