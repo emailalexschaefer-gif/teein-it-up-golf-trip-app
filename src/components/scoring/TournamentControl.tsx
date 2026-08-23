@@ -119,7 +119,17 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
     })
     const resData = await res.json().catch(() => ({}))
     setUnlockSending(false)
-    if (!res.ok) { setUnlockError(resData.error ?? 'Could not unlock this scorecard.'); return }
+    if (!res.ok) {
+      // Package 3 P0 investigation — surface the debug field (Postgres
+      // error code/message) when present, so the real cause is visible
+      // on the next real-device attempt rather than only the generic
+      // message. Deliberately shown to every user, not gated behind a
+      // dev flag — same reasoning as the route-level error boundaries:
+      // this is currently the only way this specific exception reaches
+      // anyone who can act on it.
+      setUnlockError(resData.debug ? `${resData.error ?? 'Could not unlock this scorecard.'} (${resData.debug})` : (resData.error ?? 'Could not unlock this scorecard.'))
+      return
+    }
     setUnlockTarget(null)
     void queryClient.invalidateQueries({ queryKey: ['tournament', tripId, roundId] })
   }

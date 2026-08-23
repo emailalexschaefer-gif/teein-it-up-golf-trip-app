@@ -197,7 +197,24 @@ async function handleUnlock(_req: NextRequest, userId: string, tripId: string, r
 
   if (unlockErr) {
     console.error('[POST scorecards unlock]', unlockErr)
-    return NextResponse.json({ error: "Couldn't unlock this scorecard. Please try again." }, { status: 500 })
+    // Investigation note (Package 3 P0) — traced the full path: RLS is
+    // not a factor (createAdminClient uses the service role, bypassing
+    // RLS entirely), the update targets the correct scorecard id
+    // (already confirmed to exist and be 'completed' just above), and
+    // migration 032 (unlock_reason/unlocked_at/unlocked_by) reads as
+    // correct and idempotent on inspection. Without direct database
+    // access to this environment, I cannot confirm from here whether
+    // that migration has actually been applied, or whether some other
+    // constraint is the real cause — so rather than guess further, this
+    // now surfaces the actual Postgres error code/message in the
+    // response (the same "debug" field pattern already used in
+    // moments/route.ts for exactly this situation), so the next
+    // real-device attempt shows the precise cause directly instead of
+    // this generic message.
+    return NextResponse.json({
+      error: "Couldn't unlock this scorecard. Please try again.",
+      debug: `${unlockErr.code ?? 'unknown'}: ${unlockErr.message ?? 'no message'}`,
+    }, { status: 500 })
   }
 
   console.log('[scorecards unlock]', { tripId, roundId, playerId, unlockedBy: userId, reason: reason.trim() })
