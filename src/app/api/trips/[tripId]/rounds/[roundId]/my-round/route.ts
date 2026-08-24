@@ -28,7 +28,7 @@ interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
 
 interface ScoreEntryRow {
   hole_id: string; gross_score: number | null; stableford_pts: number
-  is_no_return: boolean; capture_role: string; entered_at: string
+  is_no_return: boolean; capture_role: string; entered_at: string; admin_overridden: boolean
 }
 interface HoleRow { id: string; hole_number: number; par: number }
 
@@ -56,7 +56,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   // ── All scorecards for this round (needed for ranking — same approach
   // as the leaderboard route) ─────────────────────────────────────────────
   const scRes = await admin.from('scorecards')
-    .select(`id, player_id, playing_handicap, status, profiles:player_id ( full_name ), score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_at )`)
+    .select(`id, player_id, playing_handicap, status, profiles:player_id ( full_name ), score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_at, admin_overridden )`)
     .eq('round_id', roundId)
     .neq('status', 'withdrawn')
 
@@ -88,12 +88,31 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   const finished = holesPlayed >= totalHoles
 
   // Personal mismatches — same diff logic as the tournament route.
+  //
+  // Package 3 final propagation fix — this route previously had its
+  // own, completely independent copy of the differs check with no
+  // admin_overridden awareness at all (not selected in the query, not
+  // checked in the diff). This is the actual source of "My Golf still
+  // shows red review warnings" — the tournament route's own version of
+  // this exact logic was already fixed in an earlier pass, but this
+  // one, feeding My Golf specifically, was never touched and had
+  // silently drifted out of sync. Status precedence
+  // (resolved_by_organiser before unresolved mismatch) is enforced the
+  // same way as the tournament route: admin_overridden holes are
+  // excluded from mismatches entirely, then separately collected into
+  // organiserOverrides so the amber indicator has something to render
+  // from — never both for the same hole.
   const mismatches: { hole: number; playerScore: string; markerScore: string }[] = []
+  const organiserOverrides: { hole: number; officialScore: string }[] = []
   let waitingForMarker = false
   if (isMarkerMode) {
     for (const [hn, self] of mySelfByHole) {
       const marker = myMarkerByHole.get(hn)
       if (!marker) { waitingForMarker = true; continue }
+      if (self.admin_overridden) {
+        organiserOverrides.push({ hole: hn, officialScore: self.is_no_return ? 'No return' : String(self.gross_score) })
+        continue
+      }
       const differs = self.is_no_return !== marker.is_no_return || (!self.is_no_return && self.gross_score !== marker.gross_score)
       if (differs) mismatches.push({ hole: hn, playerScore: self.is_no_return ? 'No return' : String(self.gross_score), markerScore: marker.is_no_return ? 'No return' : String(marker.gross_score) })
     }
@@ -166,6 +185,12 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   }
   if (holesPlayed >= 9 && front9Pts > 0) myStory.push({ icon: '⛳', text: `Front 9 complete — ${front9Pts} pts` })
   for (const m of mismatches) myStory.push({ icon: '⚠️', text: `Hole ${m.hole} needs review` })
+  // Package 3 final propagation fix — subtle amber My Golf indicator
+  // for an organiser-adjudicated hole, per the explicit "may show a
+  // subtle amber ⚙️ Organiser Override — Hole 2, but it must not tell
+  // the player they still need to fix anything" instruction. Uses ⚙️,
+  // not ⚠️, and says nothing about the player needing to act.
+  for (const o of organiserOverrides) myStory.push({ icon: '⚙️', text: `Organiser Override — Hole ${o.hole}` })
 
   const checkpoints: number[] = []
   for (let c = 3; c < totalHoles; c += 3) checkpoints.push(c)
@@ -196,7 +221,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     totalPts, front9Pts, back9Pts,
     position: myPosition, totalPlayers: ranked.length,
     birdies, eagles, holeInOnes, bestHole,
-    mismatches, waitingForMarker,
+    mismatches, waitingForMarker, organiserOverrides,
     groupName, groupMembers, markerName,
     story: myStory.slice(-10).reverse(),
   })

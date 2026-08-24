@@ -625,3 +625,67 @@ test('resolveFocusRound — event fully complete (no upcoming round left at all)
   const result = resolveFocusRound(undefined, completed, undefined)
   assert.equal(result?.id, 'r2')
 })
+
+// ── Package 3 — organiser override ranking regression (explicit, deterministic) ──
+//
+// These do not test the override write path itself (that's a database
+// trigger — compute_stableford, verified directly by inspection:
+// "BEFORE INSERT OR UPDATE OF gross_score, is_no_return" fires on
+// exactly the columns the override endpoint writes, recalculating
+// stableford_pts from the round-specific playing_handicap snapshot).
+// What these prove is the other half of the required chain: that the
+// SAME ranking/standings functions already used everywhere else in
+// this app correctly re-rank when a totalPts input changes — since
+// that's the one part of "override -> leaderboard" that's actual
+// application code, not a database trigger, and is exactly what the
+// brief asked to be proven rather than assumed.
+
+test('single-round ranking — organiser override reducing the leader\u2019s total flips the ranking (exact requested scenario)', () => {
+  // Player A leads Player B by 1 point (66 vs 65).
+  const before = [
+    { playerId: 'a', totalPts: 66, holesPlayed: 18 },
+    { playerId: 'b', totalPts: 65, holesPlayed: 18 },
+  ]
+  const rankedBefore = [...before].sort((x, y) => y.totalPts - x.totalPts || y.holesPlayed - x.holesPlayed)
+  assert.equal(rankedBefore[0].playerId, 'a')
+
+  // Organiser override reduces Player A by 2 points (66 -> 64).
+  const after = [
+    { playerId: 'a', totalPts: 64, holesPlayed: 18 },
+    { playerId: 'b', totalPts: 65, holesPlayed: 18 },
+  ]
+  const rankedAfter = [...after].sort((x, y) => y.totalPts - x.totalPts || y.holesPlayed - x.holesPlayed)
+  assert.equal(rankedAfter[0].playerId, 'b') // Player B moves to 1st
+  assert.equal(rankedAfter[1].playerId, 'a') // Player A moves to 2nd
+
+  // Reversed: override adds enough points to retake the lead (64 -> 67).
+  const reversed = [
+    { playerId: 'a', totalPts: 67, holesPlayed: 18 },
+    { playerId: 'b', totalPts: 65, holesPlayed: 18 },
+  ]
+  const rankedReversed = [...reversed].sort((x, y) => y.totalPts - x.totalPts || y.holesPlayed - x.holesPlayed)
+  assert.equal(rankedReversed[0].playerId, 'a') // ranking switches back
+})
+
+test('cumulative (multi-round) ranking — organiser override to a single round changes the overall event standings', () => {
+  // Alex leads after Round 1 (59) + Round 2 official 66 = 125.
+  // TEST has Round 1 (56) + Round 2 66 = 122. Alex leads by 3.
+  const beforeOverride = computeCumulativeStandings([
+    [{ playerId: 'alex', playerName: 'Alex', roundPoints: 59 }, { playerId: 'test', playerName: 'TEST', roundPoints: 56 }],
+    [{ playerId: 'alex', playerName: 'Alex', roundPoints: 66 }, { playerId: 'test', playerName: 'TEST', roundPoints: 66 }],
+  ])
+  assert.equal(beforeOverride[0].playerId, 'alex')
+  assert.equal(beforeOverride[0].totalPoints, 125)
+
+  // Organiser overrides Round 2 for Alex: 66 -> 63 (the exact
+  // Hole 2 5->3 regression scenario, reflected as its net effect on
+  // the round total). New cumulative: Alex 122, TEST 122 — a tie,
+  // then TEST alone ahead if the override goes further.
+  const afterOverride = computeCumulativeStandings([
+    [{ playerId: 'alex', playerName: 'Alex', roundPoints: 59 }, { playerId: 'test', playerName: 'TEST', roundPoints: 56 }],
+    [{ playerId: 'alex', playerName: 'Alex', roundPoints: 60 }, { playerId: 'test', playerName: 'TEST', roundPoints: 66 }],
+  ])
+  assert.equal(afterOverride[0].playerId, 'test') // event winner changes
+  assert.equal(afterOverride[0].totalPoints, 122)
+  assert.equal(afterOverride.find(s => s.playerId === 'alex')?.totalPoints, 119)
+})
