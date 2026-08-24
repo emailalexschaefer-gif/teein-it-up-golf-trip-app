@@ -701,7 +701,21 @@ export default function SelfMarkerScoreShell({
   // capture maps. Previously both sides came from the saved maps,
   // meaning editing the draft changed the number on screen but never
   // touched what compareCaptures actually compared.
-  const myDraftCapture: CaptureValue = { grossScore: draftMyPickedUp ? null : draftMyGross, pickedUp: draftMyPickedUp }
+  // P0 regression fix — myDraftCapture was previously rebuilt fresh
+  // from local editable draft state (draftMyGross/draftMyPickedUp)
+  // with no adminOverridden field at all. compareCaptures(myDraftCapture,
+  // ...) could therefore never see admin_overridden regardless of what
+  // mySelf[holeNum] (the actual underlying data, correctly carrying the
+  // flag via splitByRole) contained — myComparison, the value that
+  // actually drives every status/panel render decision, silently
+  // dropped the flag on every single render. This is the definitive
+  // root cause of the reported regression: the earlier compareCaptures/
+  // splitByRole fix was correct for the data model, but the value
+  // consuming it here was reconstructed from a different, narrower
+  // object that never carried the flag through. Threading it from
+  // mySelf[holeNum] here fixes the actual render path, not just the
+  // underlying data.
+  const myDraftCapture: CaptureValue = { grossScore: draftMyPickedUp ? null : draftMyGross, pickedUp: draftMyPickedUp, adminOverridden: mySelf[holeNum]?.adminOverridden }
   const partnerDraftCapture: CaptureValue = { grossScore: draftPartnerPickedUp ? null : draftPartnerGross, pickedUp: draftPartnerPickedUp }
   const myComparison = requiresMarker ? compareCaptures(myDraftCapture, myMarker[holeNum] ?? null) : null
   const partnerComparison = requiresMarker && currentMarked ? compareCaptures(partnerSelf[holeNum] ?? null, partnerDraftCapture) : null
@@ -785,7 +799,15 @@ export default function SelfMarkerScoreShell({
     confirmingRef.current = true
     setFlash(true)
 
-    const myValue: CaptureValue = { grossScore: draftMyPickedUp ? null : draftMyGross, pickedUp: draftMyPickedUp }
+    // P0 regression fix — same bug class as myDraftCapture: this
+    // optimistic local update previously rebuilt the hole's entry
+    // without adminOverridden, which would silently drop the flag from
+    // mySelf state for this specific hole the moment confirmScore ran
+    // again on it. Preserved from the existing prev state rather than
+    // re-derived, since this function has no reason to know or assume
+    // anything about override status — it's just not losing data that
+    // was already there.
+    const myValue: CaptureValue = { grossScore: draftMyPickedUp ? null : draftMyGross, pickedUp: draftMyPickedUp, adminOverridden: mySelf[holeNum]?.adminOverridden }
     setMySelf(prev => ({ ...prev, [holeNum]: myValue }))
     if (requiresMarker && currentMarked) {
       const partnerValue: CaptureValue = { grossScore: draftPartnerPickedUp ? null : draftPartnerGross, pickedUp: draftPartnerPickedUp }
