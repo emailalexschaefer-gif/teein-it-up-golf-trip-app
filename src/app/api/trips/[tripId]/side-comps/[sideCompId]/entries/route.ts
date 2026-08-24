@@ -27,7 +27,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 
 interface RouteProps { params: Promise<{ tripId: string; sideCompId: string }> }
 
-export async function GET(_req: NextRequest, { params }: RouteProps) {
+export async function GET(req: NextRequest, { params }: RouteProps) {
   const { tripId, sideCompId } = await params
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -39,9 +39,32 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   const memberCheck = await admin.from('trip_members').select('role').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
   if (!memberCheck.data) return NextResponse.json({ error: 'Not a trip member.' }, { status: 403 })
 
-  const compRes = await admin.from('side_comps').select('id, comp_type, trip_id').eq('id', sideCompId).maybeSingle()
+  const compRes = await admin.from('side_comps').select('id, comp_type, trip_id, round_id').eq('id', sideCompId).maybeSingle()
   if (!compRes.data || compRes.data.trip_id !== tripId) {
     return NextResponse.json({ error: 'Side competition not found.' }, { status: 404 })
+  }
+
+  // Side Games proxy entry — same group/round validation as the POST
+  // handler, reused rather than reimplemented, so GET (used to show
+  // "does this player already have an entry here?" when the "Result
+  // for" selector changes) can't be used to probe an arbitrary event
+  // player's claim either.
+  const requestedGetPlayerId = req.nextUrl.searchParams.get('playerId')
+  let viewPlayerId = user.id
+  if (requestedGetPlayerId && requestedGetPlayerId !== user.id) {
+    const [submitterMember, nomineeMember] = await Promise.all([
+      admin.from('trip_members').select('group_id').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle(),
+      admin.from('trip_members').select('group_id').eq('trip_id', tripId).eq('profile_id', requestedGetPlayerId).maybeSingle(),
+    ])
+    const submitterGroupId = submitterMember.data?.group_id ?? null
+    const nomineeGroupId = nomineeMember.data?.group_id ?? null
+    if (nomineeMember.data && submitterGroupId && nomineeGroupId && submitterGroupId === nomineeGroupId) {
+      viewPlayerId = requestedGetPlayerId
+    }
+    // Silently falls back to viewing the submitter's own entry if the
+    // nominee isn't a valid, same-group player — never errors here,
+    // since a stale/invalid selector value in the client shouldn't
+    // break the read path the way it correctly blocks the write path.
   }
 
   // The caller's own existing claim — so re-visiting the hole shows
@@ -51,7 +74,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   // are the only write path.
   const myEntryRes = await admin.from('side_comp_entries')
     .select('id, qualified, claimed_value, result_value, verification_status, required_verifier_id')
-    .eq('side_comp_id', sideCompId).eq('player_id', user.id).maybeSingle()
+    .eq('side_comp_id', sideCompId).eq('player_id', viewPlayerId).maybeSingle()
 
   // Current OFFICIAL leader — verified entries only. This is the one
   // place migration 047's own noted follow-up (adding explicit
@@ -110,7 +133,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   const memberCheck = await admin.from('trip_members').select('role').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
   if (!memberCheck.data) return NextResponse.json({ error: 'Not a trip member.' }, { status: 403 })
 
-  const compRes = await admin.from('side_comps').select('id, comp_type, trip_id, enabled').eq('id', sideCompId).maybeSingle()
+  const compRes = await admin.from('side_comps').select('id, comp_type, trip_id, round_id, enabled').eq('id', sideCompId).maybeSingle()
   if (!compRes.data || compRes.data.trip_id !== tripId) {
     return NextResponse.json({ error: 'Side competition not found.' }, { status: 404 })
   }
@@ -123,6 +146,44 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 })
   }
 
+  // Side Games proxy entry — "result for" a nominated player, defaulting
+  // to the submitter themselves (the overwhelmingly common case, and
+  // deliberately identical in cost/behaviour to before this feature —
+  // an ordinary self-entry never even reaches the extra query below).
+  // Server-side validated regardless of what the client dropdown showed,
+  // per the explicit "do not rely only on the dropdown filtering"
+  // instruction: a client cannot manipulate this to submit results for
+  // an arbitrary event player just by changing the request body, since
+  // eligibility is re-checked here from real trip_members/group data,
+  // not trusted from the request.
+  const requestedPlayerId = typeof body.playerId === 'string' ? body.playerId : user.id
+  let playerId = user.id
+  if (requestedPlayerId !== user.id) {
+    const [submitterMember, nomineeMember] = await Promise.all([
+      admin.from('trip_members').select('group_id').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle(),
+      admin.from('trip_members').select('group_id').eq('trip_id', tripId).eq('profile_id', requestedPlayerId).maybeSingle(),
+    ])
+    const submitterGroupId = submitterMember.data?.group_id ?? null
+    const nomineeGroupId = nomineeMember.data?.group_id ?? null
+    if (!nomineeMember.data) {
+      return NextResponse.json({ error: 'That player is not part of this event.' }, { status: 403 })
+    }
+    if (!submitterGroupId || !nomineeGroupId || submitterGroupId !== nomineeGroupId) {
+      return NextResponse.json({ error: 'You can only enter a result for someone in your own playing group.' }, { status: 403 })
+    }
+    // Nominee must genuinely have a scorecard for this specific round —
+    // matches "nominated player belongs to the same event/round" and
+    // "nominated player is eligible for that Side Game" without
+    // inventing a separate eligibility concept; a scorecard for this
+    // round is the same participation signal every other Side Games
+    // path already uses.
+    const nomineeScorecard = await admin.from('scorecards').select('id').eq('round_id', compRes.data.round_id).eq('player_id', requestedPlayerId).maybeSingle()
+    if (!nomineeScorecard.data) {
+      return NextResponse.json({ error: 'That player is not in this round.' }, { status: 403 })
+    }
+    playerId = requestedPlayerId
+  }
+
   const qualified = body.qualified === true
 
   if (compRes.data.comp_type === 'nearest_pin' || compRes.data.comp_type === 'pros_approach') {
@@ -131,7 +192,13 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
       return NextResponse.json({ error: 'Enter a valid distance from the pin.' }, { status: 400 })
     }
     const { data, error } = await admin.rpc('submit_side_comp_value_entry', {
-      p_side_comp_id: sideCompId, p_player_id: user.id,
+      // Side Games proxy entry — p_player_id is now the validated
+      // nominated player (self by default), p_entered_by is always the
+      // real, authenticated submitter regardless of who the result is
+      // for. This is the exact distinction the RPC already supported
+      // (both parameters existed before this feature; this route simply
+      // no longer hardcodes them to the same value).
+      p_side_comp_id: sideCompId, p_player_id: playerId,
       p_qualified: qualified, p_result_value: qualified ? resultValue : null,
       p_entered_by: user.id,
     })
@@ -153,7 +220,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   if (compRes.data.comp_type === 'longest_drive') {
     const claimsBeatLead = body.claimsBeatLeader === true
     const { data, error } = await admin.rpc('submit_longest_drive_entry', {
-      p_side_comp_id: sideCompId, p_player_id: user.id,
+      p_side_comp_id: sideCompId, p_player_id: playerId,
       p_qualified: qualified, p_claims_beat_lead: claimsBeatLead,
       p_entered_by: user.id,
     })

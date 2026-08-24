@@ -155,6 +155,19 @@ export default function LoginForm() {
 
     if (data.session && data.user) {
       // Email confirmation disabled — session created immediately
+      //
+      // URGENT AUTH FOLLOW-UP — this branch was already correct before
+      // this comment was added: profile creation, invite join, and
+      // redirect all already happen here whenever Supabase actually
+      // returns a session. The reported "player gets a confirmation
+      // email and lands back in auth" bug is NOT a bug in this branch
+      // — it's that Supabase's own project-level "Confirm email"
+      // setting (Authentication -> Providers -> Email, in the Supabase
+      // dashboard, not this codebase) was forcing data.session to be
+      // null on every signup, so this correct branch was simply never
+      // being reached — every signup fell through to the else below
+      // instead. See this file's own delivery report for the exact
+      // dashboard setting to change.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db: any = supabase
       // Try with handicap_status first; fall back without it if column missing

@@ -79,6 +79,14 @@ export default function BeginRoundModal({
     groups: SetupContextGroup[]
   }
   const [setupContext, setSetupContext] = useState<SetupContext | null>(null)
+  // Offline Player Support — round-specific scoring method per player,
+  // fetched separately from setupContext/localGroups (which come from
+  // an existing, unrelated data path this pass deliberately doesn't
+  // restructure). Absence of an entry is correctly read as 'digital',
+  // matching the scoring-method route's own GET contract and the
+  // scorecards.scoring_method column's own DEFAULT.
+  const [scoringMethods, setScoringMethods] = useState<Record<string, 'digital' | 'paper'>>({})
+  const [savingScoringMethodFor, setSavingScoringMethodFor] = useState<string | null>(null)
   const [setupContextLoading, setSetupContextLoading] = useState(true)
   const [setupContextError, setSetupContextError] = useState('')
   const localGroups: Group[] = setupContext?.groups ?? groups
@@ -109,8 +117,43 @@ export default function BeginRoundModal({
     }
   }
 
+  async function refetchScoringMethods() {
+    try {
+      const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/scoring-method`)
+      if (!res.ok) return
+      const body = await res.json().catch(() => ({}))
+      setScoringMethods(body.methods ?? {})
+    } catch { /* ignore — every player is correctly treated as 'digital' by default anyway */ }
+  }
+
+  async function toggleScoringMethod(playerId: string) {
+    const next = (scoringMethods[playerId] ?? 'digital') === 'digital' ? 'paper' : 'digital'
+    setSavingScoringMethodFor(playerId)
+    // Optimistic — the badge/toggle should feel instant while forming
+    // groups, matching "visually obvious while forming groups" as a
+    // real-time property, not one that waits on a round trip.
+    setScoringMethods(prev => ({ ...prev, [playerId]: next }))
+    try {
+      const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/scoring-method`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId, scoringMethod: next }),
+      })
+      if (!res.ok) {
+        // Revert on genuine failure — an organiser silently seeing a
+        // badge that didn't actually persist would be worse than a
+        // visible failure to flip it.
+        setScoringMethods(prev => ({ ...prev, [playerId]: next === 'paper' ? 'digital' : 'paper' }))
+      }
+    } catch {
+      setScoringMethods(prev => ({ ...prev, [playerId]: next === 'paper' ? 'digital' : 'paper' }))
+    } finally {
+      setSavingScoringMethodFor(null)
+    }
+  }
+
   useEffect(() => {
     refetchSetupContext()
+    void refetchScoringMethods()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally fetch-once-on-mount; refetchSetupContext is called explicitly after mutations elsewhere, not on every render
   }, [])
 
@@ -645,6 +688,12 @@ export default function BeginRoundModal({
 
               {localGroups.map(g => {
                 const missingHcp = g.players.filter(p => resolvePlayingHandicap(p.playing_handicap, p.profile_handicap) === null)
+                // Offline Player Support, item 3 — informational only,
+                // computed from the same scoringMethods state the
+                // toggle/badge above already reads, never a separate
+                // source of truth. Never moves players between groups —
+                // this is purely a hint string.
+                const paperCount = g.players.filter(p => (scoringMethods[p.profile_id] ?? 'digital') === 'paper').length
                 return (
                   <div key={g.id} style={{
                     background: '#ffffff', border: '1.5px solid #d9c9a3',
@@ -716,8 +765,32 @@ export default function BeginRoundModal({
                         const hcp = currentRoundHandicap(p)
                         const dailyDiffersFromGa = slopeRating != null && gaHcp !== null && hcp !== null && hcp !== gaHcp
                         return (
-                          <div key={p.profile_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 0', marginBottom: 4, gap: 8 }}>
+                          <div key={p.profile_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 0', marginBottom: 4, gap: 8, flexWrap: 'wrap' }}>
                             <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#1a1a16', fontWeight: 500, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.full_name}</span>
+
+                            {/* Offline Player Support, items 1-2 — round-
+                                specific scoring method toggle + badge,
+                                visible right here on the group row while
+                                the organiser is actively arranging the
+                                Starting Grid, per the explicit "so he can
+                                deliberately place paper players
+                                together." A plain toggle button, not a
+                                separate screen — flipping it immediately
+                                shows/hides the ✏️ PAPER badge. */}
+                            <button
+                              type="button"
+                              onClick={() => void toggleScoringMethod(p.profile_id)}
+                              disabled={savingScoringMethodFor === p.profile_id}
+                              style={{
+                                fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 800, flexShrink: 0,
+                                padding: '3px 8px', borderRadius: 6, cursor: 'pointer',
+                                background: (scoringMethods[p.profile_id] ?? 'digital') === 'paper' ? '#fdf3d9' : '#f3f4f6',
+                                border: `1px solid ${(scoringMethods[p.profile_id] ?? 'digital') === 'paper' ? '#e8c96a' : '#d1d5db'}`,
+                                color: (scoringMethods[p.profile_id] ?? 'digital') === 'paper' ? '#a1791f' : '#6b7280',
+                              }}
+                            >
+                              {(scoringMethods[p.profile_id] ?? 'digital') === 'paper' ? '✏️ PAPER' : '📱 Digital'}
+                            </button>
 
                             {/* Inline +/- handicap controls — replaces the
                                 passive HCP badge entirely, per the explicit
@@ -792,6 +865,16 @@ export default function BeginRoundModal({
                     {missingHcp.length > 0 && (
                       <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#b45309', marginTop: 6 }}>
                         Confirm a playing handicap for {missingHcp.map(p => p.full_name).join(', ')} in the Players tab.
+                      </p>
+                    )}
+                    {paperCount === 1 && (
+                      <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a1791f', marginTop: 6 }}>
+                        ✏️ 1 paper-scorecard player — another golfer should check/sign their physical card.
+                      </p>
+                    )}
+                    {paperCount >= 2 && (
+                      <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a1791f', marginTop: 6 }}>
+                        ✏️ {paperCount} paper-scorecard players — they can mark/check each other&apos;s physical cards.
                       </p>
                     )}
                   </div>

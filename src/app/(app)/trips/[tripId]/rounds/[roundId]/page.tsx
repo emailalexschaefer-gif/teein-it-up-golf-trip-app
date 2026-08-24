@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import ScoreSessionShell from './ScoreSessionShell'
 import SelfMarkerScoreShell from './SelfMarkerScoreShell'
+import PaperScorecardStatus from './PaperScorecardStatus'
 
 // Same reasoning as the trip detail page — never serve a cached render here.
 export const dynamic = 'force-dynamic'
@@ -106,10 +107,39 @@ export default async function RoundScorePage({ params }: Props) {
   // Fetch the caller's scorecard
   const scorecardRes = await admin
     .from('scorecards')
-    .select('id, playing_handicap, status')
+    .select('id, playing_handicap, status, scoring_method, score_entries(stableford_pts, capture_role)')
     .eq('round_id', roundId)
     .eq('player_id', user.id)
     .maybeSingle()
+
+  // Offline Player Support — a paper-scorecard player never enters either
+  // digital scoring shell at all, regardless of score_capture_mode. This
+  // is the single, server-side, centralized intercept point (before any
+  // branch below runs), matching item 7's "the app should automatically
+  // know from their round-specific scoring method" — no client-side
+  // detection, no separate route. Absence of a scorecard row at all
+  // (organiser hasn't started the round / genuine data problem) falls
+  // through to the existing shells unchanged — this only intercepts a
+  // scorecard that explicitly says 'paper'.
+  if (scorecardRes.data?.scoring_method === 'paper') {
+    const tripRes = await admin.from('trips').select('name').eq('id', tripId).single()
+    // Item 12 — "automatically move from waiting to Round Score Entered,
+    // no action required from the paper player." The organiser's Enter
+    // Paper Scorecard save writes capture_role='self' score_entries
+    // exactly like every other official score (see applyHoleOverride) —
+    // their presence here is the same signal the rest of the app already
+    // treats as "this player has an official result," not a new concept.
+    const paperEntries = (scorecardRes.data.score_entries ?? []).filter((e: { capture_role: string }) => e.capture_role === 'self')
+    const paperTotal = paperEntries.length > 0
+      ? paperEntries.reduce((sum: number, e: { stableford_pts: number }) => sum + (e.stableford_pts ?? 0), 0)
+      : null
+    return (
+      <PaperScorecardStatus
+        tripId={tripId} roundId={roundId} tripName={tripRes.data?.name ?? 'Trip'}
+        roundName={round.name} paperTotal={paperTotal}
+      />
+    )
+  }
 
   // ── Fetch every scorecard for the round ─────────────────────────────────────
   // IMPORTANT: `scorecards.player_id` references `profiles(id)`, NOT
@@ -238,6 +268,22 @@ export default async function RoundScorePage({ params }: Props) {
     // the same class of issue Issue 1 covered, just for this newer model.
     const dataProblem = !myCard
 
+    // Offline Player Support, item 9 — Side Games proxy entry needs
+    // access to the FULL playing group, not just the digital marker
+    // pair (myCard/markedCard). Without this, a paper player (never
+    // anyone's round_markers partner, by design — see the markers
+    // route's exclusion) would never appear as a "Result for"
+    // candidate at all in self_and_marker mode, the app's default —
+    // confirmed as a genuine gap by inspection, not assumed. Built
+    // from allCards (already fetched above, with groupId already
+    // resolved), not a new query — every existing scorecard in the
+    // caller's own group, digital or paper, regardless of whether they
+    // have a marker relationship with anyone.
+    const myGroupIdForRoster = myCard ? groupIdByProfile.get(myCard.player_id) ?? null : null
+    const fullGroupRoster = myGroupIdForRoster
+      ? allCards.filter(c => c.groupId === myGroupIdForRoster).map(c => ({ id: c.player_id, name: c.profiles?.full_name ?? 'Player' }))
+      : []
+
     return (
       <SelfMarkerScoreShell
         tripId={tripId}
@@ -248,6 +294,7 @@ export default async function RoundScorePage({ params }: Props) {
         markedByName={markedByProfile?.full_name ?? null}
         isOrganiser={isOrganiser}
         dataProblem={dataProblem}
+        fullGroupRoster={fullGroupRoster}
       />
     )
   }

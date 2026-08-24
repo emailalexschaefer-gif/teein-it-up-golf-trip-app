@@ -107,11 +107,20 @@ interface Props {
     resultValue: number | null
   }
   autoOpenCamera?: boolean
+  // Side Games proxy entry — who this photo is OF, when different from
+  // the authenticated uploader (e.g. Alex capturing Mick's Nearest the
+  // Pin achievement). Alex remains authenticated throughout — this
+  // never impersonates Mick, it's a plain field on the Moment payload,
+  // validated server-side against playing-group membership (see
+  // moments/route.ts) exactly like Side Games proxy entry already is.
+  // Optional and defaults to the caller (every existing call site that
+  // doesn't pass this behaves identically to before this feature).
+  proxyPlayerId?: string
 }
 
 type ComposerStage = 'closed' | 'choosing' | 'cropping' | 'photoPreview' | 'textMoment'
 
-export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, onPosted, sideCompContext, autoOpenCamera }: Props) {
+export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, onPosted, sideCompContext, autoOpenCamera, proxyPlayerId }: Props) {
   const queryClient = useQueryClient()
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const galleryInputRef = useRef<HTMLInputElement>(null)
@@ -281,6 +290,10 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
         body: JSON.stringify({
           imagePath: imagePath ?? null, caption: caption.trim(), roundId: roundId ?? null, holeNumber: holeNumber ?? null,
           audience: audience === 'group' && myGroupId ? 'group' : 'everyone',
+          // Side Games proxy entry — sent only when genuinely capturing
+          // on behalf of someone else; the moments route's own default
+          // (self) is unaffected for every ordinary capture.
+          ...(proxyPlayerId ? { playerId: proxyPlayerId } : {}),
           // Sprint 9 — automatic context linking. Only present when this
           // capture was launched from a New Leader prompt; the moments
           // route uses these to write moment_id back onto the relevant

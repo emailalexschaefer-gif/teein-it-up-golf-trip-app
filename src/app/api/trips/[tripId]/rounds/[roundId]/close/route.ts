@@ -11,6 +11,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { checkRoundCompletion } from '@/lib/scoring/roundCompletion'
 
 interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
 
@@ -40,7 +41,7 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
   // Control UI uses to decide whether to show the button, checked again
   // here so this can't be closed early via a direct API call.
   const scRes = await admin.from('scorecards')
-    .select('id, status, score_entries ( hole_id, gross_score, is_no_return, capture_role )')
+    .select('id, status, scoring_method, score_entries ( hole_id, gross_score, is_no_return, capture_role )')
     .eq('round_id', roundId).neq('status', 'withdrawn')
 
   const totalHoles = roundRes.data.holes ?? 18
@@ -53,16 +54,17 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
       if (e.capture_role === 'self') selfHoles.add(e.hole_id)
       else if (e.capture_role === 'marker') markerHoles.add(e.hole_id)
     }
-    if (selfHoles.size < totalHoles) {
-      return NextResponse.json({ error: 'Not every player has finished scoring yet.' }, { status: 409 })
-    }
-    if (isMarkerMode) {
-      for (const holeId of selfHoles) {
-        if (!markerHoles.has(holeId)) {
-          return NextResponse.json({ error: 'Some holes are still awaiting marker entries.' }, { status: 409 })
-        }
-      }
-    }
+    let markerHoleCountForSelfHoles = 0
+    for (const holeId of selfHoles) { if (markerHoles.has(holeId)) markerHoleCountForSelfHoles++ }
+
+    const result = checkRoundCompletion(
+      [{
+        scoringMethod: sc.scoring_method === 'paper' ? 'paper' : 'digital',
+        selfHoleCount: selfHoles.size, markerHoleCountForSelfHoles, totalHoles,
+      }],
+      isMarkerMode,
+    )
+    if (result) return NextResponse.json({ error: result.reason }, { status: 409 })
   }
 
   const { error: updateError } = await admin.from('rounds').update({ status: 'completed' }).eq('id', roundId)

@@ -123,6 +123,11 @@ interface Props {
   markedByName: string | null
   isOrganiser: boolean
   dataProblem?: boolean
+  // Offline Player Support, item 9 — the full playing group (digital
+  // and paper players alike), for Side Games "Result for" — see this
+  // prop's construction in page.tsx for why myMarker/markedScorecard
+  // alone aren't enough.
+  fullGroupRoster?: { id: string; name: string }[]
 }
 
 type CaptureMap = Record<number, CaptureValue> // keyed by hole_number
@@ -224,7 +229,7 @@ function statusColor(status: ComparisonStatus): string {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function SelfMarkerScoreShell({
-  tripId, round, myScorecard, markedScorecard, markedByName, isOrganiser, dataProblem,
+  tripId, round, myScorecard, markedScorecard, markedByName, isOrganiser, dataProblem, fullGroupRoster = [],
 }: Props) {
   // 'individual' mode has no marker concept at all — comparison status,
   // the marker card, and reconciliation only make sense in self_and_marker
@@ -1742,6 +1747,30 @@ export default function SelfMarkerScoreShell({
               label={SIDE_COMP_BANNER[comp.comp_type]?.label ?? 'Side Competition'}
               icon={SIDE_COMP_BANNER[comp.comp_type]?.icon ?? '🎯'}
               currentUserId={currentMy?.player_id ?? ''}
+              // Side Games proxy entry — this shell only ever has two
+              // players in scope (self + marker), so the full "playing
+              // group" the brief describes for a 3-4 player group_scorer
+              // round isn't representable here; only self and the one
+              // partner being marked. Genuinely useful as far as it
+              // goes (self_and_marker rounds are still the majority
+              // case), but this is not the primary scenario the brief's
+              // own worked example describes (a non-digital THIRD
+              // player in a larger group) — that requires the same
+              // wiring in ScoreSessionShell.tsx (group_scorer mode),
+              // which does not call SideCompEntryPanel at all currently
+              // and was not reached in this pass. Only includes the
+              // partner when one genuinely exists (requiresMarker &&
+              // currentMarked) — a solo self_and_marker round with no
+              // partner yet sees no selector at all, identical to
+              // before this feature.
+              groupMembers={
+                fullGroupRoster.length > 0
+                  ? fullGroupRoster
+                  : (requiresMarker && currentMarked && currentMy
+                      ? [{ id: currentMy.player_id, name: myName }, { id: currentMarked.player_id, name: partnerName ?? 'Your Playing Partner' }]
+                      : [])
+              }
+              roundId={round.id} holeNumber={holeNum}
               // Stage 2 — the one and only place newLeaderPrompt is ever
               // set. onWouldLeadIfVerified only fires from a direct POST
               // response (see SideCompEntryPanel), so this can only ever

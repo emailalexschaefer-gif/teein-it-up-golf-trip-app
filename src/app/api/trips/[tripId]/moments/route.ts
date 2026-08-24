@@ -73,13 +73,17 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   if (authError || !user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
 
   const body = await req.json().catch(() => ({}))
-  const { imagePath, caption, roundId, holeNumber, audience, sideCompId, sideCompEntryId, leadChangeId } = body as {
+  const { imagePath, caption, roundId, holeNumber, audience, sideCompId, sideCompEntryId, leadChangeId, playerId: requestedPlayerId } = body as {
     imagePath?: string; caption?: string; roundId?: string | null; holeNumber?: number | null; audience?: string
     // Sprint 9 Item 4 — Capture the Moment linking. Only ever present
     // when this Moment was launched from a New Leader prompt (see
     // MomentCapture's sideCompContext prop) — a normal Moment posted
     // from Chat/My Round never sends these.
     sideCompId?: string | null; sideCompEntryId?: string | null; leadChangeId?: string | null
+    // Side Games proxy entry — who this Moment is ABOUT, when different
+    // from who's uploading it. Defaults to the submitter (every existing
+    // caller that doesn't send this behaves identically to before).
+    playerId?: string
   }
 
   // A Moment needs either a photo or a caption — a Text Moment (no
@@ -94,11 +98,37 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     .eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
   if (!membership) return NextResponse.json({ error: 'You are not a member of this event.' }, { status: 403 })
 
+  // Side Games proxy entry — same server-side playing-group validation
+  // as the Side Games entries route (not trusted from the client), so
+  // a Moment posted "of" someone else can only ever be for a genuine
+  // same-group teammate, never an arbitrary event player supplied by
+  // the client. subjectPlayerId is the achievement/story owner
+  // (moments.player_id, unchanged meaning); capturedBy is only ever
+  // set when a genuine proxy capture occurred — left null for the
+  // overwhelmingly common self-capture case, matching the migration's
+  // own "NULL means captured by the subject themselves" convention.
+  let subjectPlayerId = user.id
+  let capturedBy: string | null = null
+  if (requestedPlayerId && requestedPlayerId !== user.id) {
+    const { data: nomineeMembership } = await supabase
+      .from('trip_members').select('group_id')
+      .eq('trip_id', tripId).eq('profile_id', requestedPlayerId).maybeSingle()
+    if (nomineeMembership && membership.group_id && nomineeMembership.group_id === membership.group_id) {
+      subjectPlayerId = requestedPlayerId
+      capturedBy = user.id
+    }
+    // Falls back silently to self if the nominee isn't valid/same-group
+    // — a Moment always has to belong to somebody, and refusing the
+    // whole post over an invalid selector would lose a genuine photo
+    // over what's ultimately a cosmetic attribution detail.
+  }
+
   const { data: moment, error: momentErr } = await supabase.from('moments').insert({
     trip_id: tripId,
     round_id: roundId ?? null,
     hole_number: holeNumber ?? null,
-    player_id: user.id,
+    player_id: subjectPlayerId,
+    captured_by: capturedBy,
     group_id: resolvedAudience === 'group' ? membership.group_id : null,
     caption: caption?.trim() || null,
     image_path: imagePath ?? null,

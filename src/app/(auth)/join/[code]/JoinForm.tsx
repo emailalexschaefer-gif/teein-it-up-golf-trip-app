@@ -277,6 +277,15 @@ export default function JoinForm() {
     // ── signUp returned no error — check if a session was actually established ──
     // If email confirmation is required in Supabase, signUp succeeds but no session
     // is created. We must not redirect to do-join without a session.
+    //
+    // URGENT AUTH FOLLOW-UP — same root cause and same fix location as
+    // LoginForm.tsx's identical check: this branch (and the redirect to
+    // buildDoJoinUrl()/do-join/the trip's Lobby below) was already
+    // correct. newUser was null on every signup because Supabase's own
+    // project-level "Confirm email" setting was forcing it, not because
+    // of anything in this function. No code change was required here —
+    // the fix is the Supabase dashboard setting documented in the
+    // delivery report.
     const { data: { user: newUser } } = await supabase.auth.getUser()
 
     if (!newUser) {

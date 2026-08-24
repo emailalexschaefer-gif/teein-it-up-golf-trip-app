@@ -39,11 +39,22 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   const [groupsRes, membersRes, cardsRes, markersRes] = await Promise.all([
     admin.from('trip_groups').select('id, name, sort_order').eq('trip_id', tripId).order('sort_order', { ascending: true }),
     admin.from('trip_members').select('profile_id, group_id, profiles:profile_id(id, full_name)').eq('trip_id', tripId),
-    admin.from('scorecards').select('id, player_id').eq('round_id', roundId).neq('status', 'withdrawn'),
+    // Offline Player Support, item 5 — scoring_method now selected so a
+    // paper-scorecard player never appears as a digital pairing
+    // candidate. Filtered below (not in this query itself, since the
+    // TEMPORARY diagnostic logging right after this still wants to see
+    // every genuine scorecard for the investigation it was written
+    // for) — cardPlayerIds is the actual candidate set the rest of
+    // this route builds from.
+    admin.from('scorecards').select('id, player_id, scoring_method').eq('round_id', roundId).neq('status', 'withdrawn'),
     admin.from('round_markers').select('player_id, marker_player_id').eq('round_id', roundId),
   ])
 
-  const cardPlayerIds = new Set((cardsRes.data ?? []).map((c: { player_id: string }) => c.player_id))
+  const cardPlayerIds = new Set(
+    (cardsRes.data ?? [])
+      .filter((c: { scoring_method?: string }) => c.scoring_method !== 'paper')
+      .map((c: { player_id: string }) => c.player_id)
+  )
 
   // TEMPORARY diagnostic logging for the Friday scorecard investigation —
   // every trip member discovered here, every scorecard player_id found,
@@ -108,10 +119,18 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
 
   const [membersRes, cardsRes] = await Promise.all([
     admin.from('trip_members').select('profile_id').eq('trip_id', tripId).eq('group_id', groupId),
-    admin.from('scorecards').select('player_id').eq('round_id', roundId).neq('status', 'withdrawn'),
+    // Offline Player Support, item 5 — same paper-exclusion as the GET
+    // handler above, applied here too since this route's own auto-
+    // pairing logic is what actually assigns round_markers rows — the
+    // server-side enforcement, not just a UI candidate list.
+    admin.from('scorecards').select('player_id, scoring_method').eq('round_id', roundId).neq('status', 'withdrawn'),
   ])
 
-  const cardPlayerIds = new Set((cardsRes.data ?? []).map((c: { player_id: string }) => c.player_id))
+  const cardPlayerIds = new Set(
+    (cardsRes.data ?? [])
+      .filter((c: { scoring_method?: string }) => c.scoring_method !== 'paper')
+      .map((c: { player_id: string }) => c.player_id)
+  )
   const groupPlayerIds: string[] = (membersRes.data ?? [])
     .map((m: { profile_id: string }) => m.profile_id)
     .filter((id: string) => cardPlayerIds.has(id))

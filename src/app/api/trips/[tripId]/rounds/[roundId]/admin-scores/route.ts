@@ -56,7 +56,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     // can silently drop a scorecard row anymore, regardless of that
     // player's group assignment state.
     admin.from('scorecards')
-      .select('id, player_id, playing_handicap, profiles:player_id ( full_name ), score_entries ( id, hole_id, gross_score, is_no_return, stableford_pts, capture_role, admin_overridden )')
+      .select('id, player_id, playing_handicap, scoring_method, profiles:player_id ( full_name ), score_entries ( id, hole_id, gross_score, is_no_return, stableford_pts, capture_role, admin_overridden )')
       .eq('round_id', roundId).neq('status', 'withdrawn'),
     admin.from('trip_members').select('profile_id, group_id, trip_groups:group_id ( name )').eq('trip_id', tripId),
   ])
@@ -67,7 +67,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   )
 
   type ScorecardRow = {
-    id: string; player_id: string; playing_handicap: number | null
+    id: string; player_id: string; playing_handicap: number | null; scoring_method?: string
     profiles: { full_name: string } | null
     score_entries: { id: string; hole_id: string; gross_score: number | null; is_no_return: boolean; stableford_pts: number | null; capture_role: string; admin_overridden: boolean }[]
   }
@@ -84,6 +84,14 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       }
     })
     const member = memberByProfileId.get(sc.player_id)
+    // Offline Player Support, item 17 — My HQ visibility. hasOfficial
+    // Score is derived from the same holes array this route already
+    // builds (any hole with a genuine gross value or no-return already
+    // entered) — not a new concept, just exposing the existing "has
+    // this player got an official self-capture score" signal per hole
+    // as a single per-player flag for the paper-card outstanding/
+    // entered badge.
+    const hasOfficialScore = holes.some(h => h.grossScore !== null || h.isNoReturn)
     return {
       scorecardId: sc.id,
       playerId: sc.player_id,
@@ -92,6 +100,8 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       holesInRound: holeCount,
       groupId: member?.group_id ?? null,
       groupName: member?.trip_groups?.name ?? 'Ungrouped',
+      scoringMethod: sc.scoring_method === 'paper' ? 'paper' as const : 'digital' as const,
+      hasOfficialScore,
       // Round total — sum of currently-recorded points, the same
       // baseline the confirmation preview's "before" figure uses. Only
       // ever a read/display value here; the actual authoritative total

@@ -8,6 +8,7 @@ import { queueScoreEntry, getPendingCount, getQueuedEntriesForScorecards } from 
 import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
 import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
 import PendingVerificationCard from '@/components/scoring/PendingVerificationCard'
+import SideCompEntryPanel from '@/components/scoring/SideCompEntryPanel'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -798,17 +799,41 @@ export default function ScoreSessionShell({
         {activeSideComps.map(comp => (
           <div key={comp.id} style={{
             margin: '0 16px 10px', background: '#fdf3d9', border: '1.5px solid #e8c96a', borderRadius: 12,
-            padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8,
+            padding: '10px 14px',
           }}>
-            <span style={{ fontSize: 16, flexShrink: 0 }}>{SIDE_COMP_BANNER[comp.comp_type]?.icon ?? '🎯'}</span>
-            <div>
-              <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 12.5, color: '#7a5c00', letterSpacing: 0.3 }}>
-                {(SIDE_COMP_BANNER[comp.comp_type]?.label ?? 'SIDE COMPETITION').toUpperCase()} — ACTIVE
-              </div>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a1791f' }}>
-                Hole {holeNum} · Par {par}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16, flexShrink: 0 }}>{SIDE_COMP_BANNER[comp.comp_type]?.icon ?? '🎯'}</span>
+              <div>
+                <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 12.5, color: '#7a5c00', letterSpacing: 0.3 }}>
+                  {(SIDE_COMP_BANNER[comp.comp_type]?.label ?? 'SIDE COMPETITION').toUpperCase()} — ACTIVE
+                </div>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a1791f' }}>
+                  Hole {holeNum} · Par {par}
+                </div>
               </div>
             </div>
+            {/* Side Games proxy entry — group_scorer mode previously had
+                NO Side Games entry UI at all here, just this static
+                banner (confirmed by inspection — not a proxy-entry gap
+                specifically, a complete absence of entry capability in
+                this mode). Reuses SideCompEntryPanel entirely, the same
+                component self_and_marker mode already uses, now with
+                the full 3-4 player group (not just self+marker) as
+                groupMembers — this is the actual scenario the brief's
+                own worked example describes (a non-digital third
+                player in a larger group), unlike the earlier partial
+                pass which only wired the 2-person case. */}
+            {(comp.comp_type === 'nearest_pin' || comp.comp_type === 'longest_drive' || comp.comp_type === 'pros_approach') && (
+              <SideCompEntryPanel
+                tripId={tripId} sideCompId={comp.id} compType={comp.comp_type}
+                label={SIDE_COMP_BANNER[comp.comp_type]?.label ?? 'Side Competition'}
+                icon={SIDE_COMP_BANNER[comp.comp_type]?.icon ?? '🎯'}
+                currentUserId={currentUserId}
+                groupMembers={currentGroup.map(c => ({ id: c.player_id, name: c.profiles?.full_name ?? 'Player' }))}
+                roundId={round.id} holeNumber={holeNum}
+                myGroupId={allGroups ? (allGroups[activeGroupIdx]?.groupId ?? null) : null}
+              />
+            )}
           </div>
         ))}
 

@@ -60,7 +60,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
   const scRes = await admin.from('scorecards')
     .select(`
-      id, player_id, status, submitted_at,
+      id, player_id, status, submitted_at, scoring_method,
       profiles:player_id ( full_name ),
       score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_at, admin_overridden )
     `)
@@ -89,6 +89,18 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     mismatchDetails: { hn: number; playerScore: string; markerScore: string; at: string }[]
     confirmationState: 'scoring' | 'review_required' | 'ready_to_confirm' | 'confirmed'
     submittedAt: string | null
+    // Offline Player Support, item 10 — a paper player's digital
+    // holesPlayed/finished/waitingForMarker are all meaningless (they
+    // never enter digital scores at all), so isPaper lets the group-
+    // level status computation below exclude them from digital-
+    // progress logic entirely, rather than a paper player with 0 holes
+    // played incorrectly reading as "hasn't started" or blocking
+    // allFinished from a digital standpoint. paperCardOutstanding is
+    // the actual, correct signal for them instead — true until an
+    // official score exists (capture_role='self' entries present),
+    // exactly the same "does an official score exist yet" check used
+    // everywhere else in this app, not a new concept.
+    isPaper: boolean; paperCardOutstanding: boolean
   }
 
   const players: PlayerState[] = scorecards.map((sc) => {
@@ -151,12 +163,15 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       }
     }
     const totalPts = [...selfByHole.values()].reduce((s, e) => s + (e.stableford_pts ?? 0), 0)
+    const isPaper = sc.scoring_method === 'paper'
+    const paperCardOutstanding = isPaper && holesPlayed < totalHoles
     // Per-player confirmation state for My HQ's state column — derived
     // from signals already computed above (finished/hasMismatch/
     // waitingForMarker) plus the scorecard's own status, not a second
     // parallel computation of the same thing.
     const confirmationState: 'scoring' | 'review_required' | 'ready_to_confirm' | 'confirmed' =
       sc.status === 'completed' ? 'confirmed'
+      : isPaper ? (paperCardOutstanding ? 'scoring' : 'ready_to_confirm')
       : hasMismatch ? 'review_required'
       : (holesPlayed >= totalHoles && !waitingForMarker) ? 'ready_to_confirm'
       : 'scoring'
@@ -164,9 +179,17 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       playerId: sc.player_id,
       name: sc.profiles?.full_name ?? 'Player',
       holesPlayed,
-      finished: holesPlayed >= totalHoles,
+      // Offline Player Support, item 10 — a paper player whose card has
+      // already been entered (paperCardOutstanding false) is correctly
+      // "finished" for digital-progress purposes even though they never
+      // played a single digital hole; one still outstanding is
+      // correctly NOT finished, matching "the round should not fully
+      // close until required paper cards are entered."
+      finished: isPaper ? !paperCardOutstanding : holesPlayed >= totalHoles,
       hasMismatch,
       waitingForMarker,
+      isPaper,
+      paperCardOutstanding,
       mismatchDetails,
       groupId: groupIdByProfile.get(sc.player_id) ?? null,
       totalPts,
@@ -193,12 +216,25 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   const groups = ((groupsRes.data ?? []) as { id: string; name: string }[]).map((g) => {
     const members = players.filter(p => p.groupId === g.id)
     const active = members.filter(p => !p.finished)
-    const currentHole = active.length > 0 ? Math.min(...active.map(p => p.holesPlayed)) + 1 : totalHoles
+    // Offline Player Support, item 10 — currentHole (and the
+    // needs_attention check just below) are both about DIGITAL scoring
+    // progress specifically. digitallyActive excludes paper players —
+    // their holesPlayed is always 0 regardless of how far the round has
+    // actually progressed for everyone else, so including them here
+    // would either stall currentHole at 1 forever or, worse, incorrectly
+    // trigger "needs_attention" (looks like nobody has started) for a
+    // group where every digital player has already finished and the
+    // only remaining thing is an outstanding paper card — a completely
+    // different, correctly-labelled situation (paperCardOutstanding
+    // below), not a "hasn't started" one.
+    const digitallyActive = active.filter(p => !p.isPaper)
+    const anyPaperOutstanding = members.some(p => p.paperCardOutstanding)
+    const currentHole = digitallyActive.length > 0 ? Math.min(...digitallyActive.map(p => p.holesPlayed)) + 1 : totalHoles
     const anyMismatch = members.some(p => p.hasMismatch)
     const anyWaiting = members.some(p => p.waitingForMarker)
     const allFinished = members.length > 0 && members.every(p => p.finished)
 
-    let status: 'scoring' | 'waiting' | 'reconciliation' | 'finished' | 'finished_needs_review' | 'needs_attention' = 'scoring'
+    let status: 'scoring' | 'waiting' | 'reconciliation' | 'finished' | 'finished_needs_review' | 'needs_attention' | 'paper_outstanding' = 'scoring'
     // Mismatch is checked FIRST, before 'finished' — this is the actual
     // fix. Finishing every hole says nothing about whether reconciliation
     // is resolved; a group can be fully played AND still have an
@@ -207,8 +243,14 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     // unreconciled group incorrectly showed as "all scores matched."
     if (anyMismatch) status = allFinished ? 'finished_needs_review' : 'reconciliation'
     else if (allFinished) status = 'finished'
+    // Offline Player Support — every digital player is finished and
+    // reconciled, but a paper card is still outstanding. Its own
+    // distinct status, not folded into 'waiting' (which means "waiting
+    // for a digital marker") or 'needs_attention' (which means "nobody
+    // has started") — neither is true here.
+    else if (anyPaperOutstanding && digitallyActive.length === 0) status = 'paper_outstanding'
     else if (anyWaiting) status = 'waiting'
-    else if (active.length > 0 && active.every(p => p.holesPlayed === 0) && roundRes.data.status === 'active') status = 'needs_attention'
+    else if (digitallyActive.length > 0 && digitallyActive.every(p => p.holesPlayed === 0) && roundRes.data.status === 'active') status = 'needs_attention'
 
     return {
       groupId: g.id, groupName: g.name, playerCount: members.length,

@@ -26,7 +26,7 @@ import { matchesPlayerSearch } from '@/lib/scoring/multiRound'
  */
 interface RoundOption { id: string; name: string; status: string; play_date: string }
 interface HoleRow { holeNumber: number; par: number; strokeIndex: number; grossScore: number | null; isNoReturn: boolean; stablefordPts: number | null; adminOverridden: boolean }
-interface PlayerRow { scorecardId: string; playerId: string; playerName: string; playingHandicap: number | null; holesInRound: number; groupId: string | null; groupName: string; roundTotal: number; holes: HoleRow[] }
+interface PlayerRow { scorecardId: string; playerId: string; playerName: string; playingHandicap: number | null; holesInRound: number; groupId: string | null; groupName: string; roundTotal: number; holes: HoleRow[]; scoringMethod?: 'digital' | 'paper'; hasOfficialScore?: boolean }
 interface GroupRow { groupId: string | null; groupName: string; players: PlayerRow[] }
 
 // Score Management redesign — organiser adjudication reason model,
@@ -164,7 +164,14 @@ export default function AdminScoreOverridePanel({ tripId, rounds }: { tripId: st
               {searchResults.map(p => (
                 <button key={p.scorecardId} onClick={() => setSelectedPlayer(p)} style={rowButtonStyle}>
                   <div style={{ fontWeight: 700 }}>{p.playerName}</div>
-                  <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 500, marginTop: 1 }}>{p.groupName} · {p.roundTotal} pts</div>
+                  <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 500, marginTop: 1 }}>
+                    {p.groupName} · {p.roundTotal} pts
+                    {p.scoringMethod === 'paper' && (
+                      <span style={{ color: p.hasOfficialScore ? '#166534' : '#a1791f', fontWeight: 700 }}>
+                        {' · '}{p.hasOfficialScore ? '✅ Paper Card Entered' : '✏️ Paper Card Outstanding'}
+                      </span>
+                    )}
+                  </div>
                 </button>
               ))}
             </div>
@@ -184,11 +191,23 @@ export default function AdminScoreOverridePanel({ tripId, rounds }: { tripId: st
               )}
               {allPlayers.map(p => {
                 const holesPlayed = p.holes.filter(h => h.grossScore != null || h.isNoReturn).length
+                // Offline Player Support, item 17 — exact example
+                // format: "Mick Jones — ✏️ Paper Card Outstanding /
+                // Enter Paper Scorecard →" vs "John Smith — ✅ Paper
+                // Card Entered". Digital players are completely
+                // unaffected — same holes-progress line as before.
                 return (
                   <button key={p.scorecardId} onClick={() => setSelectedPlayer(p)} style={rowButtonStyle}>
                     <div style={{ fontWeight: 700 }}>{p.playerName}</div>
                     <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 500, marginTop: 1 }}>
-                      {p.groupName} · {holesPlayed}/{p.holesInRound} holes · Manage Scorecard →
+                      {p.scoringMethod === 'paper' ? (
+                        <span style={{ color: p.hasOfficialScore ? '#166534' : '#a1791f', fontWeight: 700 }}>
+                          {p.hasOfficialScore ? '✅ Paper Card Entered' : '✏️ Paper Card Outstanding'}
+                        </span>
+                      ) : (
+                        <>{holesPlayed}/{p.holesInRound} holes</>
+                      )}
+                      {' · '}{p.groupName} · Manage Scorecard →
                     </div>
                   </button>
                 )

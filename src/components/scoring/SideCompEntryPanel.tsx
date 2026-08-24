@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import MomentCapture from '@/components/moments/MomentCapture'
 
 /**
  * Side Competition CLAIM entry — Stage 2 of Side Game Marker
@@ -47,6 +48,24 @@ interface Props {
   label: string
   icon: string
   currentUserId: string
+  // Photo capture wiring — needed to render MomentCapture directly in
+  // this panel (item 4: "associate the photo with the correct round_id
+  // and Side Game context"). Both optional so a call site that
+  // genuinely has no round/group context (none exists currently, but
+  // this keeps the prop non-breaking) degrades to no photo option
+  // rather than a crash.
+  roundId?: string | null
+  myGroupId?: string | null
+  holeNumber?: number | null
+  // Side Games proxy entry — the digital scorer's own playing group,
+  // used to populate "Result for." Deliberately scoped to the playing
+  // group only, not the whole event roster, matching the explicit
+  // "playing-group assistance, not unrestricted result administration"
+  // instruction. Optional and defaults to empty so every existing call
+  // site that doesn't pass it renders identically to before this
+  // feature — the selector only appears when there's genuinely more
+  // than one eligible player to choose from.
+  groupMembers?: { id: string; name: string }[]
   // Fires only when a submission's wouldLeadIfVerified is true — the
   // trigger for Capture the Moment. Deliberately never fires on
   // "becameOfficialLeader", because that event doesn't exist on this
@@ -67,7 +86,12 @@ const STATUS_LABEL: Record<SideCompVerificationStatus, { text: string; color: st
   rejected: { text: 'Not confirmed by your Playing Partner', color: '#9ca3af' },
 }
 
-export default function SideCompEntryPanel({ tripId, sideCompId, compType, label, icon, currentUserId, onWouldLeadIfVerified }: Props) {
+export default function SideCompEntryPanel({ tripId, sideCompId, compType, label, icon, currentUserId, groupMembers = [], roundId, myGroupId, holeNumber, onWouldLeadIfVerified }: Props) {
+  // Side Games proxy entry — defaults to the submitter themselves, the
+  // overwhelmingly common case, matching "the common case... should
+  // already be selected" and "existing digital players... essentially
+  // the same workflow they have now."
+  const [selectedPlayerId, setSelectedPlayerId] = useState(currentUserId)
   const [loading, setLoading] = useState(true)
   const [currentLeader, setCurrentLeader] = useState<SideCompLeader | null>(null)
   const [myQualified, setMyQualified] = useState<boolean | null>(null) // null = not yet answered
@@ -113,7 +137,7 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
       setLastResult(null)
       setError(null)
       try {
-        const res = await fetch(`/api/trips/${tripId}/side-comps/${sideCompId}/entries`)
+        const res = await fetch(`/api/trips/${tripId}/side-comps/${sideCompId}/entries?playerId=${encodeURIComponent(selectedPlayerId)}`)
         if (!res.ok || cancelled) return
         const body = await res.json()
         if (cancelled) return
@@ -130,7 +154,7 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
 
     async function pollStatus() {
       try {
-        const res = await fetch(`/api/trips/${tripId}/side-comps/${sideCompId}/entries`)
+        const res = await fetch(`/api/trips/${tripId}/side-comps/${sideCompId}/entries?playerId=${encodeURIComponent(selectedPlayerId)}`)
         if (!res.ok || cancelled) return
         const body = await res.json()
         if (cancelled) return
@@ -142,7 +166,13 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
     void initialLoad()
     const interval = setInterval(() => void pollStatus(), 15000)
     return () => { cancelled = true; clearInterval(interval) }
-  }, [tripId, sideCompId, currentUserId])
+    // selectedPlayerId included deliberately — switching "Result for"
+    // must re-run the exact same full state reset as an account switch
+    // already correctly does (see initialLoad's own reset block above),
+    // not merely refetch on top of stale state left over from whichever
+    // player was previously selected. This is the specific bug class
+    // the brief explicitly warns against reintroducing.
+  }, [tripId, sideCompId, currentUserId, selectedPlayerId])
 
   async function submit(qualified: boolean, resultValue: number | null, claims: boolean | null) {
     setSubmitting(true)
@@ -167,7 +197,7 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
       return
     }
     try {
-      const body: Record<string, unknown> = { qualified }
+      const body: Record<string, unknown> = { qualified, playerId: selectedPlayerId }
       if (compType === 'longest_drive') {
         if (claims !== null) body.claimsBeatLeader = claims
       } else {
@@ -216,6 +246,30 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
         {leaderLine}
       </div>
 
+      {/* Side Games proxy entry — "Result for" selector. Only rendered
+          when there's genuinely more than the submitter alone to choose
+          from (groupMembers already includes the submitter themselves
+          as "Me" — see the call site), so a solo player or a group of
+          one sees nothing different from before this feature. Keeping
+          this lightweight per the explicit UX instruction — a plain
+          select, not a special "offline player" workflow. */}
+      {groupMembers.length > 1 && (
+        <div style={{ marginTop: 6 }}>
+          <select
+            value={selectedPlayerId}
+            onChange={e => setSelectedPlayerId(e.target.value)}
+            style={{
+              width: '100%', padding: '7px 8px', borderRadius: 8, border: '1px solid #d9c9a3',
+              background: '#fff', fontFamily: 'var(--font-body)', fontSize: 12, color: '#374151',
+            }}
+          >
+            {groupMembers.map(m => (
+              <option key={m.id} value={m.id}>Result for: {m.id === currentUserId ? `Me — ${m.name}` : m.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {myStatus && (
         <div style={{ marginTop: 4, fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: STATUS_LABEL[myStatus].color }}>
           {icon} {label}{myResultValue ? ` — ${myResultValue}m` : ''} · {STATUS_LABEL[myStatus].text}
@@ -227,6 +281,39 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
           {lastResult.wouldLeadIfVerified
             ? '📸 Claim saved — awaiting your Playing Partner\u2019s verification'
             : 'Claim saved — awaiting your Playing Partner\u2019s verification'}
+        </div>
+      )}
+
+      {/* Item 1 — "Take Photo / Upload Photo" directly in the existing
+          Side Game entry flow, including proxy mode. Reuses
+          MomentCapture entirely (the same component NewLeaderPrompt
+          already uses elsewhere) — no second photo-upload
+          implementation. Only rendered once a claim genuinely exists
+          for this hole (lastResult, or an entry already loaded from a
+          prior visit), matching "capture a photo of the achievement,"
+          not an unconditional upload button unrelated to any result.
+          proxyPlayerId is only set when selectedPlayerId genuinely
+          differs from the authenticated caller — Alex stays
+          authenticated throughout (this is a plain field on the
+          Moment payload, not impersonation), and this is exactly the
+          same undefined-means-self default MomentCapture and the
+          moments route already use. */}
+      {(lastResult || hasSubmittedOnce) && (
+        <div style={{ marginTop: 8 }}>
+          <MomentCapture
+            tripId={tripId}
+            roundId={roundId ?? null}
+            holeNumber={holeNumber ?? null}
+            myGroupId={myGroupId ?? null}
+            proxyPlayerId={selectedPlayerId !== currentUserId ? selectedPlayerId : undefined}
+            sideCompContext={{
+              sideCompId,
+              entryId: lastResult?.entryId ?? null,
+              leadChangeId: null,
+              compType,
+              resultValue: lastResult?.claimedValue ?? (myResultValue ? Number(myResultValue) : null),
+            }}
+          />
         </div>
       )}
 
