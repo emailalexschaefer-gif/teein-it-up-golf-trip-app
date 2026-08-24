@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-type Mode = 'magic' | 'password' | 'signup' | 'check_email'
+type Mode = 'password' | 'signup' | 'check_email'
 
 export default function LoginForm() {
   const router       = useRouter()
@@ -14,12 +14,16 @@ export default function LoginForm() {
   const redirectTo   = searchParams.get('redirectTo') || '/dashboard'
   const inviteCode   = searchParams.get('inviteCode') || ''
 
-  // Support ?mode=signup|password|magic in URL
-  // Priority 4 — password is now the default auth flow, matching the
-  // brief exactly: "must not be the primary/default flow" for Magic
-  // Link. Magic Link remains fully supported and reachable via its own
-  // toggle, unchanged — this is a one-word default change, not a
-  // removal of anything.
+  // Support ?mode=signup|password in URL. Auth + Landing simplification
+  // — Magic Link removed from user-facing UX entirely (was previously
+  // reachable via ?mode=magic and a toggle button). Not deleting
+  // underlying auth support: supabase.auth.signInWithOtp is a Supabase
+  // SDK/service capability, not something this app defines — removing
+  // this component's own UI path to it doesn't touch that service at
+  // all, and doesn't affect any existing user's account. Anyone who
+  // originally authenticated via magic link still has a valid account
+  // and can reach it via Forgot Password (works regardless of whether
+  // a password was ever previously set).
   const initialMode = (searchParams.get('mode') as Mode | null) ?? 'password'
 
   const [mode, setMode]       = useState<Mode>(initialMode)
@@ -30,6 +34,7 @@ export default function LoginForm() {
 
   // Signup-specific state
   const [name, setName]       = useState('')
+  const [confirmEmail, setConfirmEmail] = useState('')
   const [confirm, setConfirm] = useState('')
   const [hcp, setHcp]         = useState('')
   const [noHcp, setNoHcp]         = useState(false)
@@ -49,20 +54,6 @@ export default function LoginForm() {
     return `/login?${params.toString()}`
   }
 
-  async function handleMagic(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true); setMsg(null)
-    const callbackUrl = `${window.location.origin}/api/auth/callback`
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: callbackUrl },
-    })
-    setLoading(false)
-    setMsg(error
-      ? { type: 'err', text: error.message }
-      : { type: 'ok', text: `Check your email — we sent a link to ${email}` })
-  }
-
   async function handlePassword(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true); setMsg(null)
@@ -72,7 +63,7 @@ export default function LoginForm() {
       const isCredential = error.message.toLowerCase().includes('invalid login') ||
                            error.message.toLowerCase().includes('invalid credentials')
       setMsg({ type: 'err', text: isCredential
-        ? 'Wrong password, or this account uses a magic link. Try magic link or reset your password.'
+        ? 'Wrong password. Try resetting your password.'
         : error.message })
     } else {
       router.push(redirectTo); router.refresh()
@@ -87,6 +78,14 @@ export default function LoginForm() {
     if (!name.trim())                          { setMsg({ type: 'err', text: 'Full name is required.' }); return }
     if (!email.trim())                         { setMsg({ type: 'err', text: 'Email is required.' }); return }
     if (!/^[^@]+@[^@]+\.[^@]+$/.test(email))  { setMsg({ type: 'err', text: 'Enter a valid email address.' }); return }
+    // Auth + Landing simplification — email/confirm-email match check.
+    // Trimmed and compared case-insensitively per the explicit
+    // requirement, since "James@Example.com" and "james@example.com "
+    // are the same address for this purpose even though they aren't
+    // identical strings.
+    if (email.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) {
+      setMsg({ type: 'err', text: "Email addresses don't match." }); return
+    }
     if (password.length < 8)                   { setMsg({ type: 'err', text: 'Password must be at least 8 characters.' }); return }
     if (password !== confirm)                  { setMsg({ type: 'err', text: 'Passwords do not match.' }); return }
     let hcpVal: number | null = null
@@ -305,6 +304,12 @@ export default function LoginForm() {
             placeholder="you@example.com" />
         </SignupField>
 
+        <SignupField label="Confirm email address" required>
+          <SInput type="email" required autoComplete="email"
+            value={confirmEmail} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfirmEmail(e.target.value)}
+            placeholder="you@example.com" />
+        </SignupField>
+
         <SignupField label="Password" required hint="Minimum 8 characters">
           <SInput type="password" required autoComplete="new-password" minLength={8}
             value={password} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPass(e.target.value)}
@@ -352,17 +357,15 @@ export default function LoginForm() {
     </>
   )
 
-  // Sign-in modes (magic / password)
+  // Sign-in — password only, per Auth + Landing simplification.
   return (
     <>
       <h1 className="text-xl font-bold text-text mb-1">Sign in</h1>
       <p className="text-text-muted text-sm mb-6">
-        {mode === 'magic'
-          ? "We'll email you a secure sign-in link."
-          : 'Sign in with your email and password.'}
+        Sign in with your email and password.
       </p>
 
-      <form onSubmit={mode === 'magic' ? handleMagic : handlePassword} className="space-y-3">
+      <form onSubmit={handlePassword} className="space-y-3">
         <div>
           <label className="block text-sm font-medium text-text mb-1">
             Email<span className="text-red-500 ml-0.5">*</span>
@@ -375,26 +378,24 @@ export default function LoginForm() {
           />
         </div>
 
-        {mode === 'password' && (
-          <div>
-            <label className="block text-sm font-medium text-text mb-1">
-              Password<span className="text-red-500 ml-0.5">*</span>
-            </label>
-            <input
-              type="password" required autoComplete="current-password" value={password}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPass(e.target.value)}
-              placeholder="••••••••"
-              className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600"
-            />
-          </div>
-        )}
+        <div>
+          <label className="block text-sm font-medium text-text mb-1">
+            Password<span className="text-red-500 ml-0.5">*</span>
+          </label>
+          <input
+            type="password" required autoComplete="current-password" value={password}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPass(e.target.value)}
+            placeholder="••••••••"
+            className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600"
+          />
+        </div>
 
         {msg && (
           <div className={`rounded-xl px-4 py-3 text-sm ${
             msg.type === 'ok' ? 'bg-brand-50 text-brand-600' : 'bg-red-50 text-red-600'
           }`}>
             {msg.text}
-            {msg.type === 'err' && mode === 'password' && (
+            {msg.type === 'err' && (
               <div className="mt-2">
                 <Link href="/reset-password" className="underline font-medium hover:opacity-80">
                   Set or reset your password →
@@ -408,27 +409,16 @@ export default function LoginForm() {
           type="submit" disabled={loading}
           className="w-full bg-brand-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-brand-700 transition-colors disabled:opacity-50"
         >
-          {loading ? 'Signing in…' : mode === 'magic' ? 'Send sign-in link' : 'Sign in'}
+          {loading ? 'Signing in…' : 'Log In'}
         </button>
       </form>
 
       <div className="mt-4 space-y-2 text-center">
         <div>
-          <button
-            type="button"
-            onClick={() => { setMode(mode === 'magic' ? 'password' : 'magic'); setMsg(null) }}
-            className="text-sm text-text-muted hover:text-brand-600 transition-colors"
-          >
-            {mode === 'magic' ? 'Sign in with password instead' : 'Sign in with a magic link instead'}
-          </button>
+          <Link href="/reset-password" className="text-sm text-text-muted hover:text-brand-600 transition-colors">
+            Forgot Password
+          </Link>
         </div>
-        {mode === 'password' && (
-          <div>
-            <Link href="/reset-password" className="text-sm text-text-muted hover:text-brand-600 transition-colors">
-              Forgot password / set a password
-            </Link>
-          </div>
-        )}
         <div>
           {/* This now navigates to ?mode=signup which renders the signup form in this same card */}
           <a

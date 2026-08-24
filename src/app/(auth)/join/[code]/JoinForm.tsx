@@ -6,7 +6,12 @@ import { createClient } from '@/lib/supabase/client'
 import HandicapPrompt from './HandicapPrompt'
 
 type Step = 'checking' | 'form' | 'needs_handicap' | 'check_email' | 'rate_limited' | 'invalid' | 'joining' | 'error'
-type AuthMode = 'password' | 'magic'
+// Auth + Landing simplification — AuthMode/authMode removed entirely
+// (was 'password' | 'magic', toggled between two form submit handlers
+// and two button labels throughout this file). Password is now the
+// only path, so every conditional that previously branched on this is
+// simplified to always take the password branch — not left in place
+// as a permanently-true check.
 
 /**
  * Item I — dynamic date range for the invitation panel. "12–13
@@ -46,10 +51,10 @@ export default function JoinForm() {
 
   const [name, setName]         = useState('')
   const [email, setEmail]       = useState('')
+  const [confirmEmail, setConfirmEmail] = useState('')
   const [password, setPassword]           = useState('')
   const [handicap, setHandicap]           = useState('')
   const [noHandicap, setNoHandicap]       = useState(false)
-  const [authMode, setAuthMode]           = useState<AuthMode>('password')
   // Default to 'new' rather than 'existing' — the actual fix for the
   // unidentified-profile bug. Everything downstream (signInWithOtp's
   // options.data.full_name, do-join's existing-profile-name check) was
@@ -157,12 +162,6 @@ export default function JoinForm() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inviteCode])
 
-  function isRateLimitError(msg: string) {
-    const l = msg.toLowerCase()
-    return l.includes('rate limit') || l.includes('too many') ||
-           l.includes('email rate') || l.includes('over the limit') || l.includes('429')
-  }
-
   function buildCallbackUrl() {
     const base = `${window.location.origin}/api/auth/callback?inviteCode=${encodeURIComponent(inviteCode)}`
     if (noHandicap) return `${base}&noHandicap=1`
@@ -198,19 +197,29 @@ export default function JoinForm() {
     // already have an account by choosing this path. A failed sign-in
     // here is either a wrong password or genuinely no account with this
     // email, and the clearest thing to do is say so and point at the
-    // other two paths that do handle those cases (new account, or magic
-    // link, which works for an existing account with no password set).
+    // one other path that handles that case (new account). An account
+    // with no password set (created during the magic-link era) is
+    // pointed at password reset instead, not a magic-link retry.
     clearJoinTimeout()
     setErrorMsg(
       "We couldn't sign you in with that email and password. " +
-      'Double-check them, or use "New to Teein\u2019 It Up?" below if you don\u2019t have an account yet, ' +
-      'or try the magic link option if your account uses one.'
+      'Double-check them, use "New to Teein\u2019 It Up?" below if you don\u2019t have an account yet, ' +
+      'or reset your password if you\u2019ve never set one.'
     )
     setStep('error')
   }
 
   async function handlePassword(e: React.FormEvent) {
     e.preventDefault()
+    // Auth + Landing simplification — email/confirm-email match check,
+    // validated before any API call since a mismatch here means the
+    // form itself wasn't filled out correctly, independent of whether
+    // sign-in (tried first, below) would otherwise have succeeded.
+    if (email.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) {
+      setErrorMsg("Email addresses don't match.")
+      setStep('error')
+      return
+    }
     setStep('joining')
     startJoinTimeout('Sign-in timed out. Please try again.')
 
@@ -244,14 +253,19 @@ export default function JoinForm() {
       },
     })
 
-    // ── "User already registered" — email exists, no password (magic-link account) ──
+    // "User already registered" — email exists already. Could mean a
+    // wrong password was entered for an existing password account, or
+    // (for an account created during the magic-link era) no password
+    // was ever set at all — this signup attempt can't distinguish
+    // those two cases, so the copy below covers both without assuming
+    // magic-link specifically.
     if (signUpErr) {
       clearJoinTimeout()
       const msg = signUpErr.message.toLowerCase()
       if (msg.includes('already registered') || msg.includes('already exists') || msg.includes('email address is already')) {
         setErrorMsg(
-          'This email uses magic-link sign-in and has no password. ' +
-          'Use the magic link option below, or tap "Set a password" to create one.'
+          'An account with this email already exists. ' +
+          'Double-check your password, or reset it from the sign-in page if you\u2019ve never set one.'
         )
       } else {
         setErrorMsg(signUpErr.message)
@@ -276,37 +290,6 @@ export default function JoinForm() {
     // Session confirmed — hard redirect to do-join.
     clearJoinTimeout()
     window.location.href = buildDoJoinUrl()
-  }
-
-  async function handleMagicLink(e: React.FormEvent) {
-    e.preventDefault()
-    setStep('joining')
-    startJoinTimeout('Sending email timed out. Please try again.')
-
-    const { error: authError } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        data: {
-          full_name: name,
-          handicap:  (!noHandicap && handicap !== '') ? handicap : '',
-          no_handicap: noHandicap ? '1' : '',
-        },
-        emailRedirectTo: buildCallbackUrl(),
-      },
-    })
-
-    clearJoinTimeout()
-
-    if (authError) {
-      if (isRateLimitError(authError.message)) {
-        setStep('rate_limited')
-      } else {
-        setErrorMsg(authError.message)
-        setStep('error')
-      }
-    } else {
-      setStep('check_email')
-    }
   }
 
   // ── Render states ──────────────────────────────────────────────────────────
@@ -363,38 +346,12 @@ export default function JoinForm() {
         <p className="text-3xl text-center mb-3">📧</p>
         <h1 className="text-lg font-bold text-text text-center mb-2">Check your email</h1>
         <p className="text-text-muted text-sm text-center mb-1">
-          We sent a sign-in link to <strong>{email}</strong>.
+          We sent a confirmation link to <strong>{email}</strong>.
         </p>
         <p className="text-text-muted text-sm text-center">
           Tap it to join <strong>{tripName}</strong>.
           The link will add you to the trip automatically.
         </p>
-      </>
-    )
-  }
-
-  if (step === 'rate_limited') {
-    return (
-      <>
-        <p className="text-3xl text-center mb-3">⏱️</p>
-        <h1 className="text-lg font-bold text-text text-center mb-2">Too many emails sent</h1>
-        <p className="text-text-muted text-sm text-center mb-4">
-          Please wait a few minutes, or set a password to join instantly.
-        </p>
-        <div className="space-y-2">
-          <button
-            onClick={() => { setStep('form'); setAuthMode('password') }}
-            className="w-full bg-brand-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-brand-700 transition-colors"
-          >
-            Set a password instead
-          </button>
-          <button
-            onClick={() => { setStep('form'); setAuthMode('magic') }}
-            className="w-full bg-surface-subtle text-text rounded-xl py-3 text-sm font-semibold transition-colors"
-          >
-            Try magic link again
-          </button>
-        </div>
       </>
     )
   }
@@ -444,7 +401,8 @@ export default function JoinForm() {
   // the actual fix for "mainly presents a new-user registration form."
   // The invite has already answered "which trip?"; this only needs to
   // answer "who are you?" An existing user only ever sees email +
-  // password (+ the magic-link toggle); a new user sees the full form.
+  // password. An existing user only ever sees email + password; a new
+  // user sees the full form.
   // Both still end up at the exact same buildDoJoinUrl() / do-join
   // endpoint used everywhere else in this file.
 
@@ -509,7 +467,7 @@ export default function JoinForm() {
       {formPath === 'existing' ? (
         <>
           <p className="text-sm font-semibold text-text mb-3">Already have an account?</p>
-          <form onSubmit={authMode === 'password' ? handleExistingSignIn : handleMagicLink} className="space-y-3">
+          <form onSubmit={handleExistingSignIn} className="space-y-3">
             <div>
               <label className="block text-sm font-medium text-text mb-1">
                 Email<span className="text-red-500 ml-0.5">*</span>
@@ -519,35 +477,25 @@ export default function JoinForm() {
                 className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
             </div>
 
-            {authMode === 'password' && (
-              <div>
-                <label className="block text-sm font-medium text-text mb-1">
-                  Password<span className="text-red-500 ml-0.5">*</span>
-                </label>
-                <input type="password" required autoComplete="current-password" value={password}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
-                  placeholder="Your password"
-                  className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
-              </div>
-            )}
+            <div>
+              <label className="block text-sm font-medium text-text mb-1">
+                Password<span className="text-red-500 ml-0.5">*</span>
+              </label>
+              <input type="password" required autoComplete="current-password" value={password}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+                placeholder="Your password"
+                className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
+            </div>
 
             <button type="submit"
               className="w-full bg-brand-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-brand-700 transition-colors">
-              {authMode === 'password' ? 'Sign In & Join Trip' : 'Send sign-in link'}
+              Sign In &amp; Join Trip
             </button>
           </form>
 
-          <div className="mt-3 text-center">
-            <button type="button"
-              onClick={() => { setAuthMode(authMode === 'password' ? 'magic' : 'password') }}
-              className="text-sm text-text-muted hover:text-brand-600 transition-colors">
-              {authMode === 'password' ? 'Email me a magic link instead' : 'Use my password instead'}
-            </button>
-          </div>
-
           <div className="mt-5 pt-4 border-t border-surface-subtle text-center">
             <button type="button"
-              onClick={() => { setFormPath('new'); setAuthMode('password') }}
+              onClick={() => setFormPath('new')}
               className="text-sm text-text-muted hover:text-brand-600 transition-colors">
               New to Teein&apos; It Up? <span className="text-brand-600 font-medium">Create an account</span>
             </button>
@@ -555,7 +503,7 @@ export default function JoinForm() {
         </>
       ) : (
         <>
-          <form onSubmit={authMode === 'password' ? handlePassword : handleMagicLink} className="space-y-3">
+          <form onSubmit={handlePassword} className="space-y-3">
             <div>
               <label className="block text-sm font-medium text-text mb-1">
                 Your name<span className="text-red-500 ml-0.5">*</span>
@@ -574,17 +522,24 @@ export default function JoinForm() {
                 className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
             </div>
 
-            {authMode === 'password' && (
-              <div>
-                <label className="block text-sm font-medium text-text mb-1">
-                  Password<span className="text-red-500 ml-0.5">*</span>
-                </label>
-                <input type="password" required autoComplete="new-password" value={password}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
-                  placeholder="Choose a password (min. 8 characters)" minLength={8}
-                  className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
-              </div>
-            )}
+            <div>
+              <label className="block text-sm font-medium text-text mb-1">
+                Confirm email<span className="text-red-500 ml-0.5">*</span>
+              </label>
+              <input type="email" required autoComplete="email" value={confirmEmail}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfirmEmail(e.target.value)} placeholder="you@example.com"
+                className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-text mb-1">
+                Password<span className="text-red-500 ml-0.5">*</span>
+              </label>
+              <input type="password" required autoComplete="new-password" value={password}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+                placeholder="Choose a password (min. 8 characters)" minLength={8}
+                className="w-full rounded-xl border border-surface-subtle px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600" />
+            </div>
 
             {/* Handicap field */}
             <div>
@@ -617,19 +572,9 @@ export default function JoinForm() {
 
             <button type="submit"
               className="w-full bg-brand-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-brand-700 transition-colors">
-              {authMode === 'password' ? 'Create Account & Join Trip' : 'Send sign-in link'}
+              Create Account &amp; Join Trip
             </button>
           </form>
-
-          <div className="mt-3 text-center">
-            <button type="button"
-              onClick={() => { setAuthMode(authMode === 'password' ? 'magic' : 'password') }}
-              className="text-sm text-text-muted hover:text-brand-600 transition-colors">
-              {authMode === 'password'
-                ? 'Sign in with a magic link instead'
-                : 'Set a password instead (no email needed)'}
-            </button>
-          </div>
 
           <div className="mt-5 pt-4 border-t border-surface-subtle text-center">
             <button type="button"
