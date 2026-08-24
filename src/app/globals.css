@@ -68,6 +68,42 @@
 }
 
 @layer components {
+  /* ── P0 iPhone Safari fix — auth layout min-height ──────────────────────
+     Root cause of the reported bug: (auth)/layout.tsx (shared by /login
+     and /join/[code] — one shared shell, one shared fix, not two patches)
+     previously used inline minHeight: '100vh'. On mobile Safari, 100vh is
+     calculated against the LARGEST possible viewport — the one with the
+     address bar already collapsed — not the currently visible one. With
+     the address bar showing (its normal resting state, and especially as
+     it dynamically expands/collapses during scroll), the actual visible
+     viewport is shorter than 100vh claims, so Safari's own chrome can end
+     up overlapping content that a correctly-sized container would have
+     placed below the fold instead — exactly what Darren's screenshot
+     shows happening over the new Confirm Email field, which simply made
+     the form tall enough for this to become visible.
+
+     100dvh (dynamic viewport height) tracks Safari's actual, currently
+     visible viewport as its chrome expands and collapses, which is the
+     modern, correct unit for exactly this situation. Written as two
+     declarations rather than a single dvh-only value — the browser uses
+     whichever one it understands last, so this degrades safely to the
+     previous 100vh behaviour on any browser without dvh support, rather
+     than breaking the layout outright on an older engine.
+
+     Deliberately still min-height, not height — this was already the
+     right property choice (a floor, not a ceiling), already correctly
+     allowing the container to grow taller than the viewport for a long
+     form and scroll normally as a document; nothing here changes that.
+     No overflow: hidden, position: fixed, or other scroll-trapping
+     property was found anywhere in this shell or in html/body globally
+     (confirmed by inspection) — the container sizing value itself was
+     the entire bug, not a scroll behaviour problem needing a different
+     kind of fix. */
+  .auth-shell-min-height {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
   /* ── Demo: SLabel ────────────────────────────────────────────────────── */
   .s-label {
     font-family: var(--font-body);

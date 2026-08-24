@@ -8,8 +8,7 @@ import AuthBranding from '@/components/brand/AuthBranding'
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{
-      minHeight: '100vh',
+    <div className="auth-shell-min-height" style={{
       background: 'linear-gradient(170deg, #0a1f10 0%, #0f2d1a 36%, #0e2516 68%, #050e08 100%)',
       display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
