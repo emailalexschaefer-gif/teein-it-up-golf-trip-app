@@ -10,6 +10,14 @@ import { calculateStableford } from './stableford'
 export interface CaptureValue {
   grossScore: number | null
   pickedUp: boolean
+  // Package 3 P0 corrective — set when this is the player's own
+  // score_entries.admin_overridden flag. When true, an organiser has
+  // already adjudicated this specific hole's official score, and that
+  // ruling is the final authority, not another input for the normal
+  // self/marker agreement check (see compareCaptures below). Optional
+  // and defaults to undefined/falsy for every existing call site that
+  // doesn't pass it, so this is purely additive.
+  adminOverridden?: boolean
 }
 
 export type ComparisonStatus =
@@ -18,6 +26,7 @@ export type ComparisonStatus =
   | 'pending_self'    // marker entered, self hasn't yet (less common, but possible)
   | 'matched'         // both entered and they agree
   | 'mismatch'        // both entered and they disagree
+  | 'resolved_by_organiser' // organiser adjudicated this hole's official score — closed administratively, not an active dispute, regardless of whether the marker's own historical entry still differs
 
 /** User-facing label — kept simple per point 15, no technical language. */
 export const COMPARISON_LABEL: Record<ComparisonStatus, string> = {
@@ -26,6 +35,7 @@ export const COMPARISON_LABEL: Record<ComparisonStatus, string> = {
   pending_self:   'Waiting for your score',
   matched:        'Score matched',
   mismatch:       'Needs review',
+  resolved_by_organiser: 'Resolved by organiser',
 }
 
 function hasEntry(v: CaptureValue | null): v is CaptureValue {
@@ -91,6 +101,16 @@ export function isZeroPointsMismatch(
  * itself is part of what's being compared, not just the score if present.
  */
 export function compareCaptures(self: CaptureValue | null, marker: CaptureValue | null): ComparisonStatus {
+  // Organiser adjudication is the final authority — checked before any
+  // other comparison, since this must resolve the dispute regardless of
+  // what the marker's own (deliberately untouched) historical entry
+  // says. Only meaningful once self has genuinely been entered — an
+  // admin_overridden flag with no actual self entry can't occur through
+  // the override endpoint (it always writes gross_score/is_no_return in
+  // the same update), but guarding on hasEntry(self) here keeps this
+  // function's own invariants explicit rather than assumed.
+  if (self?.adminOverridden && hasEntry(self)) return 'resolved_by_organiser'
+
   const selfEntered = hasEntry(self)
   const markerEntered = hasEntry(marker)
 

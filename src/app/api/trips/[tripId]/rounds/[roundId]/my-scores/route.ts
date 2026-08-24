@@ -38,6 +38,7 @@ interface ScoreEntryRow {
   is_no_return: boolean
   capture_role: 'self' | 'marker'
   entered_by: string
+  admin_overridden: boolean
 }
 
 interface ScorecardProfile {
@@ -105,7 +106,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     .select(`
       id, player_id, playing_handicap, status, submitted_at,
       profiles:player_id ( id, full_name, avatar_url ),
-      score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_by )
+      score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_by, admin_overridden )
     `)
     .eq('round_id', roundId)
     .neq('status', 'withdrawn')
@@ -140,10 +141,38 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       : null
   }
 
+  // Score Management redesign — audit detail for the "⚙️ Organiser
+  // Override" indicator and its expandable "Resolved by organiser" view.
+  // Fetched for BOTH myCard and markedCard — the brief is explicit that
+  // "both the impacted player and their playing partner should be able
+  // to understand why the number changed," and when the partner
+  // (marker) opens their own /my-scores, THEIR myCard is their own card,
+  // not the player's — the audit trail for the overridden hole only
+  // exists on the player's card (markedCard from the marker's point of
+  // view), so it has to be fetched separately here or the marker would
+  // never see it at all. Old/new gross, reason, who, when — the
+  // marker's own value at time of override isn't stored separately here
+  // since it's already directly readable from markedCard/myScorecard's
+  // own score_entries (capture_role='marker') the response already
+  // includes — no duplicate copy of that value.
+  async function fetchOverrideAudit(cardId: string) {
+    const auditRes = await admin
+      .from('score_override_audit')
+      .select('hole_id, old_gross_score, new_gross_score, reason, overridden_at, profiles:overridden_by ( full_name )')
+      .eq('scorecard_id', cardId)
+      .order('overridden_at', { ascending: false })
+    return ((auditRes.data ?? []) as unknown as { hole_id: string; old_gross_score: number | null; new_gross_score: number; reason: string; overridden_at: string; profiles: { full_name: string } | null }[])
+      .map(a => ({ holeId: a.hole_id, oldGrossScore: a.old_gross_score, newGrossScore: a.new_gross_score, reason: a.reason, overriddenByName: a.profiles?.full_name ?? 'Organiser', overriddenAt: a.overridden_at }))
+  }
+  const myOverrideAudit = myCard ? await fetchOverrideAudit(myCard.id) : []
+  const markedOverrideAudit = markedCard ? await fetchOverrideAudit(markedCard.id) : []
+
   return NextResponse.json({
     round: { id: round.id, status: round.status },
     myScorecard: myCard,
     markedScorecard: markedCard,
     markedByName: markedByProfile?.full_name ?? null,
+    myOverrideAudit,
+    markedOverrideAudit,
   })
 }

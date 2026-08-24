@@ -29,7 +29,13 @@ interface HoleRow { holeNumber: number; par: number; strokeIndex: number; grossS
 interface PlayerRow { scorecardId: string; playerId: string; playerName: string; playingHandicap: number | null; holesInRound: number; groupId: string | null; groupName: string; roundTotal: number; holes: HoleRow[] }
 interface GroupRow { groupId: string | null; groupName: string; players: PlayerRow[] }
 
-const REASONS = ['Incorrect entry', 'Lost/dead phone', 'Scoring dispute', 'Technical issue', 'Other']
+// Score Management redesign — organiser adjudication reason model,
+// matching the exact requested category list. "Paper/manual scorecard"
+// is included here too (not just in the separate Enter Paper Scorecard
+// workflow) since an organiser correcting an existing digital entry may
+// still be doing so because a hole was actually recorded from a paper
+// card mid-round.
+const REASONS = ['Incorrect entry', 'Scoring dispute', 'Phone issue', 'Technical issue', 'Paper/manual scorecard', 'Other']
 
 export default function AdminScoreOverridePanel({ tripId, rounds }: { tripId: string; rounds: RoundOption[] }) {
   const [selectedRoundId, setSelectedRoundId] = useState<string>(
@@ -39,7 +45,13 @@ export default function AdminScoreOverridePanel({ tripId, rounds }: { tripId: st
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerRow | null>(null)
-  const [editingHole, setEditingHole] = useState<HoleRow | null>(null)
+  // Package 3 final — the two organiser tools the brief explicitly
+  // requires be "clearly separated." mode governs the selector UI text
+  // and which component the selected player flows into; everything
+  // else (round selection, player list/search, load()) is completely
+  // shared between the two, since both need the same round-scoped
+  // roster.
+  const [mode, setMode] = useState<'override' | 'paper'>('override')
 
   async function load() {
     if (!selectedRoundId) { setLoading(false); return }
@@ -60,7 +72,15 @@ export default function AdminScoreOverridePanel({ tripId, rounds }: { tripId: st
   // corresponding state left anywhere in this file — is removed, not
   // patched with a dummy setter, since the underlying group-selection
   // concept it managed no longer exists in this component at all.
-  useEffect(() => { void load(); setSearchTerm(''); setSelectedPlayer(null); setEditingHole(null) }, [tripId, selectedRoundId]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Package 3 final — caught during Mode 2 development: this effect
+  // still called setEditingHole(null) even though that state was
+  // removed when the tile-grid single-hole flow was replaced by
+  // FullScorecardOverride (Package 3 Mode 1). Same class of stale-
+  // setter bug as the earlier setSelectedGroupId/hasUnresolvedMismatch
+  // issues this session — a state removal that missed one remaining
+  // reference. Confirmed via full-file search: zero other references
+  // to editingHole/setEditingHole exist anywhere in this file now.
+  useEffect(() => { void load(); setSearchTerm(''); setSelectedPlayer(null) }, [tripId, selectedRoundId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const allPlayers = groups.flatMap(g => g.players)
   const searchResults = searchTerm.trim().length > 0
@@ -86,38 +106,49 @@ export default function AdminScoreOverridePanel({ tripId, rounds }: { tripId: st
         </select>
       )}
 
-      {loading ? null : editingHole && selectedPlayer && selectedRound ? (
-        <OverrideForm
-          tripId={tripId} roundId={selectedRoundId} scorecardId={selectedPlayer.scorecardId}
-          hole={editingHole} player={selectedPlayer} roundName={selectedRound.name}
-          onCancel={() => setEditingHole(null)}
-          onSaved={() => { setEditingHole(null); void load() }}
-        />
-      ) : selectedPlayer ? (
-        <div>
-          <button onClick={() => setSelectedPlayer(null)} style={backLinkStyle}>← {selectedPlayer.groupName}</button>
-          <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d', margin: '8px 0 2px' }}>{selectedPlayer.playerName}</div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 10 }}>Round total: {selectedPlayer.roundTotal} pts</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6 }}>
-            {selectedPlayer.holes.map(h => (
-              <button
-                key={h.holeNumber}
-                onClick={() => setEditingHole(h)}
-                style={{
-                  padding: '8px 4px', borderRadius: 8, textAlign: 'center', cursor: 'pointer',
-                  background: h.adminOverridden ? '#fdf3d9' : '#ffffff',
-                  border: `1px solid ${h.adminOverridden ? '#e8c96a' : '#eceae3'}`,
-                }}
-              >
-                <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, color: '#9ca3af', fontWeight: 700 }}>H{h.holeNumber}</div>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#14532d' }}>
-                  {h.isNoReturn ? 'NR' : h.grossScore ?? '—'}
-                </div>
-                {h.adminOverridden && <div style={{ fontSize: 8, color: '#a1791f', fontWeight: 700 }}>⚙ edited</div>}
-              </button>
-            ))}
-          </div>
+      {/* Package 3 final, item 2 — "two clearly separated organiser
+          tools." A simple segmented toggle, not a dropdown buried among
+          other settings — this is the primary decision the organiser
+          makes before anything else in Score Management. */}
+      {!selectedPlayer && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+          <button
+            onClick={() => setMode('override')}
+            style={{
+              flex: 1, padding: '9px 8px', borderRadius: 8, border: `1.5px solid ${mode === 'override' ? '#14532d' : '#d1d5db'}`,
+              background: mode === 'override' ? '#14532d' : '#fff', color: mode === 'override' ? '#fff' : '#374151',
+              fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, cursor: 'pointer',
+            }}
+          >
+            Override Existing Score
+          </button>
+          <button
+            onClick={() => setMode('paper')}
+            style={{
+              flex: 1, padding: '9px 8px', borderRadius: 8, border: `1.5px solid ${mode === 'paper' ? '#14532d' : '#d1d5db'}`,
+              background: mode === 'paper' ? '#14532d' : '#fff', color: mode === 'paper' ? '#fff' : '#374151',
+              fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, cursor: 'pointer',
+            }}
+          >
+            Enter Paper Scorecard
+          </button>
         </div>
+      )}
+
+      {loading ? null : selectedPlayer && selectedRound ? (
+        mode === 'paper' ? (
+          <PaperScorecardEntry
+            tripId={tripId} roundId={selectedRoundId} player={selectedPlayer} roundName={selectedRound.name}
+            onCancel={() => setSelectedPlayer(null)}
+            onSaved={() => { setSelectedPlayer(null); void load() }}
+          />
+        ) : (
+          <FullScorecardOverride
+            tripId={tripId} roundId={selectedRoundId} player={selectedPlayer} roundName={selectedRound.name}
+            onCancel={() => setSelectedPlayer(null)}
+            onSaved={() => { setSelectedPlayer(null); void load() }}
+          />
+        )
       ) : (
         <div>
           <input
@@ -170,53 +201,99 @@ export default function AdminScoreOverridePanel({ tripId, rounds }: { tripId: st
   )
 }
 
-function OverrideForm({ tripId, roundId, scorecardId, hole, player, roundName, onCancel, onSaved }: {
-  tripId: string; roundId: string; scorecardId: string; hole: HoleRow; player: PlayerRow; roundName: string
+function FullScorecardOverride({ tripId, roundId, player, roundName, onCancel, onSaved }: {
+  tripId: string; roundId: string; player: PlayerRow; roundName: string
   onCancel: () => void; onSaved: () => void
 }) {
-  const [grossScore, setGrossScore] = useState(hole.grossScore !== null ? String(hole.grossScore) : '')
-  const [isNoReturn, setIsNoReturn] = useState(hole.isNoReturn)
+  // Package 3 final — "load the complete existing scorecard... edit
+  // one hole, multiple holes, or all remaining holes... do not make
+  // Darren open 18 separate edit modals." Every hole's current
+  // gross/no-return state is the local editable draft from the start —
+  // player.holes is only ever read to compute the ORIGINAL values for
+  // diffing (originalByHole below), never mutated directly.
+  const [drafts, setDrafts] = useState<Record<number, { gross: string; isNoReturn: boolean }>>(() => {
+    const initial: Record<number, { gross: string; isNoReturn: boolean }> = {}
+    for (const h of player.holes) initial[h.holeNumber] = { gross: h.grossScore !== null ? String(h.grossScore) : '', isNoReturn: h.isNoReturn }
+    return initial
+  })
   const [reason, setReason] = useState(REASONS[0])
   const [otherReason, setOtherReason] = useState('')
   const [stage, setStage] = useState<'edit' | 'confirm'>('edit')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const finalReason = reason === 'Other' ? otherReason.trim() : reason
-  const validGross = isNoReturn || (grossScore !== '' && Number(grossScore) >= 1 && Number(grossScore) <= 20)
+  const originalByHole = new Map(player.holes.map(h => [h.holeNumber, h]))
+  const finalReason = reason === 'Other' ? `Other — ${otherReason.trim()}` : reason
 
-  let projectedHolePts = 0
-  if (!isNoReturn && validGross && player.playingHandicap != null) {
+  function projectedPts(h: HoleRow, draft: { gross: string; isNoReturn: boolean }): number {
+    if (draft.isNoReturn) return 0
+    if (draft.gross === '' || player.playingHandicap == null) return 0
     try {
-      projectedHolePts = calculateStableford({
-        grossScore: Number(grossScore), par: hole.par, strokeIndex: hole.strokeIndex,
+      return calculateStableford({
+        grossScore: Number(draft.gross), par: h.par, strokeIndex: h.strokeIndex,
         playingHandicap: player.playingHandicap, holesInRound: player.holesInRound,
       })
-    } catch { projectedHolePts = 0 }
+    } catch { return 0 }
   }
-  const currentHolePts = hole.stablefordPts ?? 0
-  const projectedRoundTotal = player.roundTotal - currentHolePts + projectedHolePts
 
-  const currentValue = hole.isNoReturn ? 'No Return' : (hole.grossScore ?? '—')
-  const proposedValue = isNoReturn ? 'No Return' : (grossScore || '—')
+  // A hole only counts as "changed" if its draft genuinely differs from
+  // the original — untouched holes never get sent to the server at
+  // all, matching "Review Changes shows exactly N changes," not every
+  // hole on the card.
+  const changedHoles = player.holes.filter(h => {
+    const d = drafts[h.holeNumber]
+    if (!d) return false
+    if (d.isNoReturn !== h.isNoReturn) return true
+    if (d.isNoReturn) return false
+    return d.gross !== (h.grossScore !== null ? String(h.grossScore) : '')
+  })
+
+  const projectedRoundTotal = player.holes.reduce((sum, h) => {
+    const d = drafts[h.holeNumber]
+    if (!d) return sum + (h.stablefordPts ?? 0)
+    return sum + projectedPts(h, d)
+  }, 0)
+
+  const allDraftsValid = player.holes.every(h => {
+    const d = drafts[h.holeNumber]
+    return d && (d.isNoReturn || (d.gross !== '' && Number(d.gross) >= 1 && Number(d.gross) <= 20))
+  })
+
+  function updateDraft(holeNumber: number, patch: Partial<{ gross: string; isNoReturn: boolean }>) {
+    setDrafts(prev => ({ ...prev, [holeNumber]: { ...prev[holeNumber], ...patch } }))
+  }
 
   async function handleSave() {
     setSaving(true)
     setError('')
     try {
-      const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/scorecards/${scorecardId}/override`, {
+      const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/scorecards/${player.scorecardId}/batch-override`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ holeNumber: hole.holeNumber, grossScore: isNoReturn ? null : Number(grossScore), isNoReturn, reason: finalReason }),
+        body: JSON.stringify({
+          reason: finalReason,
+          changes: changedHoles.map(h => {
+            const d = drafts[h.holeNumber]
+            return { holeNumber: h.holeNumber, grossScore: d.isNoReturn ? null : Number(d.gross), isNoReturn: d.isNoReturn }
+          }),
+        }),
       })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        setError(body.error ?? "Couldn't save the override. Please try again.")
+      const resBody = await res.json().catch(() => ({}))
+      if (!res.ok && res.status !== 207) {
+        setError(resBody.error ?? "Couldn't save these changes. Please try again.")
+        setSaving(false)
+        return
+      }
+      if (resBody.partial) {
+        // Some holes saved, some didn't — surfaced explicitly rather
+        // than silently claiming full success or discarding the ones
+        // that did save (see batch-override/route.ts's own comment).
+        setError(`Saved ${resBody.succeeded?.length ?? 0} of ${changedHoles.length} holes. Failed: ${(resBody.failed ?? []).map((f: { holeNumber: number }) => `H${f.holeNumber}`).join(', ')}. Please retry the failed holes.`)
         setSaving(false)
         return
       }
       onSaved()
     } catch {
-      setError("Couldn't save the override. Check your connection and try again.")
+      setError("Couldn't save these changes. Check your connection and try again.")
       setSaving(false)
     }
   }
@@ -227,13 +304,26 @@ function OverrideForm({ tripId, roundId, scorecardId, hole, player, roundName, o
         <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 13, color: '#14532d', marginBottom: 10 }}>
           {player.playerName} — {roundName}
         </div>
+        {/* Item 8 — only changed holes shown here, never the full card
+            again during review. */}
+        {changedHoles.map(h => {
+          const d = drafts[h.holeNumber]
+          const newPts = projectedPts(h, d)
+          const oldValue = h.isNoReturn ? 'NR' : (h.grossScore ?? '—')
+          const newValue = d.isNoReturn ? 'NR' : (d.gross || '—')
+          return (
+            <div key={h.holeNumber} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #eceae3' }}>
+              <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, color: '#14532d' }}>Hole {h.holeNumber}</div>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151' }}>
+                Gross: <strong>{oldValue}</strong> → <strong style={{ color: '#a1791f' }}>{newValue}</strong>
+              </div>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151' }}>
+                Stableford: <strong>{h.stablefordPts ?? 0}</strong> → <strong style={{ color: '#a1791f' }}>{newPts}</strong>
+              </div>
+            </div>
+          )
+        })}
         <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151', marginBottom: 4 }}>
-          Hole {hole.holeNumber}: <strong>{currentValue}</strong> → <strong style={{ color: '#a1791f' }}>{proposedValue}</strong>
-        </div>
-        <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151', marginBottom: 4 }}>
-          Points this hole: <strong>{currentHolePts}</strong> → <strong style={{ color: '#a1791f' }}>{projectedHolePts}</strong>
-        </div>
-        <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151', marginBottom: 12 }}>
           Round total: <strong>{player.roundTotal} pts</strong> → <strong style={{ color: '#a1791f' }}>{projectedRoundTotal} pts</strong>
         </div>
         <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', marginBottom: 14 }}>
@@ -255,29 +345,13 @@ function OverrideForm({ tripId, roundId, scorecardId, hole, player, roundName, o
   return (
     <div style={{ background: '#ffffff', border: '1.5px solid #d9c9a3', borderRadius: 12, padding: 14 }}>
       <button onClick={onCancel} style={backLinkStyle}>← Cancel</button>
-      <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d', margin: '8px 0 4px' }}>
-        {player.playerName} — Hole {hole.holeNumber} (Par {hole.par})
-      </div>
+      <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d', margin: '8px 0 2px' }}>{player.playerName}</div>
+      <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 10 }}>{roundName} · Round total: {player.roundTotal} pts</div>
 
-      <div style={{ display: 'flex', gap: 16, marginBottom: 10, fontFamily: 'var(--font-body)', fontSize: 12.5 }}>
-        <div><span style={{ color: '#9ca3af' }}>Current: </span><strong style={{ color: '#14532d' }}>{currentValue}</strong></div>
-        <div><span style={{ color: '#9ca3af' }}>New: </span><strong style={{ color: '#a1791f' }}>{proposedValue}</strong></div>
-      </div>
-
-      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151', marginBottom: 8 }}>
-        <input type="checkbox" checked={isNoReturn} onChange={e => setIsNoReturn(e.target.checked)} />
-        Mark as No Return
-      </label>
-
-      {!isNoReturn && (
-        <input
-          type="number" inputMode="numeric" min="1" max="20"
-          value={grossScore} onChange={e => setGrossScore(e.target.value)}
-          placeholder="Gross score"
-          style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 8, padding: '9px 10px', fontFamily: 'var(--font-body)', fontSize: 14, marginBottom: 8 }}
-        />
-      )}
-
+      {/* Item 6 — reason selected once for the whole batch, not
+          per-hole, matching "Review Changes... Reason: Scoring
+          dispute" (a single reason covering every changed hole in the
+          batch). */}
       <select
         value={reason} onChange={e => setReason(e.target.value)}
         style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 8, padding: '9px 10px', fontFamily: 'var(--font-body)', fontSize: 13, marginBottom: reason === 'Other' ? 8 : 12, background: '#fff' }}
@@ -287,17 +361,296 @@ function OverrideForm({ tripId, roundId, scorecardId, hole, player, roundName, o
       {reason === 'Other' && (
         <input
           value={otherReason} onChange={e => setOtherReason(e.target.value)}
-          placeholder="Describe the reason"
+          placeholder="Please explain"
           style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 8, padding: '9px 10px', fontFamily: 'var(--font-body)', fontSize: 13, marginBottom: 12 }}
         />
       )}
 
+      {/* Item 5 — mobile-first: large touch targets, numeric keyboard,
+          minimal modal use (none at all here — the whole card is
+          editable inline), obvious hole number and par per row. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '50vh', overflowY: 'auto' }}>
+        {player.holes.map((h, idx) => {
+          const d = drafts[h.holeNumber] ?? { gross: '', isNoReturn: false }
+          const original = originalByHole.get(h.holeNumber)
+          const isChanged = changedHoles.some(c => c.holeNumber === h.holeNumber)
+          return (
+            <div
+              key={h.holeNumber}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8,
+                background: isChanged ? '#fdf3d9' : (original?.adminOverridden ? '#f0fdf4' : '#faf9f6'),
+                border: `1px solid ${isChanged ? '#e8c96a' : '#eceae3'}`,
+              }}
+            >
+              <div style={{ width: 44, flexShrink: 0, fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, color: '#14532d' }}>
+                H{h.holeNumber}
+              </div>
+              <div style={{ width: 40, flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af' }}>
+                Par {h.par}
+              </div>
+              <input
+                type="number" inputMode="numeric" min="1" max="20"
+                value={d.gross} disabled={d.isNoReturn}
+                onChange={e => updateDraft(h.holeNumber, { gross: e.target.value })}
+                // Item 5 — auto-advance to the next hole's input once a
+                // plausible score is entered, so the organiser can move
+                // straight down a physical scorecard without tapping
+                // each field individually.
+                onInput={e => {
+                  const val = (e.target as HTMLInputElement).value
+                  if (val.length >= 1 && Number(val) >= 1 && Number(val) <= 20) {
+                    const next = document.getElementById(`override-hole-${idx + 1}`)
+                    if (next) (next as HTMLInputElement).focus()
+                  }
+                }}
+                id={`override-hole-${idx}`}
+                placeholder="—"
+                style={{ width: 56, flexShrink: 0, border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 6px', fontFamily: 'var(--font-body)', fontSize: 16, textAlign: 'center', background: d.isNoReturn ? '#f3f4f6' : '#fff' }}
+              />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#7a7260', flexShrink: 0 }}>
+                <input type="checkbox" checked={d.isNoReturn} onChange={e => updateDraft(h.holeNumber, { isNoReturn: e.target.checked, gross: '' })} />
+                NR
+              </label>
+              {original?.adminOverridden && !isChanged && <span style={{ fontSize: 9, color: '#166534', fontWeight: 700, flexShrink: 0 }}>⚙</span>}
+            </div>
+          )
+        })}
+      </div>
+
+      {error && <p style={{ color: '#dc2626', fontSize: 11.5, margin: '10px 0 0', fontFamily: 'var(--font-body)' }}>{error}</p>}
+
       <button
         onClick={() => setStage('confirm')}
-        disabled={!validGross || (reason === 'Other' && otherReason.trim().length === 0)}
-        style={{ width: '100%', padding: 11, borderRadius: 8, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, cursor: 'pointer', opacity: (!validGross || (reason === 'Other' && otherReason.trim().length === 0)) ? 0.6 : 1 }}
+        disabled={!allDraftsValid || changedHoles.length === 0 || (reason === 'Other' && otherReason.trim().length === 0)}
+        style={{
+          width: '100%', marginTop: 12, padding: 11, borderRadius: 8, background: '#14532d', color: '#fff', border: 'none',
+          fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, cursor: 'pointer',
+          opacity: (!allDraftsValid || changedHoles.length === 0 || (reason === 'Other' && otherReason.trim().length === 0)) ? 0.6 : 1,
+        }}
       >
-        Review Changes →
+        {changedHoles.length === 0 ? 'No changes yet' : `Review ${changedHoles.length} Change${changedHoles.length === 1 ? '' : 's'} →`}
+      </button>
+    </div>
+  )
+}
+
+// Package 3 final, item 19 — a restricted subset of the shared reason
+// model for Paper Scorecard specifically, since "incorrect entry" and
+// "scoring dispute" don't apply to a card that was never digitally
+// entered at all.
+const PAPER_REASONS = ['Paper/manual scorecard', 'Phone issue', 'Technical issue', 'Other']
+
+function PaperScorecardEntry({ tripId, roundId, player, roundName, onCancel, onSaved }: {
+  tripId: string; roundId: string; player: PlayerRow; roundName: string
+  onCancel: () => void; onSaved: () => void
+}) {
+  // Package 3 final, item 16/17 — "blank 9/18-hole rapid-entry card."
+  // Deliberately starts genuinely blank (not pre-populated from any
+  // existing digital entries, unlike FullScorecardOverride) — this
+  // player didn't meaningfully participate digitally, so there's
+  // nothing meaningful to pre-fill from. par/strokeIndex/holeNumber
+  // still come from player.holes (the real round holes, per the
+  // explicit "blank card uses the actual round holes, par and stroke
+  // indexes" requirement) — only gross/isNoReturn start empty.
+  const [drafts, setDrafts] = useState<Record<number, { gross: string; isNoReturn: boolean }>>(() => {
+    const initial: Record<number, { gross: string; isNoReturn: boolean }> = {}
+    for (const h of player.holes) initial[h.holeNumber] = { gross: '', isNoReturn: false }
+    return initial
+  })
+  const [reason, setReason] = useState(PAPER_REASONS[0])
+  const [otherReason, setOtherReason] = useState('')
+  const [stage, setStage] = useState<'edit' | 'confirm'>('edit')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const finalReason = reason === 'Other' ? `Other — ${otherReason.trim()}` : reason
+
+  function projectedPts(h: HoleRow, draft: { gross: string; isNoReturn: boolean }): number {
+    if (draft.isNoReturn) return 0
+    if (draft.gross === '' || player.playingHandicap == null) return 0
+    try {
+      return calculateStableford({
+        grossScore: Number(draft.gross), par: h.par, strokeIndex: h.strokeIndex,
+        playingHandicap: player.playingHandicap, holesInRound: player.holesInRound,
+      })
+    } catch { return 0 }
+  }
+
+  const enteredCount = player.holes.filter(h => {
+    const d = drafts[h.holeNumber]
+    return d && (d.isNoReturn || d.gross !== '')
+  }).length
+  // Item 18 — "before final save, every playable hole must have a
+  // gross score OR explicit Pick Up/NR state." This IS the completion
+  // gate — every hole, not just changed ones, since there's no prior
+  // digital state to diff against.
+  const allEntered = enteredCount === player.holes.length
+  const projectedTotal = player.holes.reduce((sum, h) => {
+    const d = drafts[h.holeNumber]
+    return sum + (d ? projectedPts(h, d) : 0)
+  }, 0)
+
+  function updateDraft(holeNumber: number, patch: Partial<{ gross: string; isNoReturn: boolean }>) {
+    setDrafts(prev => ({ ...prev, [holeNumber]: { ...prev[holeNumber], ...patch } }))
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    setError('')
+    try {
+      const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/scorecards/${player.scorecardId}/batch-override`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reason: finalReason,
+          // Item 20 — every hole is sent, not just ones that "changed"
+          // (there's no prior digital value to diff against for a
+          // blank card) — this is what actually creates the
+          // capture_role='self' row for every hole via
+          // applyHoleOverride's own existing create-if-missing branch
+          // (the exact same mechanism Mode 1 already uses for the
+          // "lost/dead phone, hole never entered" case), establishing
+          // this as the player's one official scorecard. No separate
+          // "paper scorecard" table or fabricated marker rows — same
+          // canonical score_entries model everything else already
+          // reads.
+          changes: player.holes.map(h => {
+            const d = drafts[h.holeNumber]
+            return { holeNumber: h.holeNumber, grossScore: d.isNoReturn ? null : Number(d.gross), isNoReturn: d.isNoReturn }
+          }),
+        }),
+      })
+      const resBody = await res.json().catch(() => ({}))
+      if (!res.ok && res.status !== 207) {
+        setError(resBody.error ?? "Couldn't save this scorecard. Please try again.")
+        setSaving(false)
+        return
+      }
+      if (resBody.partial) {
+        setError(`Saved ${resBody.succeeded?.length ?? 0} of ${player.holes.length} holes. Failed: ${(resBody.failed ?? []).map((f: { holeNumber: number }) => `H${f.holeNumber}`).join(', ')}. Please retry the failed holes.`)
+        setSaving(false)
+        return
+      }
+      onSaved()
+    } catch {
+      setError("Couldn't save this scorecard. Check your connection and try again.")
+      setSaving(false)
+    }
+  }
+
+  if (stage === 'confirm') {
+    return (
+      <div style={{ background: '#ffffff', border: '1.5px solid #d9c9a3', borderRadius: 12, padding: 14 }}>
+        <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 13, color: '#14532d', marginBottom: 4 }}>
+          {player.playerName} — {roundName}
+        </div>
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', marginBottom: 10 }}>Paper scorecard entry</div>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, color: '#a1791f', marginBottom: 2 }}>
+          {projectedTotal} pts
+        </div>
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280', marginBottom: 14 }}>{player.holes.length}/{player.holes.length} holes entered</div>
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', marginBottom: 14 }}>
+          Reason: {finalReason}
+        </div>
+        {error && <p style={{ color: '#dc2626', fontSize: 11.5, marginBottom: 8, fontFamily: 'var(--font-body)' }}>{error}</p>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setStage('edit')} disabled={saving} style={{ flex: 1, padding: 10, borderRadius: 8, background: '#f3f4f6', border: '1px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+            ← Back
+          </button>
+          <button onClick={() => void handleSave()} disabled={saving} style={{ flex: 1, padding: 10, borderRadius: 8, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1 }}>
+            {saving ? 'Saving…' : 'Save Official Scorecard'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ background: '#ffffff', border: '1.5px solid #d9c9a3', borderRadius: 12, padding: 14 }}>
+      <button onClick={onCancel} style={backLinkStyle}>← Cancel</button>
+      <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d', margin: '8px 0 2px' }}>{player.playerName}</div>
+      <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 10 }}>{roundName} · Paper scorecard entry</div>
+
+      <select
+        value={reason} onChange={e => setReason(e.target.value)}
+        style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 8, padding: '9px 10px', fontFamily: 'var(--font-body)', fontSize: 13, marginBottom: reason === 'Other' ? 8 : 12, background: '#fff' }}
+      >
+        {PAPER_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+      </select>
+      {reason === 'Other' && (
+        <input
+          value={otherReason} onChange={e => setOtherReason(e.target.value)}
+          placeholder="Please explain"
+          style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 8, padding: '9px 10px', fontFamily: 'var(--font-body)', fontSize: 13, marginBottom: 12 }}
+        />
+      )}
+
+      {/* Item 17/18 — hole number, par, gross input, NR support, running
+          "N/N holes entered" + live Stableford preview, per the exact
+          requested layout. */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: allEntered ? '#166534' : '#a1791f' }}>
+          {enteredCount}/{player.holes.length} holes entered
+        </span>
+        <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#14532d' }}>
+          {projectedTotal} pts
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '50vh', overflowY: 'auto' }}>
+        {player.holes.map((h, idx) => {
+          const d = drafts[h.holeNumber] ?? { gross: '', isNoReturn: false }
+          const filled = d.isNoReturn || d.gross !== ''
+          return (
+            <div
+              key={h.holeNumber}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8,
+                background: filled ? '#f0fdf4' : '#faf9f6', border: `1px solid ${filled ? '#bbf7d0' : '#eceae3'}`,
+              }}
+            >
+              <div style={{ width: 44, flexShrink: 0, fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, color: '#14532d' }}>
+                H{h.holeNumber}
+              </div>
+              <div style={{ width: 40, flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af' }}>
+                Par {h.par}
+              </div>
+              <input
+                type="number" inputMode="numeric" min="1" max="20"
+                value={d.gross} disabled={d.isNoReturn}
+                onChange={e => updateDraft(h.holeNumber, { gross: e.target.value })}
+                onInput={e => {
+                  const val = (e.target as HTMLInputElement).value
+                  if (val.length >= 1 && Number(val) >= 1 && Number(val) <= 20) {
+                    const next = document.getElementById(`paper-hole-${idx + 1}`)
+                    if (next) (next as HTMLInputElement).focus()
+                  }
+                }}
+                id={`paper-hole-${idx}`}
+                placeholder="—"
+                style={{ width: 56, flexShrink: 0, border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 6px', fontFamily: 'var(--font-body)', fontSize: 16, textAlign: 'center', background: d.isNoReturn ? '#f3f4f6' : '#fff' }}
+              />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#7a7260', flexShrink: 0 }}>
+                <input type="checkbox" checked={d.isNoReturn} onChange={e => updateDraft(h.holeNumber, { isNoReturn: e.target.checked, gross: '' })} />
+                NR
+              </label>
+            </div>
+          )
+        })}
+      </div>
+
+      {error && <p style={{ color: '#dc2626', fontSize: 11.5, margin: '10px 0 0', fontFamily: 'var(--font-body)' }}>{error}</p>}
+
+      <button
+        onClick={() => setStage('confirm')}
+        disabled={!allEntered || (reason === 'Other' && otherReason.trim().length === 0)}
+        style={{
+          width: '100%', marginTop: 12, padding: 11, borderRadius: 8, background: '#14532d', color: '#fff', border: 'none',
+          fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, cursor: 'pointer',
+          opacity: (!allEntered || (reason === 'Other' && otherReason.trim().length === 0)) ? 0.6 : 1,
+        }}
+      >
+        {allEntered ? 'Preview & Save →' : `${player.holes.length - enteredCount} hole${player.holes.length - enteredCount === 1 ? '' : 's'} remaining`}
       </button>
     </div>
   )

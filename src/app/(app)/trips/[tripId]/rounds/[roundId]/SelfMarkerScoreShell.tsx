@@ -98,6 +98,7 @@ function HoleBadges({ activeSideComps, isPowerplayHole }: {
 interface ScoreEntryRow {
   hole_id: string; gross_score: number | null; stableford_pts: number | null
   is_no_return: boolean; capture_role: 'self' | 'marker'; entered_by: string
+  admin_overridden?: boolean
 }
 
 interface ScorecardFull {
@@ -126,11 +127,18 @@ interface Props {
 
 type CaptureMap = Record<number, CaptureValue> // keyed by hole_number
 
+interface OverrideAuditEntry {
+  holeId: string; oldGrossScore: number | null; newGrossScore: number
+  reason: string; overriddenByName: string; overriddenAt: string
+}
+
 interface LiveScores {
   round: { id: string; status: string }
   myScorecard: ScorecardFull | null
   markedScorecard: ScorecardFull | null
   markedByName: string | null
+  myOverrideAudit?: OverrideAuditEntry[]
+  markedOverrideAudit?: OverrideAuditEntry[]
 }
 
 async function fetchLiveScores(tripId: string, roundId: string): Promise<LiveScores> {
@@ -147,7 +155,7 @@ function splitByRole(entries: ScoreEntryRow[], holes: Hole[]): { self: CaptureMa
     const holeNum = holeNumberById.get(e.hole_id)
     if (!holeNum) continue
     const target = e.capture_role === 'self' ? self : marker
-    target[holeNum] = { grossScore: e.gross_score, pickedUp: e.is_no_return }
+    target[holeNum] = { grossScore: e.gross_score, pickedUp: e.is_no_return, adminOverridden: e.admin_overridden }
   }
   return { self, marker }
 }
@@ -202,6 +210,7 @@ function statusColor(status: ComparisonStatus): string {
   switch (status) {
     case 'matched': return '#16a34a'
     case 'mismatch': return '#dc2626'
+    case 'resolved_by_organiser': return '#166534'
     case 'pending_marker': case 'pending_self': return '#a1791f'
     default: return '#9ca3af'
   }
@@ -1753,6 +1762,8 @@ export default function SelfMarkerScoreShell({
           onPick={d => pick('mine', d)} onPar={() => pickPar('mine')} onTogglePickUp={() => togglePickUp('mine')}
           status={myComparison} onOpenSummary={() => setShowReconciliation(true)} isLockedForSide={isLocked}
           activeSideComps={activeSideComps} isPowerplayHole={isPowerplayHole} basePts={myBasePts}
+          overrideDetail={(liveData.myOverrideAudit ?? []).find(a => a.holeId === hole?.id) ?? null}
+          markerGrossAtHole={myMarker[holeNum]?.grossScore ?? null}
         />
 
         {/* ── Card 2: YOUR MARKER (the partner I mark) ──────────────────── */}
@@ -1763,6 +1774,8 @@ export default function SelfMarkerScoreShell({
             onPick={d => pick('partner', d)} onPar={() => pickPar('partner')} onTogglePickUp={() => togglePickUp('partner')}
             status={partnerComparison} onOpenSummary={() => setShowReconciliation(true)} isLockedForSide={isPartnerLocked}
             activeSideComps={activeSideComps} isPowerplayHole={isPowerplayHole} basePts={partnerBasePts}
+            overrideDetail={(liveData.markedOverrideAudit ?? []).find(a => a.holeId === hole?.id) ?? null}
+            markerGrossAtHole={draftPartnerGross}
           />
         )}
         </div>
@@ -2057,7 +2070,7 @@ function MismatchBlock({
 }
 
 function ScoreCard({
-  title, name, hcp, par, si, strokes, holeNum, distance, gross, pickedUp, pts, runningTotal, onPick, onPar, onTogglePickUp, status, onOpenSummary, isLockedForSide, activeSideComps, isPowerplayHole, basePts,
+  title, name, hcp, par, si, strokes, holeNum, distance, gross, pickedUp, pts, runningTotal, onPick, onPar, onTogglePickUp, status, onOpenSummary, isLockedForSide, activeSideComps, isPowerplayHole, basePts, overrideDetail, markerGrossAtHole,
 }: {
   title: string; name: string; hcp: number; par: number; si: number; strokes: number; holeNum: number
   distance?: number | null
@@ -2065,7 +2078,15 @@ function ScoreCard({
   onPick: (delta: number) => void; onPar: () => void; onTogglePickUp: () => void
   status: ComparisonStatus | null; onOpenSummary?: () => void; isLockedForSide?: boolean
   activeSideComps?: { id: string; comp_type: string }[]; isPowerplayHole?: boolean; basePts?: number | null
+  // Score Management redesign — the visible "⚙️ Organiser Override"
+  // indicator + expandable "Resolved by organiser" detail. Both
+  // optional so every other, non-overridden hole is completely
+  // unaffected — this only ever renders anything when status is
+  // genuinely 'resolved_by_organiser' AND the matching audit row was
+  // found for this specific hole.
+  overrideDetail?: OverrideAuditEntry | null; markerGrossAtHole?: number | null
 }) {
+  const [showOverrideDetail, setShowOverrideDetail] = useState(false)
   return (
     <div style={{ borderRadius: 12, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 3px 14px rgba(0,0,0,0.08)', marginBottom: 6, overflow: 'hidden' }}>
       <div className="scoring-card-header" style={{ background: '#f7f6f1', padding: '5px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #eceae3' }}>
@@ -2088,13 +2109,44 @@ function ScoreCard({
           {(activeSideComps && activeSideComps.length > 0) || isPowerplayHole
             ? <HoleBadges activeSideComps={activeSideComps ?? []} isPowerplayHole={!!isPowerplayHole} />
             : null}
-          {status && (status === 'matched' || status === 'mismatch') && (
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: statusColor(status), marginTop: 2 }}>
-              {COMPARISON_LABEL[status]}
-            </div>
+          {status && (status === 'matched' || status === 'mismatch' || status === 'resolved_by_organiser') && (
+            status === 'resolved_by_organiser' && overrideDetail ? (
+              <button
+                onClick={() => setShowOverrideDetail(v => !v)}
+                style={{
+                  fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: statusColor(status),
+                  marginTop: 2, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline dotted',
+                }}
+              >
+                ⚙️ Organiser Override
+              </button>
+            ) : (
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: statusColor(status), marginTop: 2 }}>
+                {COMPARISON_LABEL[status]}
+              </div>
+            )
           )}
         </div>
       </div>
+
+      {/* Score Management redesign — expandable "Resolved by organiser"
+          detail. Player entered = overrideDetail.oldGrossScore (the
+          player's own pre-override value, already captured in the
+          audit row itself — not re-derived here); Marker entered =
+          markerGrossAtHole (the other side's value at the time this
+          card is being viewed, since the audit row only ever tracks
+          the self entry's own before/after, never the marker's). */}
+      {status === 'resolved_by_organiser' && overrideDetail && showOverrideDetail && (
+        <div style={{ background: '#f0fdf4', borderBottom: '1px solid #bbf7d0', padding: '10px 12px', fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#374151', lineHeight: 1.6 }}>
+          <div style={{ fontWeight: 700, color: '#166534', marginBottom: 4 }}>Resolved by organiser</div>
+          <div>Player entered: <strong>{overrideDetail.oldGrossScore ?? '—'}</strong></div>
+          <div>Marker entered: <strong>{markerGrossAtHole ?? '—'}</strong></div>
+          <div>Official score: <strong style={{ color: '#166534' }}>{overrideDetail.newGrossScore}</strong></div>
+          <div style={{ marginTop: 4 }}>Reason: {overrideDetail.reason}</div>
+          <div>Organiser: {overrideDetail.overriddenByName}</div>
+          <div>Time: {new Date(overrideDetail.overriddenAt).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}</div>
+        </div>
+      )}
 
       <div className="scoring-card-body" style={{ padding: '9px 12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>

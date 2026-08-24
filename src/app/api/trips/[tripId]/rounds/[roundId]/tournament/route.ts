@@ -22,7 +22,7 @@ interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
 
 interface ScoreEntryRow {
   hole_id: string; gross_score: number | null; stableford_pts: number
-  is_no_return: boolean; capture_role: string; entered_at: string
+  is_no_return: boolean; capture_role: string; entered_at: string; admin_overridden: boolean
 }
 interface ScorecardRow {
   id: string; player_id: string; status: string; submitted_at: string | null
@@ -62,7 +62,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     .select(`
       id, player_id, status, submitted_at,
       profiles:player_id ( full_name ),
-      score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_at )
+      score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_at, admin_overridden )
     `)
     .eq('round_id', roundId)
     .neq('status', 'withdrawn')
@@ -108,8 +108,23 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       for (const [hn, self] of selfByHole) {
         const marker = markerByHole.get(hn)
         if (!marker) { waitingForMarker = true; continue }
-        const differs = self.is_no_return !== marker.is_no_return
+        // Organiser adjudication fix — an admin_overridden self entry
+        // (Package 3 P0 corrective) is the organiser's own authoritative
+        // ruling, not another input into player/marker reconciliation.
+        // Previously this comparison only ever looked at raw
+        // self.gross_score vs marker.gross_score, so an organiser
+        // correction of Alex's own entry (5 -> 3) still disagreed with
+        // TEST's untouched marker entry (4) and kept surfacing as an
+        // active "needs review" mismatch even after the organiser had
+        // explicitly resolved it — exactly the reported bug. The
+        // marker's historical entry is deliberately left completely
+        // untouched here (still 4, exactly as TEST submitted it) — this
+        // only changes whether it's treated as an ACTIVE dispute, never
+        // rewrites what TEST actually recorded.
+        const differs = !self.admin_overridden && (
+          self.is_no_return !== marker.is_no_return
           || (!self.is_no_return && self.gross_score !== marker.gross_score)
+        )
         // Reconciliation trace — per explicit request to instrument the
         // pipeline rather than assume it's working. Logs every compared
         // hole (not just mismatches), so if My HQ and the player's own
@@ -121,7 +136,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
           playerGross: self.is_no_return ? 'no_return' : self.gross_score,
           markerGross: marker.is_no_return ? 'no_return' : marker.gross_score,
           playerEnteredAt: self.entered_at, markerEnteredAt: marker.entered_at,
-          comparisonResult: differs ? 'mismatch' : 'matched',
+          comparisonResult: self.admin_overridden ? 'resolved_by_organiser' : (differs ? 'mismatch' : 'matched'),
           reviewFlag: differs,
         })
         if (differs) {

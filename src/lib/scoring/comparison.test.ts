@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { compareCaptures } from './comparison'
+import { COMPARISON_LABEL } from './comparison'
 
 test('neither entered -> not_started', () => {
   assert.equal(compareCaptures(null, null), 'not_started')
@@ -157,4 +158,41 @@ test('hasUnresolvedMismatch — either side alone is enough to block (both cards
   assert.equal(hasUnresolvedMismatch('matched', 'mismatch'), true)
   assert.equal(hasUnresolvedMismatch('matched', 'matched'), false)
   assert.equal(hasUnresolvedMismatch('matched', null), false)
+})
+
+// ── Package 3 P0 corrective — organiser adjudication ─────────────────
+
+test('compareCaptures — the exact reported scenario: Alex 5, organiser corrects to 3, TEST\u2019s marker entry of 4 stays untouched', () => {
+  // Before correction: genuine mismatch (5 vs 4).
+  const before = compareCaptures({ grossScore: 5, pickedUp: false }, { grossScore: 4, pickedUp: false })
+  assert.equal(before, 'mismatch')
+
+  // After organiser adjudication: self is now 3 with adminOverridden
+  // true. Marker's own historical entry is passed completely unchanged
+  // (still 4) — the fix must resolve this without altering it at all.
+  const after = compareCaptures({ grossScore: 3, pickedUp: false, adminOverridden: true }, { grossScore: 4, pickedUp: false })
+  assert.equal(after, 'resolved_by_organiser')
+})
+
+test('compareCaptures — adminOverridden resolves even when the marker happens to already agree', () => {
+  const result = compareCaptures({ grossScore: 3, pickedUp: false, adminOverridden: true }, { grossScore: 3, pickedUp: false })
+  assert.equal(result, 'resolved_by_organiser')
+})
+
+test('compareCaptures — adminOverridden false/absent behaves exactly as before (no regression for every existing call site)', () => {
+  assert.equal(compareCaptures({ grossScore: 5, pickedUp: false }, { grossScore: 4, pickedUp: false }), 'mismatch')
+  assert.equal(compareCaptures({ grossScore: 5, pickedUp: false, adminOverridden: false }, { grossScore: 4, pickedUp: false }), 'mismatch')
+  assert.equal(compareCaptures({ grossScore: 5, pickedUp: false }, { grossScore: 5, pickedUp: false }), 'matched')
+})
+
+test('hasUnresolvedMismatch — resolved_by_organiser is never treated as a blocking mismatch', () => {
+  assert.equal(hasUnresolvedMismatch('resolved_by_organiser', null), false)
+  assert.equal(hasUnresolvedMismatch('resolved_by_organiser', 'matched'), false)
+  assert.equal(hasUnresolvedMismatch(null, 'resolved_by_organiser'), false)
+})
+
+test('COMPARISON_LABEL — resolved_by_organiser has its own distinct label, not reused from matched or mismatch', () => {
+  assert.equal(COMPARISON_LABEL.resolved_by_organiser, 'Resolved by organiser')
+  assert.notEqual(COMPARISON_LABEL.resolved_by_organiser, COMPARISON_LABEL.matched)
+  assert.notEqual(COMPARISON_LABEL.resolved_by_organiser, COMPARISON_LABEL.mismatch)
 })

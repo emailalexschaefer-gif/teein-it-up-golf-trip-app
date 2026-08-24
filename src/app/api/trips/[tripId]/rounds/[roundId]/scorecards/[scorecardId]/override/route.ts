@@ -19,11 +19,24 @@
  * every leaderboard/results/reconciliation query already reads
  * capture_role = 'self' as authoritative (an established convention
  * throughout this app, not something introduced here).
+ *
+ * Package 3 P0 corrective — confirmed and left unchanged: this route
+ * has never checked scorecards.status. It writes score_entries directly
+ * regardless of whether the player's card is 'active' or 'completed',
+ * so an organiser correction already works on an already-finalised
+ * scorecard with no separate unlock step required — exactly the
+ * simplified "find player -> correct -> Confirm & Save -> done" flow
+ * requested. The scorecard's own lock state is intentionally left
+ * completely untouched by this route either way (the organiser's
+ * correction doesn't reopen or reset the player's own confirmation),
+ * which is also correct: reconciliation status now instead comes from
+ * admin_overridden (see the tournament route's own comment on this),
+ * not from the scorecard's lock state.
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { randomUUID } from 'crypto'
+import { applyHoleOverride } from '@/lib/scoring/applyHoleOverride'
 
 interface RouteProps { params: Promise<{ tripId: string; roundId: string; scorecardId: string }> }
 
@@ -64,69 +77,8 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     return NextResponse.json({ error: 'Scorecard not found.' }, { status: 404 })
   }
 
-  const holeRes = await admin.from('holes').select('id').eq('round_id', roundId).eq('hole_number', holeNumber).maybeSingle()
-  if (!holeRes.data) return NextResponse.json({ error: 'Hole not found for this round.' }, { status: 404 })
-  const holeId = holeRes.data.id
+  const result = await applyHoleOverride(admin, scorecardId, roundId, holeNumber, grossScore, isNoReturn, reason, user.id)
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 500 })
 
-  const existingRes = await admin
-    .from('score_entries')
-    .select('id, gross_score, is_no_return')
-    .eq('scorecard_id', scorecardId).eq('hole_id', holeId).eq('capture_role', 'self')
-    .maybeSingle()
-
-  const finalGross = isNoReturn ? 1 : (grossScore as number) // gross_score is NOT NULL — a no-return still needs a placeholder value; is_no_return is the actual signal downstream, matching the existing self-capture convention already used elsewhere in this app for pick-ups/no-returns.
-
-  let scoreEntryId: string
-  let oldGross: number | null = null
-  let oldNoReturn = false
-
-  if (existingRes.data) {
-    scoreEntryId = existingRes.data.id
-    oldGross = existingRes.data.gross_score
-    oldNoReturn = existingRes.data.is_no_return
-    const { error: updateError } = await admin
-      .from('score_entries')
-      .update({ gross_score: finalGross, is_no_return: isNoReturn, admin_overridden: true })
-      .eq('id', scoreEntryId)
-    if (updateError) {
-      console.error('[score override] update failed', { scorecardId, holeId, error: updateError.message })
-      return NextResponse.json({ error: "Couldn't save the override. Please try again." }, { status: 500 })
-    }
-  } else {
-    // No score was ever entered for this hole — the "lost/dead phone"
-    // case explicitly named in the requirements. entered_by is the
-    // organiser performing the override, not a claim about who actually
-    // played the hole — the audit row (and admin_overridden = true) is
-    // what makes this distinction visible, not entered_by.
-    const { data: inserted, error: insertError } = await admin
-      .from('score_entries')
-      .insert({
-        scorecard_id: scorecardId, hole_id: holeId, capture_role: 'self',
-        gross_score: finalGross, is_no_return: isNoReturn,
-        entered_by: user.id, client_id: randomUUID(), admin_overridden: true,
-      })
-      .select('id').single()
-    if (insertError || !inserted) {
-      console.error('[score override] insert failed', { scorecardId, holeId, error: insertError?.message })
-      return NextResponse.json({ error: "Couldn't save the override. Please try again." }, { status: 500 })
-    }
-    scoreEntryId = inserted.id
-  }
-
-  const { error: auditError } = await admin.from('score_override_audit').insert({
-    score_entry_id: scoreEntryId, scorecard_id: scorecardId, hole_id: holeId,
-    old_gross_score: oldGross, new_gross_score: finalGross,
-    old_is_no_return: oldNoReturn, new_is_no_return: isNoReturn,
-    reason, overridden_by: user.id,
-  })
-  if (auditError) {
-    // The score change already succeeded above — a failed audit insert
-    // is logged loudly but does not roll back the correction itself,
-    // since the organiser's fix is more urgent than its own paper trail
-    // in the reconciliation-deadlock scenario this exists for. Surfaced
-    // clearly in logs so it can be investigated, not silently dropped.
-    console.error('[score override] AUDIT ROW FAILED — score itself was already updated', { scoreEntryId, scorecardId, holeId, error: auditError.message })
-  }
-
-  return NextResponse.json({ ok: true, scoreEntryId })
+  return NextResponse.json({ ok: true, scoreEntryId: result.scoreEntryId })
 }
