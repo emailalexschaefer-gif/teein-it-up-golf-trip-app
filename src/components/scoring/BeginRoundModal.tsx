@@ -177,6 +177,15 @@ export default function BeginRoundModal({
   const [mutationError, setMutationError] = useState('')
   const [pendingProfileId, setPendingProfileId] = useState<string | null>(null)
   const [handicapOverrides, setHandicapOverrides] = useState<Record<string, number>>({})
+  // Add-on 2 — Handicap Basis. Default 'daily' preserves this app's
+  // existing, already-implicit behaviour exactly (dailyHandicapFor was
+  // already the sole baseline for every player before this feature —
+  // see baseRoundHandicap below, unchanged in its 'daily' branch). This
+  // toggle adds 'exact' as a genuine alternative starting point, not a
+  // second handicap formula — 'exact' simply calls the same
+  // resolvePlayingHandicap this file already uses elsewhere, with no
+  // slope adjustment.
+  const [handicapBasis, setHandicapBasis] = useState<'exact' | 'daily'>('daily')
 
   // Priority 3 — round-specific tee times. groupTeeTimes holds what's
   // actually saved for THIS round (round_group_tee_times, fetched
@@ -280,7 +289,12 @@ export default function BeginRoundModal({
 
   function baseRoundHandicap(p: { profile_id: string; playing_handicap: number | null; profile_handicap: number | null }): number | null {
     const ga = resolvePlayingHandicap(p.playing_handicap, p.profile_handicap)
-    return dailyHandicapFor(ga)
+    // Add-on 2 — 'exact' returns the unadjusted GA handicap directly
+    // (the same resolvePlayingHandicap value this file's own missingHcp
+    // check, readiness gate, etc. already all use), 'daily' keeps the
+    // exact same calculateDailyHandicap path this function already had
+    // before this toggle existed. Neither branch is new arithmetic.
+    return handicapBasis === 'exact' ? ga : dailyHandicapFor(ga)
   }
 
   function currentRoundHandicap(p: { profile_id: string; playing_handicap: number | null; profile_handicap: number | null }): number | null {
@@ -463,7 +477,26 @@ export default function BeginRoundModal({
       const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/start`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ holes, handicapOverrides }),
+        // Add-on 2 — sends the FULL resolved handicap for every player
+        // (currentRoundHandicap, basis-aware), not just the sparse
+        // manual-adjustment entries in handicapOverrides state. The
+        // /start endpoint's own logic (unchanged) always recomputes
+        // calculateDailyHandicap for any player NOT present in this
+        // map — sending only the delta-style overrides would make the
+        // Exact HCP basis completely inert for every player Darren
+        // didn't personally nudge with +/-, since the server has no
+        // other way to learn which basis was chosen. Every player now
+        // has an explicit resolved value here, so the server's
+        // existing "override present -> use it, else compute Daily"
+        // branch naturally honours whichever basis the client
+        // resolved to, without the server needing to know about
+        // handicapBasis as a separate concept at all.
+        body: JSON.stringify({
+          holes,
+          handicapOverrides: Object.fromEntries(
+            localGroups.flatMap(g => g.players).map(p => [p.profile_id, currentRoundHandicap(p) ?? 0])
+          ),
+        }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -685,6 +718,41 @@ export default function BeginRoundModal({
                   </button>
                 ))}
               </div>
+
+              {/* Add-on 2 — Handicap Basis. Visually consistent with the
+                  Standard/Shotgun control immediately above (same
+                  segmented-button pattern, same sizing), placed directly
+                  below it per the explicit instruction. Switching basis
+                  deliberately clears every manual +/- override (item
+                  12's "selecting a basis establishes a new starting
+                  point; individual +/- changes happen afterward") —
+                  otherwise a stale override from the previous basis
+                  would silently survive and mask the new baseline. */}
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#7a7260', marginBottom: 6, letterSpacing: 0.3 }}>
+                HANDICAP BASIS
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                {(['exact', 'daily'] as const).map(basis => (
+                  <button
+                    key={basis}
+                    type="button"
+                    onClick={() => { setHandicapBasis(basis); setHandicapOverrides({}) }}
+                    style={{
+                      flex: 1, padding: '9px 0', borderRadius: 8, fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
+                      background: handicapBasis === basis ? '#1a4731' : '#f3f4f6',
+                      color: handicapBasis === basis ? '#fff' : '#374151',
+                      border: handicapBasis === basis ? 'none' : '1px solid #d1d5db',
+                    }}
+                  >
+                    {basis === 'exact' ? 'Exact HCP' : 'Daily HCP'}
+                  </button>
+                ))}
+              </div>
+              {handicapBasis === 'daily' && slopeRating == null && (
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a1791f', marginTop: -6, marginBottom: 12 }}>
+                  No slope rating found for this round&apos;s course/tee — Daily HCP is showing unadjusted values. Set up the course via the Course Library to enable the slope calculation.
+                </p>
+              )}
 
               {localGroups.map(g => {
                 const missingHcp = g.players.filter(p => resolvePlayingHandicap(p.playing_handicap, p.profile_handicap) === null)

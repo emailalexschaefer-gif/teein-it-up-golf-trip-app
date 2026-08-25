@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import ScoreSessionShell from './ScoreSessionShell'
 import SelfMarkerScoreShell from './SelfMarkerScoreShell'
 import PaperScorecardStatus from './PaperScorecardStatus'
+import { detectSharedDeviceGroup } from '@/lib/scoring/sharedDeviceScoring'
+import SharedDeviceScoreShell from './SharedDeviceScoreShell'
 
 // Same reasoning as the trip detail page — never serve a cached render here.
 export const dynamic = 'force-dynamic'
@@ -112,6 +114,30 @@ export default async function RoundScorePage({ params }: Props) {
     .eq('player_id', user.id)
     .maybeSingle()
 
+  // Add-on 1 — Shared-Device Scoring detection. Re-derived here, server-
+  // side, from the caller's actual group's scorecards — never trusted
+  // from the client. Runs once, before either the paper intercept or
+  // the self_and_marker branch below, so both the digital player (who
+  // needs the new shared-device shell) and the paper player (who needs
+  // different copy on their own status screen, per item 7) are covered
+  // by a single detection, not two independently-maintained checks.
+  let sharedDeviceDetection: ReturnType<typeof detectSharedDeviceGroup> = { isSharedDevice: false, digitalPlayerId: null, paperPlayerId: null }
+  let sharedDevicePartnerName: string | null = null
+  if (memberCheck.data.group_id) {
+    const groupCardsRes = await admin.from('scorecards').select('player_id, scoring_method, profiles:player_id(full_name)').eq('round_id', roundId).neq('status', 'withdrawn')
+    const groupMembersRes = await admin.from('trip_members').select('profile_id').eq('trip_id', tripId).eq('group_id', memberCheck.data.group_id)
+    const groupProfileIds = new Set((groupMembersRes.data ?? []).map((m: { profile_id: string }) => m.profile_id))
+    const relevantCards = (groupCardsRes.data ?? []).filter((c: { player_id: string }) => groupProfileIds.has(c.player_id))
+    sharedDeviceDetection = detectSharedDeviceGroup(
+      relevantCards.map((c: { player_id: string; scoring_method: string }) => ({ playerId: c.player_id, scoringMethod: c.scoring_method === 'paper' ? 'paper' : 'digital' }))
+    )
+    if (sharedDeviceDetection.isSharedDevice) {
+      const partnerId = sharedDeviceDetection.digitalPlayerId === user.id ? sharedDeviceDetection.paperPlayerId : sharedDeviceDetection.digitalPlayerId
+      const partnerCard = relevantCards.find((c: { player_id: string }) => c.player_id === partnerId) as { profiles?: { full_name?: string } | null } | undefined
+      sharedDevicePartnerName = partnerCard?.profiles?.full_name ?? null
+    }
+  }
+
   // Offline Player Support — a paper-scorecard player never enters either
   // digital scoring shell at all, regardless of score_capture_mode. This
   // is the single, server-side, centralized intercept point (before any
@@ -137,6 +163,12 @@ export default async function RoundScorePage({ params }: Props) {
       <PaperScorecardStatus
         tripId={tripId} roundId={roundId} tripName={tripRes.data?.name ?? 'Trip'}
         roundName={round.name} paperTotal={paperTotal}
+        // Add-on 1, item 7 — Mick's own screen, when he's the paper
+        // half of a detected shared-device pairing, gets the explicit
+        // "Alex is scoring for you" copy instead of the generic paper
+        // waiting message, without changing anything about what data
+        // this page fetched or how paperTotal was computed above.
+        sharedDeviceScorerName={sharedDeviceDetection.isSharedDevice && sharedDeviceDetection.paperPlayerId === user.id ? sharedDevicePartnerName : null}
       />
     )
   }
@@ -219,6 +251,27 @@ export default async function RoundScorePage({ params }: Props) {
   // default, and individual) uses the new per-player self+marker model.
   if (round.score_capture_mode !== 'group_scorer') {
     const myCard = allCards.find((c) => c.player_id === user.id) ?? null
+
+    // Add-on 1 — intercepts here, before the standard self_and_marker
+    // flow below ever computes a marker pairing for Alex. Deliberately
+    // scoped to self_and_marker/individual only (the modes this branch
+    // already covers) — group_scorer's own separate flow is untouched,
+    // matching "preserve the normal 3-player Paper Card workflow
+    // unchanged" (a 3+ player group can never satisfy the exactly-2
+    // detection anyway, so this is belt-and-braces, not the only
+    // protection).
+    if (sharedDeviceDetection.isSharedDevice && sharedDeviceDetection.digitalPlayerId === user.id && myCard) {
+      const paperCardRes = await admin.from('scorecards').select('id, playing_handicap').eq('round_id', roundId).eq('player_id', sharedDeviceDetection.paperPlayerId).maybeSingle()
+      return (
+        <SharedDeviceScoreShell
+          tripId={tripId} tripName={tripName} round={round}
+          myScorecard={myCard}
+          paperPlayerId={sharedDeviceDetection.paperPlayerId ?? ''}
+          paperPlayerName={sharedDevicePartnerName ?? 'Your playing partner'}
+          paperPlayingHandicap={paperCardRes.data?.playing_handicap ?? null}
+        />
+      )
+    }
 
     // 'individual' mode genuinely has no marker concept — skip the
     // round_markers lookup entirely rather than fetching it and then
