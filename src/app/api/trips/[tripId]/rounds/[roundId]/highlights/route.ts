@@ -11,7 +11,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { generateMakersAndBreakers, type FieldRoundData, type PlayerRoundData } from '@/lib/highlights/makersBreakers'
+import { generateMakersAndBreakers, buildCourseReport, type FieldRoundData, type PlayerRoundData } from '@/lib/highlights/makersBreakers'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -105,8 +105,14 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
     const field: FieldRoundData = { players, totalHoles }
     const { makers, breakers } = generateMakersAndBreakers(field)
+    // Item 2 — Course Report, the standard opening screen before the
+    // candidate lists. buildCourseReport already existed and already
+    // correctly computes this from the exact same field data — this
+    // route simply wasn't calling it or returning it yet.
+    const parByHole = new Map<number, number>((holesRes.data ?? []).map((h: HoleRow) => [h.hole_number, h.par]))
+    const courseReport = buildCourseReport(field, parByHole)
 
-    return NextResponse.json({ makers, breakers })
+    return NextResponse.json({ makers, breakers, courseReport })
   } catch (err) {
     console.error('[highlights] unexpected error', err)
     return NextResponse.json({ error: 'Could not generate highlights.' }, { status: 500 })

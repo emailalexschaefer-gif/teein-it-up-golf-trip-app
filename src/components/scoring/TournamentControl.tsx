@@ -171,7 +171,30 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
     setTimeout(() => setNotifyTarget(null), 1200)
   }
   const [closing, setClosing] = useState(false)
-  const [showMakersBreakers, setShowMakersBreakers] = useState(false)
+  // Post-round UX top-up, item 8 — multi-round integrity. roundId (the
+  // PROP) tracks whatever round the parent currently resolves as
+  // "active," which can change out from under this component the
+  // moment router.refresh() runs after a successful close (Round 1
+  // completing can make Round 2 the new activeRound server-side).
+  // React does not remount this component for a prop change alone, so
+  // any code reading the live roundId prop after that point would
+  // silently start reading Round 2's data mid-flow. closedRoundId
+  // captures the round that was ACTUALLY closed, once, at the moment
+  // of success, and the post-round flow below reads only this captured
+  // value — never the live prop — for exactly this reason.
+  const [postRoundStage, setPostRoundStage] = useState<'none' | 'snapshot' | 'makers_breakers'>('none')
+  const [closedRoundId, setClosedRoundId] = useState<string | null>(null)
+  const [closedRoundName, setClosedRoundName] = useState<string>('')
+  const [closedCourseName, setClosedCourseName] = useState<string | null>(null)
+  const [snapshot, setSnapshot] = useState<{
+    fieldAverage: number
+    easiestHole: { holeNumber: number; par: number; average: number } | null
+    hardestHole: { holeNumber: number; par: number; average: number } | null
+    roundWinner: { playerId: string; playerName: string; totalPts: number } | null
+    totalBirdies: number
+    totalWipes: number
+  } | null>(null)
+  const [snapshotLoading, setSnapshotLoading] = useState(false)
   const [closeError, setCloseError] = useState<string | null>(null)
 
   const { data, isLoading, error, refetch, isFetching } = useQuery<TournamentData>({
@@ -240,13 +263,23 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
       const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/close`, { method: 'POST' })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) { setCloseError(body.error ?? 'Could not close the round.'); return }
-      // Trigger sequence: Finish Round -> Reconcile -> Makers & Breakers
-      // -> Present Side Games/Round Winners. router.refresh()/refetch()
-      // still run immediately so the underlying data is fresh by the
-      // time the organiser dismisses the overlay — Makers & Breakers
-      // itself does its own independent fetch of the now-completed
-      // round's data via the highlights API route.
-      setShowMakersBreakers(true)
+      // Trigger sequence: Finish Round -> Round Snapshot -> Makers &
+      // Breakers -> Present Side Games/Round Winners. roundId/roundName/
+      // courseName are captured HERE, once, into closedRoundId etc. —
+      // not read live from props/data again anywhere in this post-round
+      // flow, per this component's own state-declaration comment on why
+      // that distinction matters for multi-round integrity. router.
+      // refresh()/refetch() still run immediately so the underlying data
+      // is fresh by the time the organiser dismisses the overlay.
+      setClosedRoundId(roundId)
+      setClosedRoundName(data?.roundName ?? '')
+      setClosedCourseName(data?.courseName ?? null)
+      setPostRoundStage('snapshot')
+      setSnapshotLoading(true)
+      fetch(`/api/trips/${tripId}/rounds/${roundId}/highlights`)
+        .then(r => r.ok ? r.json() : null)
+        .then(b => { if (b?.courseReport) setSnapshot(b.courseReport) })
+        .finally(() => setSnapshotLoading(false))
       router.refresh()
       refetch()
     } catch {
@@ -259,15 +292,105 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
   if (isLoading) {
     return <div style={{ textAlign: 'center', padding: '40px 0', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>Loading My HQ…</div>
   }
-  if (showMakersBreakers) {
-    // Takes over the whole My HQ view temporarily — matches the brief's
-    // explicit sequence (Finish Round -> Reconcile -> Makers & Breakers
-    // -> Present Side Games/Round Winners), not a modal layered on top
-    // of the normal My HQ content underneath.
+  if (postRoundStage === 'snapshot') {
+    // Item 2 — the Round Snapshot screen, using ONLY closedRoundId/
+    // closedRoundName/closedCourseName (captured at close time), never
+    // the live roundId/data props — see this component's own state
+    // declaration comment for why that distinction is the actual fix
+    // for item 8's multi-round integrity requirement.
+    return (
+      <div style={{ textAlign: 'center', padding: '24px 16px' }}>
+        <div style={{ fontSize: 32, marginBottom: 6 }}>✅</div>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 800, color: '#14532d' }}>
+          {closedRoundName.toUpperCase()} COMPLETE
+        </div>
+        {closedCourseName && (
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#9ca3af', marginTop: 2 }}>{closedCourseName}</div>
+        )}
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#7a7260', marginTop: 4 }}>All scores are final.</p>
+
+        <div style={{ marginTop: 20, fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#a1791f', letterSpacing: 0.3 }}>
+          ⛳ {closedRoundName.toUpperCase()} SNAPSHOT
+        </div>
+
+        {snapshotLoading && <div style={{ marginTop: 16, fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af' }}>Crunching the numbers…</div>}
+
+        {snapshot && (
+          <div style={{ marginTop: 16, textAlign: 'left', maxWidth: 340, margin: '16px auto 0', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {snapshot.roundWinner && (
+              <div>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#7a7260' }}>🥇 Round Winner</div>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#14532d' }}>{snapshot.roundWinner.playerName} — {snapshot.roundWinner.totalPts} pts</div>
+              </div>
+            )}
+            <div>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#7a7260' }}>📊 Field Average</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#14532d' }}>{snapshot.fieldAverage.toFixed(1)} pts</div>
+            </div>
+            <div style={{ display: 'flex', gap: 24 }}>
+              <div>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#7a7260' }}>🐦 Birdies</div>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#14532d' }}>{snapshot.totalBirdies}</div>
+              </div>
+              <div>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#7a7260' }}>💀 Wipes</div>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#14532d' }}>{snapshot.totalWipes}</div>
+              </div>
+            </div>
+            {snapshot.easiestHole && (
+              <div>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#7a7260' }}>😇 Easiest Hole</div>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#14532d' }}>Hole {snapshot.easiestHole.holeNumber} • Par {snapshot.easiestHole.par}</div>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af' }}>{snapshot.easiestHole.average.toFixed(1)} Stableford pts average</div>
+              </div>
+            )}
+            {snapshot.hardestHole && (
+              <div>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#7a7260' }}>😈 Hardest Hole</div>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#14532d' }}>Hole {snapshot.hardestHole.holeNumber} • Par {snapshot.hardestHole.par}</div>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af' }}>{snapshot.hardestHole.average.toFixed(1)} Stableford pts average</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Item 4 — the Makers & Breakers invitation card, prominent,
+            not a toast. */}
+        <div style={{
+          marginTop: 24, background: '#fdf3d9', border: '1.5px solid #e8c96a', borderRadius: 14,
+          padding: '18px 16px', maxWidth: 340, margin: '24px auto 0',
+        }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#a1791f' }}>🔥 MAKERS &amp; BREAKERS</div>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#7a5c00', marginTop: 6, lineHeight: 1.5 }}>
+            We&apos;ve crunched the numbers from {closedRoundName}. See who delivered, who caught fire, who went missing — and which groups made or broke their round.
+          </p>
+          <button
+            onClick={() => setPostRoundStage('makers_breakers')}
+            style={{ width: '100%', marginTop: 12, padding: 12, borderRadius: 10, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
+          >
+            See {closedRoundName} Makers &amp; Breakers →
+          </button>
+          <button
+            onClick={() => setPostRoundStage('none')}
+            style={{ width: '100%', marginTop: 8, padding: 10, borderRadius: 10, background: 'none', border: 'none', color: '#a1791f', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, cursor: 'pointer', textDecoration: 'underline' }}
+          >
+            Do this later
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (postRoundStage === 'makers_breakers' && closedRoundId) {
+    // Item 5/6 — deep-links straight into the existing, unmodified
+    // MakersBreakers component, using closedRoundId (captured, not
+    // live) so this stays pinned to the round that was actually
+    // closed even if the parent's own activeRound resolution has since
+    // moved on to a later round.
     return (
       <MakersBreakers
-        tripId={tripId} roundId={roundId}
-        onProceedToResults={() => setShowMakersBreakers(false)}
+        tripId={tripId} roundId={closedRoundId}
+        onProceedToResults={() => setPostRoundStage('none')}
       />
     )
   }
@@ -298,6 +421,43 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
 
   return (
     <div>
+      {/* Item 7 — persistent access. When this specific round is
+          completed and the organiser has dismissed/left the post-round
+          flow (postRoundStage === 'none'), the Snapshot/Makers &
+          Breakers entry points remain reachable here rather than
+          disappearing once the initial "Do this later" tap happens.
+          Genuinely honest scope note: this covers the round currently
+          being viewed (roundStatus prop), not yet a full list of every
+          completed round across a multi-round trip — that would need a
+          separate, trip-level component this pass didn't build. */}
+      {roundStatus === 'completed' && (
+        <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 14, padding: '12px 14px', marginBottom: 14 }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#166534', letterSpacing: 0.3, marginBottom: 8 }}>
+            {data.roundName.toUpperCase()} — COMPLETE ✓
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => {
+                setClosedRoundId(roundId); setClosedRoundName(data.roundName); setClosedCourseName(data.courseName)
+                setPostRoundStage('snapshot'); setSnapshotLoading(true)
+                fetch(`/api/trips/${tripId}/rounds/${roundId}/highlights`)
+                  .then(r => r.ok ? r.json() : null)
+                  .then(b => { if (b?.courseReport) setSnapshot(b.courseReport) })
+                  .finally(() => setSnapshotLoading(false))
+              }}
+              style={{ flex: 1, padding: '9px 0', borderRadius: 8, background: '#fff', border: '1px solid #bbf7d0', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, color: '#166534', cursor: 'pointer' }}
+            >
+              📊 Round Snapshot →
+            </button>
+            <button
+              onClick={() => { setClosedRoundId(roundId); setPostRoundStage('makers_breakers') }}
+              style={{ flex: 1, padding: '9px 0', borderRadius: 8, background: '#fff', border: '1px solid #bbf7d0', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, color: '#166534', cursor: 'pointer' }}
+            >
+              🔥 Makers &amp; Breakers →
+            </button>
+          </div>
+        </div>
+      )}
       {/* ── 1. Event Health ───────────────────────────────────────────── */}
       <div style={{ background: healthBg, border: `1.5px solid ${healthBorder}`, borderRadius: 14, padding: '14px 16px', marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

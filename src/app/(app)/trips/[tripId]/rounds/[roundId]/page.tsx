@@ -5,7 +5,6 @@ import ScoreSessionShell from './ScoreSessionShell'
 import SelfMarkerScoreShell from './SelfMarkerScoreShell'
 import PaperScorecardStatus from './PaperScorecardStatus'
 import { detectSharedDeviceGroup } from '@/lib/scoring/sharedDeviceScoring'
-import SharedDeviceScoreShell from './SharedDeviceScoreShell'
 
 // Same reasoning as the trip detail page — never serve a cached render here.
 export const dynamic = 'force-dynamic'
@@ -252,26 +251,26 @@ export default async function RoundScorePage({ params }: Props) {
   if (round.score_capture_mode !== 'group_scorer') {
     const myCard = allCards.find((c) => c.player_id === user.id) ?? null
 
-    // Add-on 1 — intercepts here, before the standard self_and_marker
-    // flow below ever computes a marker pairing for Alex. Deliberately
-    // scoped to self_and_marker/individual only (the modes this branch
-    // already covers) — group_scorer's own separate flow is untouched,
-    // matching "preserve the normal 3-player Paper Card workflow
-    // unchanged" (a 3+ player group can never satisfy the exactly-2
-    // detection anyway, so this is belt-and-braces, not the only
-    // protection).
-    if (sharedDeviceDetection.isSharedDevice && sharedDeviceDetection.digitalPlayerId === user.id && myCard) {
-      const paperCardRes = await admin.from('scorecards').select('id, playing_handicap').eq('round_id', roundId).eq('player_id', sharedDeviceDetection.paperPlayerId).maybeSingle()
-      return (
-        <SharedDeviceScoreShell
-          tripId={tripId} tripName={tripName} round={round}
-          myScorecard={myCard}
-          paperPlayerId={sharedDeviceDetection.paperPlayerId ?? ''}
-          paperPlayerName={sharedDevicePartnerName ?? 'Your playing partner'}
-          paperPlayingHandicap={paperCardRes.data?.playing_handicap ?? null}
-        />
-      )
-    }
+    // Add-on 1 — corrected architecture. Shared-device scoring is now a
+    // MODE FLAG on the existing SelfMarkerScoreShell, not a separate,
+    // stripped-down component. The key insight: SelfMarkerScoreShell's
+    // "who is my marker/who do I mark" resolution normally comes from
+    // round_markers, but that lookup is only a MEANS to get a
+    // ScorecardWithGroup — Marnie's real scorecard (with her real
+    // playing_handicap) already exists in allCards regardless. Setting
+    // markedCard directly from allCards, bypassing round_markers
+    // entirely, means currentMarked is truthy from the very first
+    // render — the "Choose your Playing Partner" flow (which only ever
+    // fires when requiresMarker && !currentMarked) structurally never
+    // triggers, with no separate code path needed to suppress it. This
+    // is what makes every other Side Games/leaderboard/Pro Tip/hole-
+    // navigation feature "just work" unchanged: none of that was ever
+    // specific to round_markers-based pairing, only to currentMarked
+    // being set.
+    const isSharedDeviceForMe = sharedDeviceDetection.isSharedDevice && sharedDeviceDetection.digitalPlayerId === user.id
+    const sharedDevicePaperCard = isSharedDeviceForMe
+      ? allCards.find((c) => c.player_id === sharedDeviceDetection.paperPlayerId) ?? null
+      : null
 
     // 'individual' mode genuinely has no marker concept — skip the
     // round_markers lookup entirely rather than fetching it and then
@@ -282,7 +281,15 @@ export default async function RoundScorePage({ params }: Props) {
     let markedByProfile: ScorecardProfile | null = null
     let markedCard: ScorecardWithGroup | null = null
 
-    if (usesMarkers) {
+    if (isSharedDeviceForMe) {
+      // Shared-device mode — markedCard is Marnie's real scorecard,
+      // resolved directly above from allCards, not from round_markers
+      // (round_markers is never written for this pairing at all — see
+      // the shared-device-score endpoint's own write path). Alex has
+      // no one marking HIM (markedByProfile stays null), exactly like
+      // a solo digital player would.
+      markedCard = sharedDevicePaperCard
+    } else if (usesMarkers) {
       const markersRes = await admin
         .from('round_markers')
         .select('player_id, marker_player_id')
@@ -348,6 +355,13 @@ export default async function RoundScorePage({ params }: Props) {
         isOrganiser={isOrganiser}
         dataProblem={dataProblem}
         fullGroupRoster={fullGroupRoster}
+        // Add-on 1 — corrected architecture. isSharedDeviceScoring only
+        // changes: the partner card's heading/label, whether
+        // partnerComparison is ever computed (never, in this mode —
+        // see this component's own internal changes), and which write
+        // path confirmScore uses for the second score. Nothing else
+        // about the render tree is conditioned on this flag.
+        isSharedDeviceScoring={isSharedDeviceForMe}
       />
     )
   }

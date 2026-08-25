@@ -13,7 +13,13 @@ interface Highlight {
   caption?: string
 }
 
-type Stage = 'loading' | 'error' | 'curating' | 'presenting'
+type Stage = 'loading' | 'error' | 'course_report' | 'curating' | 'presenting'
+
+interface CourseReport {
+  fieldAverage: number
+  easiestHole: { holeNumber: number; par: number; average: number } | null
+  hardestHole: { holeNumber: number; par: number; average: number } | null
+}
 
 /**
  * Item 4/5/6 — curation, presentation, and the handoff to round results,
@@ -30,8 +36,34 @@ export default function MakersBreakers({
   const [stage, setStage] = useState<Stage>('loading')
   const [makers, setMakers] = useState<Highlight[]>([])
   const [breakers, setBreakers] = useState<Highlight[]>([])
+  const [courseReport, setCourseReport] = useState<CourseReport | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [presentIndex, setPresentIndex] = useState(0)
+  const [publishState, setPublishState] = useState<'idle' | 'publishing' | 'done'>('idle')
+  const [publishError, setPublishError] = useState('')
+
+  async function publish() {
+    setPublishState('publishing')
+    setPublishError('')
+    try {
+      const selMakers = makers.filter(hl => selected.has(hl.category))
+      const selBreakers = breakers.filter(hl => selected.has(hl.category))
+      const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/published-highlights`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ highlights: [...selMakers, ...selBreakers] }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setPublishError(body.error ?? "Couldn't publish. Please try again.")
+        setPublishState('idle')
+        return
+      }
+      setPublishState('done')
+    } catch {
+      setPublishError('Connection issue — please try again.')
+      setPublishState('idle')
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -39,12 +71,13 @@ export default function MakersBreakers({
       .then(async res => {
         const body = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(body.error ?? 'Could not generate highlights.')
-        return body as { makers: Highlight[]; breakers: Highlight[] }
+        return body as { makers: Highlight[]; breakers: Highlight[]; courseReport: CourseReport }
       })
       .then(body => {
         if (cancelled) return
         setMakers(body.makers)
         setBreakers(body.breakers)
+        setCourseReport(body.courseReport)
         // Target presentation set: 3 makers + 3 breakers by default
         // (item 4), capped to however many actually generated — the
         // organiser can still adjust from here, this is just a sensible
@@ -54,7 +87,7 @@ export default function MakersBreakers({
           ...body.breakers.slice(0, 3).map(h => h.category),
         ])
         setSelected(defaultSelection)
-        setStage('curating')
+        setStage('course_report')
       })
       .catch(() => { if (!cancelled) setStage('error') })
     return () => { cancelled = true }
@@ -98,6 +131,38 @@ export default function MakersBreakers({
     )
   }
 
+  // Item 2 — the standard opening screen before the candidate lists.
+  // "Very short factual summary" — three lines, no elaboration.
+  if (stage === 'course_report' && courseReport) {
+    return (
+      <div style={{ textAlign: 'center', padding: '24px 16px' }}>
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', marginBottom: 4 }}>
+          Field average: {courseReport.fieldAverage.toFixed(1)} pts
+        </div>
+        {courseReport.easiestHole && (
+          <div style={{ marginTop: 16, fontFamily: 'var(--font-body)' }}>
+            <div style={{ fontSize: 20, marginBottom: 2 }}>😇 Easiest Hole</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#14532d' }}>Hole {courseReport.easiestHole.holeNumber}, Par {courseReport.easiestHole.par}</div>
+            <div style={{ fontSize: 12, color: '#9ca3af' }}>Field average: {courseReport.easiestHole.average.toFixed(1)} pts</div>
+          </div>
+        )}
+        {courseReport.hardestHole && (
+          <div style={{ marginTop: 16, fontFamily: 'var(--font-body)' }}>
+            <div style={{ fontSize: 20, marginBottom: 2 }}>😈 Hardest Hole</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#14532d' }}>Hole {courseReport.hardestHole.holeNumber}, Par {courseReport.hardestHole.par}</div>
+            <div style={{ fontSize: 12, color: '#9ca3af' }}>Field average: {courseReport.hardestHole.average.toFixed(1)} pts</div>
+          </div>
+        )}
+        <button
+          onClick={() => setStage('curating')}
+          style={{ marginTop: 24, padding: '11px 24px', borderRadius: 10, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
+        >
+          Find Makers &amp; Breakers →
+        </button>
+      </div>
+    )
+  }
+
   if (stage === 'curating') {
     return (
       <div>
@@ -114,8 +179,16 @@ export default function MakersBreakers({
           {makers.length} Makers found · {breakers.length} Breakers found — tap to choose what to present
         </p>
 
-        <HighlightGroup title="🔥 Makers" items={makers} selected={selected} onToggle={toggle} />
-        <HighlightGroup title="💥 Breakers" items={breakers} selected={selected} onToggle={toggle} />
+        {/* Four sections by kind x scope, per the explicit requirement
+            — "our whole design depends on having the four balanced
+            buckets." Filtered from the same makers/breakers arrays
+            already fetched; not a second query or a different data
+            shape, just grouped by the scope field every Highlight
+            already carries. */}
+        <HighlightGroup title="⭐ Individual Makers" items={makers.filter(h => h.scope === 'individual')} selected={selected} onToggle={toggle} />
+        <HighlightGroup title="⭐ Group Makers" items={makers.filter(h => h.scope === 'group')} selected={selected} onToggle={toggle} />
+        <HighlightGroup title="💀 Individual Breakers" items={breakers.filter(h => h.scope === 'individual')} selected={selected} onToggle={toggle} />
+        <HighlightGroup title="💀 Group Breakers" items={breakers.filter(h => h.scope === 'group')} selected={selected} onToggle={toggle} />
 
         <button
           onClick={() => { setPresentIndex(0); setStage('presenting') }}
@@ -148,6 +221,30 @@ export default function MakersBreakers({
           <div style={{ fontSize: 30, marginBottom: 8 }}>🍻</div>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 800, color: '#14532d' }}>That&apos;s the Round</div>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#7a7260', marginTop: 6, marginBottom: 18 }}>Now for the winners...</p>
+          {/* Publish Lifecycle, item 2/3 — the explicit organiser action
+              that turns the SELECTED set (makers/breakers filtered by
+              `selected`, exactly what buildPresentationOrder already
+              shows) into the official, persisted Round story. Never
+              publishes every qualifying candidate — only what actually
+              made it into this presentation. */}
+          {publishState === 'done' ? (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#166534', fontWeight: 700, marginBottom: 14 }}>✅ Published — players can now see their Round Highlights in My Golf</p>
+          ) : (
+            <>
+              <button
+                onClick={() => void publish()}
+                disabled={publishState === 'publishing'}
+                style={{
+                  padding: '12px 24px', borderRadius: 10, background: '#a1791f', color: '#fff', border: 'none',
+                  fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: publishState === 'publishing' ? 'default' : 'pointer',
+                  opacity: publishState === 'publishing' ? 0.7 : 1, marginBottom: 10, display: 'block', width: '100%', maxWidth: 280, margin: '0 auto 10px',
+                }}
+              >
+                {publishState === 'publishing' ? 'Publishing…' : 'Finish & Publish'}
+              </button>
+              {publishError && <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#dc2626', marginBottom: 10 }}>{publishError}</p>}
+            </>
+          )}
           <button
             onClick={onProceedToResults}
             style={{ padding: '12px 24px', borderRadius: 10, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}

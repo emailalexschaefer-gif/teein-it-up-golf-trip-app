@@ -20,6 +20,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { filterPublishedHighlightsForPlayer } from '@/lib/highlights/playerHighlights'
+import type { Highlight } from '@/lib/highlights/makersBreakers'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -56,7 +58,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   // ── All scorecards for this round (needed for ranking — same approach
   // as the leaderboard route) ─────────────────────────────────────────────
   const scRes = await admin.from('scorecards')
-    .select(`id, player_id, playing_handicap, status, profiles:player_id ( full_name ), score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_at, admin_overridden )`)
+    .select(`id, player_id, playing_handicap, status, group_id, profiles:player_id ( full_name ), score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_at, admin_overridden )`)
     .eq('round_id', roundId)
     .neq('status', 'withdrawn')
 
@@ -65,7 +67,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     return NextResponse.json({ error: 'Could not load your round.' }, { status: 500 })
   }
 
-  interface ScorecardRow { id: string; player_id: string; playing_handicap: number; profiles: { full_name: string } | null; score_entries: ScoreEntryRow[] }
+  interface ScorecardRow { id: string; player_id: string; playing_handicap: number; group_id: string | null; profiles: { full_name: string } | null; score_entries: ScoreEntryRow[] }
   const scorecards = (scRes.data ?? []) as ScorecardRow[]
   const myCard = scorecards.find(sc => sc.player_id === user.id)
 
@@ -210,6 +212,20 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     if (myRank > 0) prevMyRank = myRank
   }
 
+  // Publish Lifecycle, item 5/6/7 — reads the round's published set
+  // (never recomputes candidates — that engine stays organiser-only)
+  // and filters it down to this specific player's personal + group
+  // highlights via filterPublishedHighlightsForPlayer, using myCard.
+  // group_id — the ROUND-SPECIFIC scorecards snapshot, deliberately
+  // NOT membership.data.group_id (the mutable, current trip_members
+  // grouping used elsewhere in this same route for the digital-
+  // partner display) — using the wrong one here would silently break
+  // multi-round group-highlight integrity the moment a trip's groups
+  // were reshuffled between rounds.
+  const publishedRes = await admin.from('published_round_highlights').select('highlights').eq('round_id', roundId).maybeSingle()
+  const publishedHighlights = (publishedRes.data?.highlights ?? []) as Highlight[]
+  const { personal: myHighlights, group: myGroupHighlights } = filterPublishedHighlightsForPlayer(publishedHighlights, user.id, myCard.group_id)
+
   return NextResponse.json({
     hasScorecard: true,
     roundName: roundRes.data.name,
@@ -222,6 +238,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     position: myPosition, totalPlayers: ranked.length,
     birdies, eagles, holeInOnes, bestHole,
     mismatches, waitingForMarker, organiserOverrides,
+    myHighlights, myGroupHighlights,
     groupName, groupMembers, markerName,
     story: myStory.slice(-10).reverse(),
   })

@@ -128,6 +128,20 @@ interface Props {
   // prop's construction in page.tsx for why myMarker/markedScorecard
   // alone aren't enough.
   fullGroupRoster?: { id: string; name: string }[]
+  // Add-on 1 (corrected architecture) — when true, the partner card
+  // (markedScorecard, already the paper player's REAL scorecard —
+  // resolved directly in page.tsx, not via round_markers) renders
+  // exactly like a normal digital partner card, except: the heading
+  // says "SCORING FOR" + a Paper Player badge instead of "YOUR
+  // PLAYING PARTNER", no comparison/reconciliation is ever computed
+  // (there is only one entry for this hole — Alex's — so there is
+  // nothing to compare), and confirmScore writes the partner's score
+  // through the shared-device-score endpoint (capture_role='self' on
+  // their own scorecard) instead of the normal capture_role='marker'
+  // write. Every other card field — handicap, par, shots, Stableford,
+  // Pick Up — is completely unchanged, since none of it was ever
+  // specific to how the partner pairing was established.
+  isSharedDeviceScoring?: boolean
 }
 
 type CaptureMap = Record<number, CaptureValue> // keyed by hole_number
@@ -229,7 +243,7 @@ function statusColor(status: ComparisonStatus): string {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function SelfMarkerScoreShell({
-  tripId, round, myScorecard, markedScorecard, markedByName, isOrganiser, dataProblem, fullGroupRoster = [],
+  tripId, round, myScorecard, markedScorecard, markedByName, isOrganiser, dataProblem, fullGroupRoster = [], isSharedDeviceScoring = false,
 }: Props) {
   // 'individual' mode has no marker concept at all — comparison status,
   // the marker card, and reconciliation only make sense in self_and_marker
@@ -723,7 +737,12 @@ export default function SelfMarkerScoreShell({
   const myDraftCapture: CaptureValue = { grossScore: draftMyPickedUp ? null : draftMyGross, pickedUp: draftMyPickedUp, adminOverridden: mySelf[holeNum]?.adminOverridden }
   const partnerDraftCapture: CaptureValue = { grossScore: draftPartnerPickedUp ? null : draftPartnerGross, pickedUp: draftPartnerPickedUp }
   const myComparison = requiresMarker ? compareCaptures(myDraftCapture, myMarker[holeNum] ?? null) : null
-  const partnerComparison = requiresMarker && currentMarked ? compareCaptures(partnerSelf[holeNum] ?? null, partnerDraftCapture) : null
+  // Add-on 1 — shared-device mode never computes a comparison at all.
+  // There is exactly one entry for this hole (Alex's own), written
+  // directly as the partner's official score — nothing exists to
+  // disagree with, so there is no "mismatch" or "matched" state to
+  // ever show, unlike a genuine two-independent-entries pairing.
+  const partnerComparison = (!isSharedDeviceScoring && requiresMarker && currentMarked) ? compareCaptures(partnerSelf[holeNum] ?? null, partnerDraftCapture) : null
 
   const myRunningTotal = holes.reduce((sum, h) => {
     const c = mySelf[h.hole_number]
@@ -853,11 +872,32 @@ export default function SelfMarkerScoreShell({
         enteredAt: new Date().toISOString(),
       })
       if (requiresMarker && currentMarked) {
-        await queueScoreEntry({
-          scorecardId: currentMarked.id, holeId: hole.id, captureRole: 'marker',
-          grossScore: draftPartnerPickedUp ? null : draftPartnerGross, isNoReturn: draftPartnerPickedUp,
-          enteredAt: new Date().toISOString(),
-        })
+        if (isSharedDeviceScoring) {
+          // Add-on 1 (corrected architecture) — Marnie's OFFICIAL score,
+          // written via applyHoleOverride (through this endpoint) as
+          // capture_role='self' directly on her own scorecard. This is
+          // deliberately NOT the normal queueScoreEntry(captureRole=
+          // 'marker') call below — a marker write would need a
+          // corresponding self entry from Marnie to ever reconcile
+          // against, which never comes, since she isn't digitally
+          // scoring at all. This IS what makes "no reconciliation
+          // required" true, by construction rather than a suppressed
+          // check.
+          const res = await fetch(`/api/trips/${tripId}/rounds/${round.id}/shared-device-score`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ holeNumber: hole.hole_number, grossScore: draftPartnerPickedUp ? null : draftPartnerGross, isNoReturn: draftPartnerPickedUp }),
+          })
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}))
+            showToast(body.error ?? `Couldn't save ${partnerName ?? 'their'} score. Please try again.`)
+          }
+        } else {
+          await queueScoreEntry({
+            scorecardId: currentMarked.id, holeId: hole.id, captureRole: 'marker',
+            grossScore: draftPartnerPickedUp ? null : draftPartnerGross, isNoReturn: draftPartnerPickedUp,
+            enteredAt: new Date().toISOString(),
+          })
+        }
       }
       useSyncStore.getState().setPendingCount(await getPendingCount())
       void syncScoreQueue()
@@ -1823,7 +1863,8 @@ export default function SelfMarkerScoreShell({
         {/* ── Card 2: YOUR MARKER (the partner I mark) ──────────────────── */}
         {requiresMarker && markedScorecard && partnerName && (
           <ScoreCard
-            title="YOUR PLAYING PARTNER" name={partnerName} hcp={partnerHcp} par={par} si={si} strokes={partnerStrokes} holeNum={holeNum} distance={distance}
+            title={isSharedDeviceScoring ? 'SCORING FOR' : 'YOUR PLAYING PARTNER'} name={partnerName} hcp={partnerHcp} par={par} si={si} strokes={partnerStrokes} holeNum={holeNum} distance={distance}
+            badge={isSharedDeviceScoring ? '✏️ Paper Player' : null}
             gross={draftPartnerGross} pickedUp={draftPartnerPickedUp} pts={partnerPts} runningTotal={partnerRunningTotal}
             onPick={d => pick('partner', d)} onPar={() => pickPar('partner')} onTogglePickUp={() => togglePickUp('partner')}
             status={partnerComparison} onOpenSummary={() => setShowReconciliation(true)} isLockedForSide={isPartnerLocked}
@@ -2203,7 +2244,7 @@ function OrganiserOverrideBlock({ detail, markerGrossAtHole }: { detail: Overrid
 }
 
 function ScoreCard({
-  title, name, hcp, par, si, strokes, holeNum, distance, gross, pickedUp, pts, runningTotal, onPick, onPar, onTogglePickUp, status, onOpenSummary, isLockedForSide, activeSideComps, isPowerplayHole, basePts,
+  title, name, hcp, par, si, strokes, holeNum, distance, gross, pickedUp, pts, runningTotal, onPick, onPar, onTogglePickUp, status, onOpenSummary, isLockedForSide, activeSideComps, isPowerplayHole, basePts, badge,
 }: {
   title: string; name: string; hcp: number; par: number; si: number; strokes: number; holeNum: number
   distance?: number | null
@@ -2211,6 +2252,10 @@ function ScoreCard({
   onPick: (delta: number) => void; onPar: () => void; onTogglePickUp: () => void
   status: ComparisonStatus | null; onOpenSummary?: () => void; isLockedForSide?: boolean
   activeSideComps?: { id: string; comp_type: string }[]; isPowerplayHole?: boolean; basePts?: number | null
+  // Add-on 1 (corrected architecture) — "SCORING FOR / Marnie ✏️ Paper
+  // Player." Optional, purely cosmetic addition next to the name — no
+  // other card behaviour reads or depends on this.
+  badge?: string | null
 }) {
   return (
     <div style={{ borderRadius: 12, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 3px 14px rgba(0,0,0,0.08)', marginBottom: 6, overflow: 'hidden' }}>
@@ -2219,6 +2264,9 @@ function ScoreCard({
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, fontWeight: 700, color: '#a1791f', letterSpacing: 0.7 }}>{title}</div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 16, fontWeight: 800, color: '#14532d', lineHeight: 1.1 }}>
             {name}
+            {badge && (
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#a1791f', marginLeft: 6 }}>{badge}</span>
+            )}
           </div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 500, color: '#b0b6be' }}>
             Playing Handicap {hcp}

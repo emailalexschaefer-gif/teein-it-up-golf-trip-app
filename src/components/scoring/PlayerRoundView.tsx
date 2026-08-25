@@ -22,6 +22,12 @@ interface MyRoundData {
   waitingForMarker?: boolean
   groupName?: string | null; groupMembers?: string[]; markerName?: string | null
   story?: { icon: string; text: string }[]
+  // Publish Lifecycle — only ever populated once the organiser has
+  // published this round's Makers & Breakers; both arrays are simply
+  // empty before that, which this component treats as "nothing to
+  // show" rather than a loading/error state.
+  myHighlights?: { category: string; icon: string; title: string; statLine: string }[]
+  myGroupHighlights?: { category: string; icon: string; title: string; statLine: string; groupName?: string | null }[]
 }
 
 const STATUS_META: Record<string, { icon: string; title: string; color: string; bg: string }> = {
@@ -198,6 +204,46 @@ export default function PlayerRoundView({
               </div>
             ))}
           </div>
+        </>
+      )}
+
+      {/* Publish Lifecycle, item 5/6/7 — "🔥 Round Highlights," only
+          ever populated once the organiser has published this round's
+          Makers & Breakers (my-round route returns empty arrays until
+          then — see that route's own comment). Personal and group
+          highlights shown as two clearly separate lists, matching the
+          brief's own "YOUR HIGHLIGHTS" / "GROUP HIGHLIGHTS" example —
+          never a recalculation, purely a render of what the organiser
+          already published. */}
+      {((data.myHighlights && data.myHighlights.length > 0) || (data.myGroupHighlights && data.myGroupHighlights.length > 0)) && (
+        <>
+          <SectionLabel>🔥 Round Highlights</SectionLabel>
+          {data.myHighlights && data.myHighlights.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#a1791f', letterSpacing: 0.4, marginBottom: 6 }}>YOUR HIGHLIGHTS</div>
+              <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+                {data.myHighlights.map((h, i) => (
+                  <div key={h.category} style={{ padding: '10px 14px', borderBottom: i < data.myHighlights!.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
+                    <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d' }}>{h.icon} {h.title}</div>
+                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7a7260', marginTop: 1 }}>{h.statLine}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {data.myGroupHighlights && data.myGroupHighlights.length > 0 && (
+            <div>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#a1791f', letterSpacing: 0.4, marginBottom: 6 }}>GROUP HIGHLIGHTS</div>
+              <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+                {data.myGroupHighlights.map((h, i) => (
+                  <div key={h.category} style={{ padding: '10px 14px', borderBottom: i < data.myGroupHighlights!.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
+                    <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d' }}>{h.icon} {h.title}</div>
+                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7a7260', marginTop: 1 }}>{h.groupName ? `${h.groupName} — ` : ''}{h.statLine}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
 

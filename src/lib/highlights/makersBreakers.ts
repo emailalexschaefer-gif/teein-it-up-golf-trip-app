@@ -24,22 +24,48 @@ export interface PlayerRoundData {
   startingHole: number
   /** In hole-number order (1..totalHoles) — reordered into played sequence internally. */
   holes: PlayerHoleResult[]
+  // Field-test extension — round-specific group snapshot (scorecards.
+  // group_id, set once at begin_round() and never mutated afterward),
+  // per the non-negotiable "must use the round-specific group
+  // assignment, not current mutable trip grouping" requirement. This
+  // is the SAME snapshot mechanism multiRound.ts already relies on for
+  // group identity elsewhere in this app — not a new concept.
+  groupId: string | null
+  groupName: string
 }
 
 export interface FieldRoundData {
   players: PlayerRoundData[]
   totalHoles: number // 9 or 18
+  // Item 14 (Goose) — "only generate if the round actually contains a
+  // Powerplay and the player qualifies." null/undefined means no
+  // Powerplay hole exists for this round at all — Goose is skipped
+  // entirely rather than guessing.
+  powerplayHoleNumber?: number | null
 }
 
 export interface Highlight {
   category: string
   kind: 'maker' | 'breaker'
+  // Field-test extension — the brief's four-category split
+  // (individual_maker/group_maker/individual_breaker/group_breaker)
+  // is exactly kind x scope; scope is the new axis, not a
+  // reimplementation of kind.
+  scope: 'individual' | 'group'
   icon: string
   title: string
   playerId: string
   playerName: string
   statLine: string
   caption?: string
+  // Explainability — "every generated candidate should carry
+  // structured evidence... don't generate opaque strings that can't
+  // be traced back to data." significance is the ranking key within a
+  // category (higher = more noteworthy); groupId/groupName populated
+  // only for scope='group' highlights.
+  significance: number
+  groupId?: string | null
+  groupName?: string | null
 }
 
 /**
@@ -81,10 +107,15 @@ export function findHotStart(field: FieldRoundData): Highlight | null {
     })
   if (candidates.length === 0) return null
   const best = candidates.reduce((a, b) => (b.pts > a.pts ? b : a))
+  // Qualification threshold — "The Heater"/Hot Start needs a genuinely
+  // strong opening, not just whoever happened to be least bad. 3
+  // holes at a decent points-per-hole rate.
+  if (best.pts < 7) return null
   return {
-    category: 'hot_start', kind: 'maker', icon: '🔥', title: 'Hot Start',
+    category: 'hot_start', kind: 'maker', scope: 'individual', icon: '🔥', title: 'Hot Start',
     playerId: best.player.playerId, playerName: best.player.playerName,
     statLine: `${best.pts} points from the opening 3 holes`,
+    significance: best.pts,
   }
 }
 
@@ -98,10 +129,14 @@ export function findBackNineKing(field: FieldRoundData): Highlight | null {
     .map(p => ({ player: p, pts: sumPts(p.holes.filter(h => h.holeNumber >= 10)) }))
   if (candidates.length === 0) return null
   const best = candidates.reduce((a, b) => (b.pts > a.pts ? b : a))
+  // 18-hole back nine — a meaningful points-per-hole threshold, not
+  // just "whoever had the highest of a possibly-mediocre field."
+  if (best.pts < 16) return null
   return {
-    category: 'back_nine_king', kind: 'maker', icon: '👑', title: 'Back Nine King',
+    category: 'back_nine_king', kind: 'maker', scope: 'individual', icon: '👑', title: 'Back Nine King',
     playerId: best.player.playerId, playerName: best.player.playerName,
     statLine: `${best.pts} points coming home`,
+    significance: best.pts,
   }
 }
 
@@ -114,10 +149,12 @@ export function findFastFinish(field: FieldRoundData): Highlight | null {
     })
   if (candidates.length === 0) return null
   const best = candidates.reduce((a, b) => (b.pts > a.pts ? b : a))
+  if (best.pts < 7) return null
   return {
-    category: 'fast_finish', kind: 'maker', icon: '🚀', title: 'Fast Finish',
+    category: 'fast_finish', kind: 'maker', scope: 'individual', icon: '🚀', title: 'Fast Finish',
     playerId: best.player.playerId, playerName: best.player.playerName,
     statLine: `${best.pts} points over the final 3`,
+    significance: best.pts,
   }
 }
 
@@ -128,27 +165,80 @@ export function findBirdieHunter(field: FieldRoundData): Highlight | null {
   const candidates = field.players
     .filter(p => hasCompleteRound(p, field.totalHoles))
     .map(p => ({ player: p, birdies: p.holes.filter(h => h.grossScore === h.par - 1).length }))
-    .filter(c => c.birdies > 0)
+    // Critical fix — "if the most birdies is only 1, Birdman should
+    // normally NOT qualify." A mathematical winner is not the same as
+    // a qualified candidate; this was previously `> 0`.
+    .filter(c => c.birdies >= 2)
   if (candidates.length === 0) return null
   const maxBirdies = Math.max(...candidates.map(c => c.birdies))
   const best = candidates.find(c => c.birdies === maxBirdies)!
   return {
-    category: 'birdie_hunter', kind: 'maker', icon: '🐦', title: 'Birdie Hunter',
+    category: 'birdie_hunter', kind: 'maker', scope: 'individual', icon: '🐦', title: 'Birdie Hunter',
     playerId: best.player.playerId, playerName: best.player.playerName,
     statLine: `${best.birdies} birdie${best.birdies === 1 ? '' : 's'}`,
+    significance: best.birdies,
   }
 }
 
 export function findMrConsistent(field: FieldRoundData): Highlight | null {
-  const candidates = field.players
-    .filter(p => hasCompleteRound(p, field.totalHoles))
+  // Iceman — "consistently good, not consistently mediocre." Requires
+  // BOTH a respectable total (candidates below the field median total
+  // are excluded outright) AND the count metric below — mirrors the
+  // brief's explicit "restrict candidates to players at/above a
+  // minimum performance threshold; lowest qualifying volatility wins"
+  // without inventing a full variance calculation this pass.
+  const complete = field.players.filter(p => hasCompleteRound(p, field.totalHoles))
+  if (complete.length === 0) return null
+  const totals = complete.map(p => sumPts(p.holes)).sort((a, b) => a - b)
+  const medianTotal = totals[Math.floor(totals.length / 2)]
+  const candidates = complete
+    .filter(p => sumPts(p.holes) >= medianTotal)
     .map(p => ({ player: p, count: p.holes.filter(h => h.stablefordPts >= 2).length }))
   if (candidates.length === 0) return null
   const best = candidates.reduce((a, b) => (b.count > a.count ? b : a))
+  if (best.count < Math.ceil(field.totalHoles * 0.6)) return null
   return {
-    category: 'mr_consistent', kind: 'maker', icon: '💪', title: 'Mr Consistent',
+    category: 'mr_consistent', kind: 'maker', scope: 'individual', icon: '🧊', title: 'Iceman',
     playerId: best.player.playerId, playerName: best.player.playerName,
     statLine: `${best.count} holes of 2 points or better`,
+    significance: best.count,
+  }
+}
+
+/**
+ * Maverick — "the wildest scorecard of the round," deliberately built
+ * as the near-opposite selection criteria to Iceman above: instead of
+ * "consistently at or above a threshold," Maverick requires genuine
+ * highs AND genuine lows on the SAME scorecard. Neither a player who
+ * simply played badly all day (no highs) nor an unusually good,
+ * uneventful round (no lows) can qualify — both halves of the pattern
+ * are required, matching the explicit "must include both genuinely
+ * good scoring events and genuinely bad scoring events" and "do NOT
+ * give Maverick to somebody who simply played badly all day."
+ * "Genuinely good" = 3+ Stableford points (better than a par-equivalent
+ * score for most handicaps); "genuinely bad" = a wipe (0 points) —
+ * reusing the exact same 0-point definition findWipeoutKing already
+ * uses, not a second definition of "bad."
+ */
+export function findMaverick(field: FieldRoundData): Highlight | null {
+  const candidates = field.players
+    .filter(p => hasCompleteRound(p, field.totalHoles))
+    .map(p => ({
+      player: p,
+      highs: p.holes.filter(h => h.stablefordPts >= 3).length,
+      lows: p.holes.filter(h => h.stablefordPts === 0).length,
+    }))
+    // Minimum 2 of each — a single great hole and a single wipe is
+    // just an ordinary round; the pattern needs to be genuinely
+    // repeated to read as "wild," not incidental.
+    .filter(c => c.highs >= 2 && c.lows >= 2)
+  if (candidates.length === 0) return null
+  const best = candidates.reduce((a, b) => ((b.highs + b.lows) > (a.highs + a.lows) ? b : a))
+  return {
+    category: 'maverick', kind: 'breaker', scope: 'individual', icon: '🕶️', title: 'Maverick',
+    playerId: best.player.playerId, playerName: best.player.playerName,
+    statLine: `${best.highs} big holes, ${best.lows} wipes — anything could happen`,
+    significance: best.highs + best.lows,
   }
 }
 
@@ -159,9 +249,38 @@ export function findRoundPerformer(field: FieldRoundData): Highlight | null {
   if (candidates.length === 0) return null
   const best = candidates.reduce((a, b) => (b.pts > a.pts ? b : a))
   return {
-    category: 'round_performer', kind: 'maker', icon: '⭐', title: 'Round Performer',
+    category: 'round_performer', kind: 'maker', scope: 'individual', icon: '⭐', title: 'Round Performer',
     playerId: best.player.playerId, playerName: best.player.playerName,
     statLine: `${best.pts} Stableford points`,
+    significance: best.pts,
+  }
+}
+
+/**
+ * The Mailman — "always delivers." The brief's own item 6.1: "round
+ * winner... normally a guaranteed Maker once the round has a valid
+ * winner." Deliberately reuses the exact same "highest total"
+ * computation findRoundPerformer already does — this IS the round
+ * winner — but is framed as its own archetype with its own title/icon,
+ * since "Round Performer" and "The Mailman" are presentationally
+ * distinct even though the underlying winner calculation is identical.
+ */
+export function findMailman(field: FieldRoundData): Highlight | null {
+  const candidates = field.players
+    .filter(p => hasCompleteRound(p, field.totalHoles))
+    .map(p => ({ player: p, pts: sumPts(p.holes) }))
+  if (candidates.length === 0) return null
+  const sorted = [...candidates].sort((a, b) => b.pts - a.pts)
+  const winner = sorted[0]
+  const runnerUp = sorted[1]
+  const margin = runnerUp ? winner.pts - runnerUp.pts : null
+  return {
+    category: 'mailman', kind: 'maker', scope: 'individual', icon: '📬', title: 'The Mailman',
+    playerId: winner.player.playerId, playerName: winner.player.playerName,
+    statLine: margin !== null
+      ? `${winner.pts} points \u2014 the win by ${margin}`
+      : `${winner.pts} points and the round win`,
+    significance: winner.pts,
   }
 }
 
@@ -171,14 +290,19 @@ export function findWipeoutKing(field: FieldRoundData): Highlight | null {
   const candidates = field.players
     .filter(p => hasCompleteRound(p, field.totalHoles))
     .map(p => ({ player: p, wipes: p.holes.filter(h => h.stablefordPts === 0).length }))
-    .filter(c => c.wipes > 0)
+    // Critical fix — "if the highest number of wipes is only 1,
+    // Wipeout should NOT qualify." Was previously `> 0`. 3+ for an
+    // 18-hole round per the brief's own suggested minimum, scaled down
+    // proportionally for 9 holes.
+    .filter(c => c.wipes >= (field.totalHoles >= 18 ? 3 : 2))
   if (candidates.length === 0) return null
   const maxWipes = Math.max(...candidates.map(c => c.wipes))
   const best = candidates.find(c => c.wipes === maxWipes)!
   return {
-    category: 'wipeout_king', kind: 'breaker', icon: '💥', title: 'Wipeout King',
+    category: 'wipeout_king', kind: 'breaker', scope: 'individual', icon: '💥', title: 'Wipeout King',
     playerId: best.player.playerId, playerName: best.player.playerName,
     statLine: `${best.wipes} wipe${best.wipes === 1 ? '' : 's'} today`,
+    significance: best.wipes,
   }
 }
 
@@ -191,10 +315,14 @@ export function findColdStart(field: FieldRoundData): Highlight | null {
     })
   if (candidates.length === 0) return null
   const worst = candidates.reduce((a, b) => (b.pts < a.pts ? b : a))
+  // A merely average opening isn't a "Cold Start" — this needs to be
+  // genuinely poor, not just the least-good of a strong field.
+  if (worst.pts > 3) return null
   return {
-    category: 'cold_start', kind: 'breaker', icon: '🧊', title: 'Cold Start',
+    category: 'cold_start', kind: 'breaker', scope: 'individual', icon: '🧊', title: 'Cold Start',
     playerId: worst.player.playerId, playerName: worst.player.playerName,
     statLine: `${worst.pts} points from the opening 3`,
+    significance: 10 - worst.pts,
   }
 }
 
@@ -215,9 +343,10 @@ export function findTheCollapse(field: FieldRoundData): Highlight | null {
   if (candidates.length === 0) return null
   const worst = candidates.reduce((a, b) => (b.drop > a.drop ? b : a))
   return {
-    category: 'the_collapse', kind: 'breaker', icon: '📉', title: 'The Collapse',
+    category: 'the_collapse', kind: 'breaker', scope: 'individual', icon: '📉', title: 'The Meltdown',
     playerId: worst.player.playerId, playerName: worst.player.playerName,
     statLine: `${worst.front} out. ${worst.back} home.`,
+    significance: worst.drop,
   }
 }
 
@@ -230,10 +359,12 @@ export function findRoughFinish(field: FieldRoundData): Highlight | null {
     })
   if (candidates.length === 0) return null
   const worst = candidates.reduce((a, b) => (b.pts < a.pts ? b : a))
+  if (worst.pts > 3) return null
   return {
-    category: 'rough_finish', kind: 'breaker', icon: '😬', title: 'Rough Finish',
+    category: 'rough_finish', kind: 'breaker', scope: 'individual', icon: '😬', title: 'Rough Finish',
     playerId: worst.player.playerId, playerName: worst.player.playerName,
     statLine: `${worst.pts} points over the final 3`,
+    significance: 10 - worst.pts,
   }
 }
 
@@ -259,10 +390,11 @@ export function findHoleFromHell(field: FieldRoundData): Highlight | null {
   }
   if (!best) return null
   return {
-    category: 'hole_from_hell', kind: 'breaker', icon: '🕳️', title: 'Hole from Hell',
+    category: 'hole_from_hell', kind: 'breaker', scope: 'individual', icon: '🕳️', title: 'Hole from Hell',
     playerId: best.player.playerId, playerName: best.player.playerName,
     statLine: `Field average: ${best.fieldAvg.toFixed(1)} pts \u00b7 ${best.player.playerName.split(' ')[0]}: 0`,
     caption: `Everyone liked hole ${best.holeNumber}. ${best.player.playerName.split(' ')[0]} apparently didn't.`,
+    significance: best.fieldAvg,
   }
 }
 
@@ -303,9 +435,10 @@ export function findOneThatGotAway(field: FieldRoundData): Highlight | null {
 
   const positionLabel = (pos: number) => pos === 1 ? 'Leading' : `${pos}${ordinalSuffix(pos)}`
   return {
-    category: 'one_that_got_away', kind: 'breaker', icon: '💔', title: 'One That Got Away',
+    category: 'one_that_got_away', kind: 'breaker', scope: 'individual', icon: '💔', title: 'One That Got Away',
     playerId: worst.player.playerId, playerName: worst.player.playerName,
     statLine: `${positionLabel(worst.earlyPos)} after ${snapshotHoles}. Finished ${worst.finalPos === 1 ? '1st' : `${worst.finalPos}${ordinalSuffix(worst.finalPos)}`}.`,
+    significance: worst.drop,
   }
 }
 
@@ -316,16 +449,438 @@ function ordinalSuffix(n: number): string {
   return 'th'
 }
 
+/**
+ * Goose — "player wipes the designated Powerplay hole." Only ever
+ * generated when the round genuinely has a Powerplay configured
+ * (powerplayHoleNumber set) — per the explicit "only generate if the
+ * round actually contains a Powerplay" instruction, this is a hard
+ * gate, not a fallback/default.
+ */
+export function findGoose(field: FieldRoundData): Highlight | null {
+  if (field.powerplayHoleNumber == null) return null
+  const playerForHole = field.players.find(p =>
+    p.holes.some(h => h.holeNumber === field.powerplayHoleNumber && h.stablefordPts === 0)
+  )
+  if (!playerForHole) return null
+  return {
+    category: 'goose', kind: 'breaker', scope: 'individual', icon: '🪿', title: 'Goose',
+    playerId: playerForHole.playerId, playerName: playerForHole.playerName,
+    statLine: 'Powerplay activated. Zero points.',
+    caption: 'Talk to me, Goose.',
+    significance: 100, // a Powerplay wipe is inherently notable — always ranks near the top of its category when it qualifies at all
+  }
+}
+
+// ── GROUP ARCHETYPES ────────────────────────────────────────────────────
+// Field-test extension — the brief's Group Maker/Breaker categories
+// were entirely absent from the prior implementation. Groups are
+// derived from field.players[].groupId (the round-specific snapshot,
+// never mutable current trip grouping — see PlayerRoundData's own
+// comment on this field) grouped in-memory here, not from a separate
+// query. Per-player averages are used throughout, not raw group
+// totals, so different group sizes are comparable — matching the
+// explicit "prefer per-player averages... rather than raw totals"
+// instruction.
+
+interface GroupBucket { groupId: string; groupName: string; members: PlayerRoundData[] }
+
+function bucketByGroup(field: FieldRoundData): GroupBucket[] {
+  const complete = field.players.filter(p => hasCompleteRound(p, field.totalHoles) && p.groupId)
+  const byGroup = new Map<string, PlayerRoundData[]>()
+  for (const p of complete) {
+    const key = p.groupId as string
+    if (!byGroup.has(key)) byGroup.set(key, [])
+    byGroup.get(key)!.push(p)
+  }
+  return [...byGroup.entries()]
+    .filter(([, members]) => members.length >= 2) // a "group" of 1 has no group dynamic to report on
+    .map(([groupId, members]) => ({ groupId, groupName: members[0].groupName || 'Group', members }))
+}
+
+function groupAverage(members: PlayerRoundData[], holeFilter?: (h: PlayerHoleResult) => boolean): number {
+  const totals = members.map(m => sumPts(holeFilter ? m.holes.filter(holeFilter) : m.holes))
+  return totals.reduce((s, t) => s + t, 0) / members.length
+}
+
+export function findHotGroup(field: FieldRoundData): Highlight | null {
+  const groups = bucketByGroup(field)
+  if (groups.length === 0) return null
+  const scored = groups.map(g => ({ group: g, avg: groupAverage(g.members) }))
+  const best = scored.reduce((a, b) => (b.avg > a.avg ? b : a))
+  // A genuinely strong group performance, not just whichever group
+  // happened to edge out the others in an otherwise unremarkable field.
+  if (best.avg < 25) return null
+  return {
+    category: 'hot_group', kind: 'maker', scope: 'group', icon: '🔥', title: 'The Hot Group',
+    playerId: '', playerName: '',
+    groupId: best.group.groupId, groupName: best.group.groupName,
+    statLine: `${best.avg.toFixed(1)} pt player average`,
+    significance: best.avg,
+  }
+}
+
+export function findBlackHoleGroup(field: FieldRoundData): Highlight | null {
+  const groups = bucketByGroup(field)
+  if (groups.length === 0) return null
+  let worst: { group: GroupBucket; holeNumber: number; combined: number; memberCount: number } | null = null
+  for (const g of groups) {
+    for (let holeNumber = 1; holeNumber <= field.totalHoles; holeNumber++) {
+      const entries = g.members.map(m => m.holes.find(h => h.holeNumber === holeNumber)).filter((h): h is PlayerHoleResult => h != null)
+      if (entries.length !== g.members.length) continue // only a genuinely complete group-hole result counts
+      const combined = sumPts(entries)
+      // Normalised threshold — "require a threshold so a merely
+      // mediocre hole doesn't qualify," scaled by group size (a
+      // 4-player group scoring 3 combined is far worse than a 2-player
+      // group scoring 3 combined).
+      const normalisedThreshold = g.members.length * 1.5
+      if (combined > normalisedThreshold) continue
+      if (!worst || combined / g.members.length < worst.combined / worst.memberCount) {
+        worst = { group: g, holeNumber, combined, memberCount: g.members.length }
+      }
+    }
+  }
+  if (!worst) return null
+  return {
+    category: 'black_hole_group', kind: 'breaker', scope: 'group', icon: '🕳️', title: 'The Black Hole',
+    playerId: '', playerName: '',
+    groupId: worst.group.groupId, groupName: worst.group.groupName,
+    statLine: `Hole ${worst.holeNumber} \u00b7 ${worst.combined} combined points`,
+    caption: 'That one hurt.',
+    significance: 20 - worst.combined,
+  }
+}
+
+/**
+ * Course Report — the deterministic opening summary shown BEFORE
+ * Makers & Breakers proper. Not one of the 24 archetypes — the
+ * standard, always-shown opener, per the brief's own item 2.
+ */
+export interface CourseReport {
+  fieldAverage: number
+  easiestHole: { holeNumber: number; par: number; average: number } | null
+  hardestHole: { holeNumber: number; par: number; average: number } | null
+  // Post-round Round Snapshot extension — the canonical source for
+  // Round Snapshot's five stats (item 2). Extended here, not
+  // duplicated in a second calculation, per the explicit "reuse this
+  // existing calculation wherever practical... extend the canonical
+  // result cleanly rather than duplicating calculations elsewhere."
+  roundWinner: { playerId: string; playerName: string; totalPts: number } | null
+  totalBirdies: number
+  totalWipes: number
+}
+
+export function buildCourseReport(field: FieldRoundData, parByHole: Map<number, number>): CourseReport {
+  const complete = field.players.filter(p => hasCompleteRound(p, field.totalHoles))
+  const fieldAverage = complete.length > 0 ? complete.reduce((s, p) => s + sumPts(p.holes), 0) / complete.length : 0
+
+  // Round winner — highest total Stableford points, same definition
+  // findRoundPerformer already uses (not a second "who won" concept).
+  let roundWinner: CourseReport['roundWinner'] = null
+  for (const p of complete) {
+    const total = sumPts(p.holes)
+    if (!roundWinner || total > roundWinner.totalPts) roundWinner = { playerId: p.playerId, playerName: p.playerName, totalPts: total }
+  }
+
+  // Birdies/wipes — the exact same gross-one-under-par and zero-point
+  // definitions findBirdieHunter/findWipeoutKing already use, summed
+  // across the whole field rather than finding a single leader.
+  const totalBirdies = complete.reduce((s, p) => s + birdieCount(p), 0)
+  const totalWipes = complete.reduce((s, p) => s + wipeCount(p), 0)
+
+  let easiest: { holeNumber: number; par: number; average: number } | null = null
+  let hardest: { holeNumber: number; par: number; average: number } | null = null
+  for (let holeNumber = 1; holeNumber <= field.totalHoles; holeNumber++) {
+    const entries = complete.map(p => p.holes.find(h => h.holeNumber === holeNumber)).filter((h): h is PlayerHoleResult => h != null)
+    if (entries.length < 2) continue
+    const average = sumPts(entries) / entries.length
+    const par = parByHole.get(holeNumber) ?? entries[0].par
+    if (!easiest || average > easiest.average) easiest = { holeNumber, par, average }
+    if (!hardest || average < hardest.average) hardest = { holeNumber, par, average }
+  }
+  return { fieldAverage, easiestHole: easiest, hardestHole: hardest, roundWinner, totalBirdies, totalWipes }
+}
+
+// ── Group Makers (new) ──────────────────────────────────────────────────
+
+/** Sum of a member's gross birdies (one under par, gross-scoring term — matches findBirdieHunter's own definition, not repeated). */
+function birdieCount(m: PlayerRoundData): number {
+  return m.holes.filter(h => h.grossScore === h.par - 1).length
+}
+function wipeCount(m: PlayerRoundData): number {
+  return m.holes.filter(h => h.stablefordPts === 0).length
+}
+
+export function findBackNineBandits(field: FieldRoundData): Highlight | null {
+  // 18-hole only — same hard rule as the individual Back Nine King.
+  if (field.totalHoles !== 18) return null
+  const groups = bucketByGroup(field)
+  if (groups.length === 0) return null
+  const scored = groups.map(g => ({ group: g, avg: groupAverage(g.members, h => h.holeNumber >= 10) }))
+  const best = scored.reduce((a, b) => (b.avg > a.avg ? b : a))
+  // Same per-player threshold as Back Nine King (16) — this is a
+  // per-player average, the same unit, so the same bar applies.
+  if (best.avg < 16) return null
+  return {
+    category: 'back_nine_bandits', kind: 'maker', scope: 'group', icon: '👑', title: 'Back Nine Bandits',
+    playerId: '', playerName: '', groupId: best.group.groupId, groupName: best.group.groupName,
+    statLine: `${best.avg.toFixed(1)} pt player average coming home`,
+    significance: best.avg,
+  }
+}
+
+export function findTheClosers(field: FieldRoundData): Highlight | null {
+  const groups = bucketByGroup(field)
+  if (groups.length === 0) return null
+  // "Final 3 holes" respects played sequence (shotgun-correct), same
+  // as the individual Fast Finish/Cold Start use getPlayedSequence
+  // rather than raw hole numbers — a shotgun group's "final 3" isn't
+  // necessarily holes 16-18.
+  const scored = groups.map(g => {
+    const perMember = g.members.map(m => sumPts(getPlayedSequence(m, field.totalHoles).slice(-3)))
+    const avg = perMember.reduce((s, v) => s + v, 0) / perMember.length
+    return { group: g, avg }
+  })
+  const best = scored.reduce((a, b) => (b.avg > a.avg ? b : a))
+  if (best.avg < 6) return null // meaningful threshold — an ordinary finish shouldn't qualify
+  return {
+    category: 'the_closers', kind: 'maker', scope: 'group', icon: '🚀', title: 'The Closers',
+    playerId: '', playerName: '', groupId: best.group.groupId, groupName: best.group.groupName,
+    statLine: `${best.avg.toFixed(1)} pt player average over the closing 3`,
+    significance: best.avg,
+  }
+}
+
+export function findTheFortress(field: FieldRoundData): Highlight | null {
+  // "Nobody blew up and everyone contributed" — strong group average,
+  // low spread between members, few combined wipes. All three
+  // conditions required, not any one alone (a strong average with one
+  // disaster hidden in it isn't a Fortress).
+  const groups = bucketByGroup(field)
+  if (groups.length === 0) return null
+  const scored = groups.map(g => {
+    const totals = g.members.map(m => sumPts(m.holes))
+    const avg = totals.reduce((s, t) => s + t, 0) / totals.length
+    const spread = Math.max(...totals) - Math.min(...totals)
+    const totalWipes = g.members.reduce((s, m) => s + wipeCount(m), 0)
+    return { group: g, avg, spread, totalWipes }
+  })
+    .filter(c => c.avg >= 22 && c.totalWipes <= c.group.members.length && c.spread <= 8)
+  if (scored.length === 0) return null
+  const best = scored.reduce((a, b) => (b.avg > a.avg ? b : a))
+  return {
+    category: 'the_fortress', kind: 'maker', scope: 'group', icon: '🧱', title: 'The Fortress',
+    playerId: '', playerName: '', groupId: best.group.groupId, groupName: best.group.groupName,
+    statLine: `${best.avg.toFixed(1)} pt player average, only ${best.totalWipes} wipe${best.totalWipes === 1 ? '' : 's'} between them`,
+    significance: best.avg - best.spread,
+  }
+}
+
+export function findTheBirdcage(field: FieldRoundData): Highlight | null {
+  const groups = bucketByGroup(field)
+  if (groups.length === 0) return null
+  const scored = groups.map(g => ({ group: g, birdies: g.members.reduce((s, m) => s + birdieCount(m), 0) }))
+    .filter(c => c.birdies >= 3) // combined minimum — a single group birdie is not a story
+  if (scored.length === 0) return null
+  const best = scored.reduce((a, b) => (b.birdies > a.birdies ? b : a))
+  return {
+    category: 'the_birdcage', kind: 'maker', scope: 'group', icon: '🐦', title: 'The Birdcage',
+    playerId: '', playerName: '', groupId: best.group.groupId, groupName: best.group.groupName,
+    statLine: `${best.birdies} combined birdies`,
+    significance: best.birdies,
+  }
+}
+
+export function findDreamTeam(field: FieldRoundData): Highlight | null {
+  // "Reward groups where everyone performed well, not one superstar
+  // carrying three weak cards" — strong average AND low spread, same
+  // two conditions as Fortress but without the wipe requirement
+  // (Fortress is about resilience; Dream Team is about balance).
+  const groups = bucketByGroup(field)
+  if (groups.length === 0) return null
+  const scored = groups.map(g => {
+    const totals = g.members.map(m => sumPts(m.holes))
+    const avg = totals.reduce((s, t) => s + t, 0) / totals.length
+    const spread = Math.max(...totals) - Math.min(...totals)
+    return { group: g, avg, spread }
+  })
+    .filter(c => c.avg >= 24 && c.spread <= 6)
+  if (scored.length === 0) return null
+  const best = scored.reduce((a, b) => (b.avg - b.spread > a.avg - a.spread ? b : a))
+  return {
+    category: 'dream_team', kind: 'maker', scope: 'group', icon: '🤝', title: 'The Dream Team',
+    playerId: '', playerName: '', groupId: best.group.groupId, groupName: best.group.groupName,
+    statLine: `Only ${best.spread} pts between highest and lowest player`,
+    significance: best.avg - best.spread,
+  }
+}
+
+// ── Group Breakers (new) ────────────────────────────────────────────────
+
+export function findWheelsOff(field: FieldRoundData): Highlight | null {
+  if (field.totalHoles !== 18) return null
+  const groups = bucketByGroup(field)
+  if (groups.length === 0) return null
+  const scored = groups.map(g => {
+    const front = groupAverage(g.members, h => h.holeNumber <= 9)
+    const back = groupAverage(g.members, h => h.holeNumber >= 10)
+    return { group: g, front, back, drop: front - back }
+  })
+    .filter(c => c.drop >= COLLAPSE_MIN_THRESHOLD) // same meaningful-drop bar as the individual Meltdown
+  if (scored.length === 0) return null
+  const worst = scored.reduce((a, b) => (b.drop > a.drop ? b : a))
+  return {
+    category: 'wheels_off', kind: 'breaker', scope: 'group', icon: '🛞', title: 'Wheels Off',
+    playerId: '', playerName: '', groupId: worst.group.groupId, groupName: worst.group.groupName,
+    statLine: `${worst.front.toFixed(1)} out, ${worst.back.toFixed(1)} home — per player`,
+    significance: worst.drop,
+  }
+}
+
+export function findDamageReport(field: FieldRoundData): Highlight | null {
+  const groups = bucketByGroup(field)
+  if (groups.length === 0) return null
+  const scored = groups.map(g => ({
+    group: g,
+    totalWipes: g.members.reduce((s, m) => s + wipeCount(m), 0),
+    perPlayer: g.members.reduce((s, m) => s + wipeCount(m), 0) / g.members.length,
+  }))
+    .filter(c => c.perPlayer >= 1.5) // normalised — a genuinely rough round for the whole group, not one bad player
+  if (scored.length === 0) return null
+  const worst = scored.reduce((a, b) => (b.totalWipes > a.totalWipes ? b : a))
+  return {
+    category: 'damage_report', kind: 'breaker', scope: 'group', icon: '🚑', title: 'The Damage Report',
+    playerId: '', playerName: '', groupId: worst.group.groupId, groupName: worst.group.groupName,
+    statLine: `${worst.totalWipes} wipes between them`,
+    significance: worst.totalWipes,
+  }
+}
+
+export function findDeepFreeze(field: FieldRoundData): Highlight | null {
+  const groups = bucketByGroup(field)
+  if (groups.length === 0) return null
+  const windowSize = field.totalHoles === 18 ? 6 : 3
+  const scored: { group: GroupBucket; avg: number }[] = []
+  for (const g of groups) {
+    // Per-member windowed sequences, averaged across the group at each
+    // starting offset — same idea as the individual worst-consecutive-
+    // stretch archetypes, just group-averaged per offset rather than
+    // per player.
+    let worstAvg: number | null = null
+    for (let start = 0; start <= field.totalHoles - windowSize; start++) {
+      const perMember = g.members.map(m => sumPts(getPlayedSequence(m, field.totalHoles).slice(start, start + windowSize)))
+      const avg = perMember.reduce((s, v) => s + v, 0) / perMember.length
+      if (worstAvg === null || avg < worstAvg) worstAvg = avg
+    }
+    if (worstAvg !== null) scored.push({ group: g, avg: worstAvg })
+  }
+  if (scored.length === 0) return null
+  const worst = scored.reduce((a, b) => (b.avg < a.avg ? b : a))
+  // Significant underperformance — windowSize holes at ~1pt/hole average or worse.
+  if (worst.avg > windowSize * 1.2) return null
+  return {
+    category: 'deep_freeze', kind: 'breaker', scope: 'group', icon: '🥶', title: 'The Deep Freeze',
+    playerId: '', playerName: '', groupId: worst.group.groupId, groupName: worst.group.groupName,
+    statLine: `${worst.avg.toFixed(1)} pt player average over their worst ${windowSize} holes`,
+    significance: windowSize * 4 - worst.avg,
+  }
+}
+
+export function findStillInCarPark(field: FieldRoundData): Highlight | null {
+  const groups = bucketByGroup(field)
+  if (groups.length === 0) return null
+  const scored = groups.map(g => {
+    const perMember = g.members.map(m => sumPts(getPlayedSequence(m, field.totalHoles).slice(0, 3)))
+    const avg = perMember.reduce((s, v) => s + v, 0) / perMember.length
+    return { group: g, avg }
+  })
+    .filter(c => c.avg <= 4) // only qualifies if sufficiently bad, per the explicit instruction
+  if (scored.length === 0) return null
+  const worst = scored.reduce((a, b) => (b.avg < a.avg ? b : a))
+  return {
+    category: 'still_in_car_park', kind: 'breaker', scope: 'group', icon: '🚗', title: 'Still in the Car Park',
+    playerId: '', playerName: '', groupId: worst.group.groupId, groupName: worst.group.groupName,
+    statLine: `${worst.avg.toFixed(1)} pt player average over the opening 3`,
+    significance: 10 - worst.avg,
+  }
+}
+
+export function findBackNineBreakdown(field: FieldRoundData): Highlight | null {
+  // 18-hole only. Deliberately the LOWEST absolute back-nine
+  // performance, not the biggest drop (that's Wheels Off) — a group
+  // that was mediocre all day and stayed mediocre on the back nine
+  // qualifies here even with no meaningful "collapse."
+  if (field.totalHoles !== 18) return null
+  const groups = bucketByGroup(field)
+  if (groups.length === 0) return null
+  const scored = groups.map(g => ({ group: g, avg: groupAverage(g.members, h => h.holeNumber >= 10) }))
+    .filter(c => c.avg <= 12) // per-player average over 9 holes — genuinely poor
+  if (scored.length === 0) return null
+  const worst = scored.reduce((a, b) => (b.avg < a.avg ? b : a))
+  return {
+    category: 'back_nine_breakdown', kind: 'breaker', scope: 'group', icon: '🏚️', title: 'Back Nine Breakdown',
+    playerId: '', playerName: '', groupId: worst.group.groupId, groupName: worst.group.groupName,
+    statLine: `${worst.avg.toFixed(1)} pt player average coming home`,
+    significance: 20 - worst.avg,
+  }
+}
+
+// ── Individual Breaker (new) ────────────────────────────────────────────
+
+/**
+ * Rollercoaster — "repeated alternation between good and poor
+ * outcomes," explicitly distinguished from Maverick's "overall extreme
+ * volatility with big highs and disasters" by counting genuine
+ * direction reversals (a swing of 3+ Stableford points between
+ * adjacent holes that also changes direction from the previous swing),
+ * not just the raw count of highs/lows Maverick uses. A player who
+ * goes low-low-low-high-high-high has big swings but no alternation;
+ * a player who goes high-low-high-low-high-low has repeated
+ * alternation even if no single swing is the biggest of the round.
+ * This is a genuinely different, deterministic metric from Maverick's,
+ * not the same count read differently.
+ */
+export function findRollercoaster(field: FieldRoundData): Highlight | null {
+  const candidates = field.players
+    .filter(p => hasCompleteRound(p, field.totalHoles))
+    .map(p => {
+      const seq = getPlayedSequence(p, field.totalHoles)
+      let reversals = 0
+      let lastDirection: 'up' | 'down' | null = null
+      for (let i = 1; i < seq.length; i++) {
+        const diff = seq[i].stablefordPts - seq[i - 1].stablefordPts
+        if (Math.abs(diff) < 3) continue // not a genuine swing
+        const direction = diff > 0 ? 'up' : 'down'
+        if (lastDirection && direction !== lastDirection) reversals++
+        lastDirection = direction
+      }
+      return { player: p, reversals }
+    })
+    .filter(c => c.reversals >= 3) // repeated, not incidental
+  if (candidates.length === 0) return null
+  const best = candidates.reduce((a, b) => (b.reversals > a.reversals ? b : a))
+  return {
+    category: 'rollercoaster', kind: 'breaker', scope: 'individual', icon: '🎢', title: 'The Rollercoaster',
+    playerId: best.player.playerId, playerName: best.player.playerName,
+    statLine: `${best.reversals} big swings, back and forth all day`,
+    significance: best.reversals,
+  }
+}
+
 export function generateMakersAndBreakers(field: FieldRoundData): { makers: Highlight[]; breakers: Highlight[] } {
   const makers = [
-    findHotStart(field), findBackNineKing(field), findFastFinish(field),
-    findBirdieHunter(field), findMrConsistent(field), findRoundPerformer(field),
+    findMailman(field), findHotStart(field), findBackNineKing(field), findFastFinish(field),
+    findBirdieHunter(field), findMrConsistent(field),
+    findHotGroup(field), findBackNineBandits(field), findTheClosers(field), findTheFortress(field), findTheBirdcage(field), findDreamTeam(field),
   ].filter((h): h is Highlight => h !== null)
+    .sort((a, b) => b.significance - a.significance) // strongest candidates first, per the explicit ranking requirement
 
   const breakers = [
     findWipeoutKing(field), findColdStart(field), findTheCollapse(field),
     findRoughFinish(field), findHoleFromHell(field), findOneThatGotAway(field),
+    findGoose(field), findBlackHoleGroup(field), findMaverick(field), findRollercoaster(field),
+    findWheelsOff(field), findDamageReport(field), findDeepFreeze(field), findStillInCarPark(field), findBackNineBreakdown(field),
   ].filter((h): h is Highlight => h !== null)
+    .sort((a, b) => b.significance - a.significance)
 
   return { makers, breakers }
 }
