@@ -12,6 +12,7 @@ import MakersBreakers from './MakersBreakers'
 interface GroupPlayer {
   playerId: string; name: string; holesPlayed: number; finished: boolean; hasMismatch: boolean; waitingForMarker: boolean
   confirmationState: 'scoring' | 'review_required' | 'ready_to_confirm' | 'confirmed'; submittedAt: string | null
+  isPaper?: boolean; paperCardOutstanding?: boolean
 }
 
 // The four required per-player states for My HQ's player list, per the
@@ -27,7 +28,7 @@ const CONFIRMATION_STATE_META: Record<GroupPlayer['confirmationState'], { label:
 }
 interface GroupProgress {
   groupId: string; groupName: string; playerCount: number; currentHole: number
-  status: 'scoring' | 'waiting' | 'reconciliation' | 'finished' | 'finished_needs_review' | 'needs_attention'
+  status: 'scoring' | 'waiting' | 'reconciliation' | 'finished' | 'finished_needs_review' | 'needs_attention' | 'paper_outstanding'
   players: GroupPlayer[]
 }
 interface Alert { severity: 'red' | 'gold' | 'green' | 'grey'; kind: 'group'; text: string }
@@ -76,6 +77,15 @@ const STATUS_META: Record<GroupProgress['status'], { icon: string; label: string
   needs_attention:       { icon: '🔴', label: 'Needs Attention',          color: '#dc2626', bg: '#fef2f2' },
   finished:              { icon: '⚪', label: 'Finished',                 color: '#6b7280', bg: '#f3f4f6' },
   finished_needs_review: { icon: '🔴', label: 'Finished — Review Required', color: '#dc2626', bg: '#fef2f2' },
+  // P0 fix — this is the missing configuration itself, not a
+  // .color?.  workaround. 'paper_outstanding' is a genuinely different
+  // situation from every other status above (every digital player is
+  // finished and reconciled; only a paper card remains), so it gets
+  // its own entry with its own copy — amber, matching the existing
+  // "organiser attention needed but nothing is actually wrong" visual
+  // language already used for Awaiting Marker, not red (which this
+  // codebase reserves for genuine review/reconciliation problems).
+  paper_outstanding:     { icon: '✏️', label: 'Paper Card Outstanding',   color: '#a1791f', bg: '#fdf3d9' },
 }
 
 const ALERT_COLOR: Record<Alert['severity'], { text: string; bg: string; border: string }> = {
@@ -395,22 +405,44 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
                   {g.players.map(p => (
                     <div key={p.name} style={{ display: 'flex', alignItems: 'center', padding: '8px 14px', borderBottom: '1px solid #f3f4f1' }}>
                       <Link href={`/trips/${tripId}/players/${p.playerId}`} style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 13, color: '#14532d', fontWeight: 600, textDecoration: 'none' }}>{p.name}</Link>
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginRight: 8 }}>
-                        {p.finished ? 'Finished' : `Thru ${p.holesPlayed}`}
-                      </div>
-                      <span style={{
-                        fontSize: 10, fontWeight: 700,
-                        color: CONFIRMATION_STATE_META[p.confirmationState].color,
-                      }}>
-                        {CONFIRMATION_STATE_META[p.confirmationState].label}
-                      </span>
-                      {p.confirmationState === 'confirmed' && (
-                        <button
-                          onClick={() => { setUnlockTarget({ playerId: p.playerId, playerName: p.name }); setUnlockReason(''); setUnlockError('') }}
-                          style={{ marginLeft: 8, background: 'none', border: 'none', color: '#9ca3af', fontFamily: 'var(--font-body)', fontSize: 10, textDecoration: 'underline', cursor: 'pointer' }}
+                      {/* Field-Test Fix Package, item 1 — a paper
+                          player's own explicit row, per the brief's
+                          exact example: "✏️ Marnie — Paper Card
+                          Outstanding" with a direct link to where the
+                          organiser can act on it. Replaces the "Thru N"
+                          text entirely for a paper player, since
+                          holesPlayed is meaningless for them until
+                          their card is entered. */}
+                      {p.isPaper ? (
+                        <a
+                          href="#score-management"
+                          style={{
+                            fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, textDecoration: 'none',
+                            color: p.paperCardOutstanding ? '#a1791f' : '#166534',
+                          }}
                         >
-                          Unlock
-                        </button>
+                          {p.paperCardOutstanding ? '✏️ Paper Card Outstanding — Enter Paper Scorecard →' : '✅ Paper Card Entered'}
+                        </a>
+                      ) : (
+                        <>
+                          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginRight: 8 }}>
+                            {p.finished ? 'Finished' : `Thru ${p.holesPlayed}`}
+                          </div>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700,
+                            color: CONFIRMATION_STATE_META[p.confirmationState].color,
+                          }}>
+                            {CONFIRMATION_STATE_META[p.confirmationState].label}
+                          </span>
+                          {p.confirmationState === 'confirmed' && (
+                            <button
+                              onClick={() => { setUnlockTarget({ playerId: p.playerId, playerName: p.name }); setUnlockReason(''); setUnlockError('') }}
+                              style={{ marginLeft: 8, background: 'none', border: 'none', color: '#9ca3af', fontFamily: 'var(--font-body)', fontSize: 10, textDecoration: 'underline', cursor: 'pointer' }}
+                            >
+                              Unlock
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   ))}

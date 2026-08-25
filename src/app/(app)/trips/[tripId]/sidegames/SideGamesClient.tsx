@@ -200,7 +200,17 @@ function CompetitionCard({ comp }: { comp: Competition }) {
             <img src={displayed.momentUrl} alt="" style={{ width: 42, height: 42, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
           )}
           <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d' }}>
-            {displayed.playerName}{displayed.resultValue != null ? ` — ${displayed.resultValue}m` : ''}
+            {/* Field-Test Fix Package, item 5 — Longest Drive is a
+                current-leader/challenger competition, not a
+                distance-measured one (this app never captures an
+                actual distance for it — resultValue is a placeholder,
+                confirmed by the "Marnie 0m" screenshot showing a
+                literal 0). Every other resultValue-based comp type
+                (Nearest the Pin, Pro's Approach) keeps its distance
+                display completely unchanged — this is scoped to
+                longest_drive specifically, not a global removal of
+                measurement formatting. */}
+            {displayed.playerName}{(comp.compType !== 'longest_drive' && displayed.resultValue != null) ? ` — ${displayed.resultValue}m` : ''}
           </div>
         </div>
       ) : (
@@ -222,7 +232,7 @@ function CompetitionCard({ comp }: { comp: Competition }) {
         <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #f3f4f1', fontFamily: 'var(--font-body)', fontSize: 12, color: '#374151', lineHeight: 1.8 }}>
           {comp.history.map((h, i) => (
             <span key={i}>
-              {h.playerName}{h.resultValue != null ? ` ${h.resultValue}m` : ''}
+              {h.playerName}{(comp.compType !== 'longest_drive' && h.resultValue != null) ? ` ${h.resultValue}m` : ''}
               {i < comp.history.length - 1 ? ' → ' : ''}
             </span>
           ))}

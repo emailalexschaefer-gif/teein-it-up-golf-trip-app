@@ -255,7 +255,13 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     return {
       groupId: g.id, groupName: g.name, playerCount: members.length,
       currentHole, status,
-      players: members.map(p => ({ playerId: p.playerId, name: p.name, holesPlayed: p.holesPlayed, finished: p.finished, hasMismatch: p.hasMismatch, waitingForMarker: p.waitingForMarker, confirmationState: p.confirmationState, submittedAt: p.submittedAt })),
+      // Field-Test Fix Package, item 1 — isPaper/paperCardOutstanding
+      // now exposed here (previously computed on PlayerState but never
+      // included in this specific projection), so the client can show
+      // the explicit "✏️ Paper Card Outstanding / Enter Paper
+      // Scorecard →" per-player line the brief's own example shows,
+      // not just rely on the group-level badge.
+      players: members.map(p => ({ playerId: p.playerId, name: p.name, holesPlayed: p.holesPlayed, finished: p.finished, hasMismatch: p.hasMismatch, waitingForMarker: p.waitingForMarker, confirmationState: p.confirmationState, submittedAt: p.submittedAt, isPaper: p.isPaper, paperCardOutstanding: p.paperCardOutstanding })),
     }
   })
 

@@ -281,7 +281,7 @@ export default async function TournamentPage({ params }: Props) {
           scorecard exists yet), matching "Upcoming rounds have no
           scorecard to edit." */}
       {(rounds ?? []).some(r => r.status === 'active' || r.status === 'completed') && (
-        <div style={{ marginTop: 20 }}>
+        <div id="score-management" style={{ marginTop: 20 }}>
           <div style={{ height: 1, background: '#eceae3', marginBottom: 16 }} />
           <AdminScoreOverridePanel
             tripId={tripId}

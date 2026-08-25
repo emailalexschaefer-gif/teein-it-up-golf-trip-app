@@ -58,10 +58,22 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   // paired with someone else is correctly excluded, not offered.
   const [groupMembersRes, cardsRes, existingMarkersRes] = await Promise.all([
     admin.from('trip_members').select('profile_id, profiles ( full_name )').eq('trip_id', tripId).eq('group_id', memberCheck.data.group_id),
-    admin.from('scorecards').select('player_id').eq('round_id', roundId).neq('status', 'withdrawn'),
+    // Field-Test Fix Package, item 2 — scoring_method now selected.
+    // This is a genuinely separate endpoint from /markers (that one
+    // covers auto-paired 2-player groups; this one covers user-chosen
+    // pairing for groups larger than two), with its own independent
+    // copy of this exact candidate-filtering logic — the /markers fix
+    // from an earlier pass never touched this code path at all, which
+    // is exactly why a paper player still appeared here despite that
+    // fix. Same exclusion, applied here too.
+    admin.from('scorecards').select('player_id, scoring_method').eq('round_id', roundId).neq('status', 'withdrawn'),
     admin.from('round_markers').select('player_id').eq('round_id', roundId),
   ])
-  const cardPlayerIds = new Set((cardsRes.data ?? []).map((c: { player_id: string }) => c.player_id))
+  const cardPlayerIds = new Set(
+    (cardsRes.data ?? [])
+      .filter((c: { scoring_method?: string }) => c.scoring_method !== 'paper')
+      .map((c: { player_id: string }) => c.player_id)
+  )
   const alreadyPaired = new Set((existingMarkersRes.data ?? []).map((m: { player_id: string }) => m.player_id))
 
   const candidates = ((groupMembersRes.data ?? []) as unknown as { profile_id: string; profiles: { full_name: string } | null }[])
@@ -95,6 +107,15 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   const partnerCheck = await admin.from('trip_members').select('group_id').eq('trip_id', tripId).eq('profile_id', partnerId).maybeSingle()
   if (!partnerCheck.data || partnerCheck.data.group_id !== memberCheck.data.group_id || memberCheck.data.group_id === null) {
     return NextResponse.json({ error: 'Your Playing Partner must be in the same group.' }, { status: 400 })
+  }
+
+  // Field-Test Fix Package, item 2 — server-side enforcement, not just
+  // the GET candidate list. Without this, a paper player could still
+  // be paired via a direct POST even after the UI correctly stopped
+  // offering them.
+  const partnerCard = await admin.from('scorecards').select('scoring_method').eq('round_id', roundId).eq('player_id', partnerId).maybeSingle()
+  if (partnerCard.data?.scoring_method === 'paper') {
+    return NextResponse.json({ error: 'This player is using a paper scorecard this round and does not need a digital Playing Partner.' }, { status: 400 })
   }
 
   const existing = await admin.from('round_markers').select('player_id').eq('round_id', roundId).in('player_id', [user.id, partnerId])

@@ -1830,6 +1830,29 @@ export default function SelfMarkerScoreShell({
             activeSideComps={activeSideComps} isPowerplayHole={isPowerplayHole} basePts={partnerBasePts}
           />
         )}
+        {/* Field-Test Fix Package, item 3 — a partner IS assigned
+            (partnerName is known, from round_markers/profiles) but
+            their own scorecard data isn't available yet
+            (markedScorecard null) — previously this silently rendered
+            nothing at all, leaving a blank gap below "My Score" with
+            no explanation. This is a different, more specific
+            situation than "no partner at all" (which correctly still
+            renders neither block — nothing to explain there). Exact
+            copy from the brief. */}
+        {requiresMarker && !markedScorecard && partnerName && (
+          <div style={{
+            marginTop: 12, background: '#faf9f6', border: '1.5px dashed #d9c9a3', borderRadius: 14,
+            padding: '20px 16px', textAlign: 'center',
+          }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#7a7260', marginBottom: 6 }}>
+              ⏳ Waiting for {partnerName}
+            </div>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', lineHeight: 1.6, margin: 0 }}>
+              Your playing partner hasn&apos;t started scoring yet.<br />
+              You can begin entering your score while you wait.
+            </p>
+          </div>
+        )}
         </div>
 
         {/* Pro Tip — collapsed by default, text only (no audio yet, per
