@@ -1942,9 +1942,8 @@ export default function SelfMarkerScoreShell({
         >
           🏆 Live Leaderboard
         </button>
-      </div>
 
-      {/* Live Leaderboard overlay — covers the screen while open, but
+        {/* Live Leaderboard overlay — covers the screen while open, but
           this component never unmounts underneath it, so returning via
           "Back to Hole N" lands exactly back where the player left off:
           same hole, same draft scores, same sync state. Reuses the
