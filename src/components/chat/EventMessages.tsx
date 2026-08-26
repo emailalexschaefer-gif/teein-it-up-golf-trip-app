@@ -27,6 +27,10 @@ interface EventMessage {
   recipient_group: { name: string } | null
   momentImageUrl?: string | null
   momentHoleNumber?: number | null
+  // Item 4 — the Moment's actual subject (Marnie), distinct from
+  // sender_user_id (Alex, the uploader/capturer). Only meaningful when
+  // kind === 'moment'.
+  momentPlayerName?: string | null
 }
 
 function relativeTime(iso: string): string {
@@ -446,7 +450,7 @@ export default function EventMessages({
               </div>
               {kind === 'moment' && m.momentImageUrl && (
                 <button
-                  onClick={() => setViewingMoment({ imageUrl: m.momentImageUrl ?? null, caption: m.message, playerName: m.sender?.full_name, holeNumber: m.momentHoleNumber, createdAt: m.created_at })}
+                  onClick={() => setViewingMoment({ imageUrl: m.momentImageUrl ?? null, caption: m.message, playerName: m.momentPlayerName ?? m.sender?.full_name, holeNumber: m.momentHoleNumber, createdAt: m.created_at })}
                   aria-label="View Moment"
                   style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'pointer', marginBottom: 6 }}
                 >
@@ -463,7 +467,27 @@ export default function EventMessages({
               )}
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#14532d', lineHeight: 1.5 }}>{m.message}</p>
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
-                — <Link href={`/trips/${tripId}/players/${m.sender_user_id}`} style={{ color: 'inherit', textDecoration: 'underline' }}>{m.sender?.full_name ?? 'Unknown participant'}</Link>
+                {/* Item 4 — for a Moment specifically, the primary
+                    attribution is the SUBJECT (momentPlayerName —
+                    Marnie), not sender_user_id (Alex, the uploader).
+                    Every other message type is completely unchanged —
+                    this only branches on kind === 'moment'. When the
+                    uploader genuinely differs from the subject (a
+                    proxy capture), "Captured by Alex" is shown as
+                    secondary provenance, matching the brief's own
+                    "if provenance is shown somewhere administrative,
+                    it may say Captured by Alex — but the story should
+                    not attribute the Moment itself to Alex." */}
+                {kind === 'moment' && m.momentPlayerName ? (
+                  <>
+                    — {m.momentPlayerName}
+                    {m.momentPlayerName !== m.sender?.full_name && (
+                      <span style={{ marginLeft: 4 }}>· Captured by {m.sender?.full_name ?? 'Unknown participant'}</span>
+                    )}
+                  </>
+                ) : (
+                  <>— <Link href={`/trips/${tripId}/players/${m.sender_user_id}`} style={{ color: 'inherit', textDecoration: 'underline' }}>{m.sender?.full_name ?? 'Unknown participant'}</Link></>
+                )}
                 {m.sender?.role && <span style={{ color: '#c3c8ce' }}> · {m.sender.role === 'organiser' ? 'Organiser' : m.sender.role === 'player' ? 'Player' : 'Member'}</span>}
               </p>
             </div>

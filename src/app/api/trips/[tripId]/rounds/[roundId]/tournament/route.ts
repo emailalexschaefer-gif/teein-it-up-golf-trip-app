@@ -14,6 +14,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { detectSharedDeviceGroup } from '@/lib/scoring/sharedDeviceScoring'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -26,6 +27,7 @@ interface ScoreEntryRow {
 }
 interface ScorecardRow {
   id: string; player_id: string; status: string; submitted_at: string | null
+  scoring_method: string; group_id: string | null
   profiles: { full_name: string } | null
   score_entries: ScoreEntryRow[]
 }
@@ -60,7 +62,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
   const scRes = await admin.from('scorecards')
     .select(`
-      id, player_id, status, submitted_at, scoring_method,
+      id, player_id, status, submitted_at, scoring_method, group_id,
       profiles:player_id ( full_name ),
       score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_at, admin_overridden )
     `)
@@ -100,7 +102,29 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     // official score exists (capture_role='self' entries present),
     // exactly the same "does an official score exist yet" check used
     // everywhere else in this app, not a new concept.
-    isPaper: boolean; paperCardOutstanding: boolean
+    isPaper: boolean; paperCardOutstanding: boolean; isSharedDevicePlayer: boolean
+  }
+
+  // Shared-Device Two-Player Fix — same detection, same reasoning as
+  // close/route.ts's own fix: a shared-device pairing's digital player
+  // has no genuine marker relationship either, since their notional
+  // "marker" (the paper partner) never writes marker entries at all.
+  // This is what fixes items 2/3 (false amber/waiting Round Summary
+  // state) at the source, rather than papering over the display.
+  const byGroupForSharedDevice = new Map<string, { player_id: string; scoring_method: string }[]>()
+  for (const sc of scorecards) {
+    if (!sc.group_id) continue
+    const list = byGroupForSharedDevice.get(sc.group_id) ?? []
+    list.push({ player_id: sc.player_id, scoring_method: sc.scoring_method })
+    byGroupForSharedDevice.set(sc.group_id, list)
+  }
+  const sharedDevicePlayerIds = new Set<string>()
+  for (const members of byGroupForSharedDevice.values()) {
+    const detection = detectSharedDeviceGroup(members.map(m => ({ playerId: m.player_id, scoringMethod: m.scoring_method === 'paper' ? 'paper' as const : 'digital' as const })))
+    if (detection.isSharedDevice) {
+      if (detection.digitalPlayerId) sharedDevicePlayerIds.add(detection.digitalPlayerId)
+      if (detection.paperPlayerId) sharedDevicePlayerIds.add(detection.paperPlayerId)
+    }
   }
 
   const players: PlayerState[] = scorecards.map((sc) => {
@@ -116,7 +140,8 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     let hasMismatch = false
     let waitingForMarker = false
     const mismatchDetails: { hn: number; playerScore: string; markerScore: string; at: string }[] = []
-    if (isMarkerMode) {
+    const isSharedDevicePlayer = sharedDevicePlayerIds.has(sc.player_id)
+    if (isMarkerMode && !isSharedDevicePlayer) {
       for (const [hn, self] of selfByHole) {
         const marker = markerByHole.get(hn)
         if (!marker) { waitingForMarker = true; continue }
@@ -190,6 +215,11 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       waitingForMarker,
       isPaper,
       paperCardOutstanding,
+      // Shared-Device Two-Player Fix, item 5 — lets the client show
+      // "Shared-device scoring complete" instead of the standard
+      // "Paper Card Entered" wording, which incorrectly implies the
+      // organiser manually typed in a physical card after the round.
+      isSharedDevicePlayer,
       mismatchDetails,
       groupId: groupIdByProfile.get(sc.player_id) ?? null,
       totalPts,
@@ -261,7 +291,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       // the explicit "✏️ Paper Card Outstanding / Enter Paper
       // Scorecard →" per-player line the brief's own example shows,
       // not just rely on the group-level badge.
-      players: members.map(p => ({ playerId: p.playerId, name: p.name, holesPlayed: p.holesPlayed, finished: p.finished, hasMismatch: p.hasMismatch, waitingForMarker: p.waitingForMarker, confirmationState: p.confirmationState, submittedAt: p.submittedAt, isPaper: p.isPaper, paperCardOutstanding: p.paperCardOutstanding })),
+      players: members.map(p => ({ playerId: p.playerId, name: p.name, holesPlayed: p.holesPlayed, finished: p.finished, hasMismatch: p.hasMismatch, waitingForMarker: p.waitingForMarker, confirmationState: p.confirmationState, submittedAt: p.submittedAt, isPaper: p.isPaper, paperCardOutstanding: p.paperCardOutstanding, isSharedDevicePlayer: p.isSharedDevicePlayer })),
     }
   })
 

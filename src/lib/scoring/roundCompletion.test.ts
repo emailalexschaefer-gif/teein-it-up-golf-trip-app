@@ -118,3 +118,47 @@ test('checkRoundCompletion — Scenario B shape once both paper cards are entere
   ], true)
   assert.equal(result, null)
 })
+
+// ── Shared-Device Two-Player Fix — P0 regression. The exact reported
+// scenario: Alex (digital) + Marnie (paper), self_and_marker round,
+// both have completed all holes, neither has any marker entries at
+// all (since nobody is meant to mark either of them in this mode). ──
+
+test('checkScorecardCompletion — shared-device DIGITAL scorecard is not blocked by missing marker entries (the P0 bug)', () => {
+  const result = checkScorecardCompletion(
+    { scoringMethod: 'digital', selfHoleCount: 9, markerHoleCountForSelfHoles: 0, totalHoles: 9, isSharedDevice: true },
+    true,
+  )
+  assert.equal(result.blocked, false)
+  assert.equal(result.reason, null)
+})
+
+test('checkScorecardCompletion — a NON-shared-device digital scorecard is still correctly blocked by missing marker entries', () => {
+  // Confirms the fix is scoped to isSharedDevice, not a general
+  // loosening of the marker requirement for every digital player.
+  const result = checkScorecardCompletion(
+    { scoringMethod: 'digital', selfHoleCount: 9, markerHoleCountForSelfHoles: 0, totalHoles: 9, isSharedDevice: false },
+    true,
+  )
+  assert.equal(result.blocked, true)
+  assert.equal(result.reason, 'Some holes are still awaiting marker entries.')
+})
+
+test('checkRoundCompletion — Alex + Marnie shared-device pair, both complete, round is genuinely ready to close', () => {
+  const result = checkRoundCompletion([
+    { scoringMethod: 'digital', selfHoleCount: 9, markerHoleCountForSelfHoles: 0, totalHoles: 9, isSharedDevice: true }, // Alex
+    { scoringMethod: 'paper', selfHoleCount: 9, markerHoleCountForSelfHoles: 0, totalHoles: 9, isSharedDevice: true },  // Marnie
+  ], true)
+  assert.equal(result, null)
+})
+
+test('checkScorecardCompletion — shared-device digital scorecard still blocks close if genuinely incomplete', () => {
+  // isSharedDevice exempts from the MARKER check, never from the
+  // underlying "have they actually finished playing" check.
+  const result = checkScorecardCompletion(
+    { scoringMethod: 'digital', selfHoleCount: 5, markerHoleCountForSelfHoles: 0, totalHoles: 9, isSharedDevice: true },
+    true,
+  )
+  assert.equal(result.blocked, true)
+  assert.equal(result.reason, 'Not every player has finished scoring yet.')
+})

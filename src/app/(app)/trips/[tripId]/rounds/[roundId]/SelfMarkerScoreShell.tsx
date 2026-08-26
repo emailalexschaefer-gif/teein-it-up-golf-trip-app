@@ -16,6 +16,7 @@ import SideCompEntryPanel from '@/components/scoring/SideCompEntryPanel'
 import dynamic from 'next/dynamic'
 import type { NewLeaderContext } from '@/components/scoring/NewLeaderPrompt'
 import PendingVerificationCard from '@/components/scoring/PendingVerificationCard'
+import ExpandableRoundScorecard from '@/components/scoring/ExpandableRoundScorecard'
 
 // P0 live-scoring crash investigation — the one recent, genuinely
 // unverified change reachable from this file's own import chain.
@@ -418,6 +419,11 @@ export default function SelfMarkerScoreShell({
   // the same session (nothing resets it on holeIdx change), and doesn't
   // need to survive logout/across devices, matching the stated scope.
   const [scorecardExpanded, setScorecardExpanded] = useState(false)
+  // Follow-up UX pass, item 1 — Marnie gets her OWN, independent
+  // expand/collapse state, not a second read of scorecardExpanded.
+  // Only ever used in shared-device mode (isSharedDeviceScoring) — a
+  // normal digital partner never renders this second instance at all.
+  const [partnerScorecardExpanded, setPartnerScorecardExpanded] = useState(false)
 
   // Simple, non-blocking scroll-to-anchor on hole change — gives a
   // sensible resting position when navigating between holes, but never
@@ -1617,132 +1623,68 @@ export default function SelfMarkerScoreShell({
             self-entries only, reusing calculateStableford() — the same
             function myRunningTotal already calls, not a second
             calculation. ────────────────────────────────────────────── */}
-        <div style={scorecardExpanded ? { padding: '0 0 10px', borderBottom: '1px solid #eceae3', marginBottom: 12 } : undefined}>
-          <button
-            onClick={() => {
-              const willExpand = !scorecardExpanded
-              setScorecardExpanded(willExpand)
+        {/* Follow-up UX pass — the previously-inline compact score strip
+            is now ExpandableRoundScorecard, a genuine reusable
+            component (extracted verbatim, same tiles/colours/layout),
+            so shared-device mode can mount a second, independent
+            instance for the paper player below. Alex's own instance is
+            completely unchanged in behaviour: setHoleIdx is still the
+            same shared navigation function, mySelf/myHcp are still the
+            same data this shell already had in scope. */}
+        <ExpandableRoundScorecard
+          label="Round Scorecard"
+          holes={holes}
+          holeIdx={holeIdx}
+          onSelectHole={setHoleIdx}
+          captureByHole={mySelf}
+          playingHandicap={myHcp}
+          powerplayHoleNumbers={powerplayHoleNumbers}
+          sideCompHoleNumbers={new Set(sideComps.filter(c => c.enabled).map(c => c.hole_number))}
+          expanded={scorecardExpanded}
+          onToggle={() => {
+            const willExpand = !scorecardExpanded
+            setScorecardExpanded(willExpand)
+            if (willExpand) {
+              // Same scroll nudge as before extraction — preserved
+              // exactly, since this is presentation-only behaviour, not
+              // completion/reconciliation logic.
+              requestAnimationFrame(() => {
+                window.scrollBy({ top: -140, behavior: 'smooth' })
+              })
+            }
+          }}
+          footerNote={!scorecardExpanded && currentMarkedByName ? `Playing Partner: ${currentMarkedByName}` : (scorecardExpanded && currentMarkedByName ? `Playing Partner: ${currentMarkedByName}` : null)}
+        />
+
+        {/* Follow-up UX pass, item 1 — Marnie's own, independently
+            expandable scorecard. Only rendered in shared-device mode;
+            a normal digital partner never sees this second strip at
+            all (they have their own device/screen for that). Sourced
+            from partnerSelf/partnerHcp — the exact same data this
+            shell already reads to render Marnie's live scoring card
+            above, not a new fetch or a second scorecard concept. */}
+        {isSharedDeviceScoring && partnerName && (
+          <ExpandableRoundScorecard
+            label={`${partnerName}'s Scorecard`}
+            holes={holes}
+            holeIdx={holeIdx}
+            onSelectHole={setHoleIdx}
+            captureByHole={partnerSelf}
+            playingHandicap={partnerHcp}
+            powerplayHoleNumbers={powerplayHoleNumbers}
+            sideCompHoleNumbers={new Set(sideComps.filter(c => c.enabled).map(c => c.hole_number))}
+            expanded={partnerScorecardExpanded}
+            onToggle={() => {
+              const willExpand = !partnerScorecardExpanded
+              setPartnerScorecardExpanded(willExpand)
               if (willExpand) {
-                // "Automatically reveal the active hole when expanded" —
-                // the strip renders above the anchor, so expanding it
-                // adds height above the current view; nudge the scroll up
-                // slightly so the newly-revealed active-hole tile is
-                // actually visible rather than just pushing content down
-                // off-screen above the viewport. The canonical
-                // positioning effect doesn't handle this specific detail
-                // (it only repositions when *entering* collapsed mode),
-                // so it stays here rather than being folded in.
                 requestAnimationFrame(() => {
                   window.scrollBy({ top: -140, behavior: 'smooth' })
                 })
               }
-              // Collapsing: no scroll call needed here anymore — the
-              // canonical positioning effect reacts to scorecardExpanded
-              // changing and repositions to the anchor itself. Calling
-              // scrollTo here too would just be the exact "two effects
-              // racing to position the page" this consolidation removed.
             }}
-            style={{
-              width: '100%', textAlign: 'center', padding: scorecardExpanded ? '7px 0' : '3px 0', marginBottom: scorecardExpanded ? 10 : 0,
-              background: 'none', border: 'none', cursor: 'pointer',
-              fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#a1791f',
-            }}
-          >
-            {scorecardExpanded ? '▲ Hide Round Scorecard' : '▼ View Round Scorecard'}
-          </button>
-
-          {!scorecardExpanded && currentMarkedByName && (
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: '#b0b6be', padding: '2px 2px 0' }}>
-              Playing Partner: {currentMarkedByName}
-            </div>
-          )}
-
-          {scorecardExpanded && (() => {
-            const front9 = holes.filter(h => h.hole_number <= 9)
-            const back9 = holes.filter(h => h.hole_number > 9)
-            const front9Pts = front9.reduce((s, h) => {
-              const c = mySelf[h.hole_number]
-              if (!c || c.pickedUp || c.grossScore === null) return s
-              return s + calculateStableford({ grossScore: c.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
-            }, 0)
-            const front9Done = front9.every(h => {
-              const c = mySelf[h.hole_number]
-              return !!c && (c.pickedUp || c.grossScore !== null)
-            })
-
-            function renderTile(h: Hole, idx: number) {
-              const c = mySelf[h.hole_number]
-              const isCurrent = idx === holeIdx
-              const hasScore = c && (c.pickedUp || c.grossScore !== null)
-              const pts = hasScore && !c!.pickedUp && c!.grossScore !== null
-                ? calculateStableford({ grossScore: c!.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
-                : null
-              const bg = isCurrent ? '#16a34a' : hasScore ? (pts !== null ? stripPtsBackground(pts) : '#fdf3d9') : '#f3f4f6'
-              const fg = isCurrent ? '#fff' : hasScore ? (pts !== null ? stripPtsColor(pts) : '#a1791f') : '#9ca3af'
-              // Sprint 9 — a hole can carry a Side Competition, be the
-              // Powerplay hole, or (deliberately not restricted — no
-              // "one competition per hole" rule yet) both at once.
-              const hasSideComp = sideComps.some(c2 => c2.enabled && c2.hole_number === h.hole_number)
-              const isPowerplay = powerplayHoleNumbers.has(h.hole_number)
-              return (
-                <button
-                  key={h.id}
-                  onClick={() => setHoleIdx(idx)}
-                  style={{
-                    flex: '1 1 0', minWidth: 0, height: 36, borderRadius: 6, cursor: 'pointer',
-                    background: bg, border: `1.5px solid ${isCurrent ? '#14532d' : '#e5e2d9'}`,
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                    transform: isCurrent ? 'scale(1.06)' : 'scale(1)', transition: 'transform 0.12s',
-                    padding: 0, position: 'relative',
-                  }}
-                >
-                  {(hasSideComp || isPowerplay) && (
-                    <span style={{
-                      position: 'absolute', top: -5, right: -4, fontSize: 10, lineHeight: 1,
-                      filter: isCurrent ? 'none' : 'drop-shadow(0 0 1px rgba(255,255,255,0.9))',
-                    }}>
-                      {isPowerplay ? '⚡' : '⭐'}
-                    </span>
-                  )}
-                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: fg }}>{h.hole_number}</span>
-                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 8, fontWeight: 600, color: fg }}>
-                    {c?.pickedUp ? 'P' : c?.grossScore ?? '–'}
-                  </span>
-                </button>
-              )
-            }
-
-            return (
-              <>
-                {front9.length > 0 && (
-                  <>
-                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 0.6, color: front9Done ? '#16a34a' : '#9ca3af', marginBottom: 4 }}>
-                      {front9Done ? `✓ FRONT 9 COMPLETE — ${front9Pts} PTS` : 'FRONT 9'}
-                    </div>
-                    <div style={{ display: 'flex', gap: 3, marginBottom: 6 }}>
-                      {front9.map((h) => renderTile(h, holes.indexOf(h)))}
-                    </div>
-                  </>
-                )}
-                {back9.length > 0 && (
-                  <>
-                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 0.6, color: '#9ca3af', marginBottom: 4 }}>
-                      BACK 9
-                    </div>
-                    <div style={{ display: 'flex', gap: 3, marginBottom: 4 }}>
-                      {back9.map((h) => renderTile(h, holes.indexOf(h)))}
-                    </div>
-                  </>
-                )}
-              </>
-            )
-          })()}
-
-          {scorecardExpanded && currentMarkedByName && (
-            <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 10, color: '#b0b6be', marginTop: 6 }}>
-              Playing Partner: {currentMarkedByName}
-            </div>
-          )}
+          />
+        )}
         </div>
 
         {/* ── Sprint 9 Item 2 — competition-hole announcement banners.
@@ -2258,8 +2200,8 @@ function ScoreCard({
   badge?: string | null
 }) {
   return (
-    <div style={{ borderRadius: 12, background: '#ffffff', border: '1px solid #eceae3', boxShadow: '0 3px 14px rgba(0,0,0,0.08)', marginBottom: 6, overflow: 'hidden' }}>
-      <div className="scoring-card-header" style={{ background: '#f7f6f1', padding: '5px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #eceae3' }}>
+    <div style={{ borderRadius: 12, background: '#ffffff', border: '1px solid #d9d4c7', boxShadow: '0 3px 14px rgba(0,0,0,0.08)', marginBottom: 6, overflow: 'hidden' }}>
+      <div className="scoring-card-header" style={{ background: '#f7f6f1', padding: '5px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #d9d4c7' }}>
         <div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, fontWeight: 700, color: '#a1791f', letterSpacing: 0.7 }}>{title}</div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 16, fontWeight: 800, color: '#14532d', lineHeight: 1.1 }}>
@@ -2268,7 +2210,7 @@ function ScoreCard({
               <span style={{ fontSize: 10.5, fontWeight: 700, color: '#a1791f', marginLeft: 6 }}>{badge}</span>
             )}
           </div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 500, color: '#b0b6be' }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 500, color: '#6b6558' }}>
             Playing Handicap {hcp}
           </div>
         </div>
@@ -2276,7 +2218,7 @@ function ScoreCard({
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: '#a1791f', lineHeight: 1 }}>
             H{holeNum}
           </div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 600, color: '#b0975f', marginTop: 1 }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 600, color: '#8a6d3f', marginTop: 1 }}>
             {distance != null ? `${distance}m · ` : ''}Par {par} · SI {si}
           </div>
           {(activeSideComps && activeSideComps.length > 0) || isPowerplayHole
@@ -2292,12 +2234,12 @@ function ScoreCard({
 
       <div className="scoring-card-body" style={{ padding: '9px 12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <button onClick={() => onPick(-1)} disabled={isLockedForSide} style={{ width: 50, height: 50, borderRadius: 12, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 22, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>−</button>
+          <button onClick={() => onPick(-1)} disabled={isLockedForSide} style={{ width: 50, height: 50, borderRadius: 12, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #c9c2b2', color: isLockedForSide ? '#9a9a9a' : '#14532d', fontSize: 22, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>−</button>
           <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#d1d5db' : '#14532d', fontSize: 50, fontWeight: 800, lineHeight: 1 }}>
+            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#9a9284' : '#14532d', fontSize: 50, fontWeight: 800, lineHeight: 1 }}>
               {pickedUp ? 'P' : gross ?? '0'}
             </div>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#6b7280', marginTop: 5 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#52525b', marginTop: 5 }}>
               {pickedUp ? '0 Points (pick-up)' : pts !== null ? `${pts} Point${pts === 1 ? '' : 's'}` : 'Par ' + par + ' · SI ' + si}
             </div>
             {/* Sprint 9 — Powerplay visual treatment. Shows the
@@ -2318,7 +2260,7 @@ function ScoreCard({
               </div>
             )}
           </div>
-          <button onClick={() => onPick(1)} disabled={isLockedForSide} style={{ width: 50, height: 50, borderRadius: 12, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #e5e2d9', color: isLockedForSide ? '#c3c8ce' : '#14532d', fontSize: 22, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>+</button>
+          <button onClick={() => onPick(1)} disabled={isLockedForSide} style={{ width: 50, height: 50, borderRadius: 12, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #c9c2b2', color: isLockedForSide ? '#9a9a9a' : '#14532d', fontSize: 22, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>+</button>
         </div>
 
         {/* Pick Up — relocated here from the permanent tile row below, per
@@ -2332,9 +2274,9 @@ function ScoreCard({
             disabled={isLockedForSide}
             style={{
               fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700,
-              color: pickedUp ? '#a1791f' : '#6b7280',
+              color: pickedUp ? '#a1791f' : '#52525b',
               background: pickedUp ? '#fdf3d9' : '#f7f6f1',
-              border: pickedUp ? '1px solid #e8c96a' : '1px solid #d5d1c7',
+              border: pickedUp ? '1px solid #e8c96a' : '1px solid #b8b2a3',
               borderRadius: 18, padding: '3px 12px', cursor: 'pointer',
             }}
           >
@@ -2343,12 +2285,12 @@ function ScoreCard({
         </div>
 
         <div style={{ display: 'flex', gap: 6, marginTop: 9 }}>
-          <button onClick={onPar} disabled={isLockedForSide} style={{ flex: 1, padding: '5px 4px', borderRadius: 8, background: gross === par && !pickedUp ? '#dcfce7' : '#eefbf2', border: gross === par && !pickedUp ? '1px solid #86efac' : '1px solid #dcf1e2', textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: gross === par && !pickedUp ? '#16a34a' : '#5a9c72' }}>PAR</div>
+          <button onClick={onPar} disabled={isLockedForSide} style={{ flex: 1, padding: '5px 4px', borderRadius: 8, background: gross === par && !pickedUp ? '#dcfce7' : '#eefbf2', border: gross === par && !pickedUp ? '1px solid #86efac' : '1px solid #b8ddc3', textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: gross === par && !pickedUp ? '#16a34a' : '#3f7a52' }}>PAR</div>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#16a34a' }}>{par}</div>
           </button>
-          <div style={{ flex: 1, textAlign: 'center', padding: '5px 4px', borderRadius: 8, background: '#f7f6f1', border: '1px solid #e5e2d9' }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: '#9ca3af' }}>SHOTS</div>
+          <div style={{ flex: 1, textAlign: 'center', padding: '5px 4px', borderRadius: 8, background: '#f7f6f1', border: '1px solid #c9c2b2' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: '#6b6558' }}>SHOTS</div>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, color: '#14532d', fontWeight: 700 }}>{strokes}</div>
           </div>
           <button

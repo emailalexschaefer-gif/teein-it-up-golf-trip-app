@@ -12,7 +12,7 @@ import MakersBreakers from './MakersBreakers'
 interface GroupPlayer {
   playerId: string; name: string; holesPlayed: number; finished: boolean; hasMismatch: boolean; waitingForMarker: boolean
   confirmationState: 'scoring' | 'review_required' | 'ready_to_confirm' | 'confirmed'; submittedAt: string | null
-  isPaper?: boolean; paperCardOutstanding?: boolean
+  isPaper?: boolean; paperCardOutstanding?: boolean; isSharedDevicePlayer?: boolean
 }
 
 // The four required per-player states for My HQ's player list, per the
@@ -581,7 +581,9 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
                             color: p.paperCardOutstanding ? '#a1791f' : '#166534',
                           }}
                         >
-                          {p.paperCardOutstanding ? '✏️ Paper Card Outstanding — Enter Paper Scorecard →' : '✅ Paper Card Entered'}
+                          {p.paperCardOutstanding
+                            ? (p.isSharedDevicePlayer ? '⏳ Scoring in progress on shared device' : '✏️ Paper Card Outstanding — Enter Paper Scorecard →')
+                            : (p.isSharedDevicePlayer ? '✅ Shared-device scoring complete' : '✅ Paper Card Entered')}
                         </a>
                       ) : (
                         <>

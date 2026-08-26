@@ -106,7 +106,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       ? admin.from('trip_groups').select('id, name').in('id', groupIds)
       : Promise.resolve({ data: [], error: null }),
     momentIds.length > 0
-      ? admin.from('moments').select('id, image_path, hole_number, caption').in('id', momentIds)
+      ? admin.from('moments').select('id, player_id, image_path, hole_number, caption').in('id', momentIds)
       : Promise.resolve({ data: [], error: null }),
     // Real role, looked up from actual trip membership — never inferred
     // from message_type. 'announcement' meaning "sent through the
@@ -122,9 +122,24 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   const nameBySenderId = new Map<string, string>((profilesRes.data ?? []).map((p: { id: string; full_name: string }) => [p.id, p.full_name]))
   const nameByGroupId = new Map<string, string>((groupsRes.data ?? []).map((g: { id: string; name: string }) => [g.id, g.name]))
   const roleBySenderId = new Map<string, string>((roleRes.data ?? []).map((rm: { profile_id: string; role: string }) => [rm.profile_id, rm.role]))
-  const momentById = new Map<string, { image_path: string; hole_number: number | null; caption: string | null }>(
-    (momentsRes.data ?? []).map((mo: { id: string; image_path: string; hole_number: number | null; caption: string | null }) => [mo.id, mo])
+  const momentById = new Map<string, { player_id: string; image_path: string; hole_number: number | null; caption: string | null }>(
+    (momentsRes.data ?? []).map((mo: { id: string; player_id: string; image_path: string; hole_number: number | null; caption: string | null }) => [mo.id, mo])
   )
+
+  // Shared-Device Two-Player Fix, item 4 — a Moment's SUBJECT
+  // (moments.player_id) is not necessarily the message's sender
+  // (event_messages.sender_user_id is always the uploader/capturer —
+  // Alex, in the proxy case). The subject can therefore be a genuinely
+  // different person than every senderId already fetched above, so
+  // their name needs its own lookup — reusing the SAME nameBySenderId
+  // map (not a second, parallel one) since this is exactly the same
+  // "resolve a profile id to a display name" concern, just for a
+  // second kind of person per message.
+  const subjectIds = [...new Set((momentsRes.data ?? []).map((mo: { player_id: string }) => mo.player_id))].filter(id => !nameBySenderId.has(id))
+  if (subjectIds.length > 0) {
+    const subjectProfilesRes = await admin.from('profiles').select('id, full_name').in('id', subjectIds)
+    for (const p of (subjectProfilesRes.data ?? []) as { id: string; full_name: string }[]) nameBySenderId.set(p.id, p.full_name)
+  }
 
   // Signed URLs for any moment images — the bucket is private (trip-
   // scoped, not public), so a plain public URL wouldn't work.
@@ -148,6 +163,11 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       recipient_group: m.recipient_group_id ? { name: nameByGroupId.get(m.recipient_group_id) ?? 'Group' } : null,
       momentImageUrl: moment ? signedUrlById.get(m.moment_id!) ?? null : null,
       momentHoleNumber: moment?.hole_number ?? null,
+      // Item 4 — the Moment's actual subject, distinct from sender. Only
+      // present on 'moment'-type messages (moment is null otherwise);
+      // undefined/null here, not a fallback name, so the client can
+      // tell "no moment attached" apart from "subject name unresolved."
+      momentPlayerName: moment ? (nameBySenderId.get(moment.player_id) ?? null) : null,
     }
   })
 

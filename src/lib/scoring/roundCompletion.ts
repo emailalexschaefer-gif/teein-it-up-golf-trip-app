@@ -12,6 +12,16 @@ export interface ScorecardCompletionInput {
   selfHoleCount: number
   markerHoleCountForSelfHoles: number // how many of the self-entered holes also have a marker entry
   totalHoles: number
+  // Shared-Device Two-Player Fix — "two official scorecards, one
+  // physical device," not "one real scorecard + one marker copy." Both
+  // members of a shared-device pair get this flag set (not just the
+  // paper one) — the digital player's own scorecard also has no
+  // genuine marker relationship in this mode, since their notional
+  // "marker" (the paper player) never writes marker entries at all.
+  // Root cause of the reported P0: this flag didn't exist, so a
+  // digital scorecard with isMarkerMode=true always required marker
+  // entries regardless of WHY it might genuinely have none.
+  isSharedDevice?: boolean
 }
 
 export interface CompletionCheckResult {
@@ -36,6 +46,12 @@ export function checkScorecardCompletion(sc: ScorecardCompletionInput, isMarkerM
   if (sc.selfHoleCount < sc.totalHoles) {
     return { blocked: true, reason: 'Not every player has finished scoring yet.' }
   }
+  // Shared-device — the digital player's own scorecard is exempt from
+  // the marker check too, not just their paper partner's. This is the
+  // actual P0 fix: isSharedDevice is checked BEFORE isMarkerMode, so a
+  // shared-device digital scorecard is never blocked on marker entries
+  // that were never meant to exist for this pairing.
+  if (sc.isSharedDevice) return { blocked: false, reason: null }
   if (isMarkerMode && sc.markerHoleCountForSelfHoles < sc.selfHoleCount) {
     return { blocked: true, reason: 'Some holes are still awaiting marker entries.' }
   }
