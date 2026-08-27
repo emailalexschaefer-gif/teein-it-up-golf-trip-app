@@ -1,7 +1,7 @@
 'use client'
 
 import type { CSSProperties, ReactNode } from 'react'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -257,12 +257,33 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
     refetchOnWindowFocus: true,
   })
 
+  // P0 fix — closeError is local component state, set only when a Close
+  // Round click is actually blocked. If the organiser attempted this
+  // before every hole/reconciliation was genuinely done, got blocked,
+  // then finished scoring without ever clicking Close Round again, this
+  // message would otherwise sit there indefinitely even once My HQ's own
+  // summary above correctly shows 100% Complete / 0 Reconciling — looking
+  // exactly like the round is still stuck when it's actually ready.
+  // Clears itself the moment the summary data agrees the round is ready.
+  useEffect(() => {
+    if (closeError && data && data.summary.completionPct === 100 && data.summary.awaitingReconciliation === 0) {
+      setCloseError(null)
+    }
+  }, [closeError, data])
+
   async function handleClose() {
     setClosing(true); setCloseError(null)
     try {
       const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/close`, { method: 'POST' })
       const body = await res.json().catch(() => ({}))
-      if (!res.ok) { setCloseError(body.error ?? 'Could not close the round.'); return }
+      if (!res.ok) {
+        // P0 trace — logs the server's debug payload (see close/route.ts)
+        // so a blocked attempt can be diagnosed from the browser console
+        // without guessing; never shown to the organiser directly.
+        if (body.debug) console.error('[close-round blocked]', body.debug)
+        setCloseError(body.error ?? 'Could not close the round.')
+        return
+      }
       // Trigger sequence: Finish Round -> Round Snapshot -> Makers &
       // Breakers -> Present Side Games/Round Winners. roundId/roundName/
       // courseName are captured HERE, once, into closedRoundId etc. —

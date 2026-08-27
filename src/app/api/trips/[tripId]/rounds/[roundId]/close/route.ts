@@ -69,6 +69,14 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
     }
   }
 
+  // P0 trace — instrument before changing logic, per the reported
+  // production case: My HQ's own summary already correctly showed 100%
+  // Complete / 0 Reconciling for this exact round, yet this close gate
+  // still returned "Some holes are still awaiting marker entries." for
+  // a shared-device pair. Logs the exact same fields the tournament
+  // route's trace does, per-scorecard, so a failing close attempt can
+  // be compared directly against My HQ's own trace for the same round
+  // instead of inferred from screenshots taken minutes apart.
   for (const sc of scRes.data ?? []) {
     const selfHoles = new Set<string>()
     const markerHoles = new Set<string>()
@@ -79,15 +87,34 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
     let markerHoleCountForSelfHoles = 0
     for (const holeId of selfHoles) { if (markerHoles.has(holeId)) markerHoleCountForSelfHoles++ }
 
+    const isSharedDevice = sharedDevicePlayerIds.has(sc.player_id)
+    console.log('[close-round completion trace]', {
+      roundId, playerId: sc.player_id, scoringMethod: sc.scoring_method, groupId: sc.group_id,
+      selfHoleCount: selfHoles.size, markerHoleCountForSelfHoles, totalHoles, isMarkerMode,
+      isSharedDevice, sharedDevicePlayerIds: [...sharedDevicePlayerIds],
+    })
+
     const result = checkRoundCompletion(
       [{
         scoringMethod: sc.scoring_method === 'paper' ? 'paper' : 'digital',
         selfHoleCount: selfHoles.size, markerHoleCountForSelfHoles, totalHoles,
-        isSharedDevice: sharedDevicePlayerIds.has(sc.player_id),
+        isSharedDevice,
       }],
       isMarkerMode,
     )
-    if (result) return NextResponse.json({ error: result.reason }, { status: 409 })
+    if (result) {
+      // debug field pattern — surfaces exactly why this scorecard
+      // blocked (not just the user-facing reason) without permanently
+      // exposing internals: only present on an actual block, and only
+      // the fields needed to diagnose a shared-device detection miss.
+      return NextResponse.json({
+        error: result.reason,
+        debug: {
+          playerId: sc.player_id, scoringMethod: sc.scoring_method, groupId: sc.group_id,
+          isSharedDevice, selfHoleCount: selfHoles.size, markerHoleCountForSelfHoles, totalHoles, isMarkerMode,
+        },
+      }, { status: 409 })
+    }
   }
 
   const { error: updateError } = await admin.from('rounds').update({ status: 'completed' }).eq('id', roundId)

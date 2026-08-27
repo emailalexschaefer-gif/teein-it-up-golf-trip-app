@@ -742,7 +742,13 @@ export default function SelfMarkerScoreShell({
   // underlying data.
   const myDraftCapture: CaptureValue = { grossScore: draftMyPickedUp ? null : draftMyGross, pickedUp: draftMyPickedUp, adminOverridden: mySelf[holeNum]?.adminOverridden }
   const partnerDraftCapture: CaptureValue = { grossScore: draftPartnerPickedUp ? null : draftPartnerGross, pickedUp: draftPartnerPickedUp }
-  const myComparison = requiresMarker ? compareCaptures(myDraftCapture, myMarker[holeNum] ?? null) : null
+  // P0 fix — same root cause as the Round Summary screen: myMarker is
+  // always empty for a shared-device pair, so comparing against it here
+  // showed a permanent "pending_marker" badge on Alex's own card while
+  // actively scoring, even on a hole neither player had reached yet.
+  // No marker relationship exists in this mode, so no per-hole
+  // comparison status applies here either.
+  const myComparison = (requiresMarker && !isSharedDeviceScoring) ? compareCaptures(myDraftCapture, myMarker[holeNum] ?? null) : null
   // Add-on 1 — shared-device mode never computes a comparison at all.
   // There is exactly one entry for this hole (Alex's own), written
   // directly as the partner's official score — nothing exists to
@@ -1044,11 +1050,35 @@ export default function SelfMarkerScoreShell({
     const PENDING: ComparisonStatus[] = ['pending_marker', 'pending_self', 'not_started']
 
     const rows = holes.map(h => {
-      const mineStatus = compareCaptures(mySelf[h.hole_number] ?? null, myMarker[h.hole_number] ?? null)
+      // P0 fix — shared-device pairs never write marker entries at all
+      // (Marnie's official score is written as HER OWN capture_role='self'
+      // entry via the shared-device-score endpoint, not as a marker entry
+      // on Alex's card — see confirmScore()/isSharedDeviceScoring above).
+      // Comparing mySelf against myMarker here always found myMarker
+      // empty for this mode and reported 'pending_marker' on every hole,
+      // which is the actual root cause of the reported "0 matched / 9
+      // waiting" state: there was never a marker entry to wait for in the
+      // first place. Completeness for a shared-device pair is instead:
+      // does Alex's own entry exist, and does Marnie's own entry
+      // (partnerSelf) exist, for this hole — reusing the same
+      // ComparisonStatus values so every downstream computation below
+      // (mismatches/pending/detailedSummaryRows/allMatched/
+      // isReadyToConfirm) keeps working unchanged, off one canonical
+      // per-hole status instead of a second parallel rule.
+      const mineStatus: ComparisonStatus = isSharedDeviceScoring
+        ? (mySelf[h.hole_number] && partnerSelf[h.hole_number] ? 'matched'
+            : mySelf[h.hole_number] ? 'pending_marker'
+            : partnerSelf[h.hole_number] ? 'pending_self'
+            : 'not_started')
+        : compareCaptures(mySelf[h.hole_number] ?? null, myMarker[h.hole_number] ?? null)
       // Only meaningful when there's actually a partner card to mark —
       // requiresMarker is false in individual mode, and currentMarked can be
       // null even in self_and_marker mode if no partner is assigned yet.
-      const partnerStatus = (requiresMarker && currentMarked)
+      // Shared-device pairs never have a second, independent marker
+      // comparison to make (there is no marker relationship at all in
+      // this mode), so partnerStatus stays null — mineStatus above
+      // already captures the pair's full completeness state.
+      const partnerStatus = (requiresMarker && currentMarked && !isSharedDeviceScoring)
         ? compareCaptures(partnerSelf[h.hole_number] ?? null, partnerMarker[h.hole_number] ?? null)
         : null
       // Reconciliation trace (client-side console) — matches the server-
@@ -1141,8 +1171,11 @@ export default function SelfMarkerScoreShell({
     // above, just fed myMarker's captures instead of mySelf's. Only
     // meaningful in self_and_marker mode with an actual marker assigned
     // — requiresMarker/currentMarked guard this exactly like every other
-    // marker-dependent value on this screen already does.
-    const markerGrandTotal = (requiresMarker && currentMarked)
+    // marker-dependent value on this screen already does. Never used in
+    // shared-device mode (see partnerGrandTotal below) — myMarker is
+    // always empty there, which previously made this show a permanent
+    // false "0 pts / holes to review" comparison against Marnie.
+    const markerGrandTotal = (requiresMarker && currentMarked && !isSharedDeviceScoring)
       ? holes.reduce((sum, h) => {
           const markerCapture = myMarker[h.hole_number] ?? null
           if (!markerCapture) return sum
@@ -1154,13 +1187,33 @@ export default function SelfMarkerScoreShell({
         }, 0)
       : null
 
+    // P0 fix — Marnie's REAL, independently-entered total for a
+    // shared-device pair, computed from partnerSelf (her own official
+    // capture_role='self' entries), not from a marker copy that never
+    // exists in this mode. This is not a comparison/reconciliation value
+    // — a shared-device pair has nothing to reconcile — it's just her
+    // actual points, shown alongside Alex's for information.
+    const partnerGrandTotal = (isSharedDeviceScoring && currentMarked)
+      ? holes.reduce((sum, h) => {
+          const partnerCapture = partnerSelf[h.hole_number] ?? null
+          if (!partnerCapture) return sum
+          const pts = partnerCapture.pickedUp ? 0
+            : partnerCapture.grossScore !== null
+              ? calculateStableford({ grossScore: partnerCapture.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: partnerHcp, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
+              : 0
+          return sum + pts
+        }, 0)
+      : null
+
     return (
       <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '12px 16px 90px' }}>
         <div style={{ textAlign: 'center', marginBottom: 2 }}>
           <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 17, fontWeight: 800 }}>Round Summary</div>
           <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d', marginTop: 2 }}>{myName}</div>
           <div style={{ fontFamily: 'var(--font-body)', color: '#6b7280', fontSize: 11, marginTop: 1 }}>
-            {rows.length - mismatches.length - pending.length} holes matched · {mismatches.length} need review{pending.length > 0 ? ` · ${pending.length} waiting` : ''}
+            {isSharedDeviceScoring
+              ? (allMatched ? 'Shared-device scoring complete ✓' : `${rows.length - pending.length} of ${rows.length} holes recorded`)
+              : <>{rows.length - mismatches.length - pending.length} holes matched · {mismatches.length} need review{pending.length > 0 ? ` · ${pending.length} waiting` : ''}</>}
           </div>
           <div style={{ fontFamily: 'var(--font-display)', color: '#a1791f', fontSize: 20, fontWeight: 800, marginTop: 6 }}>
             {grandTotal} pts
@@ -1206,6 +1259,35 @@ export default function SelfMarkerScoreShell({
           </div>
         )}
 
+        {/* P0 fix — the shared-device equivalent of the card above, but
+            deliberately NOT framed as a match/mismatch comparison: a
+            shared-device pair has no independent second entry to
+            reconcile against (Marnie's total here is her own real,
+            official score, not a marker copy of Alex's), so there is
+            nothing to flag as "needing review" just because the two
+            totals differ, which they normally will. */}
+        {isSharedDeviceScoring && currentMarked && partnerGrandTotal !== null && !isLocked && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-around',
+            background: '#fff', border: '1px solid #eceae3', borderRadius: 12, padding: '12px 14px', marginTop: 10,
+          }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4 }}>{myName}</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: '#14532d', marginTop: 2 }}>{grandTotal}</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 18 }}>{allMatched ? '✓' : '⏳'}</div>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: allMatched ? '#16a34a' : '#a1791f' }}>
+                {allMatched ? 'Shared-device' : 'Scoring in progress'}
+              </div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4 }}>{partnerName ?? 'Paper Player'}</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: '#14532d', marginTop: 2 }}>{partnerGrandTotal}</div>
+            </div>
+          </div>
+        )}
+
         {/* Package 3 (C2) — the simplified, official post-reconciliation
             view. grandTotal here is the exact same value the comparison
             block above already used — the player's own capture_role
@@ -1231,8 +1313,26 @@ export default function SelfMarkerScoreShell({
         )}
 
         {/* Status block — three distinct states per the exact spec:
-            mismatches remain, ready to confirm, or already locked. */}
-        {!allMatched && !isLocked && (
+            mismatches remain, ready to confirm, or already locked.
+            Shared-device pairs can never land in the mismatch branch
+            (mismatches is always empty for them — see mineStatus fix
+            above), so if they're here it's genuinely just "not every
+            hole is recorded yet," not "needs review." */}
+        {!allMatched && !isLocked && isSharedDeviceScoring && (
+          <div style={{ background: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: 12, padding: 14, marginTop: 10, marginBottom: 16 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#a1791f', marginBottom: 6 }}>
+              Still recording holes for {myName} and {partnerName ?? 'your paper partner'}.
+            </div>
+            <button
+              onClick={() => setShowReconciliation(false)}
+              style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: '#a1791f', color: '#fff', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
+            >
+              Back to Scoring
+            </button>
+          </div>
+        )}
+
+        {!allMatched && !isLocked && !isSharedDeviceScoring && (
           <div style={{ background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 12, padding: 14, marginTop: 10, marginBottom: 16 }}>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#dc2626', marginBottom: 6 }}>
               Scores still need review.
@@ -1273,7 +1373,9 @@ export default function SelfMarkerScoreShell({
               Your scorecard is ready.
             </div>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151', marginBottom: 10, lineHeight: 1.5 }}>
-              All holes are complete and matched. Review your scorecard carefully before confirming.
+              {isSharedDeviceScoring
+                ? 'Shared-device scoring complete. Review both scorecards carefully before confirming.'
+                : 'All holes are complete and matched. Review your scorecard carefully before confirming.'}
             </div>
             {submitFinalError && <p style={{ color: '#dc2626', fontSize: 11.5, marginBottom: 8, fontFamily: 'var(--font-body)' }}>{submitFinalError}</p>}
             <button
@@ -1656,35 +1758,6 @@ export default function SelfMarkerScoreShell({
           footerNote={!scorecardExpanded && currentMarkedByName ? `Playing Partner: ${currentMarkedByName}` : (scorecardExpanded && currentMarkedByName ? `Playing Partner: ${currentMarkedByName}` : null)}
         />
 
-        {/* Follow-up UX pass, item 1 — Marnie's own, independently
-            expandable scorecard. Only rendered in shared-device mode;
-            a normal digital partner never sees this second strip at
-            all (they have their own device/screen for that). Sourced
-            from partnerSelf/partnerHcp — the exact same data this
-            shell already reads to render Marnie's live scoring card
-            above, not a new fetch or a second scorecard concept. */}
-        {isSharedDeviceScoring && partnerName && (
-          <ExpandableRoundScorecard
-            label={`${partnerName}'s Scorecard`}
-            holes={holes}
-            holeIdx={holeIdx}
-            onSelectHole={setHoleIdx}
-            captureByHole={partnerSelf}
-            playingHandicap={partnerHcp}
-            powerplayHoleNumbers={powerplayHoleNumbers}
-            sideCompHoleNumbers={new Set(sideComps.filter(c => c.enabled).map(c => c.hole_number))}
-            expanded={partnerScorecardExpanded}
-            onToggle={() => {
-              const willExpand = !partnerScorecardExpanded
-              setPartnerScorecardExpanded(willExpand)
-              if (willExpand) {
-                requestAnimationFrame(() => {
-                  window.scrollBy({ top: -140, behavior: 'smooth' })
-                })
-              }
-            }}
-          />
-        )}
         </div>
 
         {/* ── Sprint 9 Item 2 — competition-hole announcement banners.
@@ -1801,6 +1874,38 @@ export default function SelfMarkerScoreShell({
           status={myComparison} onOpenSummary={() => setShowReconciliation(true)} isLockedForSide={isLocked}
           activeSideComps={activeSideComps} isPowerplayHole={isPowerplayHole} basePts={myBasePts}
         />
+
+        {/* P0 fix (shared-device layout) — Marnie's own, independently
+            expandable scorecard, relocated to sit immediately above her
+            own scoring panel (Card 2 below) rather than beside Alex's at
+            the top of the page. Only rendered in shared-device mode; a
+            normal digital partner never sees this second strip at all
+            (they have their own device/screen for that). Same
+            ExpandableRoundScorecard component, same partnerSelf/
+            partnerHcp data this shell already reads — not a duplicate
+            component, just moved. */}
+        {isSharedDeviceScoring && partnerName && (
+          <ExpandableRoundScorecard
+            label={`${partnerName}'s Scorecard`}
+            holes={holes}
+            holeIdx={holeIdx}
+            onSelectHole={setHoleIdx}
+            captureByHole={partnerSelf}
+            playingHandicap={partnerHcp}
+            powerplayHoleNumbers={powerplayHoleNumbers}
+            sideCompHoleNumbers={new Set(sideComps.filter(c => c.enabled).map(c => c.hole_number))}
+            expanded={partnerScorecardExpanded}
+            onToggle={() => {
+              const willExpand = !partnerScorecardExpanded
+              setPartnerScorecardExpanded(willExpand)
+              if (willExpand) {
+                requestAnimationFrame(() => {
+                  window.scrollBy({ top: -140, behavior: 'smooth' })
+                })
+              }
+            }}
+          />
+        )}
 
         {/* ── Card 2: YOUR MARKER (the partner I mark) ──────────────────── */}
         {requiresMarker && markedScorecard && partnerName && (
