@@ -1,7 +1,7 @@
 'use client'
 
 import type { CSSProperties, ReactNode } from 'react'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -265,12 +265,6 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
   // summary above correctly shows 100% Complete / 0 Reconciling — looking
   // exactly like the round is still stuck when it's actually ready.
   // Clears itself the moment the summary data agrees the round is ready.
-  useEffect(() => {
-    if (closeError && data && data.summary.completionPct === 100 && data.summary.awaitingReconciliation === 0) {
-      setCloseError(null)
-    }
-  }, [closeError, data])
-
   async function handleClose() {
     setClosing(true); setCloseError(null)
     try {

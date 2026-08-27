@@ -9,10 +9,24 @@
  * claim). trip-wide by default; ?roundId= narrows to one round (the
  * scoring shell's own use case — a marker only needs to see claims for
  * the round they're actively scoring).
+ *
+ * P0 fix — shared-device widening. A paper player (Marnie) has no
+ * account of her own, so `required_verifier_id = Marnie` can never equal
+ * `user.id` for any real session — this hard filter meant her required
+ * verifications never surfaced to anyone at all. When ?roundId= is
+ * given (the scoring shell's own call), also include claims whose
+ * required_verifier_id is the caller's shared-device paper partner for
+ * that round, flagged `verifyingAsPartner: true` so the client can show
+ * the explicit "Marnie to verify" same-phone action rather than
+ * presenting it as the caller's own claim. Trip-wide calls (no
+ * roundId) are unchanged — shared-device pairing is inherently a
+ * per-round concept (scorecards.group_id), so widening it without a
+ * round to scope against isn't attempted here.
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { detectSharedDeviceGroup } from '@/lib/scoring/sharedDeviceScoring'
 
 interface RouteProps { params: Promise<{ tripId: string }> }
 
@@ -30,6 +44,27 @@ export async function GET(req: NextRequest, { params }: RouteProps) {
 
   const roundId = req.nextUrl.searchParams.get('roundId')
 
+  // Shared-device widening — resolve the caller's paper partner for
+  // this specific round (if any), reusing the exact same detection
+  // function already used by close/route.ts, tournament/route.ts, and
+  // the scorecards submit route, so this can't drift into its own,
+  // fourth copy of the rule.
+  let sharedDevicePaperPartnerId: string | null = null
+  if (roundId) {
+    const myScorecardRes = await admin.from('scorecards').select('group_id').eq('round_id', roundId).eq('player_id', user.id).maybeSingle()
+    const myGroupId = myScorecardRes.data?.group_id ?? null
+    if (myGroupId) {
+      const groupRes = await admin.from('scorecards').select('player_id, scoring_method')
+        .eq('round_id', roundId).eq('group_id', myGroupId).neq('status', 'withdrawn')
+      const members = (groupRes.data ?? []) as { player_id: string; scoring_method: string }[]
+      const detection = detectSharedDeviceGroup(members.map(m => ({ playerId: m.player_id, scoringMethod: m.scoring_method === 'paper' ? 'paper' as const : 'digital' as const })))
+      if (detection.isSharedDevice && detection.digitalPlayerId === user.id) {
+        sharedDevicePaperPartnerId = detection.paperPlayerId
+      }
+    }
+  }
+  const requiredVerifierIds = sharedDevicePaperPartnerId ? [user.id, sharedDevicePaperPartnerId] : [user.id]
+
   // side_comps first (scoped to this trip, optionally this round), then
   // entries against those — a flat two-step query, not a nested embed,
   // matching the same lesson already applied elsewhere in this app after
@@ -44,17 +79,17 @@ export async function GET(req: NextRequest, { params }: RouteProps) {
 
   const entriesRes = await admin
     .from('side_comp_entries')
-    .select('id, side_comp_id, player_id, claimed_value, moment_id, created_at, profiles:player_id(full_name)')
+    .select('id, side_comp_id, player_id, claimed_value, moment_id, created_at, required_verifier_id, profiles:player_id(full_name)')
     .in('side_comp_id', compIds)
     .eq('verification_status', 'pending')
-    .eq('required_verifier_id', user.id)
+    .in('required_verifier_id', requiredVerifierIds)
     .order('created_at', { ascending: true })
 
   const COMP_LABEL: Record<string, string> = { nearest_pin: 'Nearest the Pin', longest_drive: 'Longest Drive', pros_approach: "Pro's Approach" }
 
   const pending = await Promise.all(((entriesRes.data ?? []) as unknown as {
     id: string; side_comp_id: string; player_id: string; claimed_value: number | null; moment_id: string | null
-    created_at: string; profiles: { full_name: string } | null
+    created_at: string; required_verifier_id: string; profiles: { full_name: string } | null
   }[]).map(async e => {
     const comp = compsById.get(e.side_comp_id)
     let momentUrl: string | null = null
@@ -65,12 +100,29 @@ export async function GET(req: NextRequest, { params }: RouteProps) {
         momentUrl = signed.data?.signedUrl ?? null
       }
     }
+    const verifyingAsPartner = e.required_verifier_id !== user.id
+    // Only fetched for the shared-device widened case — the card needs
+    // the actual verifier's name (Marnie) to show "Marnie confirms this
+    // result," distinct from the claimant's own name already returned
+    // below. Skipped entirely for the ordinary case (verifyingAsPartner
+    // false) to avoid an extra query on every normal claim.
+    let verifierName: string | null = null
+    if (verifyingAsPartner) {
+      const verifierProfile = await admin.from('profiles').select('full_name').eq('id', e.required_verifier_id).maybeSingle()
+      verifierName = verifierProfile.data?.full_name ?? 'your paper partner'
+    }
     return {
       entryId: e.id, sideCompId: e.side_comp_id,
       compType: comp?.comp_type ?? null, compLabel: comp ? (COMP_LABEL[comp.comp_type] ?? comp.comp_type) : 'Side Competition',
       holeNumber: comp?.hole_number ?? null,
       playerId: e.player_id, playerName: e.profiles?.full_name ?? 'Player',
       claimedValue: e.claimed_value, momentUrl,
+      // Shared-device widening — true only when this claim's real
+      // required verifier is the caller's paper partner, not the caller
+      // themselves, so the client can render "Marnie to verify" instead
+      // of presenting it as the caller's own pending action.
+      verifyingAsPartner,
+      verifierName,
     }
   }))
 

@@ -457,6 +457,34 @@ export default function SelfMarkerScoreShell({
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
+  // P0 fix — scroll/sticky-footer trace. Rather than guess a static
+  // bottom-padding value (which the brief explicitly asked not to do),
+  // this measures the fixed action tray's REAL rendered height and
+  // reserves exactly that much trailing space, via ResizeObserver so it
+  // self-corrects for every state that changes the tray's height (the
+  // sync-status label appearing/disappearing, the shotgun-mode extra
+  // Round Summary button, safe-area differences) without needing to
+  // know about any of those states here. This is what guarantees Live
+  // Leaderboard and everything below it can always be scrolled fully
+  // clear of the tray, regardless of whether either horizontal
+  // scorecard is expanded — expanding a scorecard only changes how
+  // TALL the page's natural content is, which the browser already
+  // scrolls to correctly on its own; the actual bug was the reserved
+  // trailing space potentially being smaller than the tray itself in
+  // some of its states, not anything to do with scorecard expansion
+  // specifically.
+  const actionTrayRef = useRef<HTMLDivElement>(null)
+  const [actionTrayHeight, setActionTrayHeight] = useState(160)
+  useEffect(() => {
+    const el = actionTrayRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(entries => {
+      const height = entries[0]?.contentRect.height
+      if (height) setActionTrayHeight(Math.ceil(height))
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
   const confirmingRef = useRef(false)
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -2126,7 +2154,17 @@ export default function SelfMarkerScoreShell({
           whitespace. Its own position still doesn't depend on any
           calculated total viewport height, which is what makes it
           reliable regardless of address bar state. */}
-      <div style={{
+      {/* P0 fix — spacer sized to this tray's own measured height
+          (actionTrayHeight, from the ResizeObserver above), rendered as
+          the actual last thing in the scrollable content, immediately
+          before the tray itself. This is what lets the page always be
+          scrolled fully clear of the tray — Live Leaderboard and
+          anything below it — regardless of which horizontal
+          scorecard(s) are expanded or what state the tray itself is in. */}
+      <div style={{ height: actionTrayHeight }} aria-hidden="true" />
+      <div
+        ref={actionTrayRef}
+        style={{
         position: 'fixed', left: 0, right: 0,
         bottom: 'env(safe-area-inset-bottom, 0px)',
         padding: '8px 16px', background: '#faf9f6',

@@ -14,6 +14,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { detectSharedDeviceGroup } from '@/lib/scoring/sharedDeviceScoring'
 
 interface RouteProps { params: Promise<{ tripId: string; sideCompId: string; entryId: string }> }
 
@@ -64,14 +65,48 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   const memberCheck = await admin.from('trip_members').select('role').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
   if (!memberCheck.data) return NextResponse.json({ error: 'Not a trip member.' }, { status: 403 })
 
-  const compRes = await admin.from('side_comps').select('id, comp_type, trip_id, hole_number').eq('id', sideCompId).maybeSingle()
+  const compRes = await admin.from('side_comps').select('id, comp_type, trip_id, hole_number, round_id').eq('id', sideCompId).maybeSingle()
   if (!compRes.data || compRes.data.trip_id !== tripId) {
     return NextResponse.json({ error: 'Side competition not found.' }, { status: 404 })
   }
 
-  const entryRes = await admin.from('side_comp_entries').select('id, side_comp_id').eq('id', entryId).maybeSingle()
+  const entryRes = await admin.from('side_comp_entries').select('id, side_comp_id, required_verifier_id').eq('id', entryId).maybeSingle()
   if (!entryRes.data || entryRes.data.side_comp_id !== sideCompId) {
     return NextResponse.json({ error: 'Claim not found.' }, { status: 404 })
+  }
+
+  // P0 fix — shared-device same-phone verification. A paper player
+  // (e.g. Marnie) has no account/session of her own, so
+  // required_verifier_id can legitimately be her profile id while the
+  // only person who can ever physically tap "verify" is her digital
+  // partner (Alex), on the one shared phone. The normal invariant this
+  // route documents at the top — p_verifier_id is always the
+  // authenticated caller's own id — still holds for every other case;
+  // this is a narrow, explicitly server-validated exception, never
+  // trusted from the request body: only triggers when the caller is
+  // independently confirmed (via the same detectSharedDeviceGroup rule
+  // used everywhere else) to be the digital half of a genuine
+  // shared-device pair with this specific claim's actual required
+  // verifier. If the caller already IS the required verifier (the
+  // overwhelmingly common case — includes the reverse direction, Alex
+  // verifying a claim Marnie "made" that resolved to Alex as her
+  // marker), this resolves to the caller's own id and behaves exactly
+  // as before.
+  let verifierId = user.id
+  let verifyingAsSharedDevicePartner = false
+  if (entryRes.data.required_verifier_id && entryRes.data.required_verifier_id !== user.id) {
+    const myScorecardRes = await admin.from('scorecards').select('group_id').eq('round_id', compRes.data.round_id).eq('player_id', user.id).maybeSingle()
+    const myGroupId = myScorecardRes.data?.group_id ?? null
+    if (myGroupId) {
+      const groupRes = await admin.from('scorecards').select('player_id, scoring_method')
+        .eq('round_id', compRes.data.round_id).eq('group_id', myGroupId).neq('status', 'withdrawn')
+      const members = (groupRes.data ?? []) as { player_id: string; scoring_method: string }[]
+      const detection = detectSharedDeviceGroup(members.map(m => ({ playerId: m.player_id, scoringMethod: m.scoring_method === 'paper' ? 'paper' as const : 'digital' as const })))
+      if (detection.isSharedDevice && detection.digitalPlayerId === user.id && detection.paperPlayerId === entryRes.data.required_verifier_id) {
+        verifierId = entryRes.data.required_verifier_id
+        verifyingAsSharedDevicePartner = true
+      }
+    }
   }
 
   let body: Record<string, unknown>
@@ -92,16 +127,19 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
       }
     }
     const { data, error } = await admin.rpc('verify_side_comp_value_entry', {
-      p_entry_id: entryId, p_verifier_id: user.id, p_decision: decision, p_corrected_value: correctedValue,
+      p_entry_id: entryId, p_verifier_id: verifierId, p_decision: decision, p_corrected_value: correctedValue,
     })
     if (error) {
       console.error('[side-comp verify] verify_side_comp_value_entry failed', { entryId, error: error.message })
       const isAuthError = error.message.includes('Only the assigned verifier')
       return NextResponse.json({ error: isAuthError ? "You're not the verifier for this claim." : "Couldn't save this verification. Please try again." }, { status: isAuthError ? 403 : 500 })
     }
+    if (verifyingAsSharedDevicePartner) {
+      console.log('[side-comp verify] shared-device same-phone verification', { entryId, physicalCaller: user.id, verifiedAs: verifierId })
+    }
     const row = data?.[0]
     if (row?.became_official_leader) {
-      await postLeadChangeAnnouncement(admin, tripId, user.id, compRes.data.comp_type, compRes.data.hole_number, row.current_leader_name ?? null)
+      await postLeadChangeAnnouncement(admin, tripId, verifierId, compRes.data.comp_type, compRes.data.hole_number, row.current_leader_name ?? null)
     }
     return NextResponse.json({
       entryId: row?.entry_id ?? null,
@@ -118,16 +156,19 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
       return NextResponse.json({ error: "Longest Drive claims can be confirmed or rejected, not numerically corrected." }, { status: 400 })
     }
     const { data, error } = await admin.rpc('verify_longest_drive_entry', {
-      p_entry_id: entryId, p_verifier_id: user.id, p_decision: decision,
+      p_entry_id: entryId, p_verifier_id: verifierId, p_decision: decision,
     })
     if (error) {
       console.error('[side-comp verify] verify_longest_drive_entry failed', { entryId, error: error.message })
       const isAuthError = error.message.includes('Only the assigned verifier')
       return NextResponse.json({ error: isAuthError ? "You're not the verifier for this claim." : "Couldn't save this verification. Please try again." }, { status: isAuthError ? 403 : 500 })
     }
+    if (verifyingAsSharedDevicePartner) {
+      console.log('[side-comp verify] shared-device same-phone verification', { entryId, physicalCaller: user.id, verifiedAs: verifierId })
+    }
     const row = data?.[0]
     if (row?.became_official_leader) {
-      await postLeadChangeAnnouncement(admin, tripId, user.id, compRes.data.comp_type, compRes.data.hole_number, row.current_leader_name ?? null)
+      await postLeadChangeAnnouncement(admin, tripId, verifierId, compRes.data.comp_type, compRes.data.hole_number, row.current_leader_name ?? null)
     }
     return NextResponse.json({
       entryId: row?.entry_id ?? null,

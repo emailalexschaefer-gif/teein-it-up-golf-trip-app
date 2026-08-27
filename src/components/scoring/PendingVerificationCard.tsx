@@ -29,6 +29,14 @@ interface PendingClaim {
   playerId: string; playerName: string
   claimedValue: number | null
   momentUrl: string | null
+  // P0 fix — shared-device same-phone verification. True only when
+  // this claim's actual required verifier is the caller's paper
+  // partner (e.g. Marnie), surfaced to the caller (Alex) because she
+  // has no device/session of her own to see it on. Never auto-verified
+  // — this only changes the label/framing so it's explicit that the
+  // action being taken is "as" the partner, not the caller's own.
+  verifyingAsPartner?: boolean
+  verifierName?: string | null
 }
 
 const COMP_ICON: Record<string, string> = { nearest_pin: '🎯', longest_drive: '💥', pros_approach: '🎯' }
@@ -110,6 +118,7 @@ function VerificationClaimCard({ tripId, claim, onResolved }: { tripId: string; 
   }
 
   const canCorrect = claim.compType === 'nearest_pin' || claim.compType === 'pros_approach'
+  const verifierName = claim.verifierName ?? 'Your paper partner'
 
   return (
     <div style={{ background: '#ffffff', border: '1px solid #eceae3', borderRadius: 12, padding: '12px 14px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
@@ -126,6 +135,20 @@ function VerificationClaimCard({ tripId, claim, onResolved }: { tripId: string; 
         </div>
       )}
 
+      {/* P0 fix — shared-device same-phone verification. Marnie has no
+          device of her own to see this claim on, so it surfaces here,
+          on Alex's phone, explicitly labelled as hers to confirm — not
+          silently auto-verified, and not presented as if it were Alex's
+          own claim to approve. The phone is handed to Marnie for this
+          one action. */}
+      {claim.verifyingAsPartner && (
+        <div style={{ marginTop: 6, background: '#fdf3d9', border: '1px solid #e8c96a', borderRadius: 8, padding: '6px 10px' }}>
+          <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#7a5c00' }}>
+            ✏️ {verifierName} to verify — hand over the phone
+          </span>
+        </div>
+      )}
+
       {claim.momentUrl && (
         <a href={claim.momentUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 8, fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#a1791f', textDecoration: 'none' }}>
           📸 View Moment
@@ -139,7 +162,7 @@ function VerificationClaimCard({ tripId, claim, onResolved }: { tripId: string; 
             onClick={() => void decide('confirm')}
             style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: '#16a34a', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, cursor: 'pointer', opacity: submitting ? 0.6 : 1 }}
           >
-            {submitting === 'confirm' ? '…' : '✓ Confirm'}
+            {submitting === 'confirm' ? '…' : claim.verifyingAsPartner ? `✓ ${verifierName} confirms this result` : '✓ Confirm'}
           </button>
           {canCorrect && (
             <button
