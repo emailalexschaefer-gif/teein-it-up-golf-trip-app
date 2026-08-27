@@ -692,7 +692,19 @@ export default function SelfMarkerScoreShell({
     const existingMine = mySelf[holeNum]
     setDraftMyGross(existingMine?.grossScore ?? null)
     setDraftMyPickedUp(existingMine?.pickedUp ?? false)
-    const existingPartner = partnerMarker[holeNum]
+    // P0 fix — Marnie's persisted score in shared-device mode lives in
+    // partnerSelf (written as HER OWN capture_role='self' entry via the
+    // shared-device-score endpoint — see confirmScore()), never in
+    // partnerMarker (that's only ever populated in genuine two-device
+    // marker mode, where Alex writes a real marker entry for a digital
+    // partner). Reading partnerMarker here for a shared-device pair was
+    // the actual root cause of the reported bug: her horizontal
+    // scorecard (ExpandableRoundScorecard, fed from partnerSelf) showed
+    // her real 25pts, while this draft-rehydration effect looked in the
+    // one place her score was never written, so returning to any
+    // already-scored hole reset the live panel to 0 even though her
+    // official score was correctly persisted the whole time.
+    const existingPartner = isSharedDeviceScoring ? partnerSelf[holeNum] : partnerMarker[holeNum]
     setDraftPartnerGross(existingPartner?.grossScore ?? null)
     setDraftPartnerPickedUp(existingPartner?.pickedUp ?? false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1703,7 +1715,18 @@ export default function SelfMarkerScoreShell({
         ref={scrollContainerRef}
         onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
         style={{
-          padding: 'calc(48px + env(safe-area-inset-top, 0px)) 16px 100px',
+          // P0 fix (white-space) — this used to be the bottom-most
+          // section, so its own 100px bottom padding (reserved to clear
+          // the fixed action tray) made sense here. It no longer is: the
+          // side-game banners, both score panels, and everything else
+          // below all render as later siblings, so this 100px sat
+          // between Alex's collapsed scorecard toggle and the next
+          // section regardless of what that next section was — a large
+          // fixed gap in the middle of the page, not at the bottom of
+          // it. Reduced to a small, consistent 12px so this section
+          // just breathes normally into whatever follows; the actual
+          // 100px tray-clearance moves to the real last section, below.
+          padding: 'calc(48px + env(safe-area-inset-top, 0px)) 16px 12px',
           background: '#faf9f6',
         }}
       >

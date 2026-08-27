@@ -7,6 +7,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { detectSharedDeviceGroup } from '@/lib/scoring/sharedDeviceScoring'
 
 interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
 
@@ -110,12 +111,39 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
 
   const scorecardRes = await admin
     .from('scorecards')
-    .select('id, status, score_entries ( hole_id, gross_score, is_no_return, capture_role )')
+    .select('id, status, group_id, score_entries ( hole_id, gross_score, is_no_return, capture_role )')
     .eq('round_id', roundId).eq('player_id', user.id).maybeSingle()
 
   if (!scorecardRes.data) return NextResponse.json({ error: 'You do not have a scorecard for this round.' }, { status: 404 })
   if (scorecardRes.data.status === 'completed') {
     return NextResponse.json({ ok: true, alreadySubmitted: true })
+  }
+
+  // P0 fix — third independent pathway found to require the exact same
+  // shared-device fix already applied to close/route.ts and
+  // tournament/route.ts: this endpoint (the actual "Confirm & Lock
+  // Scores" gate) still required a genuine marker entry unconditionally
+  // in self_and_marker mode, with no shared-device awareness at all.
+  // A shared-device digital player's own scorecard never has marker
+  // entries (their "marker," the paper partner, writes their own
+  // capture_role='self' entries directly instead — see
+  // shared-device-score/route.ts), so this always blocked with
+  // "Waiting on marker entries," regardless of what Round Summary or My
+  // HQ correctly showed. Same detection function, reused rather than
+  // re-implemented, so this can't drift out of sync with the other two
+  // pathways again.
+  let isSharedDevice = false
+  let paperPartnerScorecardId: string | null = null
+  if (scorecardRes.data.group_id) {
+    const groupRes = await admin.from('scorecards')
+      .select('id, player_id, scoring_method')
+      .eq('round_id', roundId).eq('group_id', scorecardRes.data.group_id).neq('status', 'withdrawn')
+    const members = (groupRes.data ?? []) as { id: string; player_id: string; scoring_method: string }[]
+    const detection = detectSharedDeviceGroup(members.map(m => ({ playerId: m.player_id, scoringMethod: m.scoring_method === 'paper' ? 'paper' as const : 'digital' as const })))
+    if (detection.isSharedDevice && detection.digitalPlayerId === user.id) {
+      isSharedDevice = true
+      paperPartnerScorecardId = members.find(m => m.player_id === detection.paperPlayerId)?.id ?? null
+    }
   }
 
   const totalHoles: number = roundRes.data.holes ?? 18
@@ -131,7 +159,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   if (selfByHole.size < totalHoles) {
     return NextResponse.json({ error: `Score entry isn't complete — ${selfByHole.size} of ${totalHoles} holes entered.` }, { status: 422 })
   }
-  if (roundRes.data.score_capture_mode === 'self_and_marker') {
+  if (roundRes.data.score_capture_mode === 'self_and_marker' && !isSharedDevice) {
     for (const [holeId, self] of selfByHole) {
       const marker = markerByHole.get(holeId)
       if (!marker) return NextResponse.json({ error: 'Waiting on marker entries for one or more holes.' }, { status: 422 })
@@ -148,6 +176,23 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   if (updateErr) {
     console.error('[POST scorecards submit]', updateErr)
     return NextResponse.json({ error: "Couldn't finalise your scores. Please try again." }, { status: 500 })
+  }
+
+  // Shared-device pair — there is no separate confirmation step for the
+  // paper partner (they don't hold their own device/login), so Alex
+  // confirming for both is the entire point of this mode: lock Marnie's
+  // scorecard alongside his own, not just his. Best-effort — if this one
+  // update fails, Alex's own already-successful lock is not rolled back;
+  // logged so it can be corrected without silently leaving her card
+  // active while his reads as confirmed.
+  if (isSharedDevice && paperPartnerScorecardId) {
+    const { error: partnerLockErr } = await admin
+      .from('scorecards')
+      .update({ status: 'completed', submitted_at: new Date().toISOString() })
+      .eq('id', paperPartnerScorecardId)
+    if (partnerLockErr) {
+      console.error('[POST scorecards submit] shared-device partner lock failed', partnerLockErr)
+    }
   }
 
   return NextResponse.json({ ok: true })
