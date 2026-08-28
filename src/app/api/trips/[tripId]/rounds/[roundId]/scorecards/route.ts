@@ -7,7 +7,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { detectSharedDeviceGroup } from '@/lib/scoring/sharedDeviceScoring'
+import { resolveSharedDeviceGroupForPlayer } from '@/lib/scoring/resolveSharedDeviceGroup'
 
 interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
 
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
 
   const scorecardRes = await admin
     .from('scorecards')
-    .select('id, status, group_id, score_entries ( hole_id, gross_score, is_no_return, capture_role )')
+    .select('id, status, score_entries ( hole_id, gross_score, is_no_return, capture_role )')
     .eq('round_id', roundId).eq('player_id', user.id).maybeSingle()
 
   if (!scorecardRes.data) return NextResponse.json({ error: 'You do not have a scorecard for this round.' }, { status: 404 })
@@ -119,32 +119,34 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     return NextResponse.json({ ok: true, alreadySubmitted: true })
   }
 
-  // P0 fix — third independent pathway found to require the exact same
-  // shared-device fix already applied to close/route.ts and
-  // tournament/route.ts: this endpoint (the actual "Confirm & Lock
-  // Scores" gate) still required a genuine marker entry unconditionally
-  // in self_and_marker mode, with no shared-device awareness at all.
-  // A shared-device digital player's own scorecard never has marker
-  // entries (their "marker," the paper partner, writes their own
-  // capture_role='self' entries directly instead — see
-  // shared-device-score/route.ts), so this always blocked with
-  // "Waiting on marker entries," regardless of what Round Summary or My
-  // HQ correctly showed. Same detection function, reused rather than
-  // re-implemented, so this can't drift out of sync with the other two
-  // pathways again.
+  // P0 root-cause fix — scorecards.group_id (the column the previous
+  // version of this check relied on) is a per-round SNAPSHOT that the
+  // current live begin_round() RPC never actually writes (confirmed by
+  // reading its definition directly — see resolveSharedDeviceGroup.ts's
+  // own header for the full trace). That's the actual reason the
+  // marker-entry block kept firing despite this exact check already
+  // existing: scorecardRes.data.group_id was silently NULL on every
+  // affected round, not a detection-logic bug. Resolved instead via the
+  // LIVE trip_members.group_id, the same reliable source page.tsx's own
+  // shared-device detection already uses successfully.
+  const detection = await resolveSharedDeviceGroupForPlayer(admin, { tripId, roundId, playerId: user.id })
   let isSharedDevice = false
   let paperPartnerScorecardId: string | null = null
-  if (scorecardRes.data.group_id) {
-    const groupRes = await admin.from('scorecards')
-      .select('id, player_id, scoring_method')
-      .eq('round_id', roundId).eq('group_id', scorecardRes.data.group_id).neq('status', 'withdrawn')
-    const members = (groupRes.data ?? []) as { id: string; player_id: string; scoring_method: string }[]
-    const detection = detectSharedDeviceGroup(members.map(m => ({ playerId: m.player_id, scoringMethod: m.scoring_method === 'paper' ? 'paper' as const : 'digital' as const })))
-    if (detection.isSharedDevice && detection.digitalPlayerId === user.id) {
-      isSharedDevice = true
-      paperPartnerScorecardId = members.find(m => m.player_id === detection.paperPlayerId)?.id ?? null
-    }
+  const sharedDeviceTrace: Record<string, unknown> = {
+    myGroupId: detection.trace.myGroupId,
+    groupProfileIds: detection.trace.groupProfileIds,
+    relevantCards: detection.trace.relevantCards,
+    isSharedDevice: detection.isSharedDevice,
+    digitalPlayerId: detection.digitalPlayerId,
+    paperPlayerId: detection.paperPlayerId,
+    callerIsDigitalPlayer: detection.digitalPlayerId === user.id,
   }
+  if (detection.isSharedDevice && detection.digitalPlayerId === user.id) {
+    isSharedDevice = true
+    const paperCardRes = await admin.from('scorecards').select('id').eq('round_id', roundId).eq('player_id', detection.paperPlayerId).maybeSingle()
+    paperPartnerScorecardId = paperCardRes.data?.id ?? null
+  }
+  console.log('[scorecards submit] shared-device trace', { roundId, playerId: user.id, ...sharedDeviceTrace, isSharedDevice })
 
   const totalHoles: number = roundRes.data.holes ?? 18
   interface Entry { hole_id: string; gross_score: number | null; is_no_return: boolean; capture_role: string }
@@ -162,7 +164,12 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   if (roundRes.data.score_capture_mode === 'self_and_marker' && !isSharedDevice) {
     for (const [holeId, self] of selfByHole) {
       const marker = markerByHole.get(holeId)
-      if (!marker) return NextResponse.json({ error: 'Waiting on marker entries for one or more holes.' }, { status: 422 })
+      if (!marker) {
+        return NextResponse.json({
+          error: 'Waiting on marker entries for one or more holes.',
+          debug: sharedDeviceTrace,
+        }, { status: 422 })
+      }
       const differs = self.is_no_return !== marker.is_no_return || (!self.is_no_return && self.gross_score !== marker.gross_score)
       if (differs) return NextResponse.json({ error: 'One or more holes still need review before scores can be finalised.' }, { status: 422 })
     }

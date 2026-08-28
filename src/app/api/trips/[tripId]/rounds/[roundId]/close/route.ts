@@ -12,7 +12,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { checkRoundCompletion } from '@/lib/scoring/roundCompletion'
-import { detectSharedDeviceGroup } from '@/lib/scoring/sharedDeviceScoring'
+import { resolveSharedDeviceGroupForPlayer } from '@/lib/scoring/resolveSharedDeviceGroup'
 
 interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
 
@@ -48,21 +48,20 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
   const totalHoles = roundRes.data.holes ?? 18
   const isMarkerMode = roundRes.data.score_capture_mode === 'self_and_marker'
 
-  // Shared-Device Two-Player Fix — group members by their round-
-  // specific scorecards.group_id snapshot (not mutable trip grouping)
-  // and detect a genuine 1-digital+1-paper pair per group, reusing the
-  // exact same detection function the shared-device scoring shell
-  // itself uses — one detection rule, not a second copy of it here.
-  const byGroup = new Map<string, { player_id: string; scoring_method: string }[]>()
-  for (const sc of scRes.data ?? []) {
-    if (!sc.group_id) continue
-    const list = byGroup.get(sc.group_id) ?? []
-    list.push({ player_id: sc.player_id, scoring_method: sc.scoring_method })
-    byGroup.set(sc.group_id, list)
-  }
+  // P0 root-cause fix — the previous version of this check grouped
+  // scorecards by scorecards.group_id, a per-round snapshot column that
+  // the current live begin_round() RPC never actually writes (confirmed
+  // directly against its definition — see resolveSharedDeviceGroup.ts's
+  // header for the full trace). Every scorecard created by the current
+  // RPC has group_id = NULL, so this detection silently never fired for
+  // any round created since that regression, regardless of how correct
+  // the detection function itself was. Resolved per-player instead via
+  // the LIVE trip_members.group_id, the same source page.tsx's own
+  // shared-device detection (proven working) already uses.
   const sharedDevicePlayerIds = new Set<string>()
-  for (const members of byGroup.values()) {
-    const detection = detectSharedDeviceGroup(members.map(m => ({ playerId: m.player_id, scoringMethod: m.scoring_method === 'paper' ? 'paper' as const : 'digital' as const })))
+  const uniquePlayerIds = new Set((scRes.data ?? []).map(sc => sc.player_id))
+  for (const playerId of uniquePlayerIds) {
+    const detection = await resolveSharedDeviceGroupForPlayer(admin, { tripId, roundId, playerId })
     if (detection.isSharedDevice) {
       if (detection.digitalPlayerId) sharedDevicePlayerIds.add(detection.digitalPlayerId)
       if (detection.paperPlayerId) sharedDevicePlayerIds.add(detection.paperPlayerId)
@@ -89,7 +88,7 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
 
     const isSharedDevice = sharedDevicePlayerIds.has(sc.player_id)
     console.log('[close-round completion trace]', {
-      roundId, playerId: sc.player_id, scoringMethod: sc.scoring_method, groupId: sc.group_id,
+      roundId, playerId: sc.player_id, scoringMethod: sc.scoring_method,
       selfHoleCount: selfHoles.size, markerHoleCountForSelfHoles, totalHoles, isMarkerMode,
       isSharedDevice, sharedDevicePlayerIds: [...sharedDevicePlayerIds],
     })
@@ -110,7 +109,7 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
       return NextResponse.json({
         error: result.reason,
         debug: {
-          playerId: sc.player_id, scoringMethod: sc.scoring_method, groupId: sc.group_id,
+          playerId: sc.player_id, scoringMethod: sc.scoring_method,
           isSharedDevice, selfHoleCount: selfHoles.size, markerHoleCountForSelfHoles, totalHoles, isMarkerMode,
         },
       }, { status: 409 })

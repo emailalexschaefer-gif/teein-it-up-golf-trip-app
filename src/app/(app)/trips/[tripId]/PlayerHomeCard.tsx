@@ -349,14 +349,6 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
           <CollapsedWelcomeCard onReopen={() => setBrochureExpanded(true)} />
         )}
 
-        {/* Add to Home Screen — deliberately placed after the brochure/
-            collapsed card, not before it, per "the player discovers
-            after walking into the clubhouse." Self-manages its own
-            visibility entirely (installed/unsupported/dismissed all
-            return null internally) — no parent-level condition needed
-            here beyond just rendering it. */}
-        <InstallPwaCard />
-
         {/* Item 1 — the explicit "Event Lobby" reframing. Previously
             this label only existed in the back-link text ("← Back to
             Event Lobby") from the Trip Information view — the main
@@ -369,6 +361,18 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#a1791f', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 }}>
           Event Lobby
         </p>
+
+        {/* P0 field-test fix — moved up from underneath the brochure to
+            sit directly beside "Joined," per the explicit instruction:
+            this is the moment a player has just confirmed they're
+            coming, the most natural point to also offer keeping the
+            event handy on their home screen — not several scrolls down,
+            competing with a collapsed brochure card for attention.
+            Still fully self-managing its own visibility (installed/
+            unsupported/dismissed all still return null internally) —
+            only the position changed, no behaviour. */}
+        <InstallPwaCard />
+
         {/* Status card — everything a player needs to know at a glance,
             nothing they need to configure. */}
         <div style={{ background: '#ffffff', borderRadius: 16, border: '1px solid #eceae3', boxShadow: '0 4px 18px rgba(0,0,0,0.08)', padding: 18, marginBottom: 16 }}>

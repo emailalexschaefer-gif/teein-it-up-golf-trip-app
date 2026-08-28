@@ -75,7 +75,6 @@ export async function GET(req: NextRequest, { params }: RouteProps) {
   const myEntryRes = await admin.from('side_comp_entries')
     .select('id, qualified, claimed_value, result_value, verification_status, required_verifier_id')
     .eq('side_comp_id', sideCompId).eq('player_id', viewPlayerId).maybeSingle()
-
   // Current OFFICIAL leader — verified entries only. This is the one
   // place migration 047's own noted follow-up (adding explicit
   // `result_value IS NOT NULL` guards rather than relying on implicit
@@ -112,10 +111,18 @@ export async function GET(req: NextRequest, { params }: RouteProps) {
 
   return NextResponse.json({
     myEntry: myEntryRes.data ? {
+      entryId: myEntryRes.data.id,
       qualified: myEntryRes.data.qualified,
       claimedValue: myEntryRes.data.claimed_value,
       resultValue: myEntryRes.data.result_value,
       verificationStatus: myEntryRes.data.verification_status,
+      // P0 follow-up — needed so the claimant's own panel can tell
+      // whether ITS OWN pending claim requires the shared-device paper
+      // partner's confirmation (compared against sharedDevicePartnerId,
+      // passed down from the scoring shell), and render the inline
+      // same-phone verification action directly here rather than only
+      // in the separate PendingVerificationCard elsewhere on the page.
+      requiredVerifierId: myEntryRes.data.required_verifier_id,
     } : null,
     currentLeader,
   })

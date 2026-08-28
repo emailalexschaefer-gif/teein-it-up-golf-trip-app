@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Playfair_Display, Lato } from 'next/font/google'
 import './globals.css'
 import ReactQueryProvider from '@/components/layout/ReactQueryProvider'
+import InstallPromptCaptureInit from '@/components/pwa/InstallPromptCaptureInit'
 
 // Demo fonts: Playfair Display for display/headings, Lato for body
 const playfair = Playfair_Display({
@@ -45,6 +46,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${playfair.variable} ${lato.variable}`}>
       <body className="bg-cream font-body text-ink antialiased min-h-screen">
+        {/* P0 field-test fix — must be mounted here, at the true root,
+            not inside any specific page — see installPromptCapture.ts
+            for why. Renders nothing. */}
+        <InstallPromptCaptureInit />
         <ReactQueryProvider>{children}</ReactQueryProvider>
       </body>
     </html>

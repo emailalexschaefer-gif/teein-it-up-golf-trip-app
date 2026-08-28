@@ -43,7 +43,7 @@ export default function ExpandableRoundScorecard({
     if (pts >= 4) return '#854d0e'
     if (pts === 3) return '#14532d'
     if (pts === 2) return '#1e3a5f'
-    return '#7a7260'
+    return '#57503f'
   }
   function stripPtsBackground(pts: number): string {
     if (pts >= 4) return '#fef9c3'
@@ -72,7 +72,7 @@ export default function ExpandableRoundScorecard({
       ? calculateStableford({ grossScore: c!.grossScore!, par: h.par, strokeIndex: h.stroke_index, playingHandicap, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
       : null
     const bg = isCurrent ? '#16a34a' : hasScore ? (pts !== null ? stripPtsBackground(pts) : '#fdf3d9') : '#f3f4f6'
-    const fg = isCurrent ? '#fff' : hasScore ? (pts !== null ? stripPtsColor(pts) : '#a1791f') : '#6b7280'
+    const fg = isCurrent ? '#fff' : hasScore ? (pts !== null ? stripPtsColor(pts) : '#7a5c00') : '#52525b'
     const hasSideComp = sideCompHoleNumbers.has(h.hole_number)
     const isPowerplay = powerplayHoleNumbers.has(h.hole_number)
     return (
@@ -81,7 +81,7 @@ export default function ExpandableRoundScorecard({
         onClick={() => onSelectHole(idx)}
         style={{
           flex: '1 1 0', minWidth: 0, height: 36, borderRadius: 6, cursor: 'pointer',
-          background: bg, border: `1.5px solid ${isCurrent ? '#14532d' : '#c9c4b6'}`,
+          background: bg, border: `1.5px solid ${isCurrent ? '#14532d' : '#9c9585'}`,
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
           transform: isCurrent ? 'scale(1.06)' : 'scale(1)', transition: 'transform 0.12s',
           padding: 0, position: 'relative',
@@ -120,7 +120,7 @@ export default function ExpandableRoundScorecard({
         <>
           {front9.length > 0 && (
             <>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 0.6, color: front9Done ? '#16a34a' : '#6b7280', marginBottom: 4 }}>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 0.6, color: front9Done ? '#16a34a' : '#52525b', marginBottom: 4 }}>
                 {front9Done ? `✓ FRONT 9 COMPLETE — ${front9Pts} PTS` : 'FRONT 9'}
               </div>
               <div style={{ display: 'flex', gap: 3, marginBottom: 6 }}>
@@ -130,7 +130,7 @@ export default function ExpandableRoundScorecard({
           )}
           {back9.length > 0 && (
             <>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 0.6, color: '#6b7280', marginBottom: 4 }}>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 0.6, color: '#52525b', marginBottom: 4 }}>
                 BACK 9
               </div>
               <div style={{ display: 'flex', gap: 3, marginBottom: 4 }}>
@@ -142,7 +142,7 @@ export default function ExpandableRoundScorecard({
       )}
 
       {expanded && footerNote && (
-        <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 10, color: '#6b7280', marginTop: 6 }}>
+        <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 10, color: '#52525b', marginTop: 6 }}>
           {footerNote}
         </div>
       )}

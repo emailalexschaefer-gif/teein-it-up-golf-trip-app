@@ -72,6 +72,15 @@ interface Props {
   // code path at all anymore — only the future verification action can
   // produce it.
   onWouldLeadIfVerified?: (result: SideCompSubmitResult) => void
+  // P0 follow-up — shared-device same-phone verification. Only passed
+  // by the scoring shell when genuinely in shared-device mode.
+  // sharedDevicePartnerId is the paper partner's real player id (e.g.
+  // Marnie), used purely for comparison against this claim's own
+  // required_verifier_id (from the GET) — never trusted as an identity
+  // to act as; the verify endpoint independently re-derives and
+  // validates the actual pairing server-side before allowing anything.
+  sharedDevicePartnerId?: string | null
+  sharedDevicePartnerName?: string | null
 }
 
 const QUALIFY_QUESTION: Record<Props['compType'], string> = {
@@ -86,7 +95,7 @@ const STATUS_LABEL: Record<SideCompVerificationStatus, { text: string; color: st
   rejected: { text: 'Not confirmed by your Playing Partner', color: '#9ca3af' },
 }
 
-export default function SideCompEntryPanel({ tripId, sideCompId, compType, label, icon, currentUserId, groupMembers = [], roundId, myGroupId, holeNumber, onWouldLeadIfVerified }: Props) {
+export default function SideCompEntryPanel({ tripId, sideCompId, compType, label, icon, currentUserId, groupMembers = [], roundId, myGroupId, holeNumber, onWouldLeadIfVerified, sharedDevicePartnerId, sharedDevicePartnerName }: Props) {
   // Side Games proxy entry — defaults to the submitter themselves, the
   // overwhelmingly common case, matching "the common case... should
   // already be selected" and "existing digital players... essentially
@@ -101,6 +110,11 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastResult, setLastResult] = useState<SideCompSubmitResult | null>(null)
+  // P0 follow-up — shared-device same-phone verification state.
+  const [myEntryId, setMyEntryId] = useState<string | null>(null)
+  const [requiredVerifierId, setRequiredVerifierId] = useState<string | null>(null)
+  const [verifying, setVerifying] = useState<'confirm' | 'reject' | null>(null)
+  const [verifyError, setVerifyError] = useState<string | null>(null)
 
   // Load current state — my own prior claim (if any) and the current
   // OFFICIAL (verified-only) leader, both from the GET, never inferred
@@ -136,6 +150,8 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
       setHasSubmittedOnce(false)
       setLastResult(null)
       setError(null)
+      setMyEntryId(null)
+      setRequiredVerifierId(null)
       try {
         const res = await fetch(`/api/trips/${tripId}/side-comps/${sideCompId}/entries?playerId=${encodeURIComponent(selectedPlayerId)}`)
         if (!res.ok || cancelled) return
@@ -146,6 +162,8 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
           setHasSubmittedOnce(true)
           setMyQualified(body.myEntry.qualified)
           setMyStatus(body.myEntry.verificationStatus ?? null)
+          setMyEntryId(body.myEntry.entryId ?? null)
+          setRequiredVerifierId(body.myEntry.requiredVerifierId ?? null)
           if (body.myEntry.claimedValue != null) setMyResultValue(String(body.myEntry.claimedValue))
         }
       } catch { /* ignore — panel just shows the form with no prior state */ }
@@ -159,7 +177,11 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
         const body = await res.json()
         if (cancelled) return
         setCurrentLeader(body.currentLeader ?? null)
-        if (body.myEntry) setMyStatus(body.myEntry.verificationStatus ?? null)
+        if (body.myEntry) {
+          setMyStatus(body.myEntry.verificationStatus ?? null)
+          setMyEntryId(body.myEntry.entryId ?? null)
+          setRequiredVerifierId(body.myEntry.requiredVerifierId ?? null)
+        }
       } catch { /* ignore — next poll tries again; never surfaces an error for a background refresh */ }
     }
 
@@ -225,12 +247,42 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
       setCurrentLeader(result.currentLeader)
       setHasSubmittedOnce(true)
       setMyStatus(result.verificationStatus)
+      setMyEntryId(result.entryId)
+      setRequiredVerifierId(result.requiredVerifierId)
       setLastResult(result)
       if (result.wouldLeadIfVerified) onWouldLeadIfVerified?.(result)
     } catch {
       setError('Couldn\u2019t save your claim — your score is unaffected. Check your connection and try again.')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  // P0 follow-up — shared-device same-phone verification. Only ever
+  // reachable when myStatus is genuinely 'pending' AND this specific
+  // claim's own required_verifier_id (from the server) equals the
+  // shared-device partner's id passed down by the scoring shell — the
+  // server-side verify endpoint independently re-derives and validates
+  // this exact pairing again before honouring it, so this client check
+  // is purely about when to show the control, never the actual
+  // authority decision. Reuses the existing verify endpoint entirely —
+  // no new verification backend.
+  async function verifyAsPartner(decision: 'confirm' | 'reject') {
+    if (!myEntryId) return
+    setVerifying(decision)
+    setVerifyError(null)
+    try {
+      const res = await fetch(`/api/trips/${tripId}/side-comps/${sideCompId}/entries/${myEntryId}/verify`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) { setVerifyError(body.error ?? "Couldn't save this verification. Please try again."); return }
+      setMyStatus(body.verificationStatus ?? 'verified')
+      if (body.currentLeader) setCurrentLeader(body.currentLeader)
+    } catch {
+      setVerifyError("Couldn't save this verification. Check your connection and try again.")
+    } finally {
+      setVerifying(null)
     }
   }
 
@@ -273,6 +325,41 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
       {myStatus && (
         <div style={{ marginTop: 4, fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: STATUS_LABEL[myStatus].color }}>
           {icon} {label}{myResultValue ? ` — ${myResultValue}m` : ''} · {STATUS_LABEL[myStatus].text}
+        </div>
+      )}
+
+      {/* P0 follow-up — shared-device same-phone verification. Marnie
+          has no device/session of her own to see the separate "awaiting
+          verification" list on, so when her confirmation is what this
+          specific claim needs, the action lives right here, next to the
+          claim itself — the phone is handed to her for this one action,
+          not a trip to another screen. Never rendered for a normal
+          two-device pair (sharedDevicePartnerId is null there), and
+          only when the server's own snapshotted required_verifier_id
+          for this exact claim matches her — not shown just because
+          shared-device mode is active in general. */}
+      {myStatus === 'pending' && sharedDevicePartnerId && requiredVerifierId === sharedDevicePartnerId && (
+        <div style={{ marginTop: 8, background: '#fdf3d9', border: '1.5px solid #e8c96a', borderRadius: 10, padding: '10px 12px' }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#7a5c00', marginBottom: 8 }}>
+            Verification required — {sharedDevicePartnerName ?? 'your paper partner'}, please confirm this result
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              disabled={verifying !== null}
+              onClick={() => void verifyAsPartner('confirm')}
+              style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: '#16a34a', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, cursor: 'pointer', opacity: verifying ? 0.6 : 1 }}
+            >
+              {verifying === 'confirm' ? '…' : '✓ Confirm'}
+            </button>
+            <button
+              disabled={verifying !== null}
+              onClick={() => void verifyAsPartner('reject')}
+              style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: '#ffffff', color: '#dc2626', border: '1.5px solid #fecaca', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, cursor: 'pointer', opacity: verifying ? 0.6 : 1 }}
+            >
+              {verifying === 'reject' ? '…' : '✕ Reject / Not correct'}
+            </button>
+          </div>
+          {verifyError && <p style={{ color: '#dc2626', fontSize: 11, marginTop: 6, fontFamily: 'var(--font-body)' }}>{verifyError}</p>}
         </div>
       )}
 

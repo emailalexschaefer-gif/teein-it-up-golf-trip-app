@@ -26,7 +26,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { detectSharedDeviceGroup } from '@/lib/scoring/sharedDeviceScoring'
+import { resolveSharedDeviceGroupForPlayer } from '@/lib/scoring/resolveSharedDeviceGroup'
 
 interface RouteProps { params: Promise<{ tripId: string }> }
 
@@ -45,22 +45,17 @@ export async function GET(req: NextRequest, { params }: RouteProps) {
   const roundId = req.nextUrl.searchParams.get('roundId')
 
   // Shared-device widening — resolve the caller's paper partner for
-  // this specific round (if any), reusing the exact same detection
-  // function already used by close/route.ts, tournament/route.ts, and
-  // the scorecards submit route, so this can't drift into its own,
-  // fourth copy of the rule.
+  // this specific round (if any), via the LIVE trip_members.group_id
+  // (not scorecards.group_id, which the current begin_round() RPC never
+  // actually writes — see resolveSharedDeviceGroup.ts for the full
+  // trace of why that column can't be trusted). Reuses the exact same
+  // resolver every other shared-device check now shares, so this can't
+  // drift into its own, independent copy of the rule.
   let sharedDevicePaperPartnerId: string | null = null
   if (roundId) {
-    const myScorecardRes = await admin.from('scorecards').select('group_id').eq('round_id', roundId).eq('player_id', user.id).maybeSingle()
-    const myGroupId = myScorecardRes.data?.group_id ?? null
-    if (myGroupId) {
-      const groupRes = await admin.from('scorecards').select('player_id, scoring_method')
-        .eq('round_id', roundId).eq('group_id', myGroupId).neq('status', 'withdrawn')
-      const members = (groupRes.data ?? []) as { player_id: string; scoring_method: string }[]
-      const detection = detectSharedDeviceGroup(members.map(m => ({ playerId: m.player_id, scoringMethod: m.scoring_method === 'paper' ? 'paper' as const : 'digital' as const })))
-      if (detection.isSharedDevice && detection.digitalPlayerId === user.id) {
-        sharedDevicePaperPartnerId = detection.paperPlayerId
-      }
+    const detection = await resolveSharedDeviceGroupForPlayer(admin, { tripId, roundId, playerId: user.id })
+    if (detection.isSharedDevice && detection.digitalPlayerId === user.id) {
+      sharedDevicePaperPartnerId = detection.paperPlayerId
     }
   }
   const requiredVerifierIds = sharedDevicePaperPartnerId ? [user.id, sharedDevicePaperPartnerId] : [user.id]

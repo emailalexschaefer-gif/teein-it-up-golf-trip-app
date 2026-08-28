@@ -466,10 +466,10 @@ function MultiRoundHeaderRow() {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#faf9f6', borderBottom: '1px solid #eceae3' }}>
       <div style={{ flex: 1, minWidth: 0 }} />
-      <div style={{ width: 52, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.4, color: '#9ca3af' }}>
+      <div style={{ width: 44, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.4, color: '#9ca3af' }}>
         PREVIOUS
       </div>
-      <div style={{ width: 52, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.4, color: '#9ca3af' }}>
+      <div style={{ width: 44, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.4, color: '#9ca3af' }}>
         CURRENT
       </div>
       <div style={{ width: 56, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.4, color: '#7a5c00' }}>
@@ -546,21 +546,32 @@ function MultiRoundRow({ row, isCurrentUser, isLast, isExpanded, onToggle, board
               </div>
             )}
           </button>
-          {/* Package 2 fix — root cause was wordBreak: 'break-word' with
-              no overflow/ellipsis handling, which force-broke a long
-              surname mid-word the moment the fixed-width columns (rank +
-              avatar + N round columns + TOTAL + chevron) left too little
-              room — "Alex Schaefer" became "Alex / Schae / fer". Switched
-              to single-line truncation: stays on one line whenever it
-              fits (most names, most screens), only truncates with an
-              ellipsis on the genuinely too-narrow case. Round-column
-              width also trimmed slightly below (52 -> 44) to reclaim
-              real room for the name on 2-3 round trips, without making
-              the numbers themselves cramped — TOTAL's own width is
-              untouched, preserving its visual prominence. */}
+          {/* P0 field-test fix — "Alex Schaefer" was still showing as
+              "Alex Schae..." on real devices. The comment this replaces
+              described a width trim (52 -> 44 on the Previous/Current
+              columns, done above) as part of "the" fix, but the actual
+              ellipsis truncation on the name itself was never removed
+              — the column-width change alone wasn't sufficient for
+              every real name. Switched to word-level wrapping (never
+              mid-word — that was the ORIGINAL bug this replaced, per
+              the history below) up to two lines instead of an
+              ellipsis, so a genuinely long full name is still fully
+              visible rather than cut off; the row grows slightly taller
+              in that case instead of hiding player-identifying text,
+              per "do not simply remove useful information to make
+              names fit." Most names at typical widths still render on
+              one line exactly as before — this only changes behaviour
+              for the names that were actually being clipped.
+              Historical note (Package 2 fix) — before that, this used
+              wordBreak: 'break-word' with no ellipsis, which force-
+              broke a long surname mid-word ("Alex / Schae / fer") the
+              moment the fixed-width columns left too little room; that
+              was replaced with single-line ellipsis truncation, which
+              is the version field testing just found insufficient in
+              the other direction. */}
           <div style={{
             fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d',
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0,
+            lineHeight: 1.2, minWidth: 0, overflowWrap: 'break-word', wordBreak: 'normal',
           }}>
             {row.playerName}{isCurrentUser ? ' (you)' : ''}
           </div>
@@ -584,13 +595,13 @@ function MultiRoundRow({ row, isCurrentUser, isLast, isExpanded, onToggle, board
           const { previous, current, isFirstRound } = derivePreviousCurrentTotal(row.totalPoints, currentEntry?.points ?? 0, (row.rounds ?? []).length)
           return (
             <>
-              <div style={{ width: 52, textAlign: 'center', flexShrink: 0 }}>
+              <div style={{ width: 44, textAlign: 'center', flexShrink: 0 }}>
                 <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: '#4b5563' }}>
                   {isFirstRound ? '—' : previous}
                 </div>
                 <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: '#9ca3af', marginTop: 1 }}>Previous</div>
               </div>
-              <div style={{ width: 52, textAlign: 'center', flexShrink: 0 }}>
+              <div style={{ width: 44, textAlign: 'center', flexShrink: 0 }}>
                 <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: '#14532d' }}>
                   {current}
                 </div>

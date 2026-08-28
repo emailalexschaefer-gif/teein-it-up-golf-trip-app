@@ -105,18 +105,21 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     isPaper: boolean; paperCardOutstanding: boolean; isSharedDevicePlayer: boolean
   }
 
-  // Shared-Device Two-Player Fix — same detection, same reasoning as
-  // close/route.ts's own fix: a shared-device pairing's digital player
-  // has no genuine marker relationship either, since their notional
-  // "marker" (the paper partner) never writes marker entries at all.
-  // This is what fixes items 2/3 (false amber/waiting Round Summary
-  // state) at the source, rather than papering over the display.
+  // P0 root-cause fix — grouped by scorecards.group_id, a per-round
+  // snapshot column the current live begin_round() RPC never actually
+  // writes (confirmed directly against its definition — see
+  // resolveSharedDeviceGroup.ts's header for the full trace), so this
+  // silently never matched on any round created since that regression.
+  // Reuses groupIdByProfile (already fetched above, live
+  // trip_members.group_id — the same reliable source page.tsx's own
+  // shared-device detection already uses) instead of a second query.
   const byGroupForSharedDevice = new Map<string, { player_id: string; scoring_method: string }[]>()
   for (const sc of scorecards) {
-    if (!sc.group_id) continue
-    const list = byGroupForSharedDevice.get(sc.group_id) ?? []
+    const liveGroupId = groupIdByProfile.get(sc.player_id)
+    if (!liveGroupId) continue
+    const list = byGroupForSharedDevice.get(liveGroupId) ?? []
     list.push({ player_id: sc.player_id, scoring_method: sc.scoring_method })
-    byGroupForSharedDevice.set(sc.group_id, list)
+    byGroupForSharedDevice.set(liveGroupId, list)
   }
   const sharedDevicePlayerIds = new Set<string>()
   for (const members of byGroupForSharedDevice.values()) {

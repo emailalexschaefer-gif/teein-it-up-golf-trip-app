@@ -369,7 +369,20 @@ export default function SelfMarkerScoreShell({
         body: JSON.stringify({ action: 'submit' }),
       })
       const resData = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(resData.error ?? "Couldn't finalise your scores. Please try again.")
+      if (!res.ok) {
+        // P0 trace — logs the server's shared-device detection debug
+        // payload (see scorecards/route.ts) so a blocked "Confirm Final
+        // Scores" attempt can be diagnosed from the browser console —
+        // exactly which group/members/detection result the server saw
+        // — instead of guessing from the generic message alone. Also
+        // folded into the visible error text itself (not just console),
+        // since a phone-based field test often has no easy way to open
+        // devtools — the next attempt should be diagnosable just by
+        // reading the screen.
+        if (resData.debug) console.error('[confirm-final-scores blocked]', resData.debug)
+        const debugSuffix = resData.debug ? ` [debug: ${JSON.stringify(resData.debug)}]` : ''
+        throw new Error((resData.error ?? "Couldn't finalise your scores. Please try again.") + debugSuffix)
+      }
       // Root cause of the confirm→confirm loop: this invalidation list was
       // missing the ONE query that actually drives isLocked/currentMy.status
       // ('round-my-scores', below) — the mutation succeeded and the server
@@ -1666,6 +1679,21 @@ export default function SelfMarkerScoreShell({
   return (
     <div
       className="scoring-workspace-outer"
+      // P0 field-test fix — swipe navigation regression. onTouchStart/
+      // onTouchEnd used to live on scrollContainerRef, which was fine
+      // when that div wrapped the entire scoring page. Since the P0
+      // shared-device fix that split Marnie's horizontal scorecard out
+      // to sit above her own scoring panel, scrollContainerRef only
+      // wraps the small collapsed scorecard-toggle strip at the very
+      // top — the actual scoring cards, banners, and everything else a
+      // person would naturally swipe on became siblings outside it, so
+      // touches there never reached the handlers at all. Moved to this
+      // outermost wrapper, which genuinely does contain the whole page,
+      // so a swipe starting anywhere (not just that top strip) works
+      // again. Same onTouchStart/onTouchEnd functions, same setHoleIdx
+      // calls the Previous/Next buttons already use — no second
+      // navigation mechanism.
+      onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
       style={{ display: 'flex', flexDirection: 'column', background: '#ffffff', minHeight: '100vh' }}
     >
       {/* Simplified scoring focus header — only the two things that
@@ -1694,7 +1722,7 @@ export default function SelfMarkerScoreShell({
           <div style={{ color: '#f5e6b8', fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 800, letterSpacing: 0.3 }}>
             HOLE {holeNum}
           </div>
-          <div style={{ color: 'rgba(245,230,184,0.75)', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600 }}>
+          <div style={{ color: 'rgba(245,230,184,0.92)', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600 }}>
             {distance != null ? `${distance}m · ` : ''}Par {par} · SI {si}
           </div>
         </div>
@@ -1741,7 +1769,6 @@ export default function SelfMarkerScoreShell({
           a static resting position is no longer worth that risk. */}
       <div
         ref={scrollContainerRef}
-        onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
         style={{
           // P0 fix (white-space) — this used to be the bottom-most
           // section, so its own 100px bottom padding (reserved to clear
@@ -1853,6 +1880,18 @@ export default function SelfMarkerScoreShell({
               label={SIDE_COMP_BANNER[comp.comp_type]?.label ?? 'Side Competition'}
               icon={SIDE_COMP_BANNER[comp.comp_type]?.icon ?? '🎯'}
               currentUserId={currentMy?.player_id ?? ''}
+              // P0 follow-up — shared-device same-phone verification.
+              // Only passed when genuinely in shared-device mode;
+              // SideCompEntryPanel uses this to know whether ITS OWN
+              // pending claim's required_verifier_id (from the GET) is
+              // Marnie, and if so renders the inline "Marnie — please
+              // confirm" panel directly here rather than requiring a
+              // trip to the separate PendingVerificationCard elsewhere
+              // on the page. currentMarked.player_id is her real id
+              // (this shell only ever renders a second ScoreCard for a
+              // genuine partner scorecard already in scope).
+              sharedDevicePartnerId={isSharedDeviceScoring ? (currentMarked?.player_id ?? null) : null}
+              sharedDevicePartnerName={isSharedDeviceScoring ? partnerName : null}
               // Side Games proxy entry — this shell only ever has two
               // players in scope (self + marker), so the full "playing
               // group" the brief describes for a 3-4 player group_scorer
@@ -2188,6 +2227,10 @@ export default function SelfMarkerScoreShell({
           {flash ? '✓ Saved!' : isLocked ? 'Scores Finalised' : '✓ Confirm Score'}
         </button>
 
+        {/* P0 field-test fix — outdoor contrast on Previous/Next Hole:
+            border darkened from #d1d5db (pale gray, low contrast in
+            direct sun) to #8a8f96; disabled color kept distinctly
+            paler than enabled so that affordance stays clear. */}
         <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
           <button
             onClick={() => setHoleIdx(i => startInfo?.startType === 'shotgun' ? (i - 1 + holes.length) % holes.length : Math.max(0, i - 1))}
@@ -2195,8 +2238,8 @@ export default function SelfMarkerScoreShell({
             style={{
               flex: 1, padding: 9, borderRadius: 9,
               background: (startInfo?.startType !== 'shotgun' && holeIdx === 0) ? '#f3f4f6' : '#ffffff',
-              border: '1.5px solid #d1d5db',
-              color: (startInfo?.startType !== 'shotgun' && holeIdx === 0) ? '#c3c8ce' : '#14532d',
+              border: '1.5px solid #8a8f96',
+              color: (startInfo?.startType !== 'shotgun' && holeIdx === 0) ? '#9aa0a6' : '#14532d',
               fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12,
               cursor: (startInfo?.startType !== 'shotgun' && holeIdx === 0) ? 'default' : 'pointer',
             }}
@@ -2213,7 +2256,7 @@ export default function SelfMarkerScoreShell({
           {startInfo?.startType === 'shotgun' || holeIdx < holes.length - 1 ? (
             <button
               onClick={() => setHoleIdx(i => startInfo?.startType === 'shotgun' ? (i + 1) % holes.length : Math.min(holes.length - 1, i + 1))}
-              style={{ flex: 1, padding: 9, borderRadius: 9, background: '#ffffff', border: '1.5px solid #d1d5db', color: '#14532d', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
+              style={{ flex: 1, padding: 9, borderRadius: 9, background: '#ffffff', border: '1.5px solid #8a8f96', color: '#14532d', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
             >
               Next Hole →
             </button>
@@ -2365,25 +2408,30 @@ function ScoreCard({
   badge?: string | null
 }) {
   return (
-    <div style={{ borderRadius: 12, background: '#ffffff', border: '1px solid #d9d4c7', boxShadow: '0 3px 14px rgba(0,0,0,0.08)', marginBottom: 6, overflow: 'hidden' }}>
-      <div className="scoring-card-header" style={{ background: '#f7f6f1', padding: '5px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #d9d4c7' }}>
+    // P0 field-test fix — outdoor contrast. Card border darkened from
+    // #d9d4c7 (a pale tan barely visible on the white card background
+    // in direct sun) and widened slightly, same background/light design
+    // otherwise — not a redesign, just enough edge definition to read
+    // outdoors.
+    <div style={{ borderRadius: 12, background: '#ffffff', border: '1.5px solid #a89f8a', boxShadow: '0 3px 14px rgba(0,0,0,0.08)', marginBottom: 6, overflow: 'hidden' }}>
+      <div className="scoring-card-header" style={{ background: '#f7f6f1', padding: '5px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #a89f8a' }}>
         <div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, fontWeight: 700, color: '#a1791f', letterSpacing: 0.7 }}>{title}</div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, fontWeight: 700, color: '#7a5c00', letterSpacing: 0.7 }}>{title}</div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 16, fontWeight: 800, color: '#14532d', lineHeight: 1.1 }}>
             {name}
             {badge && (
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#a1791f', marginLeft: 6 }}>{badge}</span>
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#7a5c00', marginLeft: 6 }}>{badge}</span>
             )}
           </div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 500, color: '#6b6558' }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 500, color: '#4a4638' }}>
             Playing Handicap {hcp}
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: '#a1791f', lineHeight: 1 }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: '#7a5c00', lineHeight: 1 }}>
             H{holeNum}
           </div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 600, color: '#8a6d3f', marginTop: 1 }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 600, color: '#5c4425', marginTop: 1 }}>
             {distance != null ? `${distance}m · ` : ''}Par {par} · SI {si}
           </div>
           {(activeSideComps && activeSideComps.length > 0) || isPowerplayHole
@@ -2399,12 +2447,17 @@ function ScoreCard({
 
       <div className="scoring-card-body" style={{ padding: '9px 12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <button onClick={() => onPick(-1)} disabled={isLockedForSide} style={{ width: 50, height: 50, borderRadius: 12, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #c9c2b2', color: isLockedForSide ? '#9a9a9a' : '#14532d', fontSize: 22, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>−</button>
+          {/* P0 field-test fix — outdoor contrast on +/- buttons: border
+              darkened from #c9c2b2 (barely visible in sun) to #8a8270,
+              same light background, same enabled/disabled distinction
+              (disabled state colors untouched on purpose — that
+              contrast drop IS the affordance). */}
+          <button onClick={() => onPick(-1)} disabled={isLockedForSide} style={{ width: 50, height: 50, borderRadius: 12, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #8a8270', color: isLockedForSide ? '#9a9a9a' : '#14532d', fontSize: 22, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>−</button>
           <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#c9a84c' : gross === null ? '#9a9284' : '#14532d', fontSize: 50, fontWeight: 800, lineHeight: 1 }}>
+            <div style={{ fontFamily: 'var(--font-display)', color: pickedUp ? '#a8842f' : gross === null ? '#6b6558' : '#14532d', fontSize: 50, fontWeight: 800, lineHeight: 1 }}>
               {pickedUp ? 'P' : gross ?? '0'}
             </div>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#52525b', marginTop: 5 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#3f3b32', marginTop: 5 }}>
               {pickedUp ? '0 Points (pick-up)' : pts !== null ? `${pts} Point${pts === 1 ? '' : 's'}` : 'Par ' + par + ' · SI ' + si}
             </div>
             {/* Sprint 9 — Powerplay visual treatment. Shows the
@@ -2417,15 +2470,15 @@ function ScoreCard({
             {isPowerplayHole && !pickedUp && basePts !== null && basePts !== undefined && pts !== null && (
               <div style={{
                 display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4,
-                background: '#fdf3d9', border: '1px solid #e8c96a', borderRadius: 8, padding: '2px 8px',
+                background: '#fdf3d9', border: '1px solid #c9a84c', borderRadius: 8, padding: '2px 8px',
               }}>
-                <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#a1791f' }}>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#7a5c00' }}>
                   ⚡ {basePts} × 2 = {pts} pts
                 </span>
               </div>
             )}
           </div>
-          <button onClick={() => onPick(1)} disabled={isLockedForSide} style={{ width: 50, height: 50, borderRadius: 12, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #c9c2b2', color: isLockedForSide ? '#9a9a9a' : '#14532d', fontSize: 22, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>+</button>
+          <button onClick={() => onPick(1)} disabled={isLockedForSide} style={{ width: 50, height: 50, borderRadius: 12, background: isLockedForSide ? '#f3f4f6' : '#f7f6f1', border: '1.5px solid #8a8270', color: isLockedForSide ? '#9a9a9a' : '#14532d', fontSize: 22, flexShrink: 0, cursor: isLockedForSide ? 'default' : 'pointer' }}>+</button>
         </div>
 
         {/* Pick Up — relocated here from the permanent tile row below, per
@@ -2439,9 +2492,9 @@ function ScoreCard({
             disabled={isLockedForSide}
             style={{
               fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700,
-              color: pickedUp ? '#a1791f' : '#52525b',
+              color: pickedUp ? '#7a5c00' : '#3f3b32',
               background: pickedUp ? '#fdf3d9' : '#f7f6f1',
-              border: pickedUp ? '1px solid #e8c96a' : '1px solid #b8b2a3',
+              border: pickedUp ? '1px solid #c9a84c' : '1.5px solid #8a8270',
               borderRadius: 18, padding: '3px 12px', cursor: 'pointer',
             }}
           >
@@ -2450,21 +2503,21 @@ function ScoreCard({
         </div>
 
         <div style={{ display: 'flex', gap: 6, marginTop: 9 }}>
-          <button onClick={onPar} disabled={isLockedForSide} style={{ flex: 1, padding: '5px 4px', borderRadius: 8, background: gross === par && !pickedUp ? '#dcfce7' : '#eefbf2', border: gross === par && !pickedUp ? '1px solid #86efac' : '1px solid #b8ddc3', textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: gross === par && !pickedUp ? '#16a34a' : '#3f7a52' }}>PAR</div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#16a34a' }}>{par}</div>
+          <button onClick={onPar} disabled={isLockedForSide} style={{ flex: 1, padding: '5px 4px', borderRadius: 8, background: gross === par && !pickedUp ? '#dcfce7' : '#eefbf2', border: gross === par && !pickedUp ? '1.5px solid #4ade80' : '1.5px solid #7fbf94', textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: gross === par && !pickedUp ? '#15803d' : '#1e5c37' }}>PAR</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#15803d' }}>{par}</div>
           </button>
-          <div style={{ flex: 1, textAlign: 'center', padding: '5px 4px', borderRadius: 8, background: '#f7f6f1', border: '1px solid #c9c2b2' }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: '#6b6558' }}>SHOTS</div>
+          <div style={{ flex: 1, textAlign: 'center', padding: '5px 4px', borderRadius: 8, background: '#f7f6f1', border: '1.5px solid #8a8270' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: '#3f3b32' }}>SHOTS</div>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, color: '#14532d', fontWeight: 700 }}>{strokes}</div>
           </div>
           <button
             onClick={onOpenSummary}
             disabled={!onOpenSummary}
-            style={{ flex: 1, textAlign: 'center', padding: '5px 4px', borderRadius: 8, background: '#fdf3d9', border: '1px solid #e8c96a', cursor: onOpenSummary ? 'pointer' : 'default' }}
+            style={{ flex: 1, textAlign: 'center', padding: '5px 4px', borderRadius: 8, background: '#fdf3d9', border: '1.5px solid #c9a84c', cursor: onOpenSummary ? 'pointer' : 'default' }}
           >
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: '#a1791f' }}>TOTAL</div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#a1791f' }}>{runningTotal}</div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, color: '#7a5c00' }}>TOTAL</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#7a5c00' }}>{runningTotal}</div>
           </button>
         </div>
       </div>

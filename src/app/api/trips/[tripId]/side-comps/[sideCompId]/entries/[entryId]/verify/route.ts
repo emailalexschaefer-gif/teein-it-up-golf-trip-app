@@ -14,7 +14,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { detectSharedDeviceGroup } from '@/lib/scoring/sharedDeviceScoring'
+import { resolveSharedDeviceGroupForPlayer } from '@/lib/scoring/resolveSharedDeviceGroup'
 
 interface RouteProps { params: Promise<{ tripId: string; sideCompId: string; entryId: string }> }
 
@@ -95,17 +95,15 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   let verifierId = user.id
   let verifyingAsSharedDevicePartner = false
   if (entryRes.data.required_verifier_id && entryRes.data.required_verifier_id !== user.id) {
-    const myScorecardRes = await admin.from('scorecards').select('group_id').eq('round_id', compRes.data.round_id).eq('player_id', user.id).maybeSingle()
-    const myGroupId = myScorecardRes.data?.group_id ?? null
-    if (myGroupId) {
-      const groupRes = await admin.from('scorecards').select('player_id, scoring_method')
-        .eq('round_id', compRes.data.round_id).eq('group_id', myGroupId).neq('status', 'withdrawn')
-      const members = (groupRes.data ?? []) as { player_id: string; scoring_method: string }[]
-      const detection = detectSharedDeviceGroup(members.map(m => ({ playerId: m.player_id, scoringMethod: m.scoring_method === 'paper' ? 'paper' as const : 'digital' as const })))
-      if (detection.isSharedDevice && detection.digitalPlayerId === user.id && detection.paperPlayerId === entryRes.data.required_verifier_id) {
-        verifierId = entryRes.data.required_verifier_id
-        verifyingAsSharedDevicePartner = true
-      }
+    // P0 root-cause fix — resolved via the LIVE trip_members.group_id
+    // (not scorecards.group_id, which the current begin_round() RPC
+    // never actually writes — see resolveSharedDeviceGroup.ts's header
+    // for the full trace of why that column can't be trusted). Same
+    // resolver every other shared-device check now shares.
+    const detection = await resolveSharedDeviceGroupForPlayer(admin, { tripId, roundId: compRes.data.round_id, playerId: user.id })
+    if (detection.isSharedDevice && detection.digitalPlayerId === user.id && detection.paperPlayerId === entryRes.data.required_verifier_id) {
+      verifierId = entryRes.data.required_verifier_id
+      verifyingAsSharedDevicePartner = true
     }
   }
 
