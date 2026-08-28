@@ -5,7 +5,7 @@ import MyHQClient from '@/components/scoring/MyHQClient'
 import AdminScoreOverridePanel from '@/components/scoring/AdminScoreOverridePanel'
 import MyRoundClient from '@/components/scoring/MyRoundClient'
 import EventCountdown from '@/components/trips/EventCountdown'
-import { resolveFocusRound } from '@/lib/scoring/multiRound'
+import { resolveFocusRound, sortRoundsChronologically, getRoundDisplayName } from '@/lib/scoring/multiRound'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -31,18 +31,30 @@ export default async function TournamentPage({ params }: Props) {
   // "migration not yet applied" issue) — a query for a column that
   // doesn't exist yet would otherwise throw and break the entire My
   // Round/My HQ page, not just silently omit the field.
-  let rounds: { id: string; name: string; status: string; play_date: string; course_name: string | null; tee_time: string | null; holes: number; scoring_format: string; tee_name: string | null; setup_released?: boolean }[] | null = null
+  // P0 fix — round-numbering corruption. This used to select rounds
+  // without created_at, and sort with a plain play_date-only comparator
+  // with no tiebreaker at all — exactly the "arbitrary order when two
+  // rounds share a date, no stable secondary key" bug
+  // sortRoundsChronologically's own header comment documents as the
+  // root cause of a near-identical bug found earlier. Now selects
+  // created_at and uses the canonical sorter, and every round's
+  // DISPLAYED name below is derived from its actual chronological
+  // position via getRoundDisplayName, not trusted from the stored
+  // `name` column — which can legitimately disagree with position the
+  // moment a round is added whose date falls before an existing
+  // round's date (the exact reported case).
+  let rounds: { id: string; name: string; status: string; play_date: string; created_at: string; course_name: string | null; tee_time: string | null; holes: number; scoring_format: string; tee_name: string | null; setup_released?: boolean }[] | null = null
   {
     const roundsRes = await supabase
       .from('rounds')
-      .select('id, name, status, play_date, course_name, tee_time, holes, scoring_format, tee_name, setup_released')
+      .select('id, name, status, play_date, created_at, course_name, tee_time, holes, scoring_format, tee_name, setup_released')
       .eq('trip_id', tripId)
       .order('play_date', { ascending: false })
     if (roundsRes.error) {
       console.warn('[tournament page] setup_released column missing — run 062_round_setup_released.sql in Supabase SQL Editor')
       const fallbackRes = await supabase
         .from('rounds')
-        .select('id, name, status, play_date, course_name, tee_time, holes, scoring_format, tee_name')
+        .select('id, name, status, play_date, created_at, course_name, tee_time, holes, scoring_format, tee_name')
         .eq('trip_id', tripId)
         .order('play_date', { ascending: false })
       rounds = (fallbackRes.data ?? []).map(r => ({ ...r, setup_released: false }))
@@ -55,9 +67,12 @@ export default async function TournamentPage({ params }: Props) {
   // rounds is fetched DESC by play_date (line 31) — completedRounds
   // below only ever uses .length, so that ordering doesn't matter here;
   // the actual "most recent" lookup is mostRecentlyCompletedRound,
-  // computed from the ascending-sorted copy further down.
+  // computed from the chronologically-sorted copy further down.
   const completedRounds = (rounds ?? []).filter(r => r.status === 'completed')
-  const roundsAscending = [...(rounds ?? [])].sort((a, b) => a.play_date.localeCompare(b.play_date))
+  const roundsAscendingRaw = sortRoundsChronologically(rounds ?? [])
+  // Every consumer of roundsAscending gets the corrected display name
+  // baked in here, once — not each screen re-deriving it independently.
+  const roundsAscending = roundsAscendingRaw.map(r => ({ ...r, name: getRoundDisplayName(r, roundsAscendingRaw) }))
   const mostRecentlyCompletedRound = [...roundsAscending].reverse().find(r => r.status === 'completed')
   const nextUpcomingRound = roundsAscending.find(r => r.status === 'upcoming')
   const eventFullyComplete = !activeRound && !nextUpcomingRound && completedRounds.length > 0

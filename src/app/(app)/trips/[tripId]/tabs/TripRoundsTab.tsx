@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react'
 import type { TripData, RoundRow } from '../TripDetailClient'
 import { WizardNav } from './TripOverviewTab'
 import BeginRoundModal from '@/components/scoring/BeginRoundModal'
+import { sortRoundsChronologically, getRoundDisplayName } from '@/lib/scoring/multiRound'
 
 type Tab = 'overview' | 'players' | 'groups' | 'rounds'
 interface Props { trip: TripData; isOrganiser: boolean; onTabChange: (t: Tab) => void }
@@ -14,7 +15,14 @@ interface GroupWithMembers {
 }
 
 export default function TripRoundsTab({ trip, isOrganiser, onTabChange }: Props) {
-  const sorted = [...trip.rounds].sort((a, b) => a.play_date.localeCompare(b.play_date))
+  // P0 fix — round-numbering corruption. Was a plain play_date-only
+  // sort with no tiebreaker (arbitrary order whenever two rounds share
+  // a date) and rendered each round's raw stored `name` directly (see
+  // multiRound.ts's getRoundDisplayName for why that can legitimately
+  // disagree with actual chronological position). This is the exact
+  // screen the reported bug's screenshot was taken on.
+  const sortedRaw = sortRoundsChronologically(trip.rounds)
+  const sorted = sortedRaw.map(r => ({ ...r, name: getRoundDisplayName(r, sortedRaw) }))
 
   const [beginRound, setBeginRound] = useState<RoundRow | null>(null)
   const [groups, setGroups] = useState<GroupWithMembers[]>([])

@@ -1,3 +1,35 @@
+/**
+ * P0 fix — round-numbering corruption after adding a round out of
+ * chronological order. Root cause: a new round's stored `name` (e.g.
+ * "Round 3") is computed client-side from the CURRENT COUNT of existing
+ * rounds at creation time, not from where its play_date will actually
+ * fall once sorted chronologically. sortRoundsChronologically above
+ * already computes the correct order — the bug was never in ordering
+ * itself, it's that several screens then displayed the round's stored
+ * `name` text directly, which can silently disagree with that
+ * computed position the moment a round is added whose date lands
+ * before an existing round's date (exactly the reported case: a new
+ * round named "Round 3" at creation time, but chronologically it's
+ * actually the second round played).
+ *
+ * This does not rename anything in the database — it's a pure display
+ * function. Only overrides the label for a round whose name still
+ * matches the plain, auto-generated "Round N" pattern; a genuinely
+ * custom name (e.g. "Final Round", "The Sunday Battle") is always
+ * preserved untouched, since forcibly overwriting deliberate
+ * organiser text would be wrong. `rounds` must already be sorted via
+ * sortRoundsChronologically before calling this.
+ */
+const AUTO_ROUND_NAME_PATTERN = /^round\s+\d+$/i
+
+export function getRoundDisplayName<T extends { id: string; name: string }>(
+  round: T, chronologicallySortedRounds: T[],
+): string {
+  if (!AUTO_ROUND_NAME_PATTERN.test(round.name.trim())) return round.name
+  const index = chronologicallySortedRounds.findIndex(r => r.id === round.id)
+  return index === -1 ? round.name : `Round ${index + 1}`
+}
+
 export interface RoundPlayerResult {
   playerId: string
   playerName: string
@@ -7,7 +39,7 @@ export interface RoundPlayerResult {
 export interface RoundOrderingInput {
   id: string
   play_date: string
-  created_at: string
+  created_at?: string
 }
 
 /**
@@ -36,7 +68,7 @@ export interface RoundOrderingInput {
 export function sortRoundsChronologically<T extends RoundOrderingInput>(rounds: T[]): T[] {
   return [...rounds].sort((a, b) =>
     a.play_date.localeCompare(b.play_date)
-    || a.created_at.localeCompare(b.created_at)
+    || (a.created_at ?? '').localeCompare(b.created_at ?? '')
     || a.id.localeCompare(b.id)
   )
 }

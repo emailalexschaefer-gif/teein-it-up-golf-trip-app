@@ -10,6 +10,13 @@ interface Highlight {
   playerId: string
   playerName: string
   statLine: string
+  // P0 field-test fix — the short, reusable, title-only explanation
+  // ("High risk. High reward. Anything could happen.") shown once per
+  // archetype regardless of who qualified for it — see this component's
+  // render below and ARCHETYPE_DEFINITIONS in makersBreakers.ts for the
+  // full set. Optional purely so this interface tolerates an older
+  // cached API response that predates this field.
+  definition?: string
   caption?: string
 }
 
@@ -268,7 +275,20 @@ export default function MakersBreakers({
         <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 800, color: '#fff', letterSpacing: 0.5 }}>
           {current.title.toUpperCase()}
         </div>
-        <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, color: '#e8c96a', marginTop: 10 }}>
+        {/* P0 field-test fix — the archetype's own short, reusable
+            explanation, shown right under the title before any
+            player-specific detail. Per the exact requested structure:
+            title → what the archetype means → who qualified → the
+            evidence that qualified them. The organiser (or any player)
+            should understand why "Maverick"/"Mailman"/"Iceman" is
+            funny or relevant without having to infer it purely from a
+            stats line. */}
+        {current.definition && (
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'rgba(255,255,255,0.85)', marginTop: 8, lineHeight: 1.4, maxWidth: 280, marginLeft: 'auto', marginRight: 'auto' }}>
+            {current.definition}
+          </div>
+        )}
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, color: '#e8c96a', marginTop: 14 }}>
           {current.playerName}
         </div>
         <div style={{ fontFamily: 'var(--font-body)', fontSize: 15, color: 'rgba(255,255,255,0.9)', marginTop: 6 }}>

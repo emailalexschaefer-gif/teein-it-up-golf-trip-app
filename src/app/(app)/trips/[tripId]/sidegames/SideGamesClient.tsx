@@ -57,7 +57,17 @@ export default function SideGamesClient({ tripId }: { tripId: string }) {
     refetchInterval: (query) => (query.state.data?.roundsData ?? []).some(r => r.status === 'active') ? 8000 : false,
   })
 
-  const roundsWithContent = (data?.roundsData ?? []).filter(r => r.competitions.length > 0)
+  // P0 field-test fix — rounds with zero competitions used to be
+  // silently omitted entirely (roundsWithContent filtered them out),
+  // which is exactly what produced the reported "it looks like the app
+  // may still be showing the current round" confusion: a round with no
+  // Side Games configured just vanished from the list rather than
+  // being shown as "no games this round," making it look like the app
+  // had forgotten it existed. Now every relevant round is shown, with
+  // an explicit empty state for the ones with nothing configured —
+  // matching the brief's own example output exactly ("Round 2 — Side
+  // Games / No Side Games played this round").
+  const relevantRounds = data?.roundsData ?? []
 
   return (
     <div style={{
@@ -75,18 +85,20 @@ export default function SideGamesClient({ tripId }: { tripId: string }) {
         <div style={{ textAlign: 'center', padding: '32px 0', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>
           Loading Side Games…
         </div>
-      ) : roundsWithContent.length === 0 ? (
+      ) : relevantRounds.length === 0 ? (
         // Positive framing — the organiser may not have configured any
         // Side Competitions/Powerplay for this trip yet, which is a
         // completely normal, valid state (not every trip runs them),
         // not something "missing." Explains what this area is rather
-        // than reporting an absence.
+        // than reporting an absence. Distinct from the per-round empty
+        // state below — this is "no rounds have reached scoring yet at
+        // all," not "this specific round had none configured."
         <EmptyState text="Nearest the Pin, Longest Drive, and Powerplay competitions will appear here whenever your organiser sets them up for a round." />
       ) : (
         // Grouped by round, never merged — a round heading only shown
-        // when there's more than one round with content, matching the
-        // same "don't clutter a single-round trip" reasoning used
-        // elsewhere (e.g. Final Results' own round-grouping).
+        // when there's more than one relevant round, matching the same
+        // "don't clutter a single-round trip" reasoning used elsewhere
+        // (e.g. Final Results' own round-grouping).
         //
         // Bug 6 (field-test corrective) — roundsData itself stays
         // chronologically ascending (oldest first), since that's also
@@ -102,9 +114,9 @@ export default function SideGamesClient({ tripId }: { tripId: string }) {
         // already-materialised array — every round's own real
         // roundId/roundNumber stays exactly as computed, nothing here
         // infers identity from this reversed position.
-        [...roundsWithContent].reverse().map(round => (
+        [...relevantRounds].reverse().map(round => (
           <div key={round.roundId} style={{ marginBottom: 20 }}>
-            {roundsWithContent.length > 1 && (
+            {relevantRounds.length > 1 && (
               <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#9ca3af', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 {/* Bug 6 (field-test corrective) — round.roundName is
                     the organiser's own name for the round, which is
@@ -127,7 +139,13 @@ export default function SideGamesClient({ tripId }: { tripId: string }) {
                 a same-type one from Round 2 are entirely separate
                 side_comp_ids, so they naturally never collide here either,
                 grouped under their own round section. */}
-            {round.competitions.map(comp => <CompetitionCard key={comp.id} comp={comp} />)}
+            {round.competitions.length > 0 ? (
+              round.competitions.map(comp => <CompetitionCard key={comp.id} comp={comp} />)
+            ) : (
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', padding: '4px 2px' }}>
+                No Side Games played this round.
+              </div>
+            )}
           </div>
         ))
       )}

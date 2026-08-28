@@ -304,7 +304,36 @@ export async function PATCH(request: NextRequest, { params }: Props) {
     .eq('trip_id', tripId)
     .order('play_date', { ascending: true })
 
-  return NextResponse.json({ tripId, ok: true, rounds: finalRoundsRes.data ?? [] })
+  // P0 fix — "trip stays COMPLETE after a new round is added." Mirrors
+  // close/route.ts's own one-way live -> completed transition (also
+  // derived purely from rounds.status, not a second flag) with the
+  // symmetric reverse: a trip currently marked completed, that now has
+  // at least one round that ISN'T completed (this request just added
+  // one), can no longer honestly be "complete" — it returns to 'live',
+  // the same status start/route.ts already uses for "an event with
+  // rounds in progress." Never touches a trip that isn't currently
+  // 'completed' — draft/open/groups_ready/ready trips are pre-round
+  // setup states this has no opinion on, and a genuinely still-live
+  // trip is already correctly live. Historical completed rounds are
+  // never modified by this — only the trip-level label, derived fresh
+  // from current round data every time, exactly as requested.
+  const finalRounds = (finalRoundsRes.data ?? []) as { id: string; name: string; play_date: string; status: string }[]
+  let revertedToLive = false
+  if (finalRounds.length > 0) {
+    const tripStatusRes = await admin.from('trips').select('status').eq('id', tripId).maybeSingle()
+    const allStillComplete = finalRounds.every(r => r.status === 'completed')
+    if (tripStatusRes.data?.status === 'completed' && !allStillComplete) {
+      const { error: revertError } = await admin.from('trips').update({ status: 'live' }).eq('id', tripId)
+      if (revertError) {
+        console.error('[PATCH /api/trips] completed -> live lifecycle revert failed', revertError)
+      } else {
+        revertedToLive = true
+        console.log('[PATCH /api/trips] trip lifecycle reverted completed -> live (new round added after completion)', { tripId })
+      }
+    }
+  }
+
+  return NextResponse.json({ tripId, ok: true, rounds: finalRounds, revertedToLive })
 }
 
 

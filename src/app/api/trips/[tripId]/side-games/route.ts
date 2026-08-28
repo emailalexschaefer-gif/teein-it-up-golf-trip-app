@@ -32,7 +32,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { computeRoundSideGames } from '@/lib/sideGames/computeRoundSideGames'
-import { selectRelevantSideGameRounds } from '@/lib/scoring/multiRound'
+import { selectRelevantSideGameRounds, getRoundDisplayName } from '@/lib/scoring/multiRound'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -62,7 +62,16 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     const relevantRounds = selectRelevantSideGameRounds((roundsRes.data ?? []) as { id: string; name: string; course_name: string | null; status: string; play_date: string; created_at: string }[])
 
     const roundsData = await Promise.all(relevantRounds.map(async (round, idx) => ({
-      roundId: round.id, roundNumber: idx + 1, roundName: round.name, courseName: round.course_name,
+      roundId: round.id, roundNumber: idx + 1,
+      // P0 field-test fix — same root cause as the round-numbering bug
+      // elsewhere (My HQ, round setup, schedule cards): round.name is a
+      // stored value that can legitimately disagree with this round's
+      // actual chronological position the moment a round is added out
+      // of order. getRoundDisplayName is the one shared correction
+      // used everywhere else — applying it here too so this screen
+      // can't independently drift from what every other screen shows
+      // for the same round.
+      roundName: getRoundDisplayName(round, relevantRounds), courseName: round.course_name,
       status: round.status,
       competitions: await computeRoundSideGames(admin, round.id),
     })))

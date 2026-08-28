@@ -29,6 +29,13 @@ export interface RoundSideComp {
 }
 export interface RoundRow {
   id: string; name: string; course_name: string | null; play_date: string
+  // P0 fix — needed for the canonical chronological tiebreaker
+  // (sortRoundsChronologically) when two rounds share a play_date.
+  // Optional because the older/legacy fallback trip-fetch branches in
+  // page.tsx may not populate it in every environment; the sorter and
+  // getRoundDisplayName both tolerate an empty string, falling through
+  // to the next tiebreaker.
+  created_at?: string
   tee_time: string | null; holes: number; scoring_format: string; status: string
   side_comps?: RoundSideComp[]
   // Course Library v1 — all null for a manually-configured round.

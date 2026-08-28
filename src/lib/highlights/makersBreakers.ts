@@ -57,6 +57,13 @@ export interface Highlight {
   playerId: string
   playerName: string
   statLine: string
+  // P0 field-test fix — the short, reusable, title-only definition
+  // ("High risk. High reward. Anything could happen.") shown once per
+  // archetype regardless of who qualified — see ARCHETYPE_DEFINITIONS
+  // below. Optional so existing callers/tests constructing a Highlight
+  // by hand don't all need updating; generateMakersAndBreakers always
+  // populates it for real output.
+  definition?: string
   caption?: string
   // Explainability — "every generated candidate should carry
   // structured evidence... don't generate opaque strings that can't
@@ -237,7 +244,7 @@ export function findMaverick(field: FieldRoundData): Highlight | null {
   return {
     category: 'maverick', kind: 'breaker', scope: 'individual', icon: '🕶️', title: 'Maverick',
     playerId: best.player.playerId, playerName: best.player.playerName,
-    statLine: `${best.highs} big holes, ${best.lows} wipes — anything could happen`,
+    statLine: `${best.highs} big holes, ${best.lows} wipes`,
     significance: best.highs + best.lows,
   }
 }
@@ -866,12 +873,62 @@ export function findRollercoaster(field: FieldRoundData): Highlight | null {
   }
 }
 
+/**
+ * P0 field-test fix — archetype explanations. Per the explicit
+ * requirement: "Archetype title → one short reusable definition
+ * explaining the archetype" — the same one sentence every time
+ * "Maverick" (or any other archetype) appears, completely independent
+ * of who qualified or what their specific numbers were. statLine
+ * remains exactly what it already was: the player/group-specific
+ * evidence that qualified them (e.g. "2 big holes, 2 wipes") — this is
+ * additive, a single new field, not a rewrite of the qualification
+ * logic or the evidence text itself. Centralised here, at the one
+ * place every archetype already converges (generateMakersAndBreakers
+ * below), rather than duplicated across all 28 individual find*
+ * functions — one authoritative definition per category, easy to
+ * review as a complete set, and impossible for an individual archetype
+ * to silently drift out of sync with this list.
+ */
+const ARCHETYPE_DEFINITIONS: Record<string, string> = {
+  hot_start:            'Fast out of the gate — the front nine set the tone.',
+  back_nine_king:        'Found another gear on the back nine, right when it mattered.',
+  fast_finish:           'Finished stronger than they started — a big close.',
+  birdie_hunter:         'Went hunting for birdies, and found them.',
+  mr_consistent:         'Steady, unshakeable, the same score no matter the hole.',
+  maverick:              'High risk. High reward. Anything could happen.',
+  round_performer:       'Simply the best round on the course today.',
+  mailman:               'Delivers. Every time, without fail.',
+  wipeout_king:          'Big numbers, more than once — a rough day with the card.',
+  cold_start:            'Never got going — the front nine never arrived.',
+  the_collapse:          'Had it, then lost it — a real mid-round unravelling.',
+  rough_finish:          'Faded hard down the stretch, right at the death.',
+  hole_from_hell:        'One hole, one disaster — everyone else loved it.',
+  one_that_got_away:     'So close to something special — and then it slipped.',
+  goose:                 'Had the double points on offer, and let it go.',
+  hot_group:             'The group to beat — scoring hot as a team.',
+  black_hole_group:      'A group that couldn\u2019t buy a point between them.',
+  back_nine_bandits:     'Snuck up on the back nine as a group, together.',
+  the_closers:           'Finished the round strongest as a unit.',
+  the_fortress:          'Nothing got through — relentlessly solid as a group.',
+  the_birdcage:          'A group full of birdies, feeding off each other.',
+  dream_team:            'Every player pulling their weight — the complete group.',
+  wheels_off:            'It all came apart for this group, and fast.',
+  damage_report:         'A group with more big numbers than good ones.',
+  deep_freeze:           'Cold as a group, right when it counted.',
+  still_in_car_park:     'This group never really teed off at all.',
+  back_nine_breakdown:   'Held it together on the front, then it all fell apart.',
+  rollercoaster:         'Up, down, up, down — no telling what\u2019s coming next.',
+}
+
 export function generateMakersAndBreakers(field: FieldRoundData): { makers: Highlight[]; breakers: Highlight[] } {
+  const withDefinition = (h: Highlight | null): Highlight | null =>
+    h ? { ...h, definition: ARCHETYPE_DEFINITIONS[h.category] ?? '' } : null
+
   const makers = [
     findMailman(field), findHotStart(field), findBackNineKing(field), findFastFinish(field),
     findBirdieHunter(field), findMrConsistent(field),
     findHotGroup(field), findBackNineBandits(field), findTheClosers(field), findTheFortress(field), findTheBirdcage(field), findDreamTeam(field),
-  ].filter((h): h is Highlight => h !== null)
+  ].map(withDefinition).filter((h): h is Highlight => h !== null)
     .sort((a, b) => b.significance - a.significance) // strongest candidates first, per the explicit ranking requirement
 
   const breakers = [
@@ -879,7 +936,7 @@ export function generateMakersAndBreakers(field: FieldRoundData): { makers: High
     findRoughFinish(field), findHoleFromHell(field), findOneThatGotAway(field),
     findGoose(field), findBlackHoleGroup(field), findMaverick(field), findRollercoaster(field),
     findWheelsOff(field), findDamageReport(field), findDeepFreeze(field), findStillInCarPark(field), findBackNineBreakdown(field),
-  ].filter((h): h is Highlight => h !== null)
+  ].map(withDefinition).filter((h): h is Highlight => h !== null)
     .sort((a, b) => b.significance - a.significance)
 
   return { makers, breakers }
