@@ -32,11 +32,29 @@ export interface CompletionCheckResult {
 /**
  * Checks a single scorecard against the round-close requirement.
  * Returns the FIRST blocking reason found, or blocked: false if this
- * scorecard doesn't hold up the close. isMarkerMode only matters for a
- * digital scorecard — a paper player has no marker relationship to
- * reconcile at all, regardless of the round's score_capture_mode.
+ * scorecard doesn't hold up the close.
+ *
+ * Darren field-test fix (Release 1, item 1) — Playing Partner selection
+ * is now deliberately directional and never automatic: a player choosing
+ * to mark someone does not create any reciprocal obligation, and
+ * nothing pairs players up for them anymore (see markerAssignment.ts /
+ * playing-partner/route.ts). That means a player can now genuinely
+ * reach the end of a round with nobody having chosen to mark them at
+ * all — a normal, valid, expected outcome of a permissive model, not an
+ * error condition. This function used to require
+ * markerHoleCountForSelfHoles to equal selfHoleCount before a digital
+ * scorecard in self_and_marker mode could complete, which would have
+ * permanently blocked exactly that player's card from ever closing —
+ * markerHoleCountForSelfHoles would simply stay 0 forever, since nobody
+ * marking them isn't a temporary/waiting state, it's the final state.
+ * isMarkerMode is kept as a parameter for compatibility with existing
+ * callers, but no longer blocks completion — a scorecard's own
+ * completion is now determined entirely by the player's own self
+ * entries, exactly as a paper scorecard's always has been. Marker data,
+ * where it happens to exist, remains available for reconciliation/
+ * review — separately, informationally, never as a completion gate.
  */
-export function checkScorecardCompletion(sc: ScorecardCompletionInput, isMarkerMode: boolean): CompletionCheckResult {
+export function checkScorecardCompletion(sc: ScorecardCompletionInput, _isMarkerMode: boolean): CompletionCheckResult {
   if (sc.scoringMethod === 'paper') {
     if (sc.selfHoleCount < sc.totalHoles) {
       return { blocked: true, reason: '✏️ Paper scorecard not yet entered.' }
@@ -45,15 +63,6 @@ export function checkScorecardCompletion(sc: ScorecardCompletionInput, isMarkerM
   }
   if (sc.selfHoleCount < sc.totalHoles) {
     return { blocked: true, reason: 'Not every player has finished scoring yet.' }
-  }
-  // Shared-device — the digital player's own scorecard is exempt from
-  // the marker check too, not just their paper partner's. This is the
-  // actual P0 fix: isSharedDevice is checked BEFORE isMarkerMode, so a
-  // shared-device digital scorecard is never blocked on marker entries
-  // that were never meant to exist for this pairing.
-  if (sc.isSharedDevice) return { blocked: false, reason: null }
-  if (isMarkerMode && sc.markerHoleCountForSelfHoles < sc.selfHoleCount) {
-    return { blocked: true, reason: 'Some holes are still awaiting marker entries.' }
   }
   return { blocked: false, reason: null }
 }

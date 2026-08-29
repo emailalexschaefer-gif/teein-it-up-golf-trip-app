@@ -16,7 +16,6 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolvePlayingHandicap } from '@/lib/scoring/defaultHoles'
 import { calculateDailyHandicap } from '@/lib/scoring/dailyHandicap'
-import { generateMarkerAssignments } from '@/lib/scoring/markerAssignment'
 import { z } from 'zod'
 
 // Concrete type for the admin (service-role) Supabase client, derived
@@ -84,51 +83,22 @@ async function transitionTripToLive(admin: AdminClient, tripId: string) {
   }
 }
 
-async function autoGenerateMarkers(admin: AdminClient, tripId: string, roundId: string, scoreCaptureMode: string) {
-  if (scoreCaptureMode !== 'self_and_marker') return
-
-  const [groupsRes, membersRes, cardsRes, existingMarkersRes] = await Promise.all([
-    admin.from('trip_groups').select('id').eq('trip_id', tripId),
-    admin.from('trip_members').select('profile_id, group_id').eq('trip_id', tripId),
-    admin.from('scorecards').select('player_id').eq('round_id', roundId).neq('status', 'withdrawn'),
-    admin.from('round_markers').select('player_id').eq('round_id', roundId),
-  ])
-
-  const groupIds: string[] = (groupsRes.data ?? []).map((g: { id: string }) => g.id)
-  const cardPlayerIds = new Set((cardsRes.data ?? []).map((c: { player_id: string }) => c.player_id))
-  const alreadyAssigned = new Set((existingMarkersRes.data ?? []).map((m: { player_id: string }) => m.player_id))
-
-  for (const groupId of groupIds) {
-    const groupPlayerIds: string[] = (membersRes.data ?? [])
-      .filter((m: { group_id: string | null; profile_id: string }) => m.group_id === groupId && cardPlayerIds.has(m.profile_id))
-      .map((m: { profile_id: string }) => m.profile_id)
-
-    if (groupPlayerIds.length < 2) continue // solo group — nothing to pair
-    // Playing Partner (Priority 2/3): groups larger than two now let the
-    // player choose their own partner at the start of scoring (the
-    // selection screen in SelfMarkerScoreShell.tsx + its /playing-
-    // partner GET/POST endpoints), rather than being silently auto-
-    // paired. Only an exact pair (2 players) is still auto-assigned
-    // here, matching "auto-select each other and skip unnecessary
-    // choice" — this was intentionally left auto-paired for ALL group
-    // sizes in an earlier pass specifically because the selection UI
-    // didn't exist yet; now that it does (and gracefully falls through
-    // to normal scoring if a group somehow has no eligible candidates),
-    // skipping auto-generation for >2 no longer risks leaving anyone
-    // stranded without a partner.
-    if (groupPlayerIds.length > 2) continue
-    if (groupPlayerIds.every(id => alreadyAssigned.has(id))) continue // already seeded
-
-    try {
-      const assignments = generateMarkerAssignments(groupPlayerIds)
-      const rows = assignments.map(a => ({ round_id: roundId, player_id: a.playerId, marker_player_id: a.markerPlayerId }))
-      await admin.from('round_markers').insert(rows)
-    } catch (err) {
-      // Don't fail Begin Round over marker seeding — the organiser can
-      // still assign manually from the marker review screen.
-      console.error('[start-round] auto marker generation failed for group', { roundId, groupId, err })
-    }
-  }
+/**
+ * Darren field-test fix (Release 1, item 1) — REMOVED. This used to
+ * auto-pair every 2-player group's Playing Partner reciprocally at
+ * Begin Round (3+ player groups had already been left to explicit
+ * choice in an earlier pass — see the removed inline comment that used
+ * to live here). Per the explicit new model, there is no automatic
+ * pairing of any kind, for any group size: "Choose who you are
+ * marking" is now always a deliberate, directional action a player
+ * takes from live scoring (playing-partner/route.ts), never inferred
+ * or seeded on their behalf. Kept as a no-op stub, rather than deleting
+ * the function and its two call sites outright, so the call sites
+ * don't need touching and this change is a single, obvious, revertible
+ * point rather than scattered removals.
+ */
+async function autoGenerateMarkers(_admin: AdminClient, _tripId: string, _roundId: string, _scoreCaptureMode: string) {
+  return
 }
 
 

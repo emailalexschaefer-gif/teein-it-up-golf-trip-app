@@ -11,13 +11,13 @@ test('checkScorecardCompletion — digital player mid-round is blocked with the 
   assert.equal(result.reason, 'Not every player has finished scoring yet.')
 })
 
-test('checkScorecardCompletion — digital player finished but marker still catching up is blocked with the marker message', () => {
+test('checkScorecardCompletion — digital player finished, with a marker still catching up, is NOT blocked (Release 1 — reconciliation is informational, never a completion gate)', () => {
   const result = checkScorecardCompletion(
     { scoringMethod: 'digital', selfHoleCount: 18, markerHoleCountForSelfHoles: 15, totalHoles: 18 },
     true,
   )
-  assert.equal(result.blocked, true)
-  assert.equal(result.reason, 'Some holes are still awaiting marker entries.')
+  assert.equal(result.blocked, false)
+  assert.equal(result.reason, null)
 })
 
 test('checkScorecardCompletion — digital player fully finished and reconciled is not blocked', () => {
@@ -133,15 +133,13 @@ test('checkScorecardCompletion — shared-device DIGITAL scorecard is not blocke
   assert.equal(result.reason, null)
 })
 
-test('checkScorecardCompletion — a NON-shared-device digital scorecard is still correctly blocked by missing marker entries', () => {
-  // Confirms the fix is scoped to isSharedDevice, not a general
-  // loosening of the marker requirement for every digital player.
+test('checkScorecardCompletion — Release 1 — a digital scorecard with ZERO marker entries at all (nobody chose to mark this player, the normal permissive-model outcome) still completes on its own self entries', () => {
   const result = checkScorecardCompletion(
     { scoringMethod: 'digital', selfHoleCount: 9, markerHoleCountForSelfHoles: 0, totalHoles: 9, isSharedDevice: false },
     true,
   )
-  assert.equal(result.blocked, true)
-  assert.equal(result.reason, 'Some holes are still awaiting marker entries.')
+  assert.equal(result.blocked, false)
+  assert.equal(result.reason, null)
 })
 
 test('checkRoundCompletion — Alex + Marnie shared-device pair, both complete, round is genuinely ready to close', () => {

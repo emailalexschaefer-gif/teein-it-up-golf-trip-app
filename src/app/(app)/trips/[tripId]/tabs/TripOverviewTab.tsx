@@ -336,10 +336,22 @@ function Dialog({ children, onClose }: React.PropsWithChildren<{ onClose: () => 
           both this dialog and the Archive dialog above, which shares
           this same component and had the identical latent risk even
           though only Delete was reported. */}
+      {/* Darren field-test fix (Release 1, item 7) — the fixed 36px
+          bottom padding didn't account for the iPhone home-indicator
+          safe area at all. On a device where that inset exceeds 36px,
+          the bottom-most action (Archive/Delete) could sit partially
+          under it — not fully behind the app's own bottom nav (this
+          panel is its own fixed, full-width sheet with a higher
+          z-index, not nested inside it), but genuinely unreachable in
+          the same way for the same reason: nothing reserved the
+          device's own safe-area space. Adding it here reuses the exact
+          CSS env() mechanism already established elsewhere in this app
+          for the same purpose, rather than guessing a larger fixed
+          pixel value. */}
       <div style={{
         position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 51,
         background: '#faf6ed', borderRadius: '20px 20px 0 0',
-        padding: '24px 20px 36px',
+        padding: '24px 20px calc(36px + env(safe-area-inset-bottom, 0px))',
         boxShadow: '0 -4px 32px rgba(0,0,0,0.18)',
         maxWidth: 540, margin: '0 auto',
         maxHeight: '85dvh', overflowY: 'auto',

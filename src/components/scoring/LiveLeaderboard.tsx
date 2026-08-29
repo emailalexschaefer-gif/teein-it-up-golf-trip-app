@@ -466,13 +466,22 @@ function MultiRoundHeaderRow() {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#faf9f6', borderBottom: '1px solid #eceae3' }}>
       <div style={{ flex: 1, minWidth: 0 }} />
-      <div style={{ width: 44, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.4, color: '#9ca3af' }}>
-        PREVIOUS
+      {/* Darren field-test fix (Release 1, item 8) — "PREVIOUS"/"CURRENT"
+          spelled out in full simply don't fit in a 44px column at any
+          reasonable font size (8 characters plus letter-spacing is
+          wider than the column itself), which is what collided the
+          headers together. The column WIDTH stays 44/44/56 — matching
+          the data cells below exactly, so nothing misaligns — only the
+          header TEXT is abbreviated. This shortens labels, not player
+          names, so it doesn't reintroduce the name-ellipsis problem
+          this width was reclaimed from in the first place. */}
+      <div style={{ width: 44, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 800, letterSpacing: 0.2, color: '#9ca3af', whiteSpace: 'nowrap' }}>
+        PREV
       </div>
-      <div style={{ width: 44, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.4, color: '#9ca3af' }}>
-        CURRENT
+      <div style={{ width: 44, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 800, letterSpacing: 0.2, color: '#9ca3af', whiteSpace: 'nowrap' }}>
+        CUR
       </div>
-      <div style={{ width: 56, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.4, color: '#7a5c00' }}>
+      <div style={{ width: 56, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 800, letterSpacing: 0.2, color: '#7a5c00', whiteSpace: 'nowrap' }}>
         TOTAL
       </div>
       <div style={{ width: 14, flexShrink: 0 }} />

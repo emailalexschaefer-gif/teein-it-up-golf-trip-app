@@ -566,16 +566,24 @@ export default function SelfMarkerScoreShell({
   const [partnerCandidates, setPartnerCandidates] = useState<{ id: string; name: string }[] | null>(null)
   const [selectingPartnerId, setSelectingPartnerId] = useState<string | null>(null)
   const [partnerSelectError, setPartnerSelectError] = useState('')
+  // Darren field-test fix (Release 1, item 2) — "Change who I'm
+  // marking." When true, reuses the exact same selection screen below
+  // (partnerCandidates.length > 0 gate) even though currentMarked is
+  // already set — the only thing this state changes is which condition
+  // makes that screen render; choosePartner itself already works
+  // whether currentMarked exists or not (the backend route is now an
+  // upsert either way — see playing-partner/route.ts).
+  const [changingPartner, setChangingPartner] = useState(false)
   useEffect(() => {
-    if (!requiresMarker || currentMarked) return
+    if (!requiresMarker || (currentMarked && !changingPartner)) return
     let cancelled = false
     fetch(`/api/trips/${tripId}/rounds/${round.id}/playing-partner`)
       .then(res => res.ok ? res.json() : null)
-      .then(body => { if (!cancelled && body) setPartnerCandidates(body.paired ? [] : (body.candidates ?? [])) })
+      .then(body => { if (!cancelled && body) setPartnerCandidates(body.candidates ?? []) })
       .catch(() => { if (!cancelled) setPartnerCandidates([]) }) // fail safe to "nothing to choose" — never blocks scoring
     return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately re-checks only when currentMarked's presence changes (becomes truthy once chosen, refetched via the existing liveData query), not on every unrelated re-render
-  }, [requiresMarker, !!currentMarked, tripId, round.id])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately re-checks only when currentMarked's presence or changingPartner changes, not on every unrelated re-render
+  }, [requiresMarker, !!currentMarked, changingPartner, tripId, round.id])
 
   async function choosePartner(partnerId: string) {
     setSelectingPartnerId(partnerId)
@@ -590,6 +598,7 @@ export default function SelfMarkerScoreShell({
         setSelectingPartnerId(null)
         return
       }
+      setChangingPartner(false)
       await refetchLive() // pulls the fresh currentMarked, which clears this screen naturally
     } catch {
       setPartnerSelectError("Couldn't set your Playing Partner. Check your connection and try again.")
@@ -880,63 +889,50 @@ export default function SelfMarkerScoreShell({
   // the time regardless of group size, marker status, or anything else
   // investigated. Removed entirely — hasBlockingMismatch itself was
   // already unused anywhere else in this file, confirmed by search.
-  const canConfirm = !isLocked && (draftMyGross !== null || draftMyPickedUp)
-    && (!requiresMarker || !currentMarked || draftPartnerGross !== null || draftPartnerPickedUp)
+  // Darren field-test fix (Release 1, item 3) — canConfirm (the old
+  // "both players' data must be complete before the button enables"
+  // gate) is removed along with the Confirm Score button itself.
+  // Nothing computes completeness before allowing navigation any more —
+  // saveCurrentHoleData below persists whatever exists, blank or not.
 
-  async function confirmScore() {
-    if (!canConfirm || !hole || !currentMy || confirmingRef.current) return
-    confirmingRef.current = true
-    setFlash(true)
-
-    // P0 regression fix — same bug class as myDraftCapture: this
-    // optimistic local update previously rebuilt the hole's entry
-    // without adminOverridden, which would silently drop the flag from
-    // mySelf state for this specific hole the moment confirmScore ran
-    // again on it. Preserved from the existing prev state rather than
-    // re-derived, since this function has no reason to know or assume
-    // anything about override status — it's just not losing data that
-    // was already there.
-    const myValue: CaptureValue = { grossScore: draftMyPickedUp ? null : draftMyGross, pickedUp: draftMyPickedUp, adminOverridden: mySelf[holeNum]?.adminOverridden }
-    setMySelf(prev => ({ ...prev, [holeNum]: myValue }))
-    if (requiresMarker && currentMarked) {
-      const partnerValue: CaptureValue = { grossScore: draftPartnerPickedUp ? null : draftPartnerGross, pickedUp: draftPartnerPickedUp }
-      setPartnerMarker(prev => ({ ...prev, [holeNum]: partnerValue }))
-    }
-
-    // Shotgun Start — "last array position" means nothing in a circular
-    // sequence, so it's no longer what decides whether to advance or
-    // stop. The SEPARATE allDone check elsewhere in this file (watches
-    // captured scores directly, holes.every(...) — already genuinely
-    // order-independent, confirmed unchanged) is what actually triggers
-    // Round Summary once every hole is truly done, for both standard
-    // and shotgun rounds alike. This auto-advance just always moves to
-    // the next hole for shotgun (wrapping circularly); for standard
-    // rounds the exact original "stop at the last hole" behaviour is
-    // preserved untouched.
-    const isShotgunRound = startInfo?.startType === 'shotgun'
-    const isLastHole = !isShotgunRound && holeIdx >= holes.length - 1
-    setTimeout(() => {
-      if (isShotgunRound) {
-        setHoleIdx(i => (i + 1) % holes.length)
-      } else if (!isLastHole) {
-        setHoleIdx(i => i + 1)
-      } else if (requiresMarker) {
-        // Individual mode has no comparison/reconciliation requirement at
-        // all — there's nothing to reconcile with a single capture per
-        // hole, so just stay on the completed final hole.
-        setShowReconciliation(true)
-      }
-      confirmingRef.current = false
-      setFlash(false)
-    }, 480)
+  // Darren field-test fix (Release 1, items 3 & 4) — Confirm Score is
+  // gone as a separate gate. Navigation IS the save boundary now:
+  // whatever valid draft data exists gets persisted before the hole
+  // changes, but nothing about a blank hole ever blocks moving on.
+  // "Navigation" does not mean "this hole is complete" — completeness
+  // is Round Summary/final submission's job, unchanged.
+  //
+  // Reuses every persistence call exactly as confirmScore() used to
+  // make them (queueScoreEntry for self/marker, shared-device-score for
+  // a shared-device partner) — same offline queue, same sync
+  // architecture, same error handling. The only things that changed are
+  // (a) these calls are no longer gated behind canConfirm requiring
+  // BOTH players' data to be complete before anything saves at all, and
+  // (b) they're driven by navigation instead of a button press.
+  async function saveCurrentHoleData() {
+    if (!hole || !currentMy) return
+    const hasMyData = (draftMyGross !== null || draftMyPickedUp) && !isLocked
+    const hasPartnerData = requiresMarker && currentMarked && (draftPartnerGross !== null || draftPartnerPickedUp) && !isPartnerLocked
+    if (!hasMyData && !hasPartnerData) return // blank hole — nothing to persist, navigation proceeds regardless
 
     try {
-      await queueScoreEntry({
-        scorecardId: currentMy.id, holeId: hole.id, captureRole: 'self',
-        grossScore: myValue.grossScore, isNoReturn: myValue.pickedUp,
-        enteredAt: new Date().toISOString(),
-      })
-      if (requiresMarker && currentMarked) {
+      if (hasMyData) {
+        // P0 regression fix — same bug class as myDraftCapture: this
+        // optimistic local update previously rebuilt the hole's entry
+        // without adminOverridden, which would silently drop the flag
+        // from mySelf state for this specific hole. Preserved from the
+        // existing prev state rather than re-derived.
+        const myValue: CaptureValue = { grossScore: draftMyPickedUp ? null : draftMyGross, pickedUp: draftMyPickedUp, adminOverridden: mySelf[holeNum]?.adminOverridden }
+        setMySelf(prev => ({ ...prev, [holeNum]: myValue }))
+        await queueScoreEntry({
+          scorecardId: currentMy.id, holeId: hole.id, captureRole: 'self',
+          grossScore: myValue.grossScore, isNoReturn: myValue.pickedUp,
+          enteredAt: new Date().toISOString(),
+        })
+      }
+      if (hasPartnerData) {
+        const partnerValue: CaptureValue = { grossScore: draftPartnerPickedUp ? null : draftPartnerGross, pickedUp: draftPartnerPickedUp }
+        setPartnerMarker(prev => ({ ...prev, [holeNum]: partnerValue }))
         if (isSharedDeviceScoring) {
           // Add-on 1 (corrected architecture) — Marnie's OFFICIAL score,
           // written via applyHoleOverride (through this endpoint) as
@@ -958,7 +954,7 @@ export default function SelfMarkerScoreShell({
           }
         } else {
           await queueScoreEntry({
-            scorecardId: currentMarked.id, holeId: hole.id, captureRole: 'marker',
+            scorecardId: currentMarked!.id, holeId: hole.id, captureRole: 'marker',
             grossScore: draftPartnerPickedUp ? null : draftPartnerGross, isNoReturn: draftPartnerPickedUp,
             enteredAt: new Date().toISOString(),
           })
@@ -973,30 +969,90 @@ export default function SelfMarkerScoreShell({
       void queryClient.invalidateQueries({ queryKey: ['tournament', tripId, round.id] })
       void queryClient.invalidateQueries({ queryKey: ['leaderboard', tripId, round.id] })
     } catch {
+      // "If persistence genuinely fails, surface the appropriate
+      // failure state rather than pretending the data was saved" — this
+      // is that surfacing. queueScoreEntry itself writes to the local
+      // offline queue first (Dexie), so this catch only fires for a
+      // genuine failure of that local write, not a normal "offline
+      // right now, will sync later" case — those succeed locally and
+      // sync in the background exactly as before.
       showToast('Saved locally — will sync when online')
     }
   }
 
+  // The single shared navigation/save function every trigger (Next
+  // Hole, Previous Hole, forward swipe, backward swipe) calls — per the
+  // explicit requirement that swipe and buttons must not implement
+  // separate behaviour. Always saves first, then navigates; the save
+  // itself never blocks navigation on completeness, only on the network
+  // request actually finishing (so entry order into the offline queue
+  // stays correct even under rapid navigation).
+  async function saveAndAdvance(direction: 'forward' | 'backward') {
+    if (confirmingRef.current) return
+    confirmingRef.current = true
+    setFlash(true)
+    try {
+      await saveCurrentHoleData()
+    } finally {
+      setFlash(false)
+      confirmingRef.current = false
+    }
+
+    // Shotgun Start — circular wrap, unchanged from before. Round
+    // Summary for a shotgun round is triggered separately by the
+    // existing allDone check (watches captured scores directly,
+    // genuinely order-independent), not by reaching an array boundary —
+    // there is no single "final hole" to navigate off of in a circular
+    // sequence, so navigation here never opens Round Summary for
+    // shotgun; it only ever wraps.
+    const isShotgunRound = startInfo?.startType === 'shotgun'
+    if (direction === 'forward') {
+      if (isShotgunRound) {
+        setHoleIdx(i => (i + 1) % holes.length)
+      } else if (holeIdx < holes.length - 1) {
+        setHoleIdx(i => i + 1)
+      } else {
+        // Darren field-test fix (Release 1, item 4) — the final PLAYED
+        // hole, not hole 18. `holes` is already the authoritative
+        // played-hole sequence (holeSequence.ts, built for Starting Tee
+        // support) — holeIdx >= holes.length - 1 is already correct
+        // for every configuration (9/1st ends at index 8 = hole 9,
+        // 9/10th ends at index 8 = hole 18, 18/1st ends at index 17 =
+        // hole 18, 18/10th ends at index 17 = hole 9) without this
+        // needing to know which one it is. Previously this only opened
+        // Round Summary in marker mode (individual/solo scoring stayed
+        // on the completed final hole indefinitely) — now applies
+        // uniformly, per the explicit requirement. Navigation reaching
+        // here does not mean the round is complete; Round Summary's own
+        // reconciliation/completeness checks are unchanged and still
+        // the actual gate for final submission.
+        setShowReconciliation(true)
+      }
+    } else {
+      if (isShotgunRound) {
+        setHoleIdx(h => (h - 1 + holes.length) % holes.length)
+      } else if (holeIdx > 0) {
+        setHoleIdx(h => h - 1)
+      }
+    }
+  }
+
   function onTouchStart(e: React.TouchEvent) { swipeStartX.current = e.touches[0].clientX; swipeStartY.current = e.touches[0].clientY }
+  // Darren field-test fix (Release 1, item 3) — swipe now calls the
+  // exact same saveAndAdvance() the Next/Previous buttons call below,
+  // per the explicit requirement that swipe and buttons must not
+  // implement separate navigation/save behaviour. Direction detection
+  // (the dx/dy threshold logic) is unchanged; only what happens once a
+  // swipe is recognised changed, from directly calling setHoleIdx to
+  // going through the shared save-then-navigate function.
   function onTouchEnd(e: React.TouchEvent) {
     if (swipeStartX.current === null || swipeStartY.current === null) return
     const dx = e.changedTouches[0].clientX - swipeStartX.current
     const dy = e.changedTouches[0].clientY - swipeStartY.current
     swipeStartX.current = null; swipeStartY.current = null
     if (Math.abs(dx) < 50 || Math.abs(dy) > Math.abs(dx) * 0.8) return
-    // Shotgun Start — circular wrap, only for shotgun rounds. Standard
-    // rounds keep the exact original clamped-at-bounds behaviour
-    // (startInfo?.startType !== 'shotgun' is true both before startInfo
-    // has loaded and for genuinely standard rounds — safe default
-    // either way, since clamped is what every round already does today).
-    const isShotgun = startInfo?.startType === 'shotgun'
-    if (isShotgun) {
-      if (dx < 0) setHoleIdx(h => (h + 1) % holes.length)
-      if (dx > 0) setHoleIdx(h => (h - 1 + holes.length) % holes.length)
-    } else {
-      if (dx < 0 && holeIdx < holes.length - 1) setHoleIdx(h => h + 1)
-      if (dx > 0 && holeIdx > 0) setHoleIdx(h => h - 1)
-    }
+    if (dx < 0) void saveAndAdvance('forward')
+    if (dx > 0) void saveAndAdvance('backward')
   }
 
   const displaySyncLabel = pendingCount > 0 || syncState === 'syncing' ? `⏳ ${syncLabel}`
@@ -1068,14 +1124,16 @@ export default function SelfMarkerScoreShell({
   // player group (currentMarked already set by then) or a solo group
   // (partnerCandidates resolves to [], falling straight through to
   // normal scoring below, unchanged).
-  if (requiresMarker && !currentMarked && partnerCandidates && partnerCandidates.length > 0) {
+  if (requiresMarker && (!currentMarked || changingPartner) && partnerCandidates && partnerCandidates.length > 0) {
     return (
       <div style={{ minHeight: '100vh', background: '#faf9f6', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '24px 20px' }}>
         <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 19, fontWeight: 800, marginBottom: 6, textAlign: 'center' }}>
-          Choose your Playing Partner
+          {changingPartner ? 'Change who you\u2019re marking' : 'Choose your Playing Partner'}
         </div>
         <div style={{ fontFamily: 'var(--font-body)', color: '#7a7260', fontSize: 13, marginBottom: 20, textAlign: 'center' }}>
-          You&apos;ll record your own score and theirs — they&apos;ll do the same for you.
+          {changingPartner
+            ? 'Your own scores and everyone\u2019s existing scores are kept exactly as they are — this only changes who you record for going forward.'
+            : 'You\u2019ll record your own score and theirs — they\u2019ll do the same for you.'}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {partnerCandidates.map(c => (
@@ -1084,17 +1142,36 @@ export default function SelfMarkerScoreShell({
               onClick={() => void choosePartner(c.id)}
               disabled={selectingPartnerId !== null}
               style={{
-                padding: '14px 16px', borderRadius: 12, border: '1.5px solid #d9c9a3', background: '#ffffff',
+                padding: '14px 16px', borderRadius: 12,
+                border: c.id === currentMarked?.player_id ? '1.5px solid #14532d' : '1.5px solid #d9c9a3',
+                background: c.id === currentMarked?.player_id ? '#f0fdf4' : '#ffffff',
                 fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 700, color: '#14532d',
                 cursor: selectingPartnerId ? 'default' : 'pointer', opacity: selectingPartnerId && selectingPartnerId !== c.id ? 0.5 : 1,
                 textAlign: 'left',
               }}
             >
-              {selectingPartnerId === c.id ? '…' : c.name}
+              {selectingPartnerId === c.id ? '…' : c.name}{c.id === currentMarked?.player_id ? ' (currently marking)' : ''}
             </button>
           ))}
         </div>
         {partnerSelectError && <p style={{ color: '#dc2626', fontSize: 12.5, marginTop: 12, fontFamily: 'var(--font-body)', textAlign: 'center' }}>{partnerSelectError}</p>}
+        {/* Darren field-test fix (Release 1, item 2) — only shown once
+            there's genuinely something to cancel back to (a partner
+            already assigned); the required first-time selection has no
+            Cancel, matching its existing behaviour exactly. */}
+        {changingPartner && (
+          <button
+            onClick={() => { setChangingPartner(false); setPartnerSelectError('') }}
+            disabled={selectingPartnerId !== null}
+            style={{
+              marginTop: 18, background: 'none', border: 'none', textAlign: 'center',
+              fontFamily: 'var(--font-body)', fontSize: 13, color: '#9ca3af', fontWeight: 600,
+              cursor: selectingPartnerId ? 'default' : 'pointer',
+            }}
+          >
+            Cancel
+          </button>
+        )}
       </div>
     )
   }
@@ -1266,38 +1343,97 @@ export default function SelfMarkerScoreShell({
         }, 0)
       : null
 
+    // Darren field-test fix (Release 1, item 5) — separate RESULT from
+    // INTEGRITY. partnerGrandTotal above was previously computed only
+    // for isSharedDeviceScoring — but partnerSelf (the partner's own,
+    // real capture_role='self' entries) is populated generically for
+    // ANY marker-mode pairing, not just shared-device. The root cause
+    // of "Alex Schaefer 51 — Matched — Darren Lappen 51" was that the
+    // ONLY total ever shown for the partner was markerGrandTotal — MY
+    // OWN card, as recorded by my marker — mislabelled with the
+    // partner's name as if it were their own separate round result.
+    // realPartnerGrandTotal is their genuine own total, independent of
+    // whether this is a shared-device pair or a normal two-device
+    // marker pairing.
+    const realPartnerGrandTotal = (requiresMarker && currentMarked)
+      ? holes.reduce((sum, h) => {
+          const partnerCapture = partnerSelf[h.hole_number] ?? null
+          if (!partnerCapture) return sum
+          const pts = partnerCapture.pickedUp ? 0
+            : partnerCapture.grossScore !== null
+              ? calculateStableford({ grossScore: partnerCapture.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: partnerHcp, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
+              : 0
+          return sum + pts
+        }, 0)
+      : null
+
     return (
       <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '12px 16px 90px' }}>
         <div style={{ textAlign: 'center', marginBottom: 2 }}>
           <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 17, fontWeight: 800 }}>Round Summary</div>
-          <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d', marginTop: 2 }}>{myName}</div>
-          <div style={{ fontFamily: 'var(--font-body)', color: '#6b7280', fontSize: 11, marginTop: 1 }}>
+          {/* Darren field-test fix (Release 1, item 5) — the headline is
+              now the actual RESULT: each player's own real Stableford
+              total, never a marker's copy of someone else's card. When
+              there's a partner (marker mode or shared-device — this
+              doesn't distinguish, since realPartnerGrandTotal is
+              genuine either way), shown as two individual totals side
+              by side; solo scoring (no marker relationship at all)
+              keeps the single-total layout unchanged below. Scope note
+              — a group larger than two still only shows this player and
+              the ONE partner they're marking here (this screen's own
+              live data only ever covers that pair, per the directional
+              "who am I marking" model) — the full group's standings
+              belong on the Leaderboard tab, which already aggregates
+              every player, not duplicated here. */}
+          {requiresMarker && currentMarked && realPartnerGrandTotal !== null ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 18, marginTop: 6 }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, color: '#14532d' }}>{myName}</div>
+                <div style={{ fontFamily: 'var(--font-display)', color: '#a1791f', fontSize: 26, fontWeight: 800 }}>{grandTotal}</div>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, color: '#9ca3af' }}>pts</div>
+              </div>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#c9c2b2' }}>vs</div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, color: '#14532d' }}>{partnerName ?? 'Playing Partner'}</div>
+                <div style={{ fontFamily: 'var(--font-display)', color: '#a1791f', fontSize: 26, fontWeight: 800 }}>{realPartnerGrandTotal}</div>
+                <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, color: '#9ca3af' }}>pts</div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d', marginTop: 2 }}>{myName}</div>
+          )}
+          <div style={{ fontFamily: 'var(--font-body)', color: '#6b7280', fontSize: 11, marginTop: 6 }}>
             {isSharedDeviceScoring
               ? (allMatched ? 'Shared-device scoring complete ✓' : `${rows.length - pending.length} of ${rows.length} holes recorded`)
               : <>{rows.length - mismatches.length - pending.length} holes matched · {mismatches.length} need review{pending.length > 0 ? ` · ${pending.length} waiting` : ''}</>}
           </div>
-          <div style={{ fontFamily: 'var(--font-display)', color: '#a1791f', fontSize: 20, fontWeight: 800, marginTop: 6 }}>
-            {grandTotal} pts
-          </div>
+          {!(requiresMarker && currentMarked && realPartnerGrandTotal !== null) && (
+            <div style={{ fontFamily: 'var(--font-display)', color: '#a1791f', fontSize: 20, fontWeight: 800, marginTop: 6 }}>
+              {grandTotal} pts
+            </div>
+          )}
         </div>
 
-        {/* Package 3 (C2) — this comparison is only shown while
-            reconciliation is genuinely still in progress (!isLocked).
-            Previously this block had no isLocked gate at all — it kept
-            showing myName vs partnerName side-by-side even on an
-            already-completed, fully-verified round, continuing to
-            present the marker's copy as an equal competing result
-            indefinitely. Once locked, the simplified "Scorecard
-            Verified" block below takes over instead — marker data
-            itself is untouched and still exists for audit purposes,
-            it just no longer dominates the completed screen. */}
+        {/* Darren field-test fix (Release 1, item 5) — relabelled from
+            player names to what this card actually is: card-integrity
+            reconciliation between two independently-recorded copies of
+            THIS player's own scores (mine vs my marker's), not a
+            second player's result. The headline above already shows
+            the real player-vs-player RESULT; this card exists purely
+            to answer a different question — "do the two recordings of
+            my card agree" — and should never again be mistaken for the
+            former. */}
         {requiresMarker && currentMarked && markerGrandTotal !== null && !isLocked && (
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-around',
-            background: '#fff', border: '1px solid #eceae3', borderRadius: 12, padding: '12px 14px', marginTop: 10,
-          }}>
+          <>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 14, marginBottom: 4, textAlign: 'center' }}>
+              Card Integrity
+            </div>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-around',
+              background: '#fff', border: '1px solid #eceae3', borderRadius: 12, padding: '12px 14px',
+            }}>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4 }}>{myName}</div>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4 }}>My Card</div>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: '#14532d', marginTop: 2 }}>{grandTotal}</div>
             </div>
             <div style={{ textAlign: 'center' }}>
@@ -1314,10 +1450,11 @@ export default function SelfMarkerScoreShell({
               )}
             </div>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4 }}>{partnerName ?? 'Playing Partner'}</div>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4 }}>{partnerName ?? 'Marker'}&apos;s Record</div>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: '#14532d', marginTop: 2 }}>{markerGrandTotal}</div>
             </div>
           </div>
+          </>
         )}
 
         {/* P0 fix — the shared-device equivalent of the card above, but
@@ -2007,14 +2144,33 @@ export default function SelfMarkerScoreShell({
 
         {/* ── Card 2: YOUR MARKER (the partner I mark) ──────────────────── */}
         {requiresMarker && markedScorecard && partnerName && (
-          <ScoreCard
+          <>
+            {/* Darren field-test fix (Release 1, item 2) — the actual
+                entry point. Deliberately NOT gated behind isLocked —
+                per the explicit requirement this is a recovery action
+                available from live scoring generally, and changing who
+                you mark doesn't touch your own scorecard's lock state
+                at all. Opens the same selection screen this shell
+                already has (above), pre-marking the current partner. */}
+            <button
+              onClick={() => setChangingPartner(true)}
+              style={{
+                display: 'block', width: '100%', textAlign: 'center', background: 'none', border: 'none',
+                fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#9ca3af',
+                cursor: 'pointer', padding: '2px 0 6px',
+              }}
+            >
+              ✎ Change who I&apos;m marking
+            </button>
+            <ScoreCard
             title={isSharedDeviceScoring ? 'SCORING FOR' : 'YOUR PLAYING PARTNER'} name={partnerName} hcp={partnerHcp} par={par} si={si} strokes={partnerStrokes} holeNum={holeNum} distance={distance}
             badge={isSharedDeviceScoring ? '✏️ Paper Player' : null}
             gross={draftPartnerGross} pickedUp={draftPartnerPickedUp} pts={partnerPts} runningTotal={partnerRunningTotal}
             onPick={d => pick('partner', d)} onPar={() => pickPar('partner')} onTogglePickUp={() => togglePickUp('partner')}
             status={partnerComparison} onOpenSummary={() => setShowReconciliation(true)} isLockedForSide={isPartnerLocked}
             activeSideComps={activeSideComps} isPowerplayHole={isPowerplayHole} basePts={partnerBasePts}
-          />
+            />
+          </>
         )}
         {/* Field-Test Fix Package, item 3 — a partner IS assigned
             (partnerName is known, from round_markers/profiles) but
@@ -2222,26 +2378,32 @@ export default function SelfMarkerScoreShell({
             {displaySyncLabel}
           </div>
         )}
-        <button
-          onClick={confirmScore}
-          disabled={!canConfirm || flash}
-          style={{
-            width: '100%', padding: 13,
-            background: flash ? '#16a34a' : canConfirm ? 'linear-gradient(135deg,#2d7a52,#16a34a)' : '#e5e7eb',
-            color: canConfirm || flash ? '#fff' : '#9ca3af', border: 'none', borderRadius: 10, fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-body)',
-            cursor: canConfirm ? 'pointer' : 'not-allowed',
-          }}
-        >
-          {flash ? '✓ Saved!' : isLocked ? 'Scores Finalised' : '✓ Confirm Score'}
-        </button>
+
+        {/* Darren field-test fix (Release 1, item 3) — Confirm Score is
+            gone. Navigation is now the save boundary — Previous/Next
+            below call saveAndAdvance(), which persists whatever valid
+            draft data exists before moving, without ever requiring
+            completeness first. A brief "Saved" flash still confirms a
+            save happened when there was something to save; it no
+            longer gates whether you can move on. */}
+        {flash && (
+          <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#16a34a', marginBottom: 6 }}>
+            ✓ Saved
+          </div>
+        )}
+        {isLocked && (
+          <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#9ca3af', marginBottom: 6 }}>
+            Scores Finalised
+          </div>
+        )}
 
         {/* P0 field-test fix — outdoor contrast on Previous/Next Hole:
             border darkened from #d1d5db (pale gray, low contrast in
             direct sun) to #8a8f96; disabled color kept distinctly
             paler than enabled so that affordance stays clear. */}
-        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+        <div style={{ display: 'flex', gap: 6 }}>
           <button
-            onClick={() => setHoleIdx(i => startInfo?.startType === 'shotgun' ? (i - 1 + holes.length) % holes.length : Math.max(0, i - 1))}
+            onClick={() => void saveAndAdvance('backward')}
             disabled={startInfo?.startType !== 'shotgun' && holeIdx === 0}
             style={{
               flex: 1, padding: 9, borderRadius: 9,
@@ -2260,22 +2422,22 @@ export default function SelfMarkerScoreShell({
               becoming this button. Round Summary gets its own always-
               available link below instead — reachable the moment
               allDone is genuinely true (every hole scored, any order),
-              not tied to array position. */}
-          {startInfo?.startType === 'shotgun' || holeIdx < holes.length - 1 ? (
-            <button
-              onClick={() => setHoleIdx(i => startInfo?.startType === 'shotgun' ? (i + 1) % holes.length : Math.min(holes.length - 1, i + 1))}
-              style={{ flex: 1, padding: 9, borderRadius: 9, background: '#ffffff', border: '1.5px solid #8a8f96', color: '#14532d', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
-            >
-              Next Hole →
-            </button>
-          ) : (
-            <button
-              onClick={() => setShowReconciliation(true)}
-              style={{ flex: 1, padding: 9, borderRadius: 9, background: '#14532d', border: 'none', color: '#fff', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
-            >
-              Round Summary →
-            </button>
-          )}
+              not tied to array position.
+              Darren field-test fix (Release 1, item 4) — for standard
+              rounds, forward navigation off the final PLAYED hole
+              (holeIdx === holes.length - 1, the same authoritative
+              play-order sequence Starting Tee already established) now
+              calls saveAndAdvance('forward') directly, which saves
+              first and then opens Round Summary itself — this button
+              no longer bypasses the save the way onClick=
+              {() => setShowReconciliation(true)} used to when tapped
+              directly instead of Confirm Score first. */}
+          <button
+            onClick={() => void saveAndAdvance('forward')}
+            style={{ flex: 1, padding: 9, borderRadius: 9, background: '#ffffff', border: '1.5px solid #8a8f96', color: '#14532d', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
+          >
+            {startInfo?.startType !== 'shotgun' && holeIdx >= holes.length - 1 ? 'Round Summary →' : 'Next Hole →'}
+          </button>
         </div>
         {startInfo?.startType === 'shotgun' && (
           <button
