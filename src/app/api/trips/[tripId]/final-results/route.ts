@@ -26,14 +26,21 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { computeCumulativeStandings, determineRoundWinners, determineChampions, sortRoundsChronologically, type RoundPlayerResult } from '@/lib/scoring/multiRound'
+import { orderHolesByPlaySequence } from '@/lib/scoring/holeSequence'
+import { generateEventMakersAndBreakers, type EventRoundData } from '@/lib/highlights/eventMakersBreakers'
+import type { PlayerRoundData, PlayerHoleResult } from '@/lib/highlights/makersBreakers'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 interface RouteProps { params: Promise<{ tripId: string }> }
 
-interface ScoreEntryRow { stableford_pts: number; capture_role: string }
-interface ScorecardRow { player_id: string; profiles: { full_name: string } | null; score_entries: ScoreEntryRow[] }
+// Release 2, item 1 — ScoreEntryRow/ScorecardRow (the old flat
+// stableford_pts+capture_role shape, no hole_id) removed here: they're
+// no longer used anywhere in this file — countback needs hole_id on
+// each entry, so the inline `{ player_id, profiles, score_entries }`
+// type used at the actual query call site below already carries that
+// field instead.
 interface RoundRow { id: string; name: string; course_name: string | null; status: string; created_at: string }
 
 export async function GET(_req: NextRequest, { params }: RouteProps) {
@@ -82,20 +89,89 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
     // One query per round, same shape as the live leaderboard route's own
     // per-round fetch — reused pattern, not a new query style.
-    const perRoundResults: RoundPlayerResult[][] = await Promise.all(
-      completedRounds.map(async (round) => {
-        const { data, error } = await admin
-          .from('scorecards')
-          .select('player_id, profiles:player_id(full_name), score_entries(stableford_pts, capture_role)')
-          .eq('round_id', round.id).neq('status', 'withdrawn')
+    // Release 2, item 5 — extended to also fetch gross_score/par and
+    // group identity, needed by generateEventMakersAndBreakers (item 4)
+    // alongside the countback data this already computed — one fetch,
+    // not two separate per-round queries for two different features.
+    //
+    // Returns { perRoundResult, eventRound } per round rather than
+    // pushing into a shared array from inside these concurrent async
+    // callbacks — Promise.all resolves in the same order as the input
+    // array regardless of which promise finishes first, but a shared
+    // array .push() from inside each callback does NOT preserve that
+    // order (whichever network request happens to complete first wins
+    // the race) — that would have silently scrambled event-level
+    // chronological order, breaking exactly the "no cross-round
+    // leakage / correct round-to-round identity" requirement this
+    // whole feature depends on.
+    const perRoundCombined = await Promise.all(
+      completedRounds.map(async (round, roundIdx) => {
+        const [{ data, error }, roundConfigRes, holesRes, groupsRes, shotgunStartsRes] = await Promise.all([
+          admin
+            .from('scorecards')
+            .select('player_id, group_id, profiles:player_id(full_name), score_entries(stableford_pts, gross_score, capture_role, hole_id)')
+            .eq('round_id', round.id).neq('status', 'withdrawn'),
+          admin.from('rounds').select('holes, starting_hole_number').eq('id', round.id).maybeSingle(),
+          admin.from('holes').select('id, hole_number, par').eq('round_id', round.id),
+          admin.from('trip_groups').select('id, name').eq('trip_id', tripId),
+          admin.from('round_group_starting_holes').select('group_id, starting_hole').eq('round_id', round.id),
+        ])
         if (error) throw error
-        return ((data ?? []) as unknown as ScorecardRow[]).map(sc => ({
-          playerId: sc.player_id,
-          playerName: sc.profiles?.full_name ?? 'Player',
-          roundPoints: (sc.score_entries ?? []).filter(e => e.capture_role === 'self').reduce((sum, e) => sum + (e.stableford_pts ?? 0), 0),
-        }))
+        // Release 2, item 1 — countback. holePoints must be in PLAY
+        // order (holeSequence.ts), the same fix already applied to the
+        // live leaderboard route — final placings must use the
+        // identical ranking rule, never a second, potentially
+        // disagreeing implementation.
+        const holeCount: 9 | 18 = roundConfigRes.data?.holes === 9 ? 9 : 18
+        const startingHoleNumber: 1 | 10 = roundConfigRes.data?.starting_hole_number === 10 ? 10 : 1
+        const holeById = new Map((holesRes.data ?? []).map((h: { id: string; hole_number: number; par: number }) => [h.id, h]))
+        const groupNameById = new Map((groupsRes.data ?? []).map((g: { id: string; name: string }) => [g.id, g.name]))
+        // Shotgun's own per-group starting hole takes priority (same
+        // resolution the round-level highlights route already uses) —
+        // getPlayedSequence needs the GROUP's actual starting hole for
+        // a shotgun round, not the round-level Starting Tee value,
+        // which shotgun rounds never set (stays at its default of 1).
+        const shotgunStartByGroup = new Map((shotgunStartsRes.data ?? []).map((r: { group_id: string; starting_hole: number }) => [r.group_id, r.starting_hole]))
+        const scRows = (data ?? []) as unknown as { player_id: string; group_id: string | null; profiles: { full_name: string } | null; score_entries: { stableford_pts: number; gross_score: number; capture_role: string; hole_id: string }[] }[]
+
+        // Release 2, item 4 — PlayerRoundData for the event engine.
+        // Kept alongside, not instead of, the countback result below:
+        // this has the gross_score/par detail birdies/pars/wipes need,
+        // which countback's own holePoints array doesn't carry.
+        const eventPlayers: PlayerRoundData[] = scRows.map(sc => {
+          const selfEntries = (sc.score_entries ?? []).filter(e => e.capture_role === 'self')
+          const holes: PlayerHoleResult[] = selfEntries
+            .map(e => { const h = holeById.get(e.hole_id); return h ? { holeNumber: h.hole_number, stablefordPts: e.stableford_pts ?? 0, grossScore: e.gross_score, par: h.par } : null })
+            .filter((h): h is PlayerHoleResult => h !== null)
+            .sort((a, b) => a.holeNumber - b.holeNumber) // getPlayedSequence (called inside the event engine) expects hole-number order, then reorders into play order itself
+          return {
+            playerId: sc.player_id, playerName: sc.profiles?.full_name ?? 'Player',
+            startingHole: (sc.group_id && shotgunStartByGroup.get(sc.group_id)) || startingHoleNumber,
+            holes,
+            groupId: sc.group_id, groupName: sc.group_id ? (groupNameById.get(sc.group_id) ?? 'Group') : 'Group',
+          }
+        })
+        const eventRound: EventRoundData = { roundId: round.id, roundNumber: roundIdx + 1, totalHoles: holeCount, players: eventPlayers }
+
+        const holeNumberById = new Map((holesRes.data ?? []).map((h: { id: string; hole_number: number }) => [h.id, h.hole_number]))
+        const perRoundResult = scRows.map(sc => {
+          const selfEntries = (sc.score_entries ?? []).filter(e => e.capture_role === 'self')
+          const rows = selfEntries
+            .map(e => { const hn = holeNumberById.get(e.hole_id); return hn ? { hole_number: hn, points: e.stableford_pts ?? 0 } : null })
+            .filter((r): r is { hole_number: number; points: number } => r !== null)
+          const holePoints = orderHolesByPlaySequence(rows, holeCount, startingHoleNumber).map(r => r.points)
+          return {
+            playerId: sc.player_id,
+            playerName: sc.profiles?.full_name ?? 'Player',
+            roundPoints: selfEntries.reduce((sum, e) => sum + (e.stableford_pts ?? 0), 0),
+            holePoints,
+          }
+        })
+        return { perRoundResult, eventRound }
       })
     )
+    const perRoundResults: RoundPlayerResult[][] = perRoundCombined.map(c => c.perRoundResult)
+    const eventRoundsData: EventRoundData[] = perRoundCombined.map(c => c.eventRound)
 
     // TOTAL and overall ranking — the exact same function, untouched, the
     // live multi-round leaderboard already relies on. Ties share position
@@ -227,18 +303,24 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       return { roundId: round.id, roundNumber: idx + 1, roundName: round.name, courseName: round.course_name, competitions }
     }))
 
+    // Release 2, item 4/5 — the SAME event-level Makers & Breakers
+    // result My Golf's Event Story (item 6) also consumes; computed
+    // once here, not duplicated in either presentation layer.
+    const eventHighlights = generateEventMakersAndBreakers({ rounds: eventRoundsData })
+
     return NextResponse.json({
       tripName: tripRes.data.name,
       rounds: completedRounds.map((r, idx) => ({ roundId: r.id, roundNumber: idx + 1, roundName: r.name, courseName: r.course_name })),
       standings: standingsWithRounds,
       roundWinners,
       champions,
-      // Explicit, not inferred by the client — no formal countback/tie-
-      // break rule currently exists in Teein' It Up (confirmed by
-      // inspection before writing this route). Flagged here so the UI
-      // can show a tie honestly rather than assuming a single champion.
+      // Release 2, item 1 — now genuinely resolved via the countback
+      // ladder (multiRound.ts) wherever the underlying hole-level data
+      // supports it; this only stays true when players are tied all
+      // the way through it, not merely level on the raw point total.
       hasTie: champions.length > 1,
       sideCompetitionsByRound,
+      eventHighlights,
     })
   } catch (err) {
     console.error('[final-results]', err)

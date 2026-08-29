@@ -118,11 +118,14 @@ export function getPlayedSequence(player: PlayerRoundData, totalHoles: number): 
   return sequence
 }
 
-function sumPts(holes: PlayerHoleResult[]): number {
+export function sumPts(holes: PlayerHoleResult[]): number {
   return holes.reduce((sum, h) => sum + h.stablefordPts, 0)
 }
 
-function hasCompleteRound(player: PlayerRoundData, totalHoles: number): boolean {
+// Release 2, item 4 — exported so eventMakersBreakers.ts can reuse the
+// exact same "did this player finish this round" definition, rather
+// than a second, potentially-drifting copy of it.
+export function hasCompleteRound(player: PlayerRoundData, totalHoles: number): boolean {
   return player.holes.length === totalHoles
 }
 
@@ -633,11 +636,19 @@ export function buildCourseReport(field: FieldRoundData, parByHole: Map<number, 
 // ── Group Makers (new) ──────────────────────────────────────────────────
 
 /** Sum of a member's gross birdies (one under par, gross-scoring term — matches findBirdieHunter's own definition, not repeated). */
-function birdieCount(m: PlayerRoundData): number {
+export function birdieCount(m: PlayerRoundData): number {
   return m.holes.filter(h => h.grossScore === h.par - 1).length
 }
-function wipeCount(m: PlayerRoundData): number {
+export function wipeCount(m: PlayerRoundData): number {
   return m.holes.filter(h => h.stablefordPts === 0).length
+}
+/** Release 2, item 4 — pars (gross score equal to par), same convention as birdieCount/wipeCount, exported for the event-level engine to reuse rather than reimplement. */
+export function parCount(m: PlayerRoundData): number {
+  return m.holes.filter(h => h.grossScore === h.par).length
+}
+/** Release 2, item 4 — double-bogey-or-worse count (gross score >= par + 2), the standard golf definition, for the event-level "Most double bogeys or worse" breaker. */
+export function doubleBogeyOrWorseCount(m: PlayerRoundData): number {
+  return m.holes.filter(h => h.grossScore >= h.par + 2).length
 }
 
 export function findBackNineBandits(field: FieldRoundData): Highlight | null {

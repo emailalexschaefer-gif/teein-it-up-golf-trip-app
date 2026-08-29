@@ -32,14 +32,70 @@ const COMP_TYPE_LABEL: Record<string, string> = {
   nearest_pin: 'Nearest the Pin', pros_approach: 'Pro\u2019s Approach', longest_drive: 'Longest Drive',
 }
 
+/**
+ * Release 2, item 2 — Side Game photo + lead-change announcement become
+ * one Moment, not two separate Chat feed items.
+ *
+ * Root cause found by inspection first, per the explicit instruction:
+ * the underlying data association for this already existed —
+ * event_messages.moment_id (migration 028) was added specifically so a
+ * captured Moment gets "ALSO a corresponding event_messages row." What
+ * was missing was this function's own awareness of it: it always
+ * INSERTed a brand new, unlinked 'announcement' row, regardless of
+ * whether a photo Moment (and its own 'moment'-type event_messages row)
+ * already existed for this exact claim — "Capture the Moment" is
+ * prompted at SUBMISSION time (SideCompEntryPanel's
+ * onWouldLeadIfVerified), well before verification runs this function,
+ * so by the time a claim is actually verified, a linked Moment very
+ * often already exists.
+ *
+ * Fixed by checking side_comp_entries.moment_id first: if a Moment is
+ * already linked to this claim, its EXISTING event_messages row is
+ * UPDATEd in place to carry the lead-change context ("🎯 NEW NEAREST
+ * THE PIN LEADER / Darren Lappen takes the lead — Hole 10") instead of
+ * a second, separate row being created — the photo becomes the primary
+ * visual with the announcement as attached context, exactly as
+ * requested, and this is a genuine data-level merge (one row, one
+ * moment_id), not two adjacent Chat items visually stitched together.
+ * If no Moment is linked (no photo was captured for this claim), this
+ * falls back to the original standalone announcement behaviour
+ * unchanged — never a broken or missing announcement.
+ *
+ * This same event_messages row (moment_id intact either way) is what
+ * Round Highlights, My Golf, and Event Story already read from for a
+ * Moment — none of them need separate changes to inherit this fix,
+ * since they consume the row this function writes to, not a duplicate.
+ */
 async function postLeadChangeAnnouncement(
   admin: ReturnType<typeof createAdminClient>, tripId: string, verifierId: string,
   compType: string, holeNumber: number | null, leaderName: string | null,
+  linkedMomentId: string | null,
 ) {
   if (!leaderName) return
   const label = COMP_TYPE_LABEL[compType] ?? compType
   const holeText = holeNumber ? ` on Hole ${holeNumber}` : ''
   const icon = compType === 'longest_drive' ? '💥' : '🎯'
+  // No literal newline — the Chat feed's message <p> doesn't set
+  // white-space: pre-wrap, so a \n here would just collapse to a
+  // space, not the two-line "NEW LEADER" / "takes the lead" layout
+  // shown in the brief's example. One line reads just as clearly here.
+  const announcementText = `${icon} NEW ${label.toUpperCase()} LEADER — ${leaderName} takes the lead${holeText}.`
+
+  if (linkedMomentId) {
+    const existingRes = await admin.from('event_messages').select('id').eq('moment_id', linkedMomentId).eq('message_type', 'moment').maybeSingle()
+    if (existingRes.data) {
+      const { error: updateError } = await admin.from('event_messages').update({ message: announcementText }).eq('id', existingRes.data.id)
+      if (updateError) {
+        console.error('[side-comp verify] merging lead-change into existing Moment failed (verification itself still saved)', { code: updateError.code, message: updateError.message })
+      }
+      return
+    }
+    // moment_id was set on the entry but the expected event_messages row
+    // wasn't found (shouldn't happen given migration 028's own
+    // guarantee, but not assumed) — fall through to the standalone
+    // announcement below rather than silently posting nothing.
+  }
+
   const payload = {
     trip_id: tripId, sender_user_id: verifierId, message_type: 'announcement',
     recipient_type: 'all', recipient_group_id: null,
@@ -70,7 +126,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     return NextResponse.json({ error: 'Side competition not found.' }, { status: 404 })
   }
 
-  const entryRes = await admin.from('side_comp_entries').select('id, side_comp_id, required_verifier_id').eq('id', entryId).maybeSingle()
+  const entryRes = await admin.from('side_comp_entries').select('id, side_comp_id, required_verifier_id, moment_id').eq('id', entryId).maybeSingle()
   if (!entryRes.data || entryRes.data.side_comp_id !== sideCompId) {
     return NextResponse.json({ error: 'Claim not found.' }, { status: 404 })
   }
@@ -137,7 +193,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     }
     const row = data?.[0]
     if (row?.became_official_leader) {
-      await postLeadChangeAnnouncement(admin, tripId, verifierId, compRes.data.comp_type, compRes.data.hole_number, row.current_leader_name ?? null)
+      await postLeadChangeAnnouncement(admin, tripId, verifierId, compRes.data.comp_type, compRes.data.hole_number, row.current_leader_name ?? null, entryRes.data.moment_id ?? null)
     }
     return NextResponse.json({
       entryId: row?.entry_id ?? null,
@@ -166,7 +222,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     }
     const row = data?.[0]
     if (row?.became_official_leader) {
-      await postLeadChangeAnnouncement(admin, tripId, verifierId, compRes.data.comp_type, compRes.data.hole_number, row.current_leader_name ?? null)
+      await postLeadChangeAnnouncement(admin, tripId, verifierId, compRes.data.comp_type, compRes.data.hole_number, row.current_leader_name ?? null, entryRes.data.moment_id ?? null)
     }
     return NextResponse.json({
       entryId: row?.entry_id ?? null,

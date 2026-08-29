@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import RoundSchedule, { type ScheduleRound } from './RoundSchedule'
 import PlayerRoundView from './PlayerRoundView'
+import MyGolfEventStory from './MyGolfEventStory'
 
 /**
  * Item 9 — "once the player manually taps another round, do not
@@ -20,15 +21,31 @@ import PlayerRoundView from './PlayerRoundView'
  * needing new plumbing.
  */
 export default function MyRoundClient({
-  tripId, rounds, defaultRoundId,
+  tripId, rounds, defaultRoundId, eventFullyComplete = false, currentPlayerId,
 }: {
   tripId: string; rounds: ScheduleRound[]; defaultRoundId: string | null
+  // Release 2, item 6 — My Golf Event Story. Both optional so any
+  // existing caller not yet updated to pass them still compiles and
+  // behaves exactly as before (no Event Story section rendered).
+  eventFullyComplete?: boolean
+  currentPlayerId?: string
 }) {
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(defaultRoundId)
   const selected = rounds.find(r => r.id === selectedRoundId) ?? null
 
   return (
     <div>
+      {/* Release 2, item 6 — shown ABOVE the round-by-round view, only
+          once the whole event (not just the round currently selected
+          below) is fully complete. This is deliberately the FIRST thing
+          a player sees here once the event is over — "a permanent
+          chapter in My Golf," not something they have to scroll past
+          the ordinary round view to find. Round-by-round context
+          remains fully available underneath via the existing
+          RoundSchedule/PlayerRoundView below, unchanged. */}
+      {eventFullyComplete && currentPlayerId && (
+        <MyGolfEventStory tripId={tripId} playerId={currentPlayerId} />
+      )}
       <RoundSchedule
         rounds={rounds} selectedRoundId={selectedRoundId ?? ''} defaultRoundId={defaultRoundId}
         onSelect={setSelectedRoundId} tripId={tripId}

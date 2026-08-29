@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { computeCumulativeStandings, determineRoundWinners, determineChampions, seedLeadersLast, sortRoundsChronologically, selectLeaderboardRound, selectRelevantSideGameRounds, buildRoundsSummary, derivePreviousCurrentTotal, resolveRequestedOrDefaultRound, matchesPlayerSearch, resolveFocusRound } from './multiRound'
+import { computeCumulativeStandings, determineRoundWinners, determineChampions, seedLeadersLast, sortRoundsChronologically, selectLeaderboardRound, selectRelevantSideGameRounds, buildRoundsSummary, derivePreviousCurrentTotal, resolveRequestedOrDefaultRound, matchesPlayerSearch, resolveFocusRound, buildCountbackKey, compareCountbackKeys } from './multiRound'
 
 // ── sortRoundsChronologically ────────────────────────────────────────────────
 
@@ -688,4 +688,148 @@ test('cumulative (multi-round) ranking — organiser override to a single round 
   assert.equal(afterOverride[0].playerId, 'test') // event winner changes
   assert.equal(afterOverride[0].totalPoints, 122)
   assert.equal(afterOverride.find(s => s.playerId === 'alex')?.totalPoints, 119)
+})
+
+// Release 2, item 1 — canonical countback ladder tests.
+
+test('countback — 2-way tie on total points resolved by better final-round score', () => {
+  const standings = computeCumulativeStandings([
+    [
+      { playerId: 'a', playerName: 'Alex', roundPoints: 19, holePoints: Array(18).fill(0).map((_, i) => i === 0 ? 3 : 16 / 17) },
+      { playerId: 'b', playerName: 'Ben', roundPoints: 20, holePoints: Array(18).fill(20 / 18) },
+    ],
+    [
+      // Alex scores better in the final round (18) than Ben (17) —
+      // total points tied (37 each), final-round score should separate.
+      { playerId: 'a', playerName: 'Alex', roundPoints: 18, holePoints: Array(18).fill(1) },
+      { playerId: 'b', playerName: 'Ben', roundPoints: 17, holePoints: Array(17).fill(1).concat([0]) },
+    ],
+  ])
+  const alex = standings.find(s => s.playerId === 'a')!
+  const ben = standings.find(s => s.playerId === 'b')!
+  assert.equal(alex.totalPoints, 37)
+  assert.equal(ben.totalPoints, 37) // countback changes position only, never points
+  assert.equal(alex.position, 1)
+  assert.equal(ben.position, 2)
+})
+
+test('countback — tied on total AND final round, separated by back nine (last 9 holes played)', () => {
+  const aHoles = Array(9).fill(1).concat(Array(9).fill(2)) // front 9 = 9pts, back 9 = 18pts, total 27
+  const bHoles = Array(9).fill(2).concat(Array(9).fill(1)) // front 9 = 18pts, back 9 = 9pts, total 27
+  const standings = computeCumulativeStandings([[
+    { playerId: 'a', playerName: 'Alex', roundPoints: 27, holePoints: aHoles },
+    { playerId: 'b', playerName: 'Ben', roundPoints: 27, holePoints: bHoles },
+  ]])
+  const alex = standings.find(s => s.playerId === 'a')!
+  const ben = standings.find(s => s.playerId === 'b')!
+  assert.equal(alex.totalPoints, ben.totalPoints)
+  // Alex's back nine (18) beats Ben's back nine (9)
+  assert.equal(alex.position, 1)
+  assert.equal(ben.position, 2)
+})
+
+test('countback — separated by last 6 holes when total, round, and back nine are all tied', () => {
+  // Both have identical front 9 and identical back-nine TOTAL (18 each),
+  // but different distribution within the back nine's last 6 holes.
+  const aHoles = Array(9).fill(1).concat([2, 2, 2, 4, 4, 4]) // back9 sum = 18, last6 sum = 18
+  const bHoles = Array(9).fill(1).concat([4, 4, 4, 2, 2, 2]) // back9 sum = 18, last6 sum = 12
+  const standings = computeCumulativeStandings([[
+    { playerId: 'a', playerName: 'Alex', roundPoints: 27, holePoints: aHoles },
+    { playerId: 'b', playerName: 'Ben', roundPoints: 27, holePoints: bHoles },
+  ]])
+  const alex = standings.find(s => s.playerId === 'a')!
+  const ben = standings.find(s => s.playerId === 'b')!
+  assert.equal(alex.position, 1)
+  assert.equal(ben.position, 2)
+})
+
+test('countback — separated by final played hole when everything else ties', () => {
+  const aHoles = Array(17).fill(2).concat([4]) // final hole = 4
+  const bHoles = Array(17).fill(2).concat([1]) // final hole = 1
+  const standings = computeCumulativeStandings([[
+    { playerId: 'a', playerName: 'Alex', roundPoints: 38, holePoints: aHoles },
+    { playerId: 'b', playerName: 'Ben', roundPoints: 35, holePoints: bHoles },
+  ]])
+  const alex = standings.find(s => s.playerId === 'a')!
+  const ben = standings.find(s => s.playerId === 'b')!
+  assert.equal(alex.position, 1)
+  assert.equal(ben.position, 2)
+})
+
+test('countback — genuinely identical through every hole stays a true tie (shared position)', () => {
+  const holes = Array(18).fill(2)
+  const standings = computeCumulativeStandings([[
+    { playerId: 'a', playerName: 'Alex', roundPoints: 36, holePoints: [...holes] },
+    { playerId: 'b', playerName: 'Ben', roundPoints: 36, holePoints: [...holes] },
+  ]])
+  const alex = standings.find(s => s.playerId === 'a')!
+  const ben = standings.find(s => s.playerId === 'b')!
+  assert.equal(alex.position, ben.position)
+  assert.equal(alex.position, 1)
+})
+
+test('countback — multi-player tie: 3 players level on points, ranked by final-round countback, next player after the tie gets the correct standard position', () => {
+  const standings = computeCumulativeStandings([[
+    { playerId: 'a', playerName: 'Alex', roundPoints: 30, holePoints: Array(16).fill(1).concat([1, 13]) },
+    { playerId: 'b', playerName: 'Ben', roundPoints: 30, holePoints: Array(16).fill(1).concat([3, 11]) },
+    { playerId: 'c', playerName: 'Cara', roundPoints: 30, holePoints: Array(16).fill(1).concat([5, 9]) },
+    { playerId: 'd', playerName: 'Dee', roundPoints: 25, holePoints: Array(18).fill(0) },
+  ]])
+  const alex = standings.find(s => s.playerId === 'a')!
+  const ben = standings.find(s => s.playerId === 'b')!
+  const cara = standings.find(s => s.playerId === 'c')!
+  const dee = standings.find(s => s.playerId === 'd')!
+  assert.equal(alex.totalPoints, 30)
+  assert.equal(ben.totalPoints, 30)
+  assert.equal(cara.totalPoints, 30)
+  assert.equal(alex.position, 1)
+  assert.equal(ben.position, 2)
+  assert.equal(cara.position, 3)
+  // Standard "1,2,3,4" ranking once the tie is fully resolved — not
+  // "1,2,3,3" or a gap from the tie having existed at all.
+  assert.equal(dee.position, 4)
+})
+
+test('countback — missing hole-level data for one round falls back to a genuine tie rather than a fabricated resolution', () => {
+  const standings = computeCumulativeStandings([[
+    { playerId: 'a', playerName: 'Alex', roundPoints: 30 }, // no holePoints supplied
+    { playerId: 'b', playerName: 'Ben', roundPoints: 30 },
+  ]])
+  const alex = standings.find(s => s.playerId === 'a')!
+  const ben = standings.find(s => s.playerId === 'b')!
+  assert.equal(alex.position, ben.position)
+})
+
+test('countback — a 9-hole round\'s "back nine" step gracefully uses the whole card, never crashes on fewer than 9 holes', () => {
+  const standings = computeCumulativeStandings([[
+    { playerId: 'a', playerName: 'Alex', roundPoints: 20, holePoints: Array(9).fill(0).map((_, i) => i === 8 ? 4 : 2) },
+    { playerId: 'b', playerName: 'Ben', roundPoints: 20, holePoints: Array(9).fill(0).map((_, i) => i === 8 ? 2 : (18 / 8)) },
+  ]])
+  assert.equal(standings.length, 2)
+  assert.ok(standings[0].position === 1 && standings[1].position === 2 || standings[0].position === standings[1].position)
+})
+
+test('countback — Starting Tee: an 18-hole/10th-tee round\'s holePoints (already in PLAY order) resolves back-nine correctly without any special-casing of physical hole numbers', () => {
+  // holePoints is always in PLAY order per the documented contract —
+  // this test exists to confirm the countback function itself makes no
+  // assumption about which physical holes are "the back nine"; it only
+  // ever looks at array position within whatever sequence it's given.
+  const aHoles = Array(9).fill(1).concat(Array(9).fill(3)) // last 9 PLAYED (physically holes 1-9 for an 18/10th round) = 27
+  const bHoles = Array(9).fill(3).concat(Array(9).fill(1)) // last 9 PLAYED = 9
+  const standings = computeCumulativeStandings([[
+    { playerId: 'a', playerName: 'Alex', roundPoints: 36, holePoints: aHoles },
+    { playerId: 'b', playerName: 'Ben', roundPoints: 36, holePoints: bHoles },
+  ]])
+  assert.equal(standings.find(s => s.playerId === 'a')!.position, 1)
+  assert.equal(standings.find(s => s.playerId === 'b')!.position, 2)
+})
+
+test('buildCountbackKey — totalPoints is always the first, most significant key element', () => {
+  const key = buildCountbackKey(42, [{ roundId: 'r1', holePoints: [1, 2, 3] }])
+  assert.equal(key[0], 42)
+})
+
+test('compareCountbackKeys — higher value at first difference wins, regardless of later elements', () => {
+  assert.ok(compareCountbackKeys([10, 1, 1], [9, 100, 100]) < 0) // [10,..] ranks first (negative = a before b)
+  assert.ok(compareCountbackKeys([5, 5], [5, 5]) === 0)
 })

@@ -10,10 +10,11 @@ import { resolveFocusRound, sortRoundsChronologically, getRoundDisplayName } fro
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-interface Props { params: Promise<{ tripId: string }> }
+interface Props { params: Promise<{ tripId: string }>; searchParams: Promise<{ view?: string }> }
 
-export default async function TournamentPage({ params }: Props) {
+export default async function TournamentPage({ params, searchParams }: Props) {
   const { tripId } = await params
+  const { view } = await searchParams
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -89,13 +90,36 @@ export default async function TournamentPage({ params }: Props) {
   const { data: tripRow } = await supabase.from('trips').select('organiser_is_playing').eq('id', tripId).maybeSingle()
   const organiserIsPlaying = isOrganiser && (tripRow?.organiser_is_playing ?? false)
 
-  if (!isOrganiser) {
-    // ── Player: My Round ────────────────────────────────────────────────
+  if (!isOrganiser || (organiserIsPlaying && view === 'mygolf')) {
+    // ── Player: My Golf — also reachable by an organiser who is also
+    // playing, via the My HQ shortcut below (?view=mygolf). Same
+    // component, same data, same experience every other player gets —
+    // per the explicit "do NOT duplicate all personal content inside
+    // MyHQ" instruction, this is the ONE My Golf implementation,
+    // reused, not a second one built for organisers. ────────────────────
     return (
       <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '16px 16px 90px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <Link href={`/trips/${tripId}`} style={{ color: '#9ca3af', fontSize: 18, textDecoration: 'none' }}>←</Link>
+          <Link
+            href={isOrganiser ? `/trips/${tripId}/tournament` : `/trips/${tripId}`}
+            style={{ color: '#9ca3af', fontSize: 18, textDecoration: 'none' }}
+          >
+            ←
+          </Link>
           <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>My Golf</span>
+          {/* Release 2, item 3 — an organiser landing here via the
+              shortcut needs an obvious way back to My HQ; a regular
+              player's back arrow above already goes to the trip
+              overview, which was always correct for them and stays
+              unchanged. */}
+          {isOrganiser && (
+            <Link
+              href={`/trips/${tripId}/tournament`}
+              style={{ marginLeft: 'auto', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#a1791f', textDecoration: 'none' }}
+            >
+              My HQ →
+            </Link>
+          )}
         </div>
         {!focusRound ? (
           <div style={{ textAlign: 'center', padding: '40px 16px', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>
@@ -104,6 +128,7 @@ export default async function TournamentPage({ params }: Props) {
         ) : (
           <MyRoundClient
             tripId={tripId} rounds={roundsAscending} defaultRoundId={focusRound.id}
+            eventFullyComplete={eventFullyComplete} currentPlayerId={user.id}
           />
         )}
       </div>
@@ -119,6 +144,20 @@ export default async function TournamentPage({ params }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <Link href={`/trips/${tripId}`} style={{ color: '#9ca3af', fontSize: 18, textDecoration: 'none' }}>←</Link>
         <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>My HQ</span>
+        {/* Release 2, item 3 — MyHQ → My Golf organiser shortcut. Only
+            shown when the organiser is genuinely also playing
+            (organiserIsPlaying) — if they're not, there's no personal
+            round/highlights of theirs to shortcut to at all. Same route,
+            same page component, just a query param — not a second URL
+            or a duplicated implementation. */}
+        {organiserIsPlaying && (
+          <Link
+            href={`/trips/${tripId}/tournament?view=mygolf`}
+            style={{ marginLeft: 'auto', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#a1791f', textDecoration: 'none' }}
+          >
+            🏌️ My Golf →
+          </Link>
+        )}
       </div>
 
       {/* My HQ Countdown — deliberately still tied to focusRound (the

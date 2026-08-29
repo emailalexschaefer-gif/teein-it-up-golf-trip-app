@@ -8,6 +8,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { computeCumulativeStandings, sortRoundsChronologically, buildRoundsSummary } from '@/lib/scoring/multiRound'
+import { orderHolesByPlaySequence } from '@/lib/scoring/holeSequence'
 
 // This is a polling endpoint — never cache it. Without this, Next.js could
 // serve one stale response to every poll instead of hitting Supabase fresh
@@ -40,9 +41,10 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       .eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
     if (!memberCheck.data) return NextResponse.json({ error: 'Not a trip member.' }, { status: 403 })
 
-  const roundRes = await admin.from('rounds').select('id, name, holes, status, scoring_format, created_at').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
+  const roundRes = await admin.from('rounds').select('id, name, holes, status, scoring_format, created_at, starting_hole_number').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
   if (!roundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
   const totalHoles: number = roundRes.data.holes ?? 18
+  const startingHoleNumber: 1 | 10 = roundRes.data.starting_hole_number === 10 ? 10 : 1
 
   // Holes for this round — needed to attach par/SI to each per-hole row
   // in the inline expanded scorecard, per the explicit "reuse existing
@@ -97,6 +99,17 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       .filter((h): h is NonNullable<typeof h> => h !== null)
       .sort((a, b) => a.holeNumber - b.holeNumber)
 
+    // Release 2, item 1 — countback needs points in PLAY order, not
+    // ascending hole_number order (identical to the fix already applied
+    // in holes/route.ts for scoring navigation — same root cause,
+    // different consumer). perHole above stays ascending, unchanged,
+    // since it's used for hole-number-labelled display elsewhere; this
+    // is a separate reordering purely for the countback key.
+    const holePoints = orderHolesByPlaySequence(
+      perHole.map(h => ({ hole_number: h.holeNumber, points: h.points })),
+      totalHoles === 9 ? 9 : 18, startingHoleNumber,
+    ).map(h => h.points)
+
     return {
       playerId:      sc.player_id,
       name:          sc.profiles?.full_name ?? 'Player',
@@ -107,6 +120,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       finished:      holesPlayed >= totalHoles,
       isCurrentUser: sc.player_id === user.id,
       perHole,
+      holePoints,
     }
   }).sort((a, b) => b.totalPts - a.totalPts || b.holesPlayed - a.holesPlayed)
 
@@ -182,19 +196,37 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       const perRoundTotals = await Promise.all(relevantRoundIds.map(async (rid) => {
         if (rid === roundId) {
             // This round's own totals are already computed above (unranked) —
-            // reuse directly rather than re-querying the same data.
-            return unranked.map(r => ({ playerId: r.playerId, playerName: r.name, roundPoints: r.totalPts }))
+            // reuse directly rather than re-querying the same data. holePoints
+            // is already in play order (computed alongside perHole above).
+            return unranked.map(r => ({ playerId: r.playerId, playerName: r.name, roundPoints: r.totalPts, holePoints: r.holePoints }))
           }
-          const { data, error } = await admin
-            .from('scorecards')
-            .select('player_id, profiles:player_id(full_name), score_entries(stableford_pts, capture_role)')
-            .eq('round_id', rid).neq('status', 'withdrawn')
+          const [{ data, error }, otherRoundRes, otherHolesRes] = await Promise.all([
+            admin
+              .from('scorecards')
+              .select('player_id, profiles:player_id(full_name), score_entries(stableford_pts, capture_role, hole_id)')
+              .eq('round_id', rid).neq('status', 'withdrawn'),
+            admin.from('rounds').select('holes, starting_hole_number').eq('id', rid).maybeSingle(),
+            admin.from('holes').select('id, hole_number').eq('round_id', rid),
+          ])
           if (error) throw error
-          return ((data ?? []) as unknown as { player_id: string; profiles: { full_name: string } | null; score_entries: { stableford_pts: number; capture_role: string }[] }[]).map(sc => ({
-            playerId: sc.player_id,
-            playerName: sc.profiles?.full_name ?? 'Player',
-            roundPoints: (sc.score_entries ?? []).filter(e => e.capture_role === 'self').reduce((sum, e) => sum + (e.stableford_pts ?? 0), 0),
-          }))
+          const otherHoleCount: 9 | 18 = otherRoundRes.data?.holes === 9 ? 9 : 18
+          const otherStartingHole: 1 | 10 = otherRoundRes.data?.starting_hole_number === 10 ? 10 : 1
+          const otherHoleNumberById = new Map((otherHolesRes.data ?? []).map((h: { id: string; hole_number: number }) => [h.id, h.hole_number]))
+          return ((data ?? []) as unknown as { player_id: string; profiles: { full_name: string } | null; score_entries: { stableford_pts: number; capture_role: string; hole_id: string }[] }[]).map(sc => {
+            const selfEntries = (sc.score_entries ?? []).filter(e => e.capture_role === 'self')
+            // Release 2, item 1 — same play-order reordering as the
+            // current round's own holePoints above, for a prior round.
+            const rows = selfEntries
+              .map(e => { const hn = otherHoleNumberById.get(e.hole_id); return hn ? { hole_number: hn, points: e.stableford_pts ?? 0 } : null })
+              .filter((r): r is { hole_number: number; points: number } => r !== null)
+            const holePoints = orderHolesByPlaySequence(rows, otherHoleCount, otherStartingHole).map(r => r.points)
+            return {
+              playerId: sc.player_id,
+              playerName: sc.profiles?.full_name ?? 'Player',
+              roundPoints: selfEntries.reduce((sum, e) => sum + (e.stableford_pts ?? 0), 0),
+              holePoints,
+            }
+          })
         }))
         cumulativeStandings = computeCumulativeStandings(perRoundTotals)
 

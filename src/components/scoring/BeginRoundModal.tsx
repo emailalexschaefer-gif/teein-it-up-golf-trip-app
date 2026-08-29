@@ -6,6 +6,7 @@ import { resolvePlayingHandicap, deriveBeginRoundHoles, deriveNineHoles } from '
 import type { HoleTemplate, PlayingNine } from '@/lib/scoring/defaultHoles'
 import { calculateDailyHandicap } from '@/lib/scoring/dailyHandicap'
 import { useScoringFocusStore } from '@/store/scoringFocusStore'
+import BrandLogo from '@/components/brand/BrandLogo'
 
 interface Player {
   member_id:  string  // trip_members.id — required by the members PATCH route, distinct from profile_id
@@ -558,6 +559,94 @@ export default function BeginRoundModal({
     // before. This satisfies the lint rule honestly rather than
     // silencing it.
   }, [setScoringFocusActive])
+
+  // Release 2, item 7 — Start Round polish. A dedicated render branch
+  // for the final ready state, bypassing the shared administrative
+  // header/stage-progress-dots entirely — this is the moment the event
+  // goes live, not another setup step, so it gets its own celebratory
+  // full-screen treatment rather than reusing the "Begin Round" chrome
+  // every earlier stage shares. Deliberately does NOT touch
+  // handleStartRound/handleRelease or any start-round API/lifecycle/
+  // validation — same handlers, same behaviour, only the presentation
+  // around them changed. BrandLogo is the existing shared logo
+  // component already used on login/landing/headers elsewhere in the
+  // app — no new image asset.
+  if (stage === 'released' || stage === 'launching') {
+    return (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 100,
+        background: 'linear-gradient(180deg, #0f2d1c, #1a4731)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        padding: '24px 24px calc(24px + env(safe-area-inset-bottom, 0px))',
+        paddingTop: 'calc(24px + env(safe-area-inset-top, 0px))',
+        textAlign: 'center',
+      }}>
+        <button
+          type="button" onClick={onClose}
+          style={{
+            position: 'absolute', top: 'calc(16px + env(safe-area-inset-top, 0px))', right: 16,
+            background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8, padding: '6px 12px',
+            fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.7)', fontSize: 13, cursor: 'pointer',
+          }}
+        >
+          ✕
+        </button>
+
+        <div style={{ marginBottom: 28 }}>
+          <BrandLogo variant="icon" size={64} />
+        </div>
+
+        <p style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.65)', fontSize: 12, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>
+          Ready to Tee Off?
+        </p>
+        <h1 style={{ fontFamily: 'var(--font-display)', color: '#fff', fontSize: 26, fontWeight: 800, margin: '0 0 4px' }}>
+          {roundName}
+        </h1>
+        {courseName && (
+          <p style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.75)', fontSize: 14, margin: '0 0 24px' }}>
+            {courseName}
+          </p>
+        )}
+
+        <div style={{
+          background: 'rgba(22,163,74,0.15)', border: '1px solid rgba(187,247,208,0.4)', borderRadius: 10,
+          padding: '10px 18px', marginBottom: 28,
+        }}>
+          <span style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#bbf7d0' }}>
+            ✓ Round Ready — Released to Players
+          </span>
+        </div>
+
+        <div style={{ width: '100%', maxWidth: 340, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <button
+            type="button"
+            onClick={stage === 'launching' ? undefined : handleStartRound}
+            disabled={stage === 'launching'}
+            style={{
+              padding: '16px 18px', borderRadius: 12, border: 'none',
+              background: stage === 'launching' ? '#6b7563' : 'linear-gradient(135deg,#2d7a52,#16a34a)',
+              color: '#fff', fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 16,
+              cursor: stage === 'launching' ? 'not-allowed' : 'pointer',
+              boxShadow: stage === 'launching' ? 'none' : '0 4px 16px rgba(22,163,74,0.35)',
+            }}
+          >
+            {stage === 'launching' ? 'Starting round…' : '▶ Start Round'}
+          </button>
+          <button
+            type="button" onClick={() => setStage('confirm')} disabled={stage === 'launching'}
+            style={{
+              padding: '12px 18px', borderRadius: 10, border: '1px solid rgba(245,230,184,0.3)',
+              background: 'transparent', color: 'rgba(245,230,184,0.8)',
+              fontFamily: 'var(--font-body)', fontWeight: 600, fontSize: 13.5,
+              cursor: stage === 'launching' ? 'not-allowed' : 'pointer',
+            }}
+          >
+            Edit Round Setup
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={{
@@ -1212,30 +1301,11 @@ export default function BeginRoundModal({
               Starting the round remains the organiser's own separate,
               deliberate action, matching "it should not start the
               round" and "starting the round remains a deliberate
-              action when players are physically ready to play." */}
-          {(stage === 'released' || stage === 'launching') && (
-            <div style={{ display: 'flex', gap: 8, flexDirection: 'column' }}>
-              <div style={{
-                background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10,
-                padding: '10px 14px', textAlign: 'center', marginBottom: 4,
-              }}>
-                <span style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#166534' }}>
-                  ✓ Round Ready — Released to Players
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={stage === 'launching' ? undefined : handleStartRound}
-                disabled={stage === 'launching'}
-                style={{ ...btnStyle(stage === 'launching' ? 'disabled' : 'primary'), cursor: stage === 'launching' ? 'not-allowed' : 'pointer' }}
-              >
-                {stage === 'launching' ? 'Starting round…' : '▶ Start Round'}
-              </button>
-              <button type="button" onClick={() => setStage('confirm')} style={btnStyle('ghost')} disabled={stage === 'launching'}>
-                Edit Round Setup
-              </button>
-            </div>
-          )}
+              action when players are physically ready to play."
+              Release 2, item 7 — this stage now has its own dedicated
+              celebratory render, returned early above, before this
+              shared header/body wrapper is ever reached — this branch
+              is intentionally unreachable code left removed below. */}
         </div>
       </div>
     </div>

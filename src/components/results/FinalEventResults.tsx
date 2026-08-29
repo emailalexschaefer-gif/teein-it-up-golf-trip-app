@@ -22,6 +22,27 @@ interface RoundSideCompetitions {
     powerplayBest: { playerId: string; playerName: string; points: number } | null
   }[]
 }
+// Release 2, item 5 — mirrors EventHighlight from eventMakersBreakers.ts.
+// A local type here, not an import, since this is a client component
+// consuming an API response shape, not the server module itself.
+interface EventHighlight {
+  category: string
+  kind: 'maker' | 'breaker'
+  scope: 'individual' | 'group'
+  title: string
+  definition?: string
+  playerIds: string[]
+  playerNames: string[]
+  groupId?: string | null
+  groupName?: string | null
+  roundId?: string | null
+  roundNumber?: number | null
+  holeNumber?: number | null
+  statValue: number
+  statLine: string
+  significance: number
+}
+
 interface FinalResults {
   tripName: string
   rounds: RoundRef[]
@@ -30,6 +51,48 @@ interface FinalResults {
   champions: Champion[]
   hasTie: boolean
   sideCompetitionsByRound: RoundSideCompetitions[]
+  eventHighlights: { makers: EventHighlight[]; breakers: EventHighlight[] }
+}
+
+// Release 2, item 5 — the same icon-by-category convention the
+// round-level slideshow uses per archetype; event-level categories are
+// their own distinct set (see eventMakersBreakers.ts), so this is a
+// small local lookup rather than importing the round-level one, which
+// doesn't have entries for these keys at all.
+const EVENT_HIGHLIGHT_ICON: Record<string, string> = {
+  event_champion: '🏆', most_points: '🥇', most_birdies: '🐦', most_pars: '🎯',
+  best_single_round: '⭐', biggest_improver: '📈', best_group: '🤝',
+  most_wipes: '💥', most_double_bogeys: '📉', toughest_hole_victim: '😬',
+  biggest_decline: '❄️', worst_group_stretch: '🥶',
+}
+
+function EventHighlightCard({ h }: { h: EventHighlight }) {
+  const names = h.scope === 'group' ? (h.groupName ?? 'Group') : h.playerNames.join(' & ')
+  return (
+    <div style={{
+      background: h.kind === 'maker' ? 'linear-gradient(135deg,#14532d,#1a6b3a)' : 'linear-gradient(135deg,#3a1a1a,#5c2626)',
+      borderRadius: 16, padding: '22px 18px', textAlign: 'center',
+    }}>
+      <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 800, letterSpacing: 1.2, textTransform: 'uppercase', color: h.kind === 'maker' ? '#e8c96a' : '#f0a8a8' }}>
+        {h.kind === 'maker' ? '🔥 Maker' : '💥 Breaker'}
+      </div>
+      <div style={{ fontSize: 32, margin: '10px 0 4px' }}>{EVENT_HIGHLIGHT_ICON[h.category] ?? (h.kind === 'maker' ? '🏆' : '💢')}</div>
+      <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: '#fff', letterSpacing: 0.3 }}>
+        {h.title.toUpperCase()}
+      </div>
+      {h.definition && (
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 6, lineHeight: 1.4 }}>
+          {h.definition}
+        </div>
+      )}
+      <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: '#e8c96a', marginTop: 10 }}>
+        {names || '—'}
+      </div>
+      <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'rgba(255,255,255,0.9)', marginTop: 4 }}>
+        {h.statLine}
+      </div>
+    </div>
+  )
 }
 
 const SIDE_COMP_LABELS: Record<string, { icon: string; label: string }> = {
@@ -120,7 +183,18 @@ export default function FinalEventResults({ tripId }: { tripId: string }) {
         </div>
         {data.hasTie && (
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginTop: 10, maxWidth: 280, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.5 }}>
-            Level on points with no tie-break in place — both champions, honestly.
+            {/* Release 2, item 1 follow-up — this used to say "no
+                tie-break in place," which stopped being accurate the
+                moment the countback ladder (multiRound.ts) landed:
+                there IS a tie-break in place now, computed identically
+                to the live leaderboard's own. If two players are still
+                shown here as joint champions, it's because they're
+                genuinely level all the way through it — cumulative
+                points, final round, back nine, last 6, last 3, and
+                every hole backwards — not because no tie-break exists. */}
+            Genuinely level through every stage of countback — cumulative
+            points, final round, back nine, and hole-by-hole. Joint
+            champions, honestly.
           </p>
         )}
       </div>
@@ -142,21 +216,6 @@ export default function FinalEventResults({ tripId }: { tripId: string }) {
               </div>
               <div style={{ fontFamily: 'var(--font-display)', fontWeight: 900, fontSize: 18, color: '#7a5c00', flexShrink: 0 }}>
                 {tier.players[0]?.totalPoints}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* ── Round Winners ─────────────────────────────────────────────── */}
-        <SectionLabel>Round Winners</SectionLabel>
-        <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden', marginBottom: 20 }}>
-          {data.roundWinners.map((rw, i) => (
-            <div key={rw.roundId} style={{ padding: '11px 14px', borderBottom: i < data.roundWinners.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 3 }}>
-                Round {rw.roundNumber}{rw.courseName ? ` — ${rw.courseName}` : ''}
-              </div>
-              <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d' }}>
-                {rw.winners.map(w => w.playerName).join(' & ')} — {rw.winners[0]?.points} pts
               </div>
             </div>
           ))}
@@ -202,6 +261,26 @@ export default function FinalEventResults({ tripId }: { tripId: string }) {
             </div>
           ))}
         </div>
+
+        {/* ── Event Makers & Breakers (Release 2, items 4/5) — the same
+            eventHighlights the API already computed via
+            generateEventMakersAndBreakers, presented directly here.
+            Clearly distinct from round-level Makers & Breakers (shown
+            further down via Round Winners) — its own section, its own
+            heading, event-scoped categories only. Omitted entirely
+            (not an empty section) when the event genuinely produced no
+            qualifying highlights — a 1-round event with sparse data can
+            legitimately have nothing here. ──────────────────────────── */}
+        {(data.eventHighlights.makers.length > 0 || data.eventHighlights.breakers.length > 0) && (
+          <>
+            <SectionLabel>🔥 Event Makers & Breakers</SectionLabel>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, marginBottom: 20 }}>
+              {[...data.eventHighlights.makers, ...data.eventHighlights.breakers]
+                .sort((a, b) => b.significance - a.significance)
+                .map(h => <EventHighlightCard key={h.category} h={h} />)}
+            </div>
+          </>
+        )}
 
         {/* ── Side Competition Winners — grouped by round, never
             collapsed. A competition existing in two rounds (e.g. NTP on
@@ -255,13 +334,30 @@ export default function FinalEventResults({ tripId }: { tripId: string }) {
           </>
         )}
 
-        {/* ── Event Story — placeholder only, per the explicit "prepare,
-            don't build" instruction for this sprint. ────────────────────── */}
-        <div style={{ background: '#ffffff', borderRadius: 14, border: '1.5px dashed #d9c9a3', padding: '18px 16px', textAlign: 'center', marginBottom: 20 }}>
-          <p style={{ fontSize: 22, marginBottom: 6 }}>📖</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, color: '#14532d', marginBottom: 2 }}>Event Story</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af' }}>Coming soon</p>
+        {/* ── Release 2, item 5 — round-by-round detail now sits BENEATH
+            Event Makers & Breakers, per the required hierarchy (Champion
+            → placings → Event M&B → round-by-round → controls). Round
+            Winners moved down from its previous position directly after
+            the Podium; nothing about its own content or logic changed. ── */}
+        <SectionLabel>Round Winners</SectionLabel>
+        <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden', marginBottom: 20 }}>
+          {data.roundWinners.map((rw, i) => (
+            <div key={rw.roundId} style={{ padding: '11px 14px', borderBottom: i < data.roundWinners.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 3 }}>
+                Round {rw.roundNumber}{rw.courseName ? ` — ${rw.courseName}` : ''}
+              </div>
+              <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d' }}>
+                {rw.winners.map(w => w.playerName).join(' & ')} — {rw.winners[0]?.points} pts
+              </div>
+            </div>
+          ))}
         </div>
+
+        {/* ── Event Story — the player-facing equivalent lives in My
+            Golf (Release 2, item 6), filtered to one player from this
+            exact same eventHighlights dataset. Nothing duplicated here
+            — My HQ's job is presenting the whole event, not one
+            player's chapter of it. */}
 
         <Link href={`/trips/${tripId}`} style={{
           display: 'block', textAlign: 'center', padding: 13, borderRadius: 10,

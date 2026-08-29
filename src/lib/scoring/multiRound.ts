@@ -34,6 +34,16 @@ export interface RoundPlayerResult {
   playerId: string
   playerName: string
   roundPoints: number
+  // Release 2, item 1 — countback. Per-hole points for this specific
+  // round, in PLAY ORDER (not hole_number order — reuses the same
+  // authoritative played-hole sequence Starting Tee established;
+  // "the back nine" for countback purposes means the last 9 holes
+  // PLAYED, which is holes 10-18 for a 1st-tee round but holes 1-9 for
+  // an 18-hole/10th-tee round). Optional — a caller that doesn't supply
+  // this for every round in a tie gets that tie left genuinely
+  // unresolved (the previous, pre-countback behaviour) rather than a
+  // silent wrong answer from partial data.
+  holePoints?: number[]
 }
 
 export interface RoundOrderingInput {
@@ -82,6 +92,75 @@ export interface CumulativeStanding {
 }
 
 /**
+ * Release 2, item 1 — canonical countback ladder.
+ *
+ * Builds one ordered comparison key per player, most-significant first,
+ * exactly matching the requested sequence:
+ *   1. overall cumulative points (unaffected by which round is "final")
+ *   2. best score in the most recent/final relevant round
+ *   3. best back nine (last 9 holes PLAYED) of that round
+ *   4. last 6 holes played
+ *   5. last 3 holes played
+ *   6. final played hole
+ *   7. backwards through preceding holes, one at a time, until separated
+ *
+ * Step 6 and the start of step 7 are the same operation continued — the
+ * final hole IS the first element compared "backwards through preceding
+ * holes," so the key below doesn't duplicate it as a separate entry;
+ * the reversed hole-by-hole array already begins there.
+ *
+ * "The most recent/final relevant round" is whichever entry is LAST in
+ * `rounds` — the caller is responsible for supplying that array in
+ * chronological order (reusing sortRoundsChronologically), so this
+ * function itself never has to resolve round identity or ordering, only
+ * consume it. Per the explicit warning, this never assumes physical
+ * holes 10-18 are a round's closing nine — holePoints is expected to
+ * already be in PLAY order (holeSequence.ts), so "last 9 holes played"
+ * is correct for every Starting Tee configuration without this
+ * function needing to know which one produced it.
+ *
+ * A player with no hole-level data at all for the deciding round
+ * degrades gracefully to comparing on cumulative points only for every
+ * remaining step (an all-zeros tail) — ties that data genuinely can't
+ * resolve stay genuinely tied, rather than a wrong answer being
+ * invented from missing data.
+ */
+export interface CountbackRoundData {
+  roundId: string
+  holePoints: number[]
+}
+
+function sum(values: number[]): number { return values.reduce((a, b) => a + b, 0) }
+
+export function buildCountbackKey(totalPoints: number, rounds: CountbackRoundData[]): number[] {
+  const mostRecent = rounds[rounds.length - 1]
+  const holes = mostRecent?.holePoints ?? []
+  const n = holes.length
+  const mostRecentTotal = sum(holes)
+  const backNine = n > 9 ? holes.slice(n - 9) : holes // "back nine" = last 9 holes PLAYED; a 9-hole round's whole card if fewer than 9 exist
+  const last6 = holes.slice(Math.max(0, n - 6))
+  const last3 = holes.slice(Math.max(0, n - 3))
+  const backwards = [...holes].reverse() // [final hole, second-to-last, ...] — step 6 is backwards[0]; step 7 is the rest, compared one at a time
+  return [totalPoints, mostRecentTotal, sum(backNine), sum(last6), sum(last3), ...backwards]
+}
+
+/**
+ * Lexicographic comparator over two countback keys — higher wins at the
+ * first point of difference. Keys of different lengths (a round with
+ * fewer holes than another) are padded with 0 for the missing tail
+ * rather than throwing, so this never crashes on a genuinely shorter
+ * 9-hole round being compared against an 18-hole one.
+ */
+export function compareCountbackKeys(a: number[], b: number[]): number {
+  const len = Math.max(a.length, b.length)
+  for (let i = 0; i < len; i++) {
+    const diff = (b[i] ?? 0) - (a[i] ?? 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
+/**
  * Computes cumulative standings across any number of completed rounds.
  * Each element of `roundsResults` is one round's per-player results —
  * the caller supplies these from existing completed-round scorecard
@@ -94,36 +173,45 @@ export interface CumulativeStanding {
  * — their points are summed only across the rounds they actually
  * appear in, and roundsPlayed reflects that count.
  *
- * Ties share the same position (standard "1, 2, 2, 4" ranking, not
- * "1, 2, 2, 3") — two players level on points are both genuinely tied
- * for that place, not arbitrarily ordered by insertion order.
+ * Release 2, item 1 — positions are now resolved via the countback
+ * ladder above whenever hole-level data (roundPlayerResult.holePoints)
+ * is available for the rounds involved in a tie, rather than always
+ * leaving tied totals as a shared position. Countback only ever changes
+ * POSITION — totalPoints itself is completely unaffected, still the
+ * plain sum of roundPoints exactly as before. Where no hole-level data
+ * exists for a given comparison (an older caller not yet updated, or
+ * genuinely no data), that tie is left exactly as it was before this
+ * feature existed — two players share the same position — never a
+ * fabricated resolution from data that isn't there.
  */
 export function computeCumulativeStandings(roundsResults: RoundPlayerResult[][]): CumulativeStanding[] {
-  const totals = new Map<string, { playerName: string; totalPoints: number; roundsPlayed: number }>()
+  const totals = new Map<string, { playerName: string; totalPoints: number; roundsPlayed: number; rounds: CountbackRoundData[] }>()
 
-  for (const round of roundsResults) {
+  roundsResults.forEach((round, roundIdx) => {
     for (const r of round) {
       const existing = totals.get(r.playerId)
+      const roundEntry: CountbackRoundData = { roundId: String(roundIdx), holePoints: r.holePoints ?? [] }
       if (existing) {
         existing.totalPoints += r.roundPoints
         existing.roundsPlayed += 1
+        existing.rounds.push(roundEntry)
       } else {
-        totals.set(r.playerId, { playerName: r.playerName, totalPoints: r.roundPoints, roundsPlayed: 1 })
+        totals.set(r.playerId, { playerName: r.playerName, totalPoints: r.roundPoints, roundsPlayed: 1, rounds: [roundEntry] })
       }
     }
-  }
+  })
 
   const sorted = [...totals.entries()]
-    .map(([playerId, v]) => ({ playerId, ...v }))
-    .sort((a, b) => b.totalPoints - a.totalPoints)
+    .map(([playerId, v]) => ({ playerId, ...v, countbackKey: buildCountbackKey(v.totalPoints, v.rounds) }))
+    .sort((a, b) => compareCountbackKeys(a.countbackKey, b.countbackKey))
 
   const result: CumulativeStanding[] = []
   let position = 0
-  let previousPoints: number | null = null
+  let previousKey: number[] | null = null
   sorted.forEach((s, idx) => {
-    if (s.totalPoints !== previousPoints) {
+    if (previousKey === null || compareCountbackKeys(s.countbackKey, previousKey) !== 0) {
       position = idx + 1
-      previousPoints = s.totalPoints
+      previousKey = s.countbackKey
     }
     result.push({ playerId: s.playerId, playerName: s.playerName, totalPoints: s.totalPoints, position, roundsPlayed: s.roundsPlayed })
   })
@@ -151,11 +239,15 @@ export interface Champion { playerId: string; playerName: string; totalPoints: n
 
 /**
  * The event champion(s) from already-computed cumulative standings —
- * whichever player(s) hold position 1. Teein' It Up has no formal
- * countback/tie-break rule today (confirmed by inspection, not assumed);
- * this deliberately does not invent one. Two players level on points at
- * the top both come back as champions, honestly, rather than the first
- * one encountered being promoted to sole champion.
+ * whichever player(s) hold position 1. Release 2, item 1 — since
+ * computeCumulativeStandings now resolves ties via the canonical
+ * countback ladder whenever hole-level data is available, two players
+ * only both come back as champions when they're genuinely tied all the
+ * way through it (identical cumulative points, identical final round,
+ * identical every step of countback) — not merely level on the raw
+ * total. No separate countback logic lives here; this function only
+ * ever reads position, which computeCumulativeStandings is now
+ * responsible for getting right.
  */
 export function determineChampions(standings: CumulativeStanding[]): Champion[] {
   return standings.filter(s => s.position === 1)
