@@ -28,6 +28,10 @@ interface Props {
   roundName: string
   courseName: string | null
   holeCount: 9 | 18
+  // Starting Tee — round-level, persisted at round setup time (see
+  // holeSequence.ts / migration 067). Defaults to 1 so any caller not
+  // yet updated to pass this behaves exactly as before.
+  startingHoleNumber?: 1 | 10
   playDate:  string
   groups:    Group[]
   onClose:   () => void
@@ -53,7 +57,7 @@ interface Props {
 type Stage = 'review' | 'holes' | 'confirm' | 'starting' | 'released' | 'launching'
 
 export default function BeginRoundModal({
-  tripId, roundId, roundName, courseName, holeCount,
+  tripId, roundId, roundName, courseName, holeCount, startingHoleNumber = 1,
   playDate, groups, onClose, libraryHolesSnapshot, teeName, slopeRating,
 }: Props) {
   const router = useRouter()
@@ -383,12 +387,21 @@ export default function BeginRoundModal({
       // eslint-disable-next-line no-console
       console.log('[BeginRoundModal] mount', { holeCount, snapshotLength: libraryHolesSnapshot?.length ?? null, teeName, firstHole: libraryHolesSnapshot?.[0] ?? null })
     }
-    return deriveBeginRoundHoles(libraryHolesSnapshot, holeCount)
+    return deriveBeginRoundHoles(libraryHolesSnapshot, holeCount, startingHoleNumber)
   })
-  // Playing Nine — only meaningful for 9-hole rounds; 18-hole rounds are
-  // explicitly unaffected and never read this. Defaults to Front Nine
-  // per the explicit requirement (Custom/To Be Confirmed can come later).
-  const [playingNine, setPlayingNine] = useState<PlayingNine>('front')
+  // Playing Nine — meaningful for 9-hole rounds (front/back/custom, as
+  // before). For an 18-hole round, this stays unread and unused exactly
+  // as before Starting Tee existed — an 18-hole/10th-tee round's play
+  // order (10-18, 1-9) is fully determined by deriveBeginRoundHoles
+  // above already having built `holes` in the correct sequence; there
+  // is no separate "which nine" choice to make for it here, since it
+  // plays every hole either way. Initialised FROM startingHoleNumber
+  // (already decided at round setup, before this modal ever opens)
+  // rather than always defaulting to 'front' — so a 9-hole/10th-tee
+  // round opens this modal already correctly showing Back, not
+  // silently reverting to Front until the organiser notices and
+  // re-selects it.
+  const [playingNine, setPlayingNine] = useState<PlayingNine>(startingHoleNumber === 10 ? 'back' : 'front')
 
   function handlePlayingNineChange(nine: PlayingNine) {
     setPlayingNine(nine)

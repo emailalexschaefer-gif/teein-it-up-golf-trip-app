@@ -104,6 +104,11 @@ export async function PATCH(request: NextRequest, { params }: Props) {
   const rounds = (body.rounds as Array<{
     id?: string; name: string; course_name?: string; play_date: string
     tee_time?: string; holes?: number; scoring_format?: string
+    // Starting Tee — round-level, only ever 1 or 10 (DB CHECK constraint
+    // enforces this too, defense in depth). Defaults to 1 when absent
+    // so an older client that doesn't yet send this field behaves
+    // exactly as before.
+    starting_hole_number?: 1 | 10
     // Sprint 9 — see migration 037. Only ever written for a round that is
     // still 'upcoming' — enforced both here (skipping the field entirely
     // in the update payload for a locked round, so the request succeeds
@@ -172,7 +177,16 @@ export async function PATCH(request: NextRequest, { params }: Props) {
       // Writing null/undefined-as-null here for a manually-configured
       // round is correct and expected, not a loss of data — a manual
       // round never had a library snapshot to begin with.
+      // Starting Tee — same lock reasoning as Side Comps/Course Library
+      // below: it determines which physical holes actually get created
+      // when the round begins, so changing it once a round is active
+      // (holes already exist, scoring may already be underway) would
+      // silently invalidate what's already been scored. Same DB-level
+      // lock trigger (migration 037) would reject writing a locked
+      // round's config regardless; this keeps the request from failing
+      // over an unrelated field the same way Side Comps already does.
       if (isUpcoming) {
+        updatePayload.starting_hole_number   = r.starting_hole_number ?? 1
         updatePayload.tee_set_source_id      = r.library_tee_set_id ?? null
         updatePayload.tee_name               = r.tee_name ?? null
         updatePayload.course_rating          = r.course_rating ?? null
@@ -235,6 +249,7 @@ export async function PATCH(request: NextRequest, { params }: Props) {
         holes:          r.holes ?? 18,
         scoring_format: r.scoring_format ?? 'stableford',
         status:         'upcoming',
+        starting_hole_number: r.starting_hole_number ?? 1,
         // No powerplay_hole_number — Powerplay is a side_comps row,
         // inserted below with every other competition instance.
         // A brand-new round is always 'upcoming' — safe to write the

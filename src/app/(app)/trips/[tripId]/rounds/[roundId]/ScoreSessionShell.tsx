@@ -391,12 +391,19 @@ export default function ScoreSessionShell({
   }, [holes, confirmed])
 
   const confirmedPts = activeCard ? cardConfirmedPts(activeCard) : 0
-  const front9Pts = activeCard ? holes.filter(h => h.hole_number <= 9).reduce((sum, h) => {
+  // Starting Tee fix — OUT/IN must split by PLAY POSITION (the first 9
+  // holes played vs the remaining ones, in this already-correctly-
+  // ordered `holes` array — see holes/route.ts), not by raw hole_number.
+  // hole_number <= 9 only matches "the holes played first" for a
+  // 1st-tee round; for a 10th-tee 18-hole round, the holes played first
+  // are physically 10-18, and hole_number <= 9 would have this exactly
+  // backwards — labelling the holes played LAST as OUT.
+  const front9Pts = activeCard ? holes.slice(0, 9).reduce((sum, h) => {
     const g = scores[activeCard.id]?.[h.hole_number]
     if (!g || !confirmed[activeCard.id]?.[h.hole_number]) return sum
     return sum + calculateStableford({ grossScore: g, par: h.par, strokeIndex: h.stroke_index, playingHandicap: hcp, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
   }, 0) : 0
-  const back9Pts = activeCard ? holes.filter(h => h.hole_number > 9).reduce((sum, h) => {
+  const back9Pts = activeCard ? holes.slice(9).reduce((sum, h) => {
     const g = scores[activeCard.id]?.[h.hole_number]
     if (!g || !confirmed[activeCard.id]?.[h.hole_number]) return sum
     return sum + calculateStableford({ grossScore: g, par: h.par, strokeIndex: h.stroke_index, playingHandicap: hcp, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
@@ -563,9 +570,25 @@ export default function ScoreSessionShell({
     )
   }
 
-  const front9: Hole[] = holes.filter(h => h.hole_number <= 9)
-  const back9: Hole[]  = holes.filter(h => h.hole_number > 9)
-  const isBack9 = (holes[holeIdx]?.hole_number ?? holeIdx + 1) > 9
+  // Starting Tee fix — split by PLAY POSITION (first 9 holes played vs
+  // the rest, in the already-correctly-ordered `holes` array), not by
+  // physical hole_number. For a 10th-tee 18-hole round, the holes
+  // played first are physically 10-18 — hole_number <= 9 would have
+  // put them in the wrong half entirely, and even correctly split by
+  // position, the golf terms "front nine"/"back nine" don't apply the
+  // same way to a mid-course start, so the section labels below now
+  // read the actual hole range in each half rather than a hardcoded
+  // "FRONT 9"/"BACK 9" that would be outright wrong for this case.
+  const front9: Hole[] = holes.slice(0, 9)
+  const back9: Hole[]  = holes.slice(9)
+  const isBack9 = holeIdx >= 9
+  // Only the standard 1st-tee case is genuinely "the front nine" in the
+  // golf sense — preserve that familiar label exactly as before. Any
+  // other physical hole range (a 10th-tee round's first or second half)
+  // gets a plain, unambiguous "HOLES X-Y" label instead of a "front
+  // nine"/"back nine" term that wouldn't actually be true for it.
+  const front9Label = front9[0]?.hole_number === 1 ? 'FRONT 9' : `HOLES ${front9[0]?.hole_number}-${front9[front9.length - 1]?.hole_number}`
+  const back9Label = back9[0]?.hole_number === 10 ? 'BACK 9' : `HOLES ${back9[0]?.hole_number}-${back9[back9.length - 1]?.hole_number}`
   const activeName = activeCard.profiles?.full_name ?? 'Player'
 
   return (
@@ -697,7 +720,7 @@ export default function ScoreSessionShell({
               {front9.length > 0 && (
                 <>
                   <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: '#16a34a', marginBottom: 4 }}>
-                    {front9Pts > 0 ? `✓ FRONT 9 — ${front9Pts} PTS` : ''}
+                    {front9Pts > 0 ? `✓ ${front9Label} — ${front9Pts} PTS` : ''}
                   </div>
                   <div style={{ display: 'flex', gap: 3, marginBottom: 8 }}>
                     {front9.map((h) => {
@@ -731,7 +754,7 @@ export default function ScoreSessionShell({
               {back9.length > 0 && (
                 <>
                   <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: '#9ca3af', marginBottom: 4 }}>
-                    BACK 9 — {isBack9 ? 'ENTERING NOW' : 'COMING UP'}
+                    {back9Label} — {isBack9 ? 'ENTERING NOW' : 'COMING UP'}
                   </div>
                   <div style={{ display: 'flex', gap: 3 }}>
                     {back9.map((h) => {

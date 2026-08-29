@@ -9,6 +9,7 @@
  */
 
 import { roundHandicap } from './rounding'
+import { computeHolePlayOrder } from './holeSequence'
 
 export interface HoleTemplate {
   hole_number: number
@@ -161,18 +162,45 @@ export interface LibraryHoleSnapshot {
  * round, or any round created before Course Library existed), falls
  * back to the exact same getDefaultHoles(holeCount) behaviour this
  * function replaces — byte-identical to pre-Course-Library output.
+ *
+ * Starting Tee — startingHoleNumber selects WHICH physical holes this
+ * round actually plays (computeHolePlayOrder is the single source of
+ * truth for that set + order), not a renumbering: a hole numbered 14
+ * in the snapshot/default template is still hole 14 here, with its own
+ * real par/stroke_index/distance, just filtered down to (and ordered
+ * by) whichever holes this specific round's Starting Tee selects.
+ * Defaults to 1 so every existing caller that hasn't been updated to
+ * pass this yet gets byte-identical output to before this parameter
+ * existed.
  */
 export function deriveBeginRoundHoles(
   libraryHolesSnapshot: LibraryHoleSnapshot[] | null | undefined,
   holeCount: 9 | 18,
+  startingHoleNumber: 1 | 10 = 1,
 ): HoleTemplate[] {
+  const playOrder = computeHolePlayOrder(holeCount, startingHoleNumber)
   if (libraryHolesSnapshot && libraryHolesSnapshot.length > 0) {
-    return libraryHolesSnapshot
-      .filter(h => h.hole_number <= holeCount)
-      .sort((a, b) => a.hole_number - b.hole_number)
-      .map(h => ({ hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index ?? h.hole_number, distance: h.distance, pro_tip: h.pro_tip ?? null }))
+    const byHoleNumber = new Map(libraryHolesSnapshot.map(h => [h.hole_number, h]))
+    return playOrder
+      .filter(hn => byHoleNumber.has(hn))
+      .map(hn => {
+        const h = byHoleNumber.get(hn)!
+        return { hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index ?? h.hole_number, distance: h.distance, pro_tip: h.pro_tip ?? null }
+      })
   }
-  return getDefaultHoles(holeCount)
+  // No snapshot — generic template. Only the genuinely new combination
+  // (18 holes from the 10th) needs computing here: it reorders
+  // DEFAULT_18_HOLES's own real par/SI values into play sequence, never
+  // mixing in DEFAULT_9_HOLES's numbers (a real, standalone 9-hole
+  // course's stroke-index spread is deliberately different from an
+  // 18-hole course's front/back nine — 1,5,7,3,9,2,8,4,6 vs
+  // 1,11,15,5,9,3,13,7,17 for holes 1-9 — so holeCount===9 keeps using
+  // exactly the existing getDefaultHolesForNine template, unchanged, to
+  // avoid silently swapping in the wrong course's numbers).
+  if (holeCount === 9) return getDefaultHolesForNine(startingHoleNumber === 10 ? 'back' : 'front')
+  if (startingHoleNumber === 1) return getDefaultHoles(18)
+  const byHoleNumber = new Map(DEFAULT_18_HOLES.map(h => [h.hole_number, h]))
+  return playOrder.map(hn => ({ ...byHoleNumber.get(hn)! }))
 }
 
 /**

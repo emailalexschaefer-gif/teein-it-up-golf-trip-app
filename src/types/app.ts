@@ -127,6 +127,12 @@ export interface WizardRound {
   tee_time: string
   holes: 9 | 18
   scoring_format: 'stableford'
+  // Starting Tee — 1 (1st tee) or 10 (10th tee). Round-level, not
+  // trip-level: each round of a multi-round trip keeps its own
+  // independent value. Defaults to 1 for a brand-new round, matching
+  // the DB column's own default and preserving every historical
+  // round's exact current behaviour.
+  starting_hole_number?: 1 | 10
   side_comps?: WizardSideComp[]
   // Only present when editing an existing trip (prefilled from trip.rounds
   // — see TripDetailClient.tsx's editUrl construction). Absent entirely

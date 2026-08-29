@@ -15,6 +15,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { detectSharedDeviceGroup } from '@/lib/scoring/sharedDeviceScoring'
+import { computeHolePlayOrder } from '@/lib/scoring/holeSequence'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -49,11 +50,21 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   }
 
   const roundRes = await admin.from('rounds')
-    .select('id, name, holes, status, scoring_format, score_capture_mode, course_name')
+    .select('id, name, holes, status, scoring_format, score_capture_mode, course_name, starting_hole_number')
     .eq('id', roundId).eq('trip_id', tripId).maybeSingle()
   if (!roundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
   const totalHoles: number = roundRes.data.holes ?? 18
   const isMarkerMode = roundRes.data.score_capture_mode === 'self_and_marker'
+  // Starting Tee fix — the group-progress "Hole N" display below used
+  // to compute the physical hole number as holesPlayed + 1, which only
+  // matches reality for a 1st-tee round. For a 10th-tee round (either
+  // hole count), the actual hole a group is standing on after playing 1
+  // hole is Hole 10 or 11, not Hole 1 or 2 — this is the single ordered
+  // sequence (holeSequence.ts) every other consumer of Starting Tee
+  // already uses, not a second, independent assumption.
+  const holePlayOrder = computeHolePlayOrder(
+    totalHoles === 9 ? 9 : 18, roundRes.data.starting_hole_number === 10 ? 10 : 1,
+  )
 
   const holesRes = await admin.from('holes').select('id, hole_number, par').eq('round_id', roundId)
   const holeByNumber = new Map<number, HoleRow>((holesRes.data ?? []).map((h: HoleRow) => [h.hole_number, h]))
@@ -262,7 +273,18 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     // below), not a "hasn't started" one.
     const digitallyActive = active.filter(p => !p.isPaper)
     const anyPaperOutstanding = members.some(p => p.paperCardOutstanding)
-    const currentHole = digitallyActive.length > 0 ? Math.min(...digitallyActive.map(p => p.holesPlayed)) + 1 : totalHoles
+    // Starting Tee fix — holesPlayed is a COUNT (order-independent,
+    // unaffected by Starting Tee), but the physical hole a group is
+    // currently on is a POSITION in the play sequence, not
+    // holesPlayed + 1. That arithmetic only coincidentally matches
+    // reality for a 1st-tee round; for a 10th-tee round, 1 hole played
+    // means the group is standing on Hole 10 or 11, not Hole 1 or 2.
+    // holePlayOrder (computed once above, same sequence every other
+    // Starting Tee consumer uses) is what makes this correct — clamped
+    // defensively in case holesPlayed ever exceeds totalHoles.
+    const currentHole = digitallyActive.length > 0
+      ? holePlayOrder[Math.min(Math.min(...digitallyActive.map(p => p.holesPlayed)), holePlayOrder.length - 1)]
+      : holePlayOrder[holePlayOrder.length - 1]
     const anyMismatch = members.some(p => p.hasMismatch)
     const anyWaiting = members.some(p => p.waitingForMarker)
     const allFinished = members.length > 0 && members.every(p => p.finished)

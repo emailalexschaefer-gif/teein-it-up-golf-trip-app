@@ -78,17 +78,40 @@ export interface Highlight {
 /**
  * Reorders a player's holes (given in hole-number order) into the order
  * they actually played them — starting at startingHole and wrapping
- * around. For a standard round (startingHole = 1) this is a no-op; the
- * reorder only does real work for shotgun starts. This is the single
- * place "played sequence" is computed — every category below that
- * needs opening/closing holes goes through this function rather than
- * reimplementing the wraparound logic.
+ * around through the actual set of hole numbers this round has (not
+ * assumed to be a contiguous 1..totalHoles run — a back-nine round's
+ * holes are physically 10-18, not 1-9). For a standard 1st-tee round
+ * this is a no-op; the reorder does real work for both Shotgun starts
+ * and Starting Tee (holeSequence.ts) rounds, without needing to know
+ * which of the two produced player.startingHole — both are just "which
+ * physical hole did this player's sequence begin on," and this
+ * function's generalized wraparound-over-the-actual-hole-set logic
+ * produces the correct result either way, including the previously-
+ * broken case (a 9-hole/10th-tee round, holes 10-18 only): the naive
+ * `((startingHole - 1 + i) % totalHoles) + 1` version this replaced
+ * assumed hole numbers ran 1..totalHoles, so for a back-nine round it
+ * generated lookups for holes 1-9 that simply don't exist in that
+ * player's actual holes (all physically 10-18) — every hole silently
+ * failed to match and the played sequence came back empty. Verified
+ * mathematically identical to the previous formula for every case that
+ * already worked (standard round, Shotgun on a full 18): when hole
+ * numbers ARE contiguous 1..totalHoles, indexing into the sorted set is
+ * the same operation as the modulo arithmetic it replaces.
+ *
+ * This is the single place "played sequence" is computed — every
+ * category below that needs opening/closing holes goes through this
+ * function rather than reimplementing the wraparound logic.
  */
 export function getPlayedSequence(player: PlayerRoundData, totalHoles: number): PlayerHoleResult[] {
   const byHoleNumber = new Map(player.holes.map(h => [h.holeNumber, h]))
+  const sortedHoleNumbers = [...byHoleNumber.keys()].sort((a, b) => a - b)
+  if (sortedHoleNumbers.length === 0) return []
+  const startIdx = sortedHoleNumbers.indexOf(player.startingHole)
+  const effectiveStartIdx = startIdx === -1 ? 0 : startIdx
+  const n = sortedHoleNumbers.length
   const sequence: PlayerHoleResult[] = []
-  for (let i = 0; i < totalHoles; i++) {
-    const holeNumber = ((player.startingHole - 1 + i) % totalHoles) + 1
+  for (let i = 0; i < Math.min(totalHoles, n); i++) {
+    const holeNumber = sortedHoleNumbers[(effectiveStartIdx + i) % n]
     const hole = byHoleNumber.get(holeNumber)
     if (hole) sequence.push(hole)
   }

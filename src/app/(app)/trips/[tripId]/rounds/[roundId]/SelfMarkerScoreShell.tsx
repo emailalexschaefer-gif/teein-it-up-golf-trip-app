@@ -1192,8 +1192,16 @@ export default function SelfMarkerScoreShell({
         : (myCapture?.pickedUp ? 0 : null)
       return { hole: h, status, gross, pts }
     })
-    const outHoles = detailedSummaryRows.filter(r => r.hole.hole_number <= 9)
-    const inHoles = detailedSummaryRows.filter(r => r.hole.hole_number > 9)
+    // Starting Tee fix — OUT/IN mean "the first nine holes played" and
+    // "the second nine holes played" respectively, in play sequence —
+    // that's the correct golf convention even for a 10th-tee round (a
+    // player starting on 10 still calls their first nine "OUT"). Using
+    // array position on this already-correctly-ordered array (see
+    // holes/route.ts) is what makes that true generally, not a
+    // hole_number comparison that only happened to match play order for
+    // a 1st-tee round.
+    const outHoles = detailedSummaryRows.slice(0, 9)
+    const inHoles = detailedSummaryRows.slice(9)
     const sumPts = (rs: typeof detailedSummaryRows) => rs.reduce((s, r) => s + (r.pts ?? 0), 0)
     const outTotal = sumPts(outHoles)
     const inTotal = sumPts(inHoles)

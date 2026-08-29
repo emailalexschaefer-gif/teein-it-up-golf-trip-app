@@ -141,6 +141,7 @@ export default function TripRoundsTab({ trip, isOrganiser, onTabChange }: Props)
           roundName={beginRound.name}
           courseName={beginRound.course_name}
           holeCount={(beginRound.holes === 9 ? 9 : 18) as 9 | 18}
+          startingHoleNumber={beginRound.starting_hole_number === 10 ? 10 : 1}
           playDate={beginRound.play_date}
           groups={modalGroups}
           onClose={() => setBeginRound(null)}

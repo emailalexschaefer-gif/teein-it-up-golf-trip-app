@@ -6,6 +6,7 @@ import Button from '@/components/ui/Button'
 import { generateUUID } from '@/lib/utils'
 import CourseLibrarySearch from './CourseLibrarySearch'
 import type { WizardRound, WizardTripDetails, WizardSideComp } from '@/types/app'
+import { computeHolePlayOrder } from '@/lib/scoring/holeSequence'
 
 interface Props {
   tripDetails: WizardTripDetails
@@ -19,7 +20,7 @@ function newRound(tripDetails: WizardTripDetails, n: number): WizardRound {
   return {
     id: generateUUID(), name: `Round ${n}`, course_name: '',
     play_date: tripDetails.start_date || '', tee_time: '',
-    holes: 18, scoring_format: 'stableford',
+    holes: 18, scoring_format: 'stableford', starting_hole_number: 1,
     side_comps: [],
   }
 }
@@ -50,7 +51,17 @@ const COMP_TYPE_ORDER: WizardSideComp['comp_type'][] = ['nearest_pin', 'longest_
  * own Remove.
  */
 function SideCompsConfig({ round, onUpdate }: { round: WizardRound; onUpdate: (r: WizardRound) => void }) {
-  const holeOptions = Array.from({ length: round.holes }, (_, i) => i + 1)
+  // Starting Tee fix — a back-nine (9-hole/10th-tee) round's playable
+  // holes are physically 10-18, never 1-9; an 18-hole/10th-tee round's
+  // holes are still all of 1-18, just in a different order that doesn't
+  // matter for a hole-number PICKER (unlike scoring navigation, which
+  // does care about order — this only needs the correct SET of
+  // selectable hole numbers). computeHolePlayOrder is the single source
+  // of truth for both "which holes" and "what order", so reusing it
+  // here — rather than reintroducing a second `1..round.holes`
+  // assumption — is what keeps this from silently drifting out of sync
+  // with the round's actual configuration.
+  const holeOptions = computeHolePlayOrder(round.holes, round.starting_hole_number ?? 1)
   const comps = round.side_comps ?? []
   const [adding, setAdding] = React.useState(false)
   const [newType, setNewType] = React.useState<WizardSideComp['comp_type']>('nearest_pin')
@@ -222,6 +233,26 @@ function RoundCard({ round, index, total, onUpdate, onRemove, locked }: {
           </Select>
         </Field>
       </div>
+
+      {/* Starting Tee — round-level, applies to both 9 and 18 hole
+          rounds. 1st Tee is the default and preserves today's exact
+          behaviour; 10th Tee changes which physical holes get created
+          (9-hole) or the play order they're walked in (18-hole) once
+          the round actually begins — computeHolePlayOrder/
+          orderHolesByPlaySequence (holeSequence.ts) are what drive that
+          from this single value, not anything duplicated here. Locked
+          the same way Holes is: once a round has started, its physical
+          holes already exist and the play order is already fixed. */}
+      <Field label="Starting Tee" required>
+        <Select
+          value={round.starting_hole_number ?? 1}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => set('starting_hole_number', Number(e.target.value) as 1 | 10)}
+          disabled={locked}
+        >
+          <option value={1}>1st Tee</option>
+          <option value={10}>10th Tee</option>
+        </Select>
+      </Field>
 
       {locked ? (
         // Round has already started — configuration is locked (matches

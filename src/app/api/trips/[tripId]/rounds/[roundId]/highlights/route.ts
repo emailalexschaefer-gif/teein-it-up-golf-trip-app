@@ -44,7 +44,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       return NextResponse.json({ error: 'Organiser access required.' }, { status: 403 })
     }
 
-    const roundRes = await admin.from('rounds').select('id, holes, status').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
+    const roundRes = await admin.from('rounds').select('id, holes, status, starting_hole_number').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
     if (!roundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
     if (roundRes.data.status !== 'completed') {
       // Item 1 — "after a round is fully completed/reconciled." Not a
@@ -98,7 +98,17 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       return {
         playerId: sc.player_id,
         playerName: sc.profiles?.full_name ?? 'Player',
-        startingHole: (sc.group_id && startingHoleByGroup.get(sc.group_id)) || 1,
+        // Starting Tee fix — this used to default to hole 1 for every
+        // non-shotgun round unconditionally. A group with a Shotgun
+        // starting-hole assignment still takes priority (that's a
+        // per-group, more specific value); otherwise this now falls
+        // back to the round's own starting_hole_number (holeSequence.ts
+        // / migration 067) instead of hardcoding 1 — the actual root
+        // cause of a 9-hole/10th-tee round's Makers & Breakers coming
+        // back completely empty, since getPlayedSequence's lookups for
+        // holes 1-9 would silently fail to match a back-nine player's
+        // real holes (all physically 10-18).
+        startingHole: (sc.group_id && startingHoleByGroup.get(sc.group_id)) || roundRes.data.starting_hole_number || 1,
         holes,
       }
     })

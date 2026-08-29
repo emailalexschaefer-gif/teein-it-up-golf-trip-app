@@ -36,6 +36,11 @@ export interface RoundRow {
   // getRoundDisplayName both tolerate an empty string, falling through
   // to the next tiebreaker.
   created_at?: string
+  // Starting Tee — see holeSequence.ts / migration 067. Optional
+  // because it may be absent from an older cached fetch; every
+  // consumer treats a missing value as 1 (1st tee), matching the DB
+  // column's own default.
+  starting_hole_number?: 1 | 10
   tee_time: string | null; holes: number; scoring_format: string; status: string
   side_comps?: RoundSideComp[]
   // Course Library v1 — all null for a manually-configured round.

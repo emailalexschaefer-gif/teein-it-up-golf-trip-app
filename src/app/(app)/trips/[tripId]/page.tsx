@@ -84,6 +84,7 @@ export default async function TripDetailPage({ params }: Props) {
         ),
         rounds (
           id, name, course_name, play_date, created_at, tee_time, holes, scoring_format, status,
+          starting_hole_number,
           tee_set_source_id, tee_name, course_rating, slope_rating, library_holes_snapshot
         )
       `)
@@ -126,7 +127,8 @@ export default async function TripDetailPage({ params }: Props) {
               profiles ( id, full_name, avatar_url, handicap )
             ),
             rounds (
-              id, name, course_name, play_date, created_at, tee_time, holes, scoring_format, status
+              id, name, course_name, play_date, created_at, tee_time, holes, scoring_format, status,
+              starting_hole_number
             )
           `)
           .eq('id', tripId).maybeSingle()
@@ -143,7 +145,8 @@ export default async function TripDetailPage({ params }: Props) {
               profiles ( id, full_name, avatar_url, handicap )
             ),
             rounds (
-              id, name, course_name, play_date, created_at, tee_time, holes, scoring_format, status
+              id, name, course_name, play_date, created_at, tee_time, holes, scoring_format, status,
+              starting_hole_number
             )
           `)
           .eq('id', tripId).maybeSingle()
@@ -161,6 +164,7 @@ export default async function TripDetailPage({ params }: Props) {
             ),
             rounds (
               id, name, course_name, play_date, created_at, tee_time, holes, scoring_format, status,
+              starting_hole_number,
               tee_set_source_id, tee_name, course_rating, slope_rating, library_holes_snapshot
             )
           `)
