@@ -40,6 +40,17 @@ const RoundSchema = z.object({
   tee_name:               z.string().max(50).nullable().default(null),
   course_rating:          z.number().nullable().default(null),
   slope_rating:           z.number().int().nullable().default(null),
+  // P0 fix (Release 2 blocker) — the actual root cause of "Darren
+  // selected Hole 10 but Scorecard opens on Hole 1." This field was
+  // completely absent from this schema, so even after StepRounds.tsx's
+  // UI correctly captured the selection and the wizard's own submit
+  // handler was fixed to include it in the request body, Zod's default
+  // behaviour for z.object() — silently STRIP any key not declared in
+  // the schema — would have discarded it before it ever reached the
+  // insert below. No error was ever raised because Zod strips silently
+  // rather than rejecting; the round was created successfully, just
+  // always with the default of 1.
+  starting_hole_number:   z.union([z.literal(1), z.literal(10)]).default(1),
   library_holes_snapshot: z.array(LibraryHoleSnapshotSchema).nullable().default(null),
 })
 
@@ -168,6 +179,15 @@ export async function POST(request: Request) {
       .insert(rounds.map((r: {
         name: string; course_name: string | null; play_date: string; tee_time: string | null
         holes: number; scoring_format: string
+        // P0 fix (Release 2 blocker) — same root cause as the wizard's
+        // own submit handler (trips/new/page.tsx): this route's own
+        // hand-picked destructured type never declared or read
+        // starting_hole_number at all, so even after the client-side
+        // fix, this insert would have silently ignored it for a
+        // brand-new trip specifically (the PATCH/edit route was
+        // already correct — this POST/create route was the second,
+        // separate place with the same gap).
+        starting_hole_number?: 1 | 10
         library_tee_set_id: string | null; tee_name: string | null
         course_rating: number | null; slope_rating: number | null
         library_holes_snapshot: { hole_number: number; par: number; stroke_index: number | null; distance: number | null }[] | null
@@ -180,6 +200,7 @@ export async function POST(request: Request) {
         holes:          r.holes,
         scoring_format: r.scoring_format,
         status:         'upcoming',
+        starting_hole_number: r.starting_hole_number ?? 1,
         // No powerplay_hole_number here — Powerplay is a side_comps row
         // now (comp_type = 'powerplay'), inserted below alongside every
         // other competition instance, not a special column on rounds.

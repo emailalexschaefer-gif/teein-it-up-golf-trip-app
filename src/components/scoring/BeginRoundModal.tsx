@@ -1177,6 +1177,17 @@ export default function BeginRoundModal({
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#166534' }}>
                   {holeCount} holes · {totalPlayers} players · Stableford
                 </p>
+                {/* 30 Aug field-test bundle, P2 — Starting Hole was
+                    completely absent from this summary; an organiser
+                    had no way to confirm what they'd configured before
+                    releasing the round. Shown once here, not per group
+                    below — Starting Tee is a round-wide setting
+                    (holeSequence.ts), not a per-group one, so repeating
+                    it under every group would misleadingly imply it
+                    could vary between them. */}
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#166534', marginTop: 2 }}>
+                  ⛳ Starting Hole {startingHoleNumber}
+                </p>
               </div>
 
               {/* Summary */}

@@ -46,6 +46,23 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   const startingHoleNumber: 1 | 10 = roundInfo.data?.starting_hole_number === 10 ? 10 : 1
   const orderedHoles = orderHolesByPlaySequence(holes ?? [], holeCount, startingHoleNumber)
 
+  // 30 Aug field-test bundle, P0 — diagnostic trace. Logged
+  // unconditionally (cheap, one query already made) so the next
+  // "opens on the wrong hole" report can be checked directly against
+  // this round's actual persisted starting_hole_number and the
+  // resulting play order, rather than inferred from a screenshot. If
+  // this ever logs starting_hole_number: 1 for a round the organiser
+  // configured as 10th tee, that's conclusive proof of a genuine
+  // remaining persistence bug; if it logs 10 and firstHoleNumberInOrder
+  // correctly shows 10, the bug is downstream of this route (or the
+  // tested round pre-dates the persistence fix).
+  console.log('[holes] starting-hole trace', {
+    roundId, storedStartingHoleNumber: roundInfo.data?.starting_hole_number ?? null,
+    resolvedStartingHoleNumber: startingHoleNumber, holeCount,
+    firstHoleNumberInOrder: orderedHoles[0]?.hole_number ?? null,
+    lastHoleNumberInOrder: orderedHoles[orderedHoles.length - 1]?.hole_number ?? null,
+  })
+
   // Sprint 9 — Side Competitions + Powerplay. Fetched alongside holes
   // since both are needed together to render hole-navigator badges and
   // on-hole banners, and this route is already the one place the

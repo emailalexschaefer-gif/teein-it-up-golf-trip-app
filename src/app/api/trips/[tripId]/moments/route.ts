@@ -188,27 +188,75 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   // photo to someone else's competition result. Best-effort: if this
   // fails, the Moment itself is still fully saved — only the Story
   // relationship is missing, logged, not silently swallowed.
+  //
+  // 30 Aug field-test bundle, P1 — the actual root cause of the
+  // reported "photo Moment + separate Announcement, for organiser/
+  // proxy submissions." This check used to require
+  // entryRes.data.player_id === user.id exactly — the photo uploader
+  // had to be the literal claimant. That's narrower than the
+  // established authority rule for acting on someone's Side Game
+  // claim, which entries/route.ts's own POST (submission) already uses:
+  // same-group membership, not exact player identity — an organiser
+  // submitting/capturing for a paper player, or any same-group proxy
+  // scenario, is already a legitimate, supported action for the claim
+  // itself. This linking step was the one place still enforcing a
+  // stricter, inconsistent rule, which meant moment_id never got set
+  // for exactly those cases — so at verify time, this fix's own
+  // earlier work (checking side_comp_entries.moment_id) correctly
+  // found nothing to merge into, and silently fell through to the
+  // standalone-announcement path, reproducing the "two separate Chat
+  // items" bug for every proxy/organiser-submitted claim specifically.
+  // Reuses the exact same group-membership check, not a third,
+  // independent authority rule.
+  //
+  // Hoisted above both blocks (entry link + lead-change link below) —
+  // both need the same authorization result and the same claimant id,
+  // computed once, not two independent lookups that could disagree.
+  let claimAuthorized = false
+  let claimantPlayerId: string | null = null
   if (sideCompEntryId) {
     const admin = createAdminClient()
-    const entryRes = await admin.from('side_comp_entries').select('id, player_id').eq('id', sideCompEntryId).maybeSingle()
-    if (entryRes.data && entryRes.data.player_id === user.id) {
+    const entryRes = await admin.from('side_comp_entries').select('id, player_id, side_comp_id').eq('id', sideCompEntryId).maybeSingle()
+    if (entryRes.data) {
+      claimantPlayerId = entryRes.data.player_id
+      if (entryRes.data.player_id === user.id) {
+        claimAuthorized = true
+      } else {
+        const compRes = await admin.from('side_comps').select('round_id').eq('id', entryRes.data.side_comp_id).maybeSingle()
+        if (compRes.data) {
+          const [uploaderMember, claimantMember] = await Promise.all([
+            admin.from('trip_members').select('group_id').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle(),
+            admin.from('trip_members').select('group_id').eq('trip_id', tripId).eq('profile_id', entryRes.data.player_id).maybeSingle(),
+          ])
+          const uploaderGroupId = uploaderMember.data?.group_id ?? null
+          const claimantGroupId = claimantMember.data?.group_id ?? null
+          claimAuthorized = !!uploaderGroupId && uploaderGroupId === claimantGroupId
+        }
+      }
+    }
+    if (claimAuthorized) {
       const { error: linkErr } = await admin.from('side_comp_entries').update({ moment_id: moment.id }).eq('id', sideCompEntryId)
       if (linkErr) console.error('[moments POST] side_comp_entries link failed', { code: linkErr.code, message: linkErr.message, momentId: moment.id, sideCompEntryId })
     } else {
-      console.warn('[moments POST] sideCompEntryId ownership check failed — not linking', { sideCompEntryId, userId: user.id, sideCompId })
+      console.warn('[moments POST] sideCompEntryId authorization failed — not linking', { sideCompEntryId, userId: user.id, sideCompId })
     }
   }
   if (leadChangeId) {
     const admin = createAdminClient()
-    // A lead-change row has no direct player-column check as cheap as
-    // the entry's own — it's already been verified indirectly (the
-    // client only ever has a leadChangeId from a POST response to ITS
-    // OWN submission), but re-verified via the entry ownership check
-    // above whenever both ids are present (the normal case). If only
-    // leadChangeId is present with no matching verified entry, skip
-    // linking rather than trust it blindly.
-    if (sideCompEntryId) {
-      const { error: leadLinkErr } = await admin.from('side_comp_lead_changes').update({ moment_id: moment.id }).eq('id', leadChangeId).eq('player_id', user.id)
+    // 30 Aug field-test bundle, P1 — same root cause as the entry-link
+    // fix above, in the same route: this update filtered on
+    // `player_id = user.id` (the photo uploader), but
+    // side_comp_lead_changes.player_id is the CLAIMANT who took the
+    // lead — for a proxy/organiser-submitted claim those are two
+    // different people. Supabase doesn't error on a zero-row update, so
+    // this failed completely silently: the lead-change row never got
+    // its moment_id set, for exactly the same class of case the entry
+    // link above was just fixed for. claimAuthorized/claimantPlayerId
+    // (computed above) already confirmed the caller has legitimate
+    // standing over this specific claimant's entry — this now correctly
+    // targets the claimant's own id, not the caller's.
+    if (sideCompEntryId && claimAuthorized && claimantPlayerId) {
+      const { error: leadLinkErr } = await admin.from('side_comp_lead_changes').update({ moment_id: moment.id }).eq('id', leadChangeId).eq('player_id', claimantPlayerId)
       if (leadLinkErr) console.error('[moments POST] side_comp_lead_changes link failed', { code: leadLinkErr.code, message: leadLinkErr.message, momentId: moment.id, leadChangeId })
     }
   }

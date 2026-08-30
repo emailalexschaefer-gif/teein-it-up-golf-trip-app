@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import { calculateStableford } from '@/lib/scoring/stableford'
 import { getHandicapStrokesForHole } from '@/lib/scoring/strokeAllocation'
@@ -61,6 +62,59 @@ interface Props {
    * failure or a normal "not assigned yet" state. Drives which recovery
    * message is shown below. */
   dataProblem?: boolean
+}
+
+// 30 Aug field-test bundle, P1 — the client-side equivalent of exactly
+// what page.tsx's server component already does to shape allGroups/
+// groupScorecards, applied to a fresh poll of GET /scorecards instead
+// of a one-time server fetch. Deliberately mirrors that logic (same
+// GroupScorecard/GroupInfo shape, same "current user's own card first"
+// sort) rather than inventing a different one, so switching between
+// "props from the initial server render" and "data from a live poll"
+// is invisible to every consumer below.
+function transformScorecardsResponse(
+  body: { scorecards?: unknown[] }, isOrganiserSession: boolean, currentUserId: string,
+): { allGroups: GroupInfo[] | null; groupScorecards: GroupScorecard[] } {
+  const raw = (body.scorecards ?? []) as {
+    id: string; player_id: string; playing_handicap: number; status: string
+    profiles: { id: string; full_name: string; avatar_url: string | null } | null
+    trip_members: { group_id: string | null; trip_groups: { id: string; name: string; tee_time: string | null } | null } | null
+    score_entries: ScoreEntryRow[]
+  }[]
+
+  const sortMine = (cards: GroupScorecard[]) =>
+    [...cards].sort((a, b) => (a.player_id === currentUserId ? -1 : b.player_id === currentUserId ? 1 : 0))
+
+  const cards: GroupScorecard[] = raw.map(r => ({
+    id: r.id, player_id: r.player_id, playing_handicap: r.playing_handicap,
+    profiles: r.profiles, score_entries: r.score_entries ?? [],
+  }))
+  const groupIdByScorecardId = new Map(raw.map(r => [r.id, r.trip_members?.group_id ?? null]))
+
+  if (!isOrganiserSession) {
+    // Player session — same fallback the server component uses: their
+    // own group if assigned, otherwise just their own card alone.
+    const myCard = raw.find(r => r.player_id === currentUserId)
+    const myGroupId = myCard ? groupIdByScorecardId.get(myCard.id) : null
+    const mine = myGroupId
+      ? cards.filter(c => groupIdByScorecardId.get(c.id) === myGroupId)
+      : cards.filter(c => c.player_id === currentUserId)
+    return { allGroups: null, groupScorecards: sortMine(mine) }
+  }
+
+  // Organiser session — every group, including an empty one (matching
+  // the server component's own explicit "don't hide a broken group"
+  // reasoning), grouped by trip_groups identity.
+  const groupsById = new Map<string, GroupInfo>()
+  for (const r of raw) {
+    const g = r.trip_members?.trip_groups
+    if (!g) continue
+    if (!groupsById.has(g.id)) groupsById.set(g.id, { groupId: g.id, groupName: g.name, teeTime: g.tee_time, scorecards: [] })
+    const card = cards.find(c => c.id === r.id)
+    if (card) groupsById.get(g.id)!.scorecards.push(card)
+  }
+  const allGroupsResult = [...groupsById.values()].map(g => ({ ...g, scorecards: sortMine(g.scorecards) }))
+  return { allGroups: allGroupsResult, groupScorecards: [] }
 }
 
 // ── Score flash labels ────────────────────────────────────────────────────────
@@ -141,8 +195,44 @@ function findResumePosition(
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function ScoreSessionShell({
-  tripId, round, groupScorecards, allGroups, initialGroupIdx, isOrganiser, currentUserId, dataProblem,
+  tripId, round, groupScorecards: initialGroupScorecards, allGroups: initialAllGroups,
+  initialGroupIdx, isOrganiser, currentUserId, dataProblem,
 }: Props) {
+  // 30 Aug field-test bundle, P1 — live score auto-refresh. Root cause:
+  // this whole shell was built entirely off server-rendered props
+  // (page.tsx's async server component fetches groupScorecards/
+  // allGroups ONCE per request) with no client-side refresh mechanism
+  // at all — the only way another player's newly-entered score ever
+  // appeared was a full page reload, which re-runs that server
+  // component from scratch. Navigating holes, swiping, or anything
+  // else client-side never touched this data.
+  //
+  // Fixed by polling the existing GET /scorecards endpoint (already
+  // returns every scorecard + score_entries for this round, grouped via
+  // trip_members.group_id — the exact shape needed, not a new route)
+  // via useQuery, seeded with the server props as initialData so there
+  // is no loading flash on first render — this is a live-refresh
+  // addition on top of the existing server render, not a replacement
+  // for it. refetchInterval matches the same 8000ms cadence already
+  // established elsewhere in this app (TournamentControl.tsx) for
+  // "how fresh does live scoring data need to be," not a new interval
+  // invented for this fix. Stops polling once the round is no longer
+  // active, same reasoning as that existing precedent.
+  const { data: liveGroupsData, refetch: refetchScores, isFetching: isRefreshingScores } = useQuery({
+    queryKey: ['round-scorecards', tripId, round.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/trips/${tripId}/rounds/${round.id}/scorecards`)
+      if (!res.ok) throw new Error('Could not refresh scores.')
+      const body = await res.json()
+      return transformScorecardsResponse(body, initialAllGroups !== null, currentUserId)
+    },
+    initialData: { allGroups: initialAllGroups, groupScorecards: initialGroupScorecards },
+    refetchInterval: round.status === 'active' ? 8000 : false,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  })
+  const allGroups = liveGroupsData.allGroups
+  const groupScorecards = liveGroupsData.groupScorecards
   // ── State ──────────────────────────────────────────────────────────────────
   const [holes, setHoles]               = useState<Hole[]>([])
   const [loadingHoles, setLoadingHoles] = useState(true)
@@ -160,6 +250,17 @@ export default function ScoreSessionShell({
   )
   const [scores, setScores]             = useState<ScoreMap>({})
   const [confirmed, setConfirmed]       = useState<ConfirmMap>({})
+  // 30 Aug field-test bundle, P1 — mirrors `confirmed` synchronously so
+  // the hydrate effect below (now re-run on every live poll, not just
+  // once) can tell "this value in local state is an in-progress,
+  // not-yet-confirmed draft the player is actively entering" apart from
+  // "this value is already-confirmed data the poll is just refreshing."
+  // Only the latter should ever be overwritten by fresh server/queue
+  // data — a poll must never erase what someone is mid-way through
+  // tapping in, per the explicit "doesn't lose unsaved input"
+  // requirement.
+  const confirmedRef = useRef<ConfirmMap>({})
+  useEffect(() => { confirmedRef.current = confirmed }, [confirmed])
   const [holeIdx, setHoleIdx]           = useState(0) // 0-indexed into holes array, shared across the group
 
   // Shotgun Start parity fix — fetched once via the same organiser-
@@ -301,7 +402,33 @@ export default function ScoreSessionShell({
         nextConfirmed[entry.scorecardId] = { ...nextConfirmed[entry.scorecardId], [holeNum]: true }
       }
 
-      setScores(nextScores)
+      // 30 Aug field-test bundle, P1 — merge, don't replace. This effect
+      // now re-runs on every live poll (allVisibleScorecards changes
+      // whenever the query refetches), not just once on initial load —
+      // a plain setScores(nextScores) would silently discard any local,
+      // in-progress, not-yet-confirmed draft the player is actively
+      // entering (pick()/pickPar() write straight into `scores` before
+      // Confirm is ever pressed). Preserve exactly those values —
+      // anything NOT already confirmed locally AND not confirmed by
+      // this fresh server/queue data either — everything else (already-
+      // confirmed data, or a hole this fetch now shows as confirmed
+      // that wasn't before) takes the fresh value, so another player's
+      // or another device's genuinely new score still appears live.
+      setScores(prevScores => {
+        const merged: ScoreMap = { ...nextScores }
+        for (const cardId of Object.keys(prevScores)) {
+          for (const [holeNumStr, val] of Object.entries(prevScores[cardId] ?? {})) {
+            if (val === undefined) continue
+            const hn = Number(holeNumStr)
+            const wasConfirmedLocally = confirmedRef.current[cardId]?.[hn]
+            const isConfirmedByFreshData = nextConfirmed[cardId]?.[hn]
+            if (!wasConfirmedLocally && !isConfirmedByFreshData) {
+              merged[cardId] = { ...merged[cardId], [hn]: val }
+            }
+          }
+        }
+        return merged
+      })
       setConfirmed(nextConfirmed)
 
       // Resume at the right spot — once only, on initial load. Gated on
@@ -601,11 +728,33 @@ export default function ScoreSessionShell({
           <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 17, fontWeight: 800 }}>
             {round.name} — round in progress
           </span>
-          {displaySyncLabel && (
-            <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-body)', fontSize: 10, color: syncState === 'synced' ? '#16a34a' : syncState === 'error' ? '#dc2626' : '#9ca3af' }}>
-              {displaySyncLabel}
-            </span>
-          )}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            {displaySyncLabel && (
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: syncState === 'synced' ? '#16a34a' : syncState === 'error' ? '#dc2626' : '#9ca3af' }}>
+                {displaySyncLabel}
+              </span>
+            )}
+            {/* 30 Aug field-test bundle, P1 — the explicit fail-safe
+                requested alongside the auto-refresh above: re-fetches
+                current group/hole scoring state without reloading the
+                app, changing holes, or touching any unsaved draft
+                input. Calls the exact same refetch() the automatic
+                8-second poll already uses — not a second refresh
+                mechanism, just a manual trigger for the same one. */}
+            <button
+              type="button"
+              onClick={() => void refetchScores()}
+              disabled={isRefreshingScores}
+              style={{
+                background: 'none', border: '1px solid #d9c9a3', borderRadius: 8,
+                padding: '4px 9px', fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700,
+                color: '#a1791f', cursor: isRefreshingScores ? 'default' : 'pointer',
+                opacity: isRefreshingScores ? 0.6 : 1,
+              }}
+            >
+              {isRefreshingScores ? '↻ …' : '↻ Refresh Scores'}
+            </button>
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
           <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'radial-gradient(#e8c96a,#c9a84c)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-body)', fontWeight: 900, color: '#0f2d1c', fontSize: 10, flexShrink: 0 }}>

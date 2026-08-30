@@ -80,6 +80,18 @@ function NewTripForm() {
             rounds: rounds.map((r: WizardRound) => ({
               id: r.id, name: r.name, course_name: r.course_name, play_date: r.play_date,
               tee_time: r.tee_time, holes: r.holes, scoring_format: r.scoring_format,
+              // P0 fix (Release 2 blocker) — starting_hole_number was
+              // missing from this hand-picked payload entirely. The
+              // Starting Tee UI control (StepRounds.tsx) correctly
+              // updated local wizard state, but this submit handler
+              // never included that field when sending rounds to the
+              // server — so no matter what an organiser selected, the
+              // API route only ever received `undefined` here and
+              // silently defaulted to 1. This is the actual root cause
+              // of "Darren selected Hole 10 but Scorecard still opens
+              // on Hole 1": the selection was correctly made in the UI
+              // and never reached the database at all.
+              starting_hole_number: r.starting_hole_number ?? 1,
               side_comps: (r.side_comps ?? []).map(c => ({ comp_type: c.comp_type, hole_number: c.hole_number })),
               library_tee_set_id: r.library_tee_set_id ?? null, tee_name: r.tee_name ?? null,
               course_rating: r.course_rating ?? null, slope_rating: r.slope_rating ?? null,
@@ -111,6 +123,10 @@ function NewTripForm() {
         rounds: rounds.map((r: WizardRound) => ({
           name: r.name, course_name: r.course_name, play_date: r.play_date,
           tee_time: r.tee_time, holes: r.holes, scoring_format: r.scoring_format,
+          // P0 fix (Release 2 blocker) — same missing field as the
+          // edit-trip payload above; see that comment for the full
+          // root-cause trace.
+          starting_hole_number: r.starting_hole_number ?? 1,
           side_comps: (r.side_comps ?? []).map(c => ({ comp_type: c.comp_type, hole_number: c.hole_number })),
           library_tee_set_id: r.library_tee_set_id ?? null, tee_name: r.tee_name ?? null,
           course_rating: r.course_rating ?? null, slope_rating: r.slope_rating ?? null,
