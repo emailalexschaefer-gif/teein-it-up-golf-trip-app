@@ -11,19 +11,21 @@
 // because of its onError fallback, but Next.js still renders that Image
 // tag into the server HTML during SSR; the client-side part is purely the
 // (rare) failure fallback, not the primary render path.
+//
+// 30 Aug field-test bundle — the separate "GOLF EVENT APP" caption below
+// the logo is removed: the actual crest artwork (logo-new.png, see
+// BrandLogo.tsx) already has "GOLF EVENT APP" baked into the image
+// itself, so this was a literal duplicate, not a design accent.
+// marginBottom increased slightly (10 -> 18) to keep clear breathing
+// room between the now-denser full crest image and the Sign In card
+// beneath it, per the explicit "keep enough spacing" requirement.
 
 import BrandLogo from '@/components/brand/BrandLogo'
 
 export default function AuthBranding() {
   return (
-    <div style={{ marginBottom: 10, textAlign: 'center' }}>
+    <div style={{ marginBottom: 18, textAlign: 'center' }}>
       <BrandLogo variant="full" priority />
-      <p style={{
-        fontFamily: 'var(--font-body)',
-        color: 'rgba(245,230,184,0.45)',
-        fontSize: 10, marginTop: 6,
-        letterSpacing: 2.5, textTransform: 'uppercase',
-      }}>Golf Event App</p>
     </div>
   )
 }

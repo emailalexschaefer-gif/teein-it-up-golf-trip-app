@@ -3,6 +3,7 @@ import { Playfair_Display, Lato } from 'next/font/google'
 import './globals.css'
 import ReactQueryProvider from '@/components/layout/ReactQueryProvider'
 import InstallPromptCaptureInit from '@/components/pwa/InstallPromptCaptureInit'
+import ServiceWorkerInit from '@/components/pwa/ServiceWorkerInit'
 
 // Demo fonts: Playfair Display for display/headings, Lato for body
 const playfair = Playfair_Display({
@@ -50,6 +51,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             not inside any specific page — see installPromptCapture.ts
             for why. Renders nothing. */}
         <InstallPromptCaptureInit />
+        {/* 30 Aug field-test bundle — PWA installability. See
+            ServiceWorkerInit.tsx / public/sw.js for the full trace.
+            Renders nothing. */}
+        <ServiceWorkerInit />
         <ReactQueryProvider>{children}</ReactQueryProvider>
       </body>
     </html>

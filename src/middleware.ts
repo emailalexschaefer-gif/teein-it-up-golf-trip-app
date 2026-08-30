@@ -46,6 +46,16 @@ export async function middleware(request: NextRequest) {
   })
 
   // Routes that do not require authentication
+  // 30 Aug field-test bundle — PWA installability. manifest.json,
+  // sw.js, and every /brand/ icon were all missing from this allowlist
+  // — for anyone not yet logged in (exactly the "just joined via
+  // invite, about to be offered Install" moment this whole feature is
+  // for), every one of these requests was being redirected to /login
+  // instead of returning the actual file. Chrome's own manifest/
+  // service-worker fetches happen unauthenticated, automatically, in
+  // the background — they were silently receiving a login-page
+  // redirect instead of JSON/JS, which alone would have been enough to
+  // break installability regardless of anything else being correct.
   const isPublic =
     pathname === '/' ||
     pathname === '/login' ||
@@ -55,7 +65,10 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/join/') ||
     pathname.startsWith('/api/auth/') || // /api/auth/callback (PKCE server handler)
     pathname.startsWith('/_next/') ||
-    pathname.startsWith('/favicon')
+    pathname.startsWith('/favicon') ||
+    pathname === '/manifest.json' ||
+    pathname === '/sw.js' ||
+    pathname.startsWith('/brand/')
 
   if (!user && !isPublic) {
     console.log('[middleware] No user on protected route — redirecting to /login')
