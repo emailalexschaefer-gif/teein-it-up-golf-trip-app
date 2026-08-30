@@ -9,13 +9,26 @@ import Link from 'next/link'
 //   which exchanges the PKCE code and establishes a session, then lands here.
 //
 // Screen 2 (arrived from reset email, session already active): set new password.
-//   We detect "session active" via supabase.auth.getUser() on mount.
 //   updateUser({ password }) works because the session is established.
 //
 // This works for:
 //   • Forgotten password (existing password account)
 //   • Magic-link-only accounts that want to add a password
-
+//
+// 30 Aug field-test bundle, P0 — root cause of "opens the normal Sign
+// In screen instead of Reset Password." This used to detect screen 2
+// purely via `getUser()` returning any user at all — which can't tell
+// a genuine password-recovery session apart from an unrelated
+// already-logged-in one, and (for the implicit-flow arrival path via
+// /auth/callback) was racing a session that hadn't finished being
+// established yet, resorting to `screen: 'request'` (or, upstream in
+// that callback page, an outright redirect to /login) whenever the
+// check ran first. Supabase fires a specific PASSWORD_RECOVERY auth
+// event the moment a recovery session is genuinely established —
+// listening for that event directly (the documented, canonical
+// pattern for this exact scenario) replaces the race with a real
+// signal, and is also what correctly distinguishes "this is a
+// recovery session" from "I'm just already logged in."
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -29,19 +42,53 @@ export default function ResetPasswordForm() {
   const [loading, setLoading]     = useState(false)
   const [msg, setMsg]             = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
   const [screen, setScreen]       = useState<'loading' | 'request' | 'set'>('loading')
+  const [linkError, setLinkError] = useState<string | null>(null)
 
   const supabase = createClient()
 
   useEffect(() => {
-    // If a session is already active, the user arrived from the reset email
-    // (the callback route already exchanged the code). Show the "set password" form.
-    supabase.auth.getUser().then(({ data: { user } }: { data: { user: { id: string } | null } }) => {
-      if (user) {
+    // P0 fix — expired/invalid link detection. A dead recovery link
+    // (already used, or past its expiry) delivers a Supabase error via
+    // the URL hash, not a normal session — checked first so this shows
+    // a genuinely useful message instead of silently falling back to
+    // the plain "request a reset" screen with no explanation of why
+    // the link that was just tapped didn't work.
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+    const hashError = hashParams.get('error') || hashParams.get('error_code')
+    if (hashError) {
+      const description = hashParams.get('error_description')
+      setLinkError(description ? decodeURIComponent(description.replace(/\+/g, ' ')) : 'This link has expired or is no longer valid.')
+      setScreen('request')
+      return
+    }
+
+    // P0 fix — PASSWORD_RECOVERY specifically, not "any session at
+    // all." Covers both arrival paths: the PKCE route
+    // (/api/auth/callback) has already exchanged the code server-side
+    // by the time this page loads, so Supabase still fires
+    // PASSWORD_RECOVERY on the client once its own state syncs; the
+    // implicit-flow path (via /auth/callback) may still be finishing
+    // detectSessionFromUrl() when this mounts, which this listener
+    // correctly waits for rather than checking once and giving up.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
         setScreen('set')
-      } else {
-        setScreen('request')
       }
     })
+
+    // Still check immediately in case the recovery session was already
+    // fully established before this listener was attached (the PKCE
+    // arrival path, most of the time) — onAuthStateChange only fires
+    // for events happening from this point forward, not retroactively.
+    // Functional setState form, not a closure-captured `screen` value —
+    // this callback can resolve after onAuthStateChange has already
+    // moved screen to 'set', and comparing against a stale closure
+    // value would incorrectly stomp that back to 'request'.
+    supabase.auth.getUser().then(({ data: { user } }: { data: { user: { id: string } | null } }) => {
+      setScreen(prev => (prev === 'loading' ? (user ? 'set' : 'request') : prev))
+    })
+
+    return () => subscription.unsubscribe()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -166,6 +213,16 @@ export default function ResetPasswordForm() {
         Enter your email and we&apos;ll send a link. Works even if
         you&apos;ve never set a password before.
       </p>
+
+      {/* P0 fix — "useful expired/invalid-link error." Previously an
+          expired/already-used link just silently fell through to this
+          same plain screen with zero explanation of why the link that
+          was just tapped didn't work. */}
+      {linkError && (
+        <div className="rounded-xl px-4 py-3 text-sm bg-red-50 text-red-600 mb-4">
+          {linkError} Request a new link below.
+        </div>
+      )}
 
       <form onSubmit={handleSendReset} className="space-y-3">
         <div>

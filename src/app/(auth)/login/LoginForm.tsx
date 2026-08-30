@@ -30,7 +30,20 @@ export default function LoginForm() {
   const [email, setEmail]     = useState('')
   const [password, setPass]   = useState('')
   const [loading, setLoading] = useState(false)
-  const [msg, setMsg]         = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+  // 30 Aug field-test bundle, P0 follow-up — the last-resort fallback in
+  // /auth/callback (a genuinely dead recovery/auth link that never
+  // fires any Supabase auth event at all) redirects here with
+  // ?error=auth_failed, which this page previously never read — a
+  // silent plain login screen with no explanation. Only a low-risk,
+  // additive message; the main expired-link handling (the far more
+  // common case — an actual Supabase error hash) is now caught earlier,
+  // in /auth/callback and /reset-password themselves, before ever
+  // reaching this fallback.
+  const [msg, setMsg]         = useState<{ type: 'ok' | 'err'; text: string } | null>(
+    searchParams.get('error') === 'auth_failed'
+      ? { type: 'err', text: 'That link didn\u2019t work — it may have expired. Please try again or request a new one.' }
+      : null
+  )
 
   // Signup-specific state
   const [name, setName]       = useState('')
