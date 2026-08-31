@@ -39,6 +39,13 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
   const [loading, setLoading]   = useState(true)
   const [generating, setGen]    = useState(false)
   const [assigning, setAssign]  = useState(false)
+  // 31 Aug field-test bundle — group-naming bug, client-side half of
+  // the fix. Both sibling buttons (generateGroups/autoAssign) already
+  // guard against a rapid double-tap firing two concurrent requests;
+  // this one didn't, which was the actual trigger for the race the
+  // server-side fix (groups/route.ts) now also closes independently —
+  // defense in depth, not either fix alone.
+  const [addingGroup, setAddingGroup] = useState(false)
   const [editingId, setEditing] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editTime, setEditTime] = useState('')
@@ -98,6 +105,8 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
   }
 
   async function addGroup() {
+    if (addingGroup) return
+    setAddingGroup(true)
     setApiError(null)
     const name = `Playing Group ${groups.length + 1}`
     try {
@@ -119,6 +128,8 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
       }
     } catch (err) {
       setApiError(`Network error: ${err instanceof Error ? err.message : 'Unknown'}`)
+    } finally {
+      setAddingGroup(false)
     }
   }
 
@@ -245,7 +256,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
               {generating ? 'Generating…' : `Generate ${numGroups} Playing Groups →`}
             </button>
           )}
-          <button onClick={addGroup} style={{
+          <button onClick={addGroup} disabled={addingGroup} style={{
             display: 'block', width: '100%',
             padding: '12px 20px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)', cursor: 'pointer',
             background: 'rgba(255,255,255,0.08)',
@@ -307,7 +318,7 @@ export default function TripGroupsTab({ trip, isOrganiser, onRefresh, onTabChang
               {assigning ? 'Assigning…' : `Auto-assign ${unassigned.length} player${unassigned.length !== 1 ? 's' : ''}`}
             </button>
           )}
-          <button onClick={addGroup} style={{
+          <button onClick={addGroup} disabled={addingGroup} style={{
             flex: 1, padding: '11px 14px', borderRadius: 10,
             background: '#f8f4eb', border: '1.5px solid #d9c9a3',
             fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600, color: '#1a1a16',

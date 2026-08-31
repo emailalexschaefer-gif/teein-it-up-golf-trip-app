@@ -266,6 +266,27 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     profiles: { handicap: number | null; full_name: string } | null
   }> = membersRes.data ?? []
 
+  // 31 Aug field-test bundle — P0 systemic fix (see migration 069 for
+  // the full root-cause trace). scoring_method='paper' previously had
+  // exactly one path into existence: an organiser's prior manual
+  // toggle in BeginRoundModal, upserting a minimal scorecards row
+  // ahead of this route ever running. begin_round() was relying
+  // entirely on that row already existing and Postgres's own "an
+  // omitted column keeps its value on UPDATE" behaviour to preserve
+  // it — correct in principle, but nothing here ever confirmed what
+  // (if anything) that prior step actually left behind. This
+  // explicitly re-reads it and carries it through as a real argument
+  // instead, so a missed/mistimed/reverted toggle can no longer
+  // silently start a paper player's scorecard as 'digital'.
+  const existingScoringMethodsRes = await admin
+    .from('scorecards')
+    .select('player_id, scoring_method')
+    .eq('round_id', roundId)
+    .in('player_id', assignedMembers.map(m => m.profile_id))
+  const scoringMethodByPlayerId = new Map(
+    (existingScoringMethodsRes.data ?? []).map((r: { player_id: string; scoring_method: string }) => [r.player_id, r.scoring_method])
+  )
+
   console.log('[start-round] assigned members', {
     roundId, tripId, userId: user.id,
     memberCount: assignedMembers.length,
@@ -320,6 +341,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
       player_id:        m.profile_id,
       playing_handicap: finalHandicap,
       group_id:         m.group_id ?? null,
+      scoring_method:   scoringMethodByPlayerId.get(m.profile_id) === 'paper' ? 'paper' : 'digital',
     }
   })
 
@@ -419,12 +441,21 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   }
 
   // Scorecards upsert
-  const scorecardRows = scorecardData.map((s: { player_id: string; playing_handicap: number; group_id: string | null }) => ({
+  const scorecardRows = scorecardData.map((s: { player_id: string; playing_handicap: number; group_id: string | null; scoring_method?: string }) => ({
     round_id:         roundId,
     player_id:        s.player_id,
     playing_handicap: s.playing_handicap,
     group_id:         s.group_id,
     status:           'active',
+    // 31 Aug field-test bundle — same explicit-not-implicit fix as the
+    // RPC path (migration 069) — this fallback previously never
+    // referenced scoring_method either, and Supabase's plain
+    // .upsert() only writes the columns actually present in each row,
+    // so an omitted column here would have silently left an existing
+    // row's scoring_method untouched (correct for a real conflict) but
+    // ALSO silently taken the column's bare default on a genuine
+    // INSERT — the exact same gap this whole fix closes.
+    scoring_method:   s.scoring_method === 'paper' ? 'paper' : 'digital',
   }))
 
   const { error: cardsError } = await admin
