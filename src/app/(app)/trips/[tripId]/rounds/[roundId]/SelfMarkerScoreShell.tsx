@@ -1124,19 +1124,31 @@ export default function SelfMarkerScoreShell({
           This is a shotgun start — your organiser hasn&apos;t assigned your group a hole yet.
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8 }}>
-          {holes.map(h => (
-            <button
-              key={h.hole_number}
-              onClick={() => setPendingStartHolePick(h.hole_number)}
-              style={{
-                padding: '12px 0', borderRadius: 10, border: h.hole_number === 1 ? '1.5px solid #1a4731' : '1.5px solid #d9c9a3',
-                background: h.hole_number === 1 ? '#1a4731' : '#ffffff', color: h.hole_number === 1 ? '#fff' : '#14532d',
-                fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: 'pointer',
-              }}
-            >
-              {h.hole_number}
-            </button>
-          ))}
+          {holes.map(h => {
+            // 31 Aug field-test bundle — found while auditing for
+            // "hidden assumptions that scoring begins on Hole 1," per
+            // the explicit checklist. This wasn't that exact pattern,
+            // but a real, closely-related bug in the same picker: the
+            // highlight was hardcoded to hole_number === 1 regardless
+            // of what the user had actually tapped — so hole 1 always
+            // LOOKED selected here even before any real selection, and
+            // tapping a different hole never visually confirmed it.
+            // Fixed to reflect the actual pendingStartHolePick state.
+            const isSelected = pendingStartHolePick === h.hole_number
+            return (
+              <button
+                key={h.hole_number}
+                onClick={() => setPendingStartHolePick(h.hole_number)}
+                style={{
+                  padding: '12px 0', borderRadius: 10, border: isSelected ? '1.5px solid #1a4731' : '1.5px solid #d9c9a3',
+                  background: isSelected ? '#1a4731' : '#ffffff', color: isSelected ? '#fff' : '#14532d',
+                  fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: 'pointer',
+                }}
+              >
+                {h.hole_number}
+              </button>
+            )
+          })}
         </div>
       </div>
     )
@@ -2168,25 +2180,51 @@ export default function SelfMarkerScoreShell({
         )}
 
         {/* ── Card 2: YOUR MARKER (the partner I mark) ──────────────────── */}
-        {requiresMarker && markedScorecard && partnerName && (
+        {/* 31 Aug field-test bundle — P0 shared-device + starting-hole
+            investigation. Found a real, genuine architectural
+            inconsistency while tracing this card's visibility, per the
+            brief's own "shared-device initialization tied to Hole 1
+            rather than the configured starting hole" instruction — this
+            wasn't that (traced hole-number handling throughout this
+            file and holes/route.ts extensively; every lookup here is
+            keyed by hole_number, never array index, and none of it is
+            hole-specific). What WAS found: this card's render gate was
+            `requiresMarker` (score_capture_mode === 'self_and_marker'
+            only) — but page.tsx computes and applies shared-device
+            detection (isSharedDeviceForMe) for ANY capture mode other
+            than 'group_scorer', including 'individual'. A shared-device
+            pair configured under 'individual' mode would have this
+            card's data fully resolved and passed in by page.tsx, then
+            silently never rendered here. The column's own DEFAULT is
+            'self_and_marker' (migration 022), so this specific gap is
+            unlikely to be what was actually observed in the field
+            (most rounds use the default) — but it's a real,
+            independently-verified inconsistency between what page.tsx
+            computes and what this component renders, fixed regardless
+            of whether it's the reported bug's root cause. Broadened to
+            `(requiresMarker || isSharedDeviceScoring)` — the actual
+            scoring card now shows for either reason a partner exists;
+            the "Change who I'm marking" button below stays gated to
+            requiresMarker ONLY, since it calls the round_markers-based
+            /playing-partner endpoint, which has no meaning for a
+            shared-device pair — that relationship is derived
+            automatically from group membership + scoring_method, not a
+            manual choice, and there is nothing for that button to
+            change. */}
+        {(requiresMarker || isSharedDeviceScoring) && markedScorecard && partnerName && (
           <>
-            {/* Darren field-test fix (Release 1, item 2) — the actual
-                entry point. Deliberately NOT gated behind isLocked —
-                per the explicit requirement this is a recovery action
-                available from live scoring generally, and changing who
-                you mark doesn't touch your own scorecard's lock state
-                at all. Opens the same selection screen this shell
-                already has (above), pre-marking the current partner. */}
-            <button
-              onClick={() => setChangingPartner(true)}
-              style={{
-                display: 'block', width: '100%', textAlign: 'center', background: 'none', border: 'none',
-                fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#9ca3af',
-                cursor: 'pointer', padding: '2px 0 6px',
-              }}
-            >
-              ✎ Change who I&apos;m marking
-            </button>
+            {requiresMarker && (
+              <button
+                onClick={() => setChangingPartner(true)}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'center', background: 'none', border: 'none',
+                  fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#9ca3af',
+                  cursor: 'pointer', padding: '2px 0 6px',
+                }}
+              >
+                ✎ Change who I&apos;m marking
+              </button>
+            )}
             <ScoreCard
             title={isSharedDeviceScoring ? 'SCORING FOR' : 'YOUR PLAYING PARTNER'} name={partnerName} hcp={partnerHcp} par={par} si={si} strokes={partnerStrokes} holeNum={holeNum} distance={distance}
             badge={isSharedDeviceScoring ? '✏️ Paper Player' : null}
