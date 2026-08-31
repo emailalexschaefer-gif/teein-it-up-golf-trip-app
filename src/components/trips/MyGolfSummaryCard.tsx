@@ -50,10 +50,20 @@ function StatBlock({ value, label, onClick }: { value: number; label: string; on
         padding: '4px 2px',
       }}
     >
-      <span style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, color: '#14532d', lineHeight: 1 }}>
+      {/* 31 Aug field-test bundle — Home card contrast fix. This was
+          '#14532d' (the card's own dark-green background colour) —
+          effectively invisible white-on-white-in-reverse against the
+          dark-green gradient this card sits on. The exact reported
+          bug: "headline numbers should be white, bold, high contrast."
+          Fixed to solid white; nothing else about this element
+          changed. */}
+      <span style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, color: '#ffffff', lineHeight: 1 }}>
         {value}
       </span>
-      <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#7a7260', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+      {/* Was '#7a7260' — a muted brownish-grey tuned for a light/cream
+          background elsewhere in the app, also too low-contrast here.
+          Fixed to warm cream per "labels -> gold or warm cream." */}
+      <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#f5e6b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>
         {label}
       </span>
     </button>
@@ -120,7 +130,7 @@ export default function MyGolfSummaryCard() {
         onClick={toggle}
         style={{
           display: 'block', width: '100%', textAlign: 'center', background: 'none', border: 'none',
-          fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: 'rgba(232,201,106,0.85)',
+          fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#e8c96a',
           cursor: 'pointer', marginTop: 8, padding: '4px 0',
         }}
       >
