@@ -72,6 +72,9 @@ export type AnalyticsEvent =
   | 'round_closed'
   | 'my_hq_opened'
   | 'makers_breakers_published'
+  // Homepage My Golf achievement summary
+  | 'my_golf_summary_expanded'
+  | 'my_golf_summary_collapsed'
 
 export interface AnalyticsEventProps {
   // Non-PII product/internal identifiers only — opaque UUIDs, enums,

@@ -4,6 +4,7 @@ import TripList from '@/components/trips/TripList'
 import PendingJoinHandler from '@/components/trips/PendingJoinHandler'
 import DashboardHero from '@/components/trips/DashboardHero'
 import JoinByCode from '@/components/trips/JoinByCode'
+import MyGolfSummaryCard from '@/components/trips/MyGolfSummaryCard'
 
 export const metadata: Metadata = { title: "My Events · Teein' It Up" }
 
@@ -19,6 +20,13 @@ export default function DashboardPage() {
 
       {/* Join a trip — secondary, reduced visual weight */}
       <JoinByCode />
+
+      {/* Homepage My Golf achievement summary — "What have I achieved?"
+          sits between Create/Join ("What can I do?") and My Events
+          ("What am I involved in?"), per the explicit new hierarchy.
+          Self-contained: fetches its own data, renders nothing while
+          loading/on error, never blocks or delays My Events below it. */}
+      <MyGolfSummaryCard />
 
       {/* Page heading — "My Events" answers "what golf events am I
           involved in", distinct from the hero's tagline above it. */}

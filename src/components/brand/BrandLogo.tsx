@@ -7,32 +7,27 @@
 // Vercel are case-sensitive — paths must match exactly or the asset 404s in
 // production even though it works locally on a case-insensitive filesystem.
 //
-// 30 Aug field-test bundle — Sign-In logo fix. 'full' now points at
-// logo-new.png, the actual supplied production crest (the real
-// green/gold shield artwork — golf ball, cap, clubs, "Teein' It Up",
-// "GOLF EVENT APP" all baked into the one image), not the previous
-// teein-it-up-logo-transparent.png. That file is still present on disk
-// in this repo and passed every code-level check this component's own
-// history already documents — which is exactly why this fix does not
-// trust another code-level check alone this time. The screenshot this
-// round showed BrandLogo's own onError text fallback rendering (the
-// giant wrapped "Teein' It / Up" text is that exact fallback, not a
-// missing-component bug) — meaning the image request itself failed in
-// production despite looking correct here. Per this component's own
-// recurring-issue history ("a file present on disk but not committed
-// will 404 on Vercel"), the most likely explanation is that asset was
-// never actually committed/deployed, not a rendering bug in this file.
-// Given a fresh upload plus a new filename removes any doubt about
-// stale caching or a half-committed previous asset, this uses that new
-// file directly rather than re-trusting the old one. teein-it-up-icon.png
-// (a different asset, used only by the 'icon' variant in compact
-// headers) is unaffected — this only changes the 'full' variant's
-// source.
+// 31 Aug field-test bundle — logo/splash polish. logo-new.png,
+// icon-192.png, icon-512.png, and teein-it-up-icon.png were all
+// confirmed working in production (this fix's predecessor round) but
+// every one of them had an OPAQUE white/near-white background baked
+// in despite being RGBA files — that's the "pasted onto the screen"
+// white-rectangle look this round was asked to fix. Fixed at the
+// asset level, not here: each file was reprocessed with a
+// border-connected flood-fill (starts from the actual corner pixels,
+// only removes background-connected pixels, never touches white
+// INSIDE the artwork like the golf ball or lettering) and overwritten
+// in place, at the exact same path, same dimensions, same purpose.
+// Confirmed genuinely transparent afterward (alpha=0 at every corner)
+// and visually re-inspected against a magenta test background to
+// confirm no holes were punched into the artwork itself. This is why
+// no code in this file needed to change for the Sign-In fix — 'full'
+// already pointed at logo-new.png; only the file's own pixels changed.
 //
-// IMPORTANT — this alone does not close the loop. The file must still
-// be verified present in the actual deployed Vercel build, not just in
-// this repo/ZIP — see the delivery report for exactly what could and
-// could not be confirmed from this sandbox.
+// IMPORTANT — this alone does not close the loop. These files must
+// still be verified present in the actual deployed Vercel build, not
+// just in this repo/ZIP — see the delivery report for exactly what
+// could and could not be confirmed from this sandbox.
 //
 // IMPORTANT (recurring deployment issue — see DEPLOYMENT_NOTES.md):
 // these PNGs must be explicitly `git add`-ed. A file present on disk but not
