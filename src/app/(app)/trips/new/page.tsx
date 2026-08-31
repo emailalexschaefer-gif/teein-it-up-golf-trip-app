@@ -10,6 +10,7 @@ import StepRounds    from '@/components/trips/wizard/StepRounds'
 import StepReview    from '@/components/trips/wizard/StepReview'
 import { useCreateTrip } from '@/lib/queries/trips'
 import { generateUUID } from '@/lib/utils'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 import type { WizardTripDetails, WizardRound } from '@/types/app'
 
 const STEPS = ['Details', 'Rounds', 'Review']
@@ -133,6 +134,10 @@ function NewTripForm() {
           library_holes_snapshot: r.library_holes_snapshot ?? null,
         })),
       })
+      // GA4 / Product Analytics brief — organiser behaviour. Fires only
+      // on genuine, server-confirmed creation (not the edit-trip path
+      // above, which is a different action).
+      trackEvent('trip_created', { tripId, roundCount: rounds.length })
       router.push(`/trips/${tripId}`)
       router.refresh()
     } catch (err) {

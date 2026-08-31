@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import MomentCapture from '@/components/moments/MomentCapture'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 
 /**
  * Side Competition CLAIM entry — Stage 2 of Side Game Marker
@@ -250,6 +251,12 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
       setMyEntryId(result.entryId)
       setRequiredVerifierId(result.requiredVerifierId)
       setLastResult(result)
+      // GA4 / Product Analytics brief — "how often Side Games are
+      // used." A genuinely completed action (claim submitted and
+      // accepted by the server), not fired on every keystroke while
+      // filling in the claim form above. compType is a fixed enum, not
+      // free text — no PII risk.
+      trackEvent('side_game_claimed', { tripId, compType })
       if (result.wouldLeadIfVerified) onWouldLeadIfVerified?.(result)
     } catch {
       setError('Couldn\u2019t save your claim — your score is unaffected. Check your connection and try again.')

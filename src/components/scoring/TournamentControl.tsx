@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import PlayingPartnerStatus from './PlayingPartnerStatus'
 import MomentViewer, { type MomentViewerData } from '@/components/moments/MomentViewer'
 import MakersBreakers from './MakersBreakers'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 
 interface GroupPlayer {
   playerId: string; name: string; holesPlayed: number; finished: boolean; hasMismatch: boolean; waitingForMarker: boolean
@@ -278,6 +279,12 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
         setCloseError(body.error ?? 'Could not close the round.')
         return
       }
+      // GA4 / Product Analytics brief — organiser behaviour + "event
+      // completion." A round genuinely closing (server-confirmed
+      // success), not every click of the button (blocked attempts
+      // return early above and never reach here).
+      trackEvent('round_closed', { tripId, roundId })
+      trackEvent('round_completed', { tripId, roundId })
       // Trigger sequence: Finish Round -> Round Snapshot -> Makers &
       // Breakers -> Present Side Games/Round Winners. roundId/roundName/
       // courseName are captured HERE, once, into closedRoundId etc. —

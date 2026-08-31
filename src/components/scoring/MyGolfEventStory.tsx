@@ -1,7 +1,9 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import { selectPlayerEventStory, type EventHighlight } from '@/lib/highlights/eventMakersBreakers'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 
 /**
  * Release 2, item 6 — My Golf Event Story.
@@ -52,13 +54,33 @@ export default function MyGolfEventStory({ tripId, playerId }: { tripId: string;
   // empty shell.
   if (!myStanding && myStoryBeats.length === 0) return null
 
+  return <MyGolfEventStoryContent tripName={data.tripName} myStanding={myStanding} myStoryBeats={myStoryBeats} tripId={tripId} />
+}
+
+// GA4 / Product Analytics brief — "how often is Event Story opened."
+// Split into its own inner component specifically so this only fires
+// once real content is genuinely about to render — not on every mount
+// attempt, including the (common) case where the component mounts but
+// then immediately returns null above because there's nothing to show
+// for this player yet.
+function MyGolfEventStoryContent({
+  tripId, tripName, myStanding, myStoryBeats,
+}: {
+  tripId: string; tripName: string
+  myStanding: FinalResultsForStory['standings'][number] | undefined
+  myStoryBeats: EventHighlight[]
+}) {
+  useEffect(() => {
+    trackEvent('event_story_opened', { tripId })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   return (
     <div style={{ background: 'linear-gradient(135deg,#14532d,#1a6b3a)', borderRadius: 16, padding: '22px 18px', marginBottom: 20 }}>
       <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 800, letterSpacing: 1.2, textTransform: 'uppercase', color: '#e8c96a', textAlign: 'center' }}>
         📖 Your Event Story
       </div>
       <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'rgba(255,255,255,0.7)', textAlign: 'center', marginTop: 2 }}>
-        {data.tripName}
+        {tripName}
       </div>
 
       {myStanding && (

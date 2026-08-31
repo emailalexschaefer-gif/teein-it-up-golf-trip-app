@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import RoundSchedule, { type ScheduleRound } from './RoundSchedule'
 import PlayerRoundView from './PlayerRoundView'
 import MyGolfEventStory from './MyGolfEventStory'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 
 /**
  * Item 9 — "once the player manually taps another round, do not
@@ -32,6 +33,15 @@ export default function MyRoundClient({
 }) {
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(defaultRoundId)
   const selected = rounds.find(r => r.id === selectedRoundId) ?? null
+
+  // GA4 / Product Analytics brief — "how often My Golf is opened."
+  // Once per mount only, not on every round switch within the same
+  // visit (that's a different, narrower interaction, not "opened My
+  // Golf" again).
+  useEffect(() => {
+    trackEvent('my_golf_opened', { tripId })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div>

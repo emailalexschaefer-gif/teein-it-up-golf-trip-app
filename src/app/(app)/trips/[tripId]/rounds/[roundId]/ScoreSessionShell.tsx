@@ -10,6 +10,7 @@ import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
 import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
 import PendingVerificationCard from '@/components/scoring/PendingVerificationCard'
 import SideCompEntryPanel from '@/components/scoring/SideCompEntryPanel'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -233,6 +234,16 @@ export default function ScoreSessionShell({
   })
   const allGroups = liveGroupsData.allGroups
   const groupScorecards = liveGroupsData.groupScorecards
+
+  // GA4 / Product Analytics brief — "scoring engagement," parity with
+  // SelfMarkerScoreShell.tsx's own scorecard_opened. Once per mount,
+  // not on every live-poll refresh above.
+  useEffect(() => {
+    trackEvent('scorecard_opened', { tripId, roundId: round.id })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const scoringStartedRef = useRef(false)
+
   // ── State ──────────────────────────────────────────────────────────────────
   const [holes, setHoles]               = useState<Hole[]>([])
   const [loadingHoles, setLoadingHoles] = useState(true)
@@ -621,6 +632,12 @@ export default function ScoreSessionShell({
       useSyncStore.getState().setPendingCount(await getPendingCount())
       void syncScoreQueue()
       void clientId
+      // GA4 / Product Analytics brief — parity with SelfMarkerScoreShell.tsx.
+      trackEvent('score_confirmed', { tripId, roundId: round.id })
+      if (!scoringStartedRef.current) {
+        scoringStartedRef.current = true
+        trackEvent('scoring_started', { tripId, roundId: round.id })
+      }
     } catch {
       showToast('Score saved locally — will sync when online')
     }

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import dynamic from 'next/dynamic'
 import MomentViewer, { type MomentViewerData } from '@/components/moments/MomentViewer'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 
 // Same reasoning and same risk as SelfMarkerScoreShell.tsx's identical
 // change — MomentCapture's own import chain reaches the genuinely
@@ -79,6 +80,12 @@ export default function EventMessages({
   roundId?: string | null; holeNumber?: number | null
 }) {
   const queryClient = useQueryClient()
+
+  // GA4 / Product Analytics brief — "how often is Chat opened."
+  useEffect(() => {
+    trackEvent('chat_opened', { tripId })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tripId])
 
   // Item 1 — Chat role leakage fix. isOrganiserProp is the server-
   // rendered value (correct on the actual request, but see the comment

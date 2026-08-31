@@ -11,6 +11,7 @@ import { queueScoreEntry, getPendingCount, getQueuedEntriesForScorecards } from 
 import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
 import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
 import { useScoringFocusStore } from '@/store/scoringFocusStore'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 import LiveLeaderboard from '@/components/scoring/LiveLeaderboard'
 import SideCompEntryPanel from '@/components/scoring/SideCompEntryPanel'
 import dynamic from 'next/dynamic'
@@ -252,6 +253,20 @@ export default function SelfMarkerScoreShell({
   // individual mode, but every marker-related branch below gates on this
   // flag explicitly too, so nothing here depends on that alone.
   const requiresMarker = round.score_capture_mode === 'self_and_marker'
+
+  // GA4 / Product Analytics brief — "scoring engagement." Fires once
+  // per mount of this shell — opening the live scoring screen for a
+  // round, not every hole navigation within it.
+  // GA4 / Product Analytics brief — fires exactly once per scoring
+  // session, the first time a score is genuinely saved — distinct from
+  // scorecard_opened above (which fires on every mount, whether or not
+  // the player ever actually enters anything).
+  const scoringStartedRef = useRef(false)
+
+  useEffect(() => {
+    trackEvent('scorecard_opened', { tripId, roundId: round.id })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const [holes, setHoles] = useState<Hole[]>([])
   const [loadingHoles, setLoadingHoles] = useState(true)
@@ -962,6 +977,16 @@ export default function SelfMarkerScoreShell({
       }
       useSyncStore.getState().setPendingCount(await getPendingCount())
       void syncScoreQueue()
+      // GA4 / Product Analytics brief — "scoring engagement," a
+      // meaningful completed action (a score was actually saved), not
+      // every keystroke/tap while adjusting it before save. Fires
+      // after the queue write above succeeds, same success boundary
+      // the sync-status UI itself relies on.
+      trackEvent('score_confirmed', { tripId, roundId: round.id })
+      if (!scoringStartedRef.current) {
+        scoringStartedRef.current = true
+        trackEvent('scoring_started', { tripId, roundId: round.id })
+      }
       // Immediate refresh, not waiting for the next poll — matters most
       // when the person confirming is also the organiser (a common setup
       // in this app), so their own My HQ/leaderboard reflect the change

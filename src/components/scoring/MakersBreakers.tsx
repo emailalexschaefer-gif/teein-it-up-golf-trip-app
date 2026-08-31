@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 
 interface Highlight {
   category: string
@@ -66,6 +67,10 @@ export default function MakersBreakers({
         return
       }
       setPublishState('done')
+      // GA4 / Product Analytics brief — organiser behaviour. Fires
+      // only on genuine, server-confirmed publish, not on opening the
+      // curation screen or selecting cards.
+      trackEvent('makers_breakers_published', { tripId, roundId })
     } catch {
       setPublishError('Connection issue — please try again.')
       setPublishState('idle')

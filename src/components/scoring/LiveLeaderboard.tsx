@@ -13,6 +13,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import PlayerCardModal, { type PlayerCardData } from '@/components/shared/PlayerCardModal'
 import { derivePreviousCurrentTotal } from '@/lib/scoring/multiRound'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 
 interface PerHoleEntry {
   holeNumber: number
@@ -98,6 +99,16 @@ export default function LiveLeaderboard({
   // behaviour (only one at a time, per the explicit requirement), so
   // this is a single id, not a Set.
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null)
+
+  // GA4 / Product Analytics brief — "how often is Leaderboard checked."
+  // Fires once per mount (once per genuine open of this view), not on
+  // every poll/refresh — this component already polls its own data
+  // continuously underneath; that must never be conflated with "the
+  // player opened the leaderboard."
+  useEffect(() => {
+    trackEvent('leaderboard_opened', { tripId, roundId })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerCardData | null>(null)
   // Adapter, not a new profile shape — LeaderboardEntry uses
   // name/avatarUrl (its own established field names throughout this

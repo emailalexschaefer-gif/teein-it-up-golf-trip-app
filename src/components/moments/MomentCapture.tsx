@@ -5,6 +5,7 @@ import type { CSSProperties, ChangeEvent } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useQueryClient } from '@tanstack/react-query'
 import ImageCropper from '@/components/shared/ImageCropper'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 
 function logStage(stage: string, detail?: unknown) {
   if (process.env.NODE_ENV !== 'production') {
@@ -325,6 +326,13 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
       throw new Error(resData.error ? `${resData.error}${resData.debug ? ` (${resData.debug})` : ''}` : "Moment couldn't be posted. Please try again.")
     }
     logStage('moment-posted', { momentId: resData.moment?.id })
+
+    // GA4 / Product Analytics brief — "how often Moments are
+    // captured." A genuinely posted Moment, not fired for every draft/
+    // photo pick before the player actually submits. hasImage is a
+    // boolean, never the caption text itself (explicit PII rule — no
+    // free-text user content).
+    trackEvent('moment_captured', { tripId, hasImage: !!imagePath })
 
     void queryClient.invalidateQueries({ queryKey: ['event-messages', tripId] })
     void queryClient.invalidateQueries({ queryKey: ['moments', tripId] })

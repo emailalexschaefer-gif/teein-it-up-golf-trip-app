@@ -7,6 +7,7 @@ import type { HoleTemplate, PlayingNine } from '@/lib/scoring/defaultHoles'
 import { calculateDailyHandicap } from '@/lib/scoring/dailyHandicap'
 import { useScoringFocusStore } from '@/store/scoringFocusStore'
 import BrandLogo from '@/components/brand/BrandLogo'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 
 interface Player {
   member_id:  string  // trip_members.id — required by the members PATCH route, distinct from profile_id
@@ -65,6 +66,15 @@ export default function BeginRoundModal({
   const setScoringFocusActive = useScoringFocusStore(s => s.setActive)
   const [stage, setStage]   = useState<Stage>('review')
   const modalScrollRef = useRef<HTMLDivElement>(null)
+
+  // GA4 / Product Analytics brief — organiser behaviour. Fires once
+  // when the organiser opens this modal to begin configuring/reviewing
+  // a round for release — the first stage of the round-setup funnel
+  // (round_setup_started -> round_released -> round_started).
+  useEffect(() => {
+    trackEvent('round_setup_started', { tripId, roundId })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── Multi-round setup context (Round 2+) ──────────────────────────────────
   // Single fetch covers previous-round results, cumulative standings, and
@@ -475,6 +485,7 @@ export default function BeginRoundModal({
       // separately taps Start Round. This is the one architectural
       // change Package 2 is actually about — previously this single
       // button did both at once.
+      trackEvent('round_released', { tripId, roundId })
       setStage('released')
     } catch {
       setError("We couldn't release this round. Please try again.")
@@ -526,6 +537,7 @@ export default function BeginRoundModal({
         return
       }
       staySpinning = true
+      trackEvent('round_started', { tripId, roundId })
       router.push(`/trips/${tripId}/rounds/${roundId}`)
       router.refresh()
     } catch {

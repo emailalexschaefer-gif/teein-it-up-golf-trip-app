@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useInstallPrompt } from '@/lib/pwa/useInstallPrompt'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 
 const DISMISS_KEY_PREFIX = 'pwa-install-dismissed-'
 
@@ -30,9 +31,35 @@ export function resetInstallCardDismissal() {
   try { window.localStorage.removeItem(`${DISMISS_KEY_PREFIX}global`) } catch { /* no-op if storage is unavailable */ }
 }
 
+// 30 Aug field-test bundle — generic instructions for any browser that
+// isn't iOS Safari and never fired a real beforeinstallprompt (Android
+// Firefox, Samsung Internet in some configurations, etc.). Deliberately
+// non-specific rather than guessing at a particular browser's exact
+// menu wording — "never silently fail" is satisfied by giving SOME
+// correct, actionable guidance, not by perfectly matching every
+// possible browser's own terminology.
+const FALLBACK_STEPS = [
+  { icon: '⋮', text: <>Open your browser&apos;s <strong>menu</strong> (usually top-right)</> },
+  { icon: '➕', text: <>Look for <strong>Add to Home Screen</strong> or <strong>Install App</strong></> },
+  { icon: '✓', text: <>Confirm to finish</> },
+]
+
+const IOS_STEPS = [
+  { icon: '⬆️', text: <>Tap <strong>Share</strong></> },
+  { icon: '➕', text: <>Choose <strong>Add to Home Screen</strong></> },
+  { icon: '✓', text: <>Tap <strong>Add</strong></> },
+]
+
+const FEATURES = [
+  'Full-screen app experience',
+  'Easy one-tap access throughout your round',
+  'Quickly switch between GPS and Teein\u2019 It Up',
+  'Best experience for live scoring, Side Games & Moments',
+]
+
 export default function InstallPwaCard({ onDismiss }: { onDismiss?: () => void }) {
   const { platform, promptInstall } = useInstallPrompt()
-  const [showIosSheet, setShowIosSheet] = useState(false)
+  const [showSheet, setShowSheet] = useState(false)
   // Lazy initializer, not useState(false) — reading the persisted value
   // only at mount time. Without this, a previously-dismissed card would
   // flash visible again on every fresh page load before any check ran,
@@ -40,65 +67,104 @@ export default function InstallPwaCard({ onDismiss }: { onDismiss?: () => void }
   // out.
   const [dismissed, setDismissed] = useState(() => isInstallCardDismissed())
 
+  // 30 Aug field-test bundle — analytics funnel. Fires once, the
+  // moment this card first becomes genuinely visible to a real player
+  // (never for 'installed' or 'unsupported', which return null below
+  // and never render at all) — not on every render.
+  useEffect(() => {
+    if (platform === 'installed' || platform === 'unsupported' || dismissed) return
+    trackEvent('install_offer_shown', { platform })
+  }, [platform, dismissed])
+
+  // Item 6 — already-installed players never see this section at all,
+  // not a dimmed/disabled version of it. 'unsupported' is only the
+  // brief instant before useInstallPrompt's own effect has resolved a
+  // real platform — see that hook for why it's no longer a permanent
+  // resting state for any genuine browser.
   if (platform === 'installed' || platform === 'unsupported' || dismissed) return null
 
   function handleMaybeLater() {
+    trackEvent('install_dismissed', { platform })
     markInstallCardDismissed()
     setDismissed(true)
     onDismiss?.()
   }
 
-  async function handleAddToHomeScreen() {
+  // Item 2 — the one smart button. The player never chooses or is even
+  // shown which path they're on; this function alone decides, based on
+  // what useInstallPrompt has already determined.
+  async function handleInstall() {
+    trackEvent('install_clicked', { platform })
     if (platform === 'android-supported') {
-      // Real, native browser flow — not a faked button. If the browser
-      // hasn't actually surfaced beforeinstallprompt yet, promptInstall
-      // is a safe no-op rather than pretending to install anything.
+      // Real, native browser flow — not a faked button. Preserves the
+      // existing, already-verified-on-a-real-Samsung-device
+      // deferredPrompt implementation exactly as-is; this only adds
+      // the surrounding funnel/UI polish around it.
       await promptInstall()
+      trackEvent('install_completed', { platform })
       return
     }
-    setShowIosSheet(true)
+    // iOS Safari or fallback — no genuine one-tap browser API exists
+    // for either, so the smart action is showing the correct
+    // instructions for whichever this player is actually on.
+    trackEvent('install_instructions_shown', { platform })
+    setShowSheet(true)
   }
+
+  const steps = platform === 'ios-safari' ? IOS_STEPS : FALLBACK_STEPS
 
   return (
     <div style={{
       background: 'linear-gradient(135deg,#14532d,#1a6b3a)', border: '1px solid rgba(232,201,106,0.3)',
-      borderRadius: 14, padding: '14px 16px', marginBottom: 16,
+      borderRadius: 14, padding: '16px 16px 14px', marginBottom: 16,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <span style={{ fontSize: 22, flexShrink: 0 }}>📱</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 13.5, color: '#fff' }}>
-            Keep Teein&apos; It Up handy
-          </div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'rgba(255,255,255,0.75)', marginTop: 2, lineHeight: 1.4 }}>
-            Add Teein&apos; It Up to your phone for one-tap access throughout the event.
-          </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 18 }}>📱</span>
+        <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 12, letterSpacing: 0.5, textTransform: 'uppercase', color: '#e8c96a' }}>
+          Get the best Teein&apos; It Up experience
         </div>
       </div>
-      <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+
+      <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#fff', marginBottom: 8 }}>
+        Install Teein&apos; It Up before you play.
+      </div>
+
+      <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 12 }}>
+        {FEATURES.map(f => (
+          <li key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontFamily: 'var(--font-body)', fontSize: 12, color: 'rgba(255,255,255,0.85)', lineHeight: 1.4 }}>
+            <span style={{ color: '#e8c96a', flexShrink: 0 }}>✓</span>
+            <span>{f}</span>
+          </li>
+        ))}
+      </ul>
+
+      <div style={{ display: 'flex', gap: 10 }}>
         <button
-          onClick={() => void handleAddToHomeScreen()}
+          onClick={() => void handleInstall()}
           style={{
-            flex: 1, padding: 10, borderRadius: 9, background: '#e8c96a', border: 'none',
-            fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 12.5, color: '#0f2d1c', cursor: 'pointer',
+            flex: 1, padding: 11, borderRadius: 9, background: '#e8c96a', border: 'none',
+            fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 13, color: '#0f2d1c', cursor: 'pointer',
           }}
         >
-          Add to Home Screen →
+          Install Teein&apos; It Up
         </button>
         <button
           onClick={handleMaybeLater}
           style={{
-            padding: '10px 14px', borderRadius: 9, background: 'none', border: '1px solid rgba(255,255,255,0.25)',
+            padding: '11px 14px', borderRadius: 9, background: 'none', border: '1px solid rgba(255,255,255,0.25)',
             fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, color: 'rgba(255,255,255,0.8)', cursor: 'pointer',
           }}
         >
           Maybe later
         </button>
       </div>
+      <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, color: 'rgba(255,255,255,0.5)', textAlign: 'center', marginTop: 8 }}>
+        Takes about 10 seconds.
+      </div>
 
-      {showIosSheet && (
+      {showSheet && (
         <div
-          onClick={() => setShowIosSheet(false)}
+          onClick={() => setShowSheet(false)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
         >
           <div
@@ -117,11 +183,7 @@ export default function InstallPwaCard({ onDismiss }: { onDismiss?: () => void }
               </div>
             </div>
             <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {[
-                { icon: '⬆️', text: <>Tap <strong>Share</strong></> },
-                { icon: '➕', text: <>Choose <strong>Add to Home Screen</strong></> },
-                { icon: '✓', text: <>Tap <strong>Add</strong></> },
-              ].map((step, i) => (
+              {steps.map((step, i) => (
                 <li key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{
                     width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
@@ -132,7 +194,7 @@ export default function InstallPwaCard({ onDismiss }: { onDismiss?: () => void }
               ))}
             </ol>
             <button
-              onClick={() => setShowIosSheet(false)}
+              onClick={() => setShowSheet(false)}
               style={{
                 display: 'block', width: '100%', marginTop: 18, padding: 12, borderRadius: 10,
                 background: '#f3f4f6', border: '1px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer',

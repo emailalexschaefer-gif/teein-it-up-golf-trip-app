@@ -1,6 +1,8 @@
 'use client'
 
 
+import InstallPwaCard from '@/components/trips/InstallPwaCard'
+
 /**
  * Icons below are copied verbatim from TripBottomNav.tsx's own item
  * definitions (🏠 ⛳ 🏆 🎯 🎛️ 💬) — inspected directly rather than
@@ -78,6 +80,18 @@ export default function WelcomeBrochure({
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'rgba(255,255,255,0.85)', lineHeight: 1.5, marginTop: 12, marginBottom: 16 }}>
           Grab yourself a drink, meet the other guests and have a look around.
         </p>
+
+        {/* Player Lobby / Smart PWA Install brief — the install
+            promotion now lives HERE, near the top of the actual
+            onboarding brochure card, rather than as a separate box
+            sitting above it (its previous position, in
+            PlayerHomeCard.tsx). Per the explicit "should feel like
+            part of the existing premium Lobby onboarding experience —
+            not an ugly browser/PWA technical message." InstallPwaCard
+            already fully owns its own visibility (installed/
+            unsupported/dismissed all render null internally) — nothing
+            here needs to conditionally wrap it. */}
+        <InstallPwaCard />
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
           {DESTINATIONS.map(d => (

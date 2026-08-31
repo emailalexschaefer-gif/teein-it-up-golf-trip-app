@@ -31,10 +31,20 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
 
-export type InstallPlatform = 'android-supported' | 'ios-safari' | 'installed' | 'unsupported'
+export type InstallPlatform = 'android-supported' | 'ios-safari' | 'installed' | 'fallback' | 'unsupported'
 
 export function useInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
+  // 30 Aug field-test bundle — smart install button. 'unsupported' used
+  // to be both the initial loading state AND the permanent end state
+  // for any browser that wasn't iOS Safari or a genuine
+  // beforeinstallprompt-supporting Chromium — meaning Android Firefox,
+  // Samsung Internet, and any other browser silently got no install
+  // guidance at all, violating the explicit "must never silently fail"
+  // requirement. 'fallback' is now a real, distinct end state (generic,
+  // still-useful instructions) — 'unsupported' is reserved for the
+  // brief instant before this effect has run at all, not a permanent
+  // resting state for a real browser.
   const [platform, setPlatform] = useState<InstallPlatform>('unsupported')
 
   useEffect(() => {
@@ -58,18 +68,29 @@ export function useInstallPrompt() {
       return
     }
 
+    // iOS genuinely has no capability signal for "can this browser add
+    // to home screen" — Safari always can, no other iOS browser (they
+    // all use WebKit under Apple's rules, but only Safari itself
+    // exposes the share-sheet install path) ever can. This one
+    // UA-based branch is the "use platform/browser detection only
+    // where required for an appropriate fallback" case the brief
+    // explicitly allows for — there is no feature-detectable
+    // alternative on iOS.
     const ua = window.navigator.userAgent
     const isIOS = /iPad|iPhone|iPod/.test(ua)
     const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua)
-    if (isIOS && isSafari) {
-      setPlatform('ios-safari')
+    if (isIOS) {
+      setPlatform(isSafari ? 'ios-safari' : 'fallback')
       return
     }
 
     // Android/Chromium: pick up whatever the global capture already
     // has (covers the common case — the event fired before this
     // component mounted), and also subscribe in case it arrives later
-    // in this same page session.
+    // in this same page session. Capability-detected — this never asks
+    // "is this Chrome," only "did the browser actually offer a real
+    // install prompt" (the beforeinstallprompt event itself), which is
+    // the genuine capability signal the brief asks to prefer.
     function applyCaptured() {
       const captured = getCapturedInstallPrompt()
       if (captured) {
@@ -77,6 +98,10 @@ export function useInstallPrompt() {
         setPlatform('android-supported')
       } else if (wasAlreadyInstalledAtCaptureTime()) {
         setPlatform('installed')
+      } else {
+        // No genuine prompt available (yet, or ever, for this
+        // browser) — generic fallback instructions, never silence.
+        setPlatform('fallback')
       }
     }
     applyCaptured()

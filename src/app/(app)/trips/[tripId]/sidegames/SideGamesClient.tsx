@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 
 interface Leader { playerId: string; playerName: string; resultValue: number | null; momentUrl: string | null }
 interface HistoryEntry { playerName: string; resultValue: number | null; sequenceNumber: number }
@@ -43,6 +44,12 @@ const COMP_META: Record<Competition['compType'], { icon: string; label: string }
  * this default screen, which was the whole point of the fix.
  */
 export default function SideGamesClient({ tripId }: { tripId: string }) {
+  // GA4 / Product Analytics brief — "how often is Side Games opened."
+  useEffect(() => {
+    trackEvent('side_games_opened', { tripId })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tripId])
+
   const { data, isLoading } = useQuery<SideGamesData>({
     queryKey: ['side-games-event', tripId],
     queryFn: async () => {

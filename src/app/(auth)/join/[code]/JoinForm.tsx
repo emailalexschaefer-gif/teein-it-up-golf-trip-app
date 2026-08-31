@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 import HandicapPrompt from './HandicapPrompt'
 
 type Step = 'checking' | 'form' | 'needs_handicap' | 'check_email' | 'rate_limited' | 'invalid' | 'joining' | 'error'
@@ -100,6 +101,14 @@ export default function JoinForm() {
   useEffect(() => {
     if (!inviteCode) { setStep('invalid'); return }
 
+    // Player Lobby / Smart PWA Install brief — analytics funnel, step
+    // 1. Fires the moment an invite link is actually opened with a
+    // real code present, before we even know yet whether the trip
+    // itself resolves — this is "someone opened the link," a distinct,
+    // earlier signal from "the join itself succeeded" (tracked
+    // separately below, at each actual join completion point).
+    trackEvent('invite_opened')
+
     supabase.auth.getUser().then(async ({ data: { user } }: { data: { user: { id: string } | null } }) => {
       if (user) {
         // Already logged in — check if they have a handicap set
@@ -127,6 +136,7 @@ export default function JoinForm() {
         // Handicap already on file — join directly
         setStep('joining')
         startJoinTimeout('Join timed out. Please try again or use the invite code on your dashboard.')
+        trackEvent('join_started')
         window.location.href = buildDoJoinUrl()
         return
       }
@@ -189,6 +199,7 @@ export default function JoinForm() {
       // this is a second entry point into the one authoritative join, not
       // a second join implementation.
       clearJoinTimeout()
+      trackEvent('join_started')
       window.location.href = buildDoJoinUrl()
       return
     }
@@ -229,6 +240,7 @@ export default function JoinForm() {
     if (!signInErr) {
       // Session established — hard redirect so do-join receives the cookies.
       clearJoinTimeout()
+      trackEvent('join_started')
       window.location.href = buildDoJoinUrl()
       return
     }
@@ -298,6 +310,7 @@ export default function JoinForm() {
 
     // Session confirmed — hard redirect to do-join.
     clearJoinTimeout()
+    trackEvent('join_started')
     window.location.href = buildDoJoinUrl()
   }
 

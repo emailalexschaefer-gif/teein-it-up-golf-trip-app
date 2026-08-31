@@ -2,7 +2,9 @@
 
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
 import ConfettiBurst from './ConfettiBurst'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 
 interface RoundRef { roundId: string; roundNumber: number; roundName: string; courseName: string | null }
 interface StandingRound { roundId: string; roundNumber: number; points: number }
@@ -113,6 +115,24 @@ export default function FinalEventResults({ tripId }: { tripId: string }) {
     },
     staleTime: 60000, // final and locked — this doesn't need live polling like an active leaderboard does
   })
+
+  // GA4 / Product Analytics brief — "event completion." Honest
+  // limitation, not silently glossed over: this fires whenever this
+  // page successfully loads final results, which includes every
+  // repeat view of an already-completed event, not only the one
+  // genuine moment the event first transitioned to complete — there is
+  // no dedicated server-side "trip just completed" signal to hook
+  // instead. Fine as a v1 directional/aggregate signal per this
+  // brief's own stated purpose ("help us make product decisions based
+  // on actual behaviour"), but not a precise one-time completion
+  // count. The per-mount ref guard below at least prevents this from
+  // firing again on every background refetch of the same mounted page.
+  const eventCompletedFiredRef = useRef(false)
+  useEffect(() => {
+    if (!data || eventCompletedFiredRef.current) return
+    eventCompletedFiredRef.current = true
+    trackEvent('event_completed', { tripId })
+  }, [data, tripId])
 
   if (isLoading) {
     return (

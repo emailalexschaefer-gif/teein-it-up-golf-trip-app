@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import RoundSchedule, { type ScheduleRound } from './RoundSchedule'
 import TournamentControl from './TournamentControl'
 import RoundHighlightsCard from './RoundHighlightsCard'
 import MyRoundSummary from './MyRoundSummary'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 
 /**
  * P0 field-test fix — "My HQ — completed-round information disappears."
@@ -56,6 +57,13 @@ export default function MyHQClient({
 }) {
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(defaultRoundId)
   const selected = rounds.find(r => r.id === selectedRoundId) ?? null
+
+  // GA4 / Product Analytics brief — organiser behaviour, "how often My
+  // HQ is opened." Once per mount only.
+  useEffect(() => {
+    trackEvent('my_hq_opened', { tripId })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div>

@@ -4,6 +4,8 @@ import './globals.css'
 import ReactQueryProvider from '@/components/layout/ReactQueryProvider'
 import InstallPromptCaptureInit from '@/components/pwa/InstallPromptCaptureInit'
 import ServiceWorkerInit from '@/components/pwa/ServiceWorkerInit'
+import GoogleAnalytics from '@/components/analytics/GoogleAnalytics'
+import RouteChangeTracker from '@/components/analytics/RouteChangeTracker'
 
 // Demo fonts: Playfair Display for display/headings, Lato for body
 const playfair = Playfair_Display({
@@ -55,6 +57,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             ServiceWorkerInit.tsx / public/sw.js for the full trace.
             Renders nothing. */}
         <ServiceWorkerInit />
+        {/* GA4 / Product Analytics brief — mounted at the true root so
+            every route (including auth pages, before a trip/tripId
+            exists) is tracked. GoogleAnalytics renders nothing if
+            NEXT_PUBLIC_GA_MEASUREMENT_ID isn't set; RouteChangeTracker
+            is the sole source of pageviews (see both files). */}
+        <GoogleAnalytics />
+        <RouteChangeTracker />
         <ReactQueryProvider>{children}</ReactQueryProvider>
       </body>
     </html>

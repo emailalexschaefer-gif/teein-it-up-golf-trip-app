@@ -10,6 +10,7 @@ import PlayerCardModal, { initialsOf, type PlayerCardData } from '@/components/s
 import { resolveFocusRound } from '@/lib/scoring/multiRound'
 import WelcomeBrochure, { CollapsedWelcomeCard, isBrochureDismissed } from '@/components/trips/WelcomeBrochure'
 import InstallPwaCard from '@/components/trips/InstallPwaCard'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 import { formatTripDateRange } from '@/lib/utils'
 import TripInformationCard from '@/components/trips/TripInformationCard'
 
@@ -265,6 +266,16 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
     }
   }, [trip.id, router])
 
+  // GA4 / Product Analytics brief — core player funnel. Fires once per
+  // mount, not on every render — this is "the player reached the
+  // Lobby," a meaningful funnel step, not something that should fire
+  // repeatedly as the component re-renders for unrelated reasons.
+  // tripId is an opaque internal identifier, not PII.
+  useEffect(() => {
+    trackEvent('lobby_opened', { tripId: trip.id })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trip.id])
+
   const me = trip.trip_members.find(m => m.profile_id === currentUserId)
   // Item 4 — real organiser name, not hardcoded. trip.trip_members is
   // already fetched and available here; no new query needed.
@@ -338,7 +349,20 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
             Watermark image supplied for this feature; the strong dark
             green gradient (inside WelcomeBrochure itself) keeps text
             fully legible while the photography stays subtly visible
-            behind it. */}
+            behind it.
+            30 Aug field-test bundle — player lobby / smart PWA
+            install. The install promotion now renders INSIDE
+            WelcomeBrochure itself (near its own top, see that
+            component) when expanded — genuinely part of the premium
+            onboarding card, not a separate banner bolted above it. If
+            the player has already collapsed the welcome text (a
+            separate, independent dismissal from installing the app),
+            it renders here instead, alongside the collapsed summary —
+            dismissing "welcome" must never also silently hide the
+            install prompt; InstallPwaCard still fully owns its own
+            visibility either way (installed/dismissed/etc. all return
+            null internally), so this never renders twice regardless of
+            which branch is active. */}
         {brochureExpanded ? (
           <WelcomeBrochure
             tripId={trip.id} tripName={trip.name}
@@ -346,7 +370,10 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
             onDismiss={() => setBrochureExpanded(false)}
           />
         ) : (
-          <CollapsedWelcomeCard onReopen={() => setBrochureExpanded(true)} />
+          <>
+            <InstallPwaCard />
+            <CollapsedWelcomeCard onReopen={() => setBrochureExpanded(true)} />
+          </>
         )}
 
         {/* Item 1 — the explicit "Event Lobby" reframing. Previously
@@ -361,17 +388,6 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#a1791f', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 }}>
           Event Lobby
         </p>
-
-        {/* P0 field-test fix — moved up from underneath the brochure to
-            sit directly beside "Joined," per the explicit instruction:
-            this is the moment a player has just confirmed they're
-            coming, the most natural point to also offer keeping the
-            event handy on their home screen — not several scrolls down,
-            competing with a collapsed brochure card for attention.
-            Still fully self-managing its own visibility (installed/
-            unsupported/dismissed all still return null internally) —
-            only the position changed, no behaviour. */}
-        <InstallPwaCard />
 
         {/* Status card — everything a player needs to know at a glance,
             nothing they need to configure. */}

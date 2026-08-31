@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useJoinTrip } from '@/lib/queries/trips'
+import { trackEvent } from '@/lib/analytics/trackEvent'
 
 export default function JoinWelcomeInner() {
   const params     = useParams()
@@ -17,8 +18,21 @@ export default function JoinWelcomeInner() {
   useEffect(() => {
     if (!inviteCode) return
 
+    // GA4 / Product Analytics brief — this page's own join mutation has
+    // a genuine onSuccess callback (unlike JoinForm.tsx's hard-
+    // navigation paths, which can't observe server confirmation) — the
+    // cleanest, most reliable point to fire event_joined for this
+    // specific entry point. invite_opened deliberately carries no
+    // properties — the invite CODE itself is a token and must never be
+    // sent to analytics (see trackEvent.ts's own PII rule).
+    trackEvent('invite_opened')
+
     joinTrip.mutate(inviteCode, {
       onSuccess: (data: { tripName: string; tripId: string }) => {
+        // tripId is an opaque internal UUID, not PII — tripName (a
+        // free-text, player-chosen event name) is deliberately never
+        // sent.
+        trackEvent('event_joined', { tripId: data.tripId })
         setTripName(data.tripName)
         setTimeout(() => router.push(`/trips/${data.tripId}`), 2000)
       },
