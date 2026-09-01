@@ -9,15 +9,23 @@
  * root cause of scores and reconciliation status going stale until the
  * user left and re-entered the round.
  *
- * Mirrors src/app/(app)/trips/[tripId]/rounds/[roundId]/page.tsx's
- * self_and_marker resolution logic exactly — same queries, same group
- * membership merge (the same PostgREST-embed pitfall applies here: there is
- * no FK from scorecards to trip_members, so it's fetched separately).
+ * 1 Sep field-test bundle — this docstring used to claim this route
+ * "mirrors page.tsx's self_and_marker resolution logic exactly." It
+ * didn't: page.tsx resolves markedScorecard via shared-device detection
+ * OR round_markers; this route only ever had the round_markers half,
+ * which silently overwrote a correctly-resolved shared-device partner
+ * with null on the very first poll after initial load (round_markers
+ * is never written for a shared-device pair, so that lookup always
+ * came back empty for one). Now genuinely mirrors page.tsx — same
+ * detectSharedDeviceGroup call, same group-scoped query, checked
+ * first, with round_markers only consulted when this specific pairing
+ * isn't shared-device.
  */
 
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { detectSharedDeviceGroup } from '@/lib/scoring/sharedDeviceScoring'
 
 // This is a polling endpoint (SelfMarkerScoreShell hits it every ~7s while a
 // round is active) — it must never be cached. Without this, Next.js can
@@ -119,11 +127,50 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   const allCards: ScorecardRow[] = allCardsRes.data ?? []
   const myCard = allCards.find((c) => c.player_id === user.id) ?? null
 
+  // 1 Sep field-test bundle — P0 runtime state-loss bug, root cause.
+  // This route's own docstring claimed to mirror page.tsx's resolution
+  // "exactly" — it didn't. page.tsx resolves markedScorecard via TWO
+  // paths: shared-device detection (group + scoring_method, for a
+  // Digital+Paper pair) OR round_markers (for a genuine Digital+Digital
+  // marker relationship) — this route only ever had the second path.
+  // Symptom, confirmed from real-device evidence: page.tsx's own
+  // server-rendered initial load correctly resolves TEST as the shared-
+  // device partner, so Card 2 genuinely renders on first paint — then
+  // this polling endpoint fires (every ~7s while the round is active),
+  // finds nothing in round_markers (which is never written for a
+  // shared-device pair — see shared-device-score/route.ts's own
+  // comment on this), and overwrites the client's markedScorecard with
+  // null. Card 2 disappears a few seconds after it correctly appeared —
+  // not a detection failure, a state-loss bug in exactly the refetch
+  // this brief asked to be traced. Fixed by adding the identical
+  // shared-device detection page.tsx already uses — same function,
+  // same query shape, same group-scoping — so this endpoint can no
+  // longer produce a different answer than the initial server render.
+  let sharedDeviceDetection: ReturnType<typeof detectSharedDeviceGroup> = { isSharedDevice: false, digitalPlayerId: null, paperPlayerId: null }
+  if (memberCheck.data.group_id) {
+    const groupCardsRes = await admin.from('scorecards').select('player_id, scoring_method').eq('round_id', roundId).neq('status', 'withdrawn')
+    const groupMembersRes = await admin.from('trip_members').select('profile_id').eq('trip_id', tripId).eq('group_id', memberCheck.data.group_id)
+    const groupProfileIds = new Set((groupMembersRes.data ?? []).map((m: { profile_id: string }) => m.profile_id))
+    const relevantCards = (groupCardsRes.data ?? []).filter((c: { player_id: string }) => groupProfileIds.has(c.player_id))
+    sharedDeviceDetection = detectSharedDeviceGroup(
+      relevantCards.map((c: { player_id: string; scoring_method: string }) => ({ playerId: c.player_id, scoringMethod: c.scoring_method === 'paper' ? 'paper' : 'digital' }))
+    )
+  }
+  const isSharedDeviceForMe = sharedDeviceDetection.isSharedDevice && sharedDeviceDetection.digitalPlayerId === user.id
+
   const usesMarkers = round.score_capture_mode === 'self_and_marker'
   let markedByProfile: ScorecardProfile | null = null
   let markedCard: ScorecardRow | null = null
 
-  if (usesMarkers) {
+  if (isSharedDeviceForMe) {
+    // Shared-device pairing takes priority and is resolved the exact
+    // same way page.tsx resolves it — Marnie's real scorecard, found
+    // directly in allCards, never via round_markers (which this
+    // pairing never writes to at all). No marker relationship exists
+    // for this player in this mode, matching page.tsx's own comment on
+    // this ("Alex has no one marking HIM").
+    markedCard = allCards.find((c) => c.player_id === sharedDeviceDetection.paperPlayerId) ?? null
+  } else if (usesMarkers) {
     const markersRes = await admin
       .from('round_markers')
       .select('player_id, marker_player_id')

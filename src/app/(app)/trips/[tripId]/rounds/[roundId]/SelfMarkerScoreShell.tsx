@@ -2203,17 +2203,26 @@ export default function SelfMarkerScoreShell({
             computes and what this component renders, fixed regardless
             of whether it's the reported bug's root cause. Broadened to
             `(requiresMarker || isSharedDeviceScoring)` — the actual
-            scoring card now shows for either reason a partner exists;
-            the "Change who I'm marking" button below stays gated to
-            requiresMarker ONLY, since it calls the round_markers-based
-            /playing-partner endpoint, which has no meaning for a
-            shared-device pair — that relationship is derived
-            automatically from group membership + scoring_method, not a
-            manual choice, and there is nothing for that button to
-            change. */}
+            scoring card now shows for either reason a partner exists.
+            1 Sep field-test bundle — the "Change who I'm marking"
+            button below was ALREADY documented here as "requiresMarker
+            ONLY, since it calls the round_markers-based /playing-
+            partner endpoint, which has no meaning for a shared-device
+            pair" — but the actual condition never enforced that; it
+            only checked `requiresMarker`, which is a ROUND-level flag
+            (score_capture_mode === 'self_and_marker') independent of
+            whether THIS SPECIFIC pairing is shared-device. A round
+            using self_and_marker mode can contain both a genuine
+            marker relationship (a different group, digital+digital)
+            and a shared-device relationship (this group,
+            digital+paper) simultaneously — requiresMarker alone can't
+            tell them apart. This is exactly the "suspicious" button
+            the field test flagged: confirmed showing for a shared-
+            device pair when it should never appear for one. Fixed to
+            `requiresMarker && !isSharedDeviceScoring`. */}
         {(requiresMarker || isSharedDeviceScoring) && markedScorecard && partnerName && (
           <>
-            {requiresMarker && (
+            {requiresMarker && !isSharedDeviceScoring && (
               <button
                 onClick={() => setChangingPartner(true)}
                 style={{
