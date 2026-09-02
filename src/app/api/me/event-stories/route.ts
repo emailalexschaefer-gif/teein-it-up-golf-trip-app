@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { computeCumulativeStandings, determineChampions, type RoundPlayerResult } from '@/lib/scoring/multiRound'
+import { orderHolesByPlaySequence } from '@/lib/scoring/holeSequence'
 
 /**
  * GET /api/me/event-stories
@@ -45,7 +47,7 @@ export async function GET() {
   }
 
   const [roundsRes, highlightsRes, leadersRes, tripsRes] = await Promise.all([
-    admin.from('rounds').select('trip_id, course_name, play_date').in('trip_id', completedTripIds),
+    admin.from('rounds').select('id, trip_id, course_name, play_date, status, holes, starting_hole_number').in('trip_id', completedTripIds),
     admin.from('published_round_highlights').select('trip_id, highlights').in('trip_id', completedTripIds),
     admin.from('side_comp_lead_changes')
       .select('side_comp_id, player_id, sequence_number, side_comps!inner ( trip_id )')
@@ -55,8 +57,11 @@ export async function GET() {
 
   const tripNameById = new Map((tripsRes.data ?? []).map((t: { id: string; name: string }) => [t.id, t.name]))
 
-  const roundsByTrip = new Map<string, { course_name: string | null; play_date: string | null }[]>()
-  for (const r of (roundsRes.data ?? []) as { trip_id: string; course_name: string | null; play_date: string | null }[]) {
+  interface RoundRow { id: string; trip_id: string; course_name: string | null; play_date: string | null; status: string; holes: number | null; starting_hole_number: number | null }
+  const allRounds = (roundsRes.data ?? []) as RoundRow[]
+
+  const roundsByTrip = new Map<string, RoundRow[]>()
+  for (const r of allRounds) {
     const list = roundsByTrip.get(r.trip_id) ?? []
     list.push(r)
     roundsByTrip.set(r.trip_id, list)
@@ -83,6 +88,51 @@ export async function GET() {
     }
   }
 
+  // 1 Sep field-test bundle — item 4, Event Winner. Reuses
+  // computeCumulativeStandings/determineChampions directly — the exact
+  // same authoritative countback-based functions final-results/route.ts
+  // already uses for the champion(s) of any single trip — not a second,
+  // approximation-based winner calculation (that already exists
+  // separately, deliberately documented as a simplification, in
+  // migration 068's homepage summary RPC; explicitly not reused here,
+  // per "do not infer... use authoritative results logic"). Only
+  // computes standings — never the richer podium/round-winners/Makers &
+  // Breakers/photos payload the full final-results endpoint returns —
+  // keeping this index genuinely lightweight, per this route's own
+  // established "index data only" principle.
+  const isMyEventWinnerByTrip = new Map<string, boolean>()
+  await Promise.all(completedTripIds.map(async tripId => {
+    const completedRounds = (roundsByTrip.get(tripId) ?? []).filter(r => r.status === 'completed')
+    if (completedRounds.length === 0) return
+
+    const perRoundResults: RoundPlayerResult[][] = await Promise.all(completedRounds.map(async round => {
+      const [scRes, holesRes] = await Promise.all([
+        admin.from('scorecards').select('player_id, score_entries(stableford_pts, capture_role, hole_id)').eq('round_id', round.id).neq('status', 'withdrawn'),
+        admin.from('holes').select('id, hole_number').eq('round_id', round.id),
+      ])
+      const holeCount: 9 | 18 = round.holes === 9 ? 9 : 18
+      const startingHoleNumber: 1 | 10 = round.starting_hole_number === 10 ? 10 : 1
+      const holeNumberById = new Map((holesRes.data ?? []).map((h: { id: string; hole_number: number }) => [h.id, h.hole_number]))
+      const scRows = (scRes.data ?? []) as unknown as { player_id: string; score_entries: { stableford_pts: number; capture_role: string; hole_id: string }[] }[]
+      return scRows.map(sc => {
+        const selfEntries = (sc.score_entries ?? []).filter(e => e.capture_role === 'self')
+        const rows = selfEntries
+          .map(e => { const hn = holeNumberById.get(e.hole_id); return hn ? { hole_number: hn, points: e.stableford_pts ?? 0 } : null })
+          .filter((r): r is { hole_number: number; points: number } => r !== null)
+        const holePoints = orderHolesByPlaySequence(rows, holeCount, startingHoleNumber).map(r => r.points)
+        return {
+          playerId: sc.player_id, playerName: '',
+          roundPoints: selfEntries.reduce((sum, e) => sum + (e.stableford_pts ?? 0), 0),
+          holePoints,
+        }
+      })
+    }))
+
+    const standings = computeCumulativeStandings(perRoundResults)
+    const champions = determineChampions(standings)
+    isMyEventWinnerByTrip.set(tripId, champions.some(c => c.playerId === user.id))
+  }))
+
   const eventStories = completedTripIds.map(tripId => {
     const rounds = roundsByTrip.get(tripId) ?? []
     const courses = [...new Set(rounds.map(r => r.course_name).filter((c): c is string => !!c))]
@@ -93,6 +143,7 @@ export async function GET() {
       courses,
       startDate: dates[0] ?? null,
       endDate: dates[dates.length - 1] ?? null,
+      isEventWinner: isMyEventWinnerByTrip.get(tripId) ?? false,
       badgeCount: badgeCountByTrip.get(tripId) ?? 0,
       sideGameWinCount: sideGameWinCountByTrip.get(tripId) ?? 0,
     }

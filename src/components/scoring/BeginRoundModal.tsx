@@ -441,7 +441,12 @@ export default function BeginRoundModal({
   const allGroupsHavePlayers = localGroups.every(g => g.players.length > 0)
   const hasGroups = localGroups.length > 0
   const totalPlayers = localGroups.reduce((sum, g) => sum + g.players.length, 0)
-  const allGroupsHaveTeeTimes = localGroups.every(g => g.tee_time)
+  // 1 Sep field-test bundle — same fallback hierarchy as the display
+  // fixes above, applied here too for consistency: a round-specific
+  // override (once groupTeeTimes has loaded) should count same as a
+  // group's own baseline value — this readiness check must never
+  // disagree with what the tee-time input above actually shows.
+  const allGroupsHaveTeeTimes = localGroups.every(g => groupTeeTimes[g.id] ?? g.tee_time)
   const allStartingHolesSet = startType !== 'shotgun' || localGroups.every(g => startingHoles[g.id] != null)
 
   // Item 8 — readiness summary, driven by the exact same checks that
@@ -722,7 +727,11 @@ export default function BeginRoundModal({
             <>
               {/* Round info */}
               {(() => {
-                const groupTimes = localGroups.map(g => groupTeeTimes[g.id]).filter(Boolean).sort() as string[]
+                // 1 Sep field-test bundle — same fallback as the
+                // editable input below: this "First Tee" summary must
+                // reflect a tee time set the normal way in Group Setup
+                // too, not only an explicit round-specific override.
+                const groupTimes = localGroups.map(g => groupTeeTimes[g.id] ?? g.tee_time).filter(Boolean).sort() as string[]
                 const teeTimeDisplay = groupTimes.length === 0 ? 'TBC'
                   : groupTimes.length === 1 ? groupTimes[0]
                   : `${groupTimes[0]}–${groupTimes[groupTimes.length - 1]}`
@@ -876,6 +885,19 @@ export default function BeginRoundModal({
                 // source of truth. Never moves players between groups —
                 // this is purely a hint string.
                 const paperCount = g.players.filter(p => (scoringMethods[p.profile_id] ?? 'digital') === 'paper').length
+                // 1 Sep field-test bundle — "review pre-round Paper
+                // Player copy so it reflects the now-working model."
+                // Shared-device auto-scoring (a digital player entering
+                // a paper player's scores hole-by-hole, no login/Start
+                // Scoring/device needed from the paper player) only
+                // ever applies to the exact shape detectSharedDeviceGroup
+                // requires — a 2-player group, exactly 1 digital + 1
+                // paper. Any other shape (3+ players, 2+ paper players)
+                // falls through to the older "check/sign a physical
+                // card between golfers" workflow, which is still
+                // genuinely accurate there and not being replaced.
+                const digitalCount = g.players.length - paperCount
+                const isSharedDeviceEligible = paperCount === 1 && digitalCount === 1
                 return (
                   <div key={g.id} style={{
                     background: '#ffffff', border: '1.5px solid #d9c9a3',
@@ -885,19 +907,36 @@ export default function BeginRoundModal({
                       <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: '#1a4731' }}>{g.name}</span>
                       {/* Priority 3 — this round's own tee time, editable
                           directly here rather than a passive badge.
-                          Reads/writes round_group_tee_times only —
-                          editing this can never touch another round's
-                          saved value, since each row is keyed by
-                          (round_id, group_id). Unset shows as "TBC",
-                          never silently inherited from a prior round. */}
+                          Editing this writes to round_group_tee_times
+                          only — a save here can never touch another
+                          round's value, since each row is keyed by
+                          (round_id, group_id).
+                          1 Sep field-test bundle — "tee time not
+                          carrying into Finalize Round," confirmed root
+                          cause: the organiser's actual Group Setup
+                          screen (TripGroupsTab.tsx) writes tee times to
+                          trip_groups.tee_time, a completely different
+                          field from round_group_tee_times — this input
+                          read only the latter, with no fallback, so a
+                          time set the normal way during setup never
+                          appeared here at all. Same fallback hierarchy
+                          StartingGrid.tsx already established for the
+                          identical class of bug: this round's own
+                          explicit override wins when set; otherwise
+                          fall back to the group's own baseline value —
+                          not "inherited from a prior round" (g.tee_time
+                          is the same trip-level field regardless of
+                          which round is open, not a snapshot of Round
+                          1's own round-specific override), genuinely
+                          the group's persisted default. */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                         <input
                           type="time"
-                          value={teeTimeDrafts[g.id] ?? groupTeeTimes[g.id] ?? ''}
+                          value={teeTimeDrafts[g.id] ?? groupTeeTimes[g.id] ?? g.tee_time ?? ''}
                           onChange={e => setTeeTimeDrafts(prev => ({ ...prev, [g.id]: e.target.value }))}
                           style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7a5c00', border: '1px solid rgba(201,168,76,0.4)', borderRadius: 6, padding: '2px 6px', width: 88 }}
                         />
-                        {g.id in teeTimeDrafts && teeTimeDrafts[g.id] !== (groupTeeTimes[g.id] ?? '') && (
+                        {g.id in teeTimeDrafts && teeTimeDrafts[g.id] !== (groupTeeTimes[g.id] ?? g.tee_time ?? '') && (
                           <button
                             type="button"
                             onClick={() => void saveGroupTeeTime(g.id)}
@@ -1049,7 +1088,12 @@ export default function BeginRoundModal({
                         Confirm a playing handicap for {missingHcp.map(p => p.full_name).join(', ')} in the Players tab.
                       </p>
                     )}
-                    {paperCount === 1 && (
+                    {isSharedDeviceEligible && (
+                      <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a1791f', marginTop: 6 }}>
+                        ✏️ Paper player doesn&apos;t need a phone — their playing partner enters their scores during the round.
+                      </p>
+                    )}
+                    {paperCount === 1 && !isSharedDeviceEligible && (
                       <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a1791f', marginTop: 6 }}>
                         ✏️ 1 paper-scorecard player — another golfer should check/sign their physical card.
                       </p>

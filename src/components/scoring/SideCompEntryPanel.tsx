@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import MomentCapture from '@/components/moments/MomentCapture'
 import { trackEvent } from '@/lib/analytics/trackEvent'
+import { resolveCompetitorDisplayName, resolveSideCompMomentEntryId } from '@/lib/scoring/sideCompIdentity'
 
 /**
  * Side Competition CLAIM entry — Stage 2 of Side Game Marker
@@ -40,6 +41,22 @@ export interface SideCompSubmitResult {
   // explicitly the OFFICIAL/verified leader, which is never this player
   // at claim time — there's no other field carrying their own value.
   claimedValue: number | null
+  // 1 Sep field-test bundle — "Darren Lappen · pending verification"
+  // shown when the actual competitor was Razzle Dazzle, root cause.
+  // This result previously carried no identity for WHO the claim was
+  // actually for at all — the caller (SelfMarkerScoreShell's
+  // onWouldLeadIfVerified) had no correct value available and used the
+  // authenticated device operator's own name instead, which is only
+  // ever right when someone submits for themselves. The persisted
+  // claim itself was always correctly keyed by the real competitor
+  // (side_comp_entries.player_id / selectedPlayerId here) — this was
+  // purely a missing-field display bug in one celebratory prompt, not
+  // an identity bug in any stored data, confirmed by tracing every
+  // other consumer of this submission (the entries GET, the
+  // leaderboard, pending-verifications) already correctly using
+  // player_id/playerName throughout.
+  competitorPlayerId: string
+  competitorPlayerName: string
 }
 
 interface Props {
@@ -239,6 +256,12 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
         verifierSource: responseBody.verifierSource ?? null,
         currentLeader: responseBody.currentLeader ?? null,
         claimedValue: resultValue,
+        // 1 Sep field-test bundle — the actual competitor this claim
+        // was for, resolved from the same selectedPlayerId the request
+        // body itself was already keyed by — never the authenticated
+        // device operator, and never guessed from currentUserId.
+        competitorPlayerId: selectedPlayerId,
+        competitorPlayerName: resolveCompetitorDisplayName({ selectedPlayerId, currentUserId, groupMembers }),
       }
       // currentLeader here is the OFFICIAL (verified) leader — unaffected
       // by this submission, since a claim never writes an official
@@ -402,7 +425,25 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
             proxyPlayerId={selectedPlayerId !== currentUserId ? selectedPlayerId : undefined}
             sideCompContext={{
               sideCompId,
-              entryId: lastResult?.entryId ?? null,
+              // 1 Sep field-test bundle — "generic photo Moment,
+              // separate from the leader story" root cause. This was
+              // `lastResult?.entryId ?? null` only — lastResult is
+              // exclusively set by a submission happening in THIS
+              // render session; it is never set by the initial-load
+              // path above, which restores an EXISTING claim
+              // (hasSubmittedOnce=true, myEntryId set) from a prior
+              // visit. A player who claimed earlier, navigated away,
+              // came back, and only then took the photo would have
+              // hasSubmittedOnce=true and lastResult=null — this
+              // condition already correctly shows the capture UI in
+              // that case, but the entryId passed into it was silently
+              // null, so the photo uploaded with no side_comp_entries
+              // link at all. Not comp-type-specific in the code itself
+              // — matches whichever comp's real-device test happened
+              // to involve a page reload/revisit between claiming and
+              // capturing, which explains why NTP and Longest Drive
+              // showed different results on the same underlying bug.
+              entryId: resolveSideCompMomentEntryId({ lastResultEntryId: lastResult?.entryId ?? null, restoredEntryId: myEntryId }),
               leadChangeId: null,
               compType,
               resultValue: lastResult?.claimedValue ?? (myResultValue ? Number(myResultValue) : null),

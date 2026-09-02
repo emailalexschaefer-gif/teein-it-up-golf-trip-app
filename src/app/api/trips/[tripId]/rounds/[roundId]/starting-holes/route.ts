@@ -28,7 +28,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   const membership = await admin.from('trip_members').select('role').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
   if (!membership.data) return NextResponse.json({ error: 'Not a trip member.' }, { status: 403 })
 
-  const roundCheck = await admin.from('rounds').select('id, start_type').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
+  const roundCheck = await admin.from('rounds').select('id, start_type, starting_hole_number').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
   if (!roundCheck.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
 
   const { data: startingHoles, error } = await admin
@@ -38,7 +38,21 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
   if (error) return NextResponse.json({ error: 'Could not load starting holes.' }, { status: 500 })
 
-  return NextResponse.json({ startType: roundCheck.data.start_type, startingHoles: startingHoles ?? [] })
+  // 1 Sep field-test bundle — "Starting Grid must show actual starting
+  // hole." The Starting Grid was hardcoding "Hole 1" in its display —
+  // this is the authoritative source live scoring itself already uses
+  // for a standard (non-shotgun) round's starting hole
+  // (holeSequence.ts reads this exact column). Added here rather than
+  // inventing a second inference path, per the explicit "do not create
+  // separate inference logic" instruction — startType==='standard'
+  // rounds now have a real value to display instead of an assumption;
+  // shotgun rounds are unaffected (they already have their own
+  // per-group startingHoles below, unchanged).
+  return NextResponse.json({
+    startType: roundCheck.data.start_type,
+    startingHoleNumber: roundCheck.data.starting_hole_number === 10 ? 10 : 1,
+    startingHoles: startingHoles ?? [],
+  })
 }
 
 export async function PATCH(req: NextRequest, { params }: RouteProps) {

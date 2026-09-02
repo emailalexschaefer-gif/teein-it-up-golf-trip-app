@@ -1,0 +1,96 @@
+-- =============================================================================
+-- 072_enable_rls_side_comps_pre_sprint9_backup.sql
+-- =============================================================================
+-- Urgent security check — Supabase "rls_disabled_in_public" warning.
+--
+-- AUDIT METHOD: extracted every `CREATE TABLE public.X` and every
+-- `ALTER TABLE public.X ENABLE ROW LEVEL SECURITY` statement across the
+-- complete migration history (000 through 071) and diffed the two
+-- lists. Every single table in this schema has a matching RLS-enable
+-- statement — except one.
+--
+-- A. EXACT TABLE FLAGGED: public.side_comps_pre_sprint9_backup.
+--
+-- B. WHY RLS IS DISABLED: this table was created ad-hoc, mid-migration,
+--    in 037_side_competitions_powerplay.sql, via
+--    `CREATE TABLE IF NOT EXISTS public.side_comps_pre_sprint9_backup
+--    (LIKE public.side_comps INCLUDING ALL)` — a one-time safety net to
+--    preserve any side_comps rows that would otherwise be deleted or
+--    fail that migration's new constraints (NULL round_id, or
+--    duplicates under the new (round_id, comp_type, hole_number)
+--    uniqueness rule), per that migration's own explicit "preserve
+--    data if there is any uncertainty, don't just delete it" comment.
+--    `LIKE ... INCLUDING ALL` copies columns, defaults, constraints,
+--    and indexes from side_comps — but Postgres's INCLUDING ALL does
+--    NOT copy RLS enablement or policies; those are never part of what
+--    a LIKE clause carries over, and must be set explicitly and
+--    separately. side_comps itself has always had RLS enabled
+--    (confirmed: 000_combined_fresh_database.sql, immediately after
+--    its own CREATE TABLE) — this backup table simply never received
+--    the same treatment, since it wasn't created as a normal
+--    application table with the usual create-then-secure pattern.
+--
+-- C. WHAT DATA IS EXPOSED: side-competition CONFIGURATION rows only —
+--    id, trip_id, round_id, name, comp_type, hole_number, description
+--    (the exact side_comps column set, per LIKE ... INCLUDING ALL).
+--    No player names, no scores, no results, no auth
+--    credentials/emails/tokens — those live in side_comp_entries /
+--    side_comp_results / profiles, all separately, all confirmed to
+--    already have RLS enabled with member-scoped policies. The
+--    exposure here is limited to which trips exist and how their side
+--    games were configured (name/type/hole) — a genuine but low-
+--    severity information disclosure, not player-personal data.
+--    Whether this table currently contains ANY rows in production
+--    cannot be determined from this sandbox (no live database
+--    connection) — per that migration's own design, it should be
+--    populated only if truly orphaned/duplicate rows were found at the
+--    moment 037 ran, and empty otherwise. Flagging this explicitly
+--    rather than assuming either way.
+--
+-- D. WHAT ANON/AUTHENTICATED CLIENTS CAN CURRENTLY DO: full read (and,
+--    per Supabase's standard schema-level default grants — no
+--    per-table GRANT/REVOKE was ever issued for this table
+--    specifically, confirmed by search — likely write/delete too,
+--    exactly matching Supabase's own warning text) via the PostgREST
+--    API at /rest/v1/side_comps_pre_sprint9_backup, to anyone who knows
+--    the project URL, entirely unauthenticated.
+--
+-- E. APPLICATION FLOWS DEPENDENT ON THIS TABLE: none. Confirmed via a
+--    full search of the entire src/ tree — zero references anywhere,
+--    in any route, component, or query. This table is written to
+--    exactly once (inside migration 037 itself, and only
+--    conditionally, if the described edge cases existed at the moment
+--    it ran) and never read by the running application at all.
+--
+-- F. PROPOSED POLICY: none. RLS enabled with zero policies is a
+--    correct, intentional configuration here — it means default-deny
+--    for every role PostgREST serves (anon, authenticated), while
+--    service_role (what this app's own admin client and every
+--    migration use) continues to bypass RLS entirely, exactly as
+--    Supabase's service role always does regardless of policies. Since
+--    nothing in the running application ever needs to query this table
+--    at all, this is the smallest, safest possible fix — not a policy
+--    that grants some narrow legitimate access, because there genuinely
+--    is none to grant.
+--
+-- G. REGRESSION RISK: none identified. This table has no foreign-key
+--    dependents, no triggers, and (per E above) no application code
+--    path touches it. Enabling RLS with no policies cannot break
+--    anything currently working, including Start Scoring, Digital +
+--    Paper/shared-device scoring, scorecards, round_markers,
+--    trip_members, trip_groups, Side Games/side_comp_entries,
+--    verification, Moments, Makers & Breakers, Event Stories, the
+--    join/invitation flow, or the Course Library — none of those flows
+--    reference this table in any way.
+--
+-- Numbered 072, after the two already-pending migrations
+-- (070_begin_round_writes_group_id.sql,
+-- 071_fix_side_comp_verifier_group_scoping.sql) — neither renumbered
+-- nor overwritten.
+--
+-- Idempotent: safe to run more than once (ENABLE ROW LEVEL SECURITY is
+-- itself idempotent in Postgres — re-enabling an already-enabled table
+-- is a no-op, not an error).
+-- =============================================================================
+
+ALTER TABLE public.side_comps_pre_sprint9_backup ENABLE ROW LEVEL SECURITY;

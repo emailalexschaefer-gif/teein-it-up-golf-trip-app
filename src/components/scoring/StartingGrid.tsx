@@ -29,6 +29,7 @@ export default function StartingGrid({
   const [members, setMembers] = useState<Member[]>([])
   const [teeTimes, setTeeTimes] = useState<Record<string, string | null>>({})
   const [startType, setStartType] = useState<'standard' | 'shotgun'>('standard')
+  const [startingHoleNumber, setStartingHoleNumber] = useState<1 | 10>(1)
   const [startingHoles, setStartingHoles] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
 
@@ -48,6 +49,7 @@ export default function StartingGrid({
       }
       if (startingHolesBody) {
         setStartType(startingHolesBody.startType === 'shotgun' ? 'shotgun' : 'standard')
+        setStartingHoleNumber(startingHolesBody.startingHoleNumber === 10 ? 10 : 1)
         const map: Record<string, number> = {}
         for (const h of (startingHolesBody.startingHoles ?? []) as { group_id: string; starting_hole: number }[]) map[h.group_id] = h.starting_hole
         setStartingHoles(map)
@@ -108,15 +110,19 @@ export default function StartingGrid({
             <div key={g.id}>
               <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 800, color: '#a1791f', marginBottom: 6 }}>
                 {g.name ?? `Group ${i + 1}`}
-                {/* Item — exact display per the brief: shotgun shows
-                    "Start Hole N"; standard rounds explicitly show
-                    "Hole 1" rather than omitting it, since every
-                    standard round genuinely does start there — this
-                    isn't fabricated data, just stating the always-true
-                    default explicitly rather than leaving it implicit. */}
+                {/* 1 Sep field-test bundle — "Starting Grid must show
+                    actual starting hole." Was a hardcoded "Hole 1"
+                    literal, shown for every non-shotgun round
+                    regardless of its actual configuration — a back-
+                    nine round would correctly open live scoring on
+                    Hole 10 while this still claimed Hole 1. Now reads
+                    the same authoritative starting_hole_number column
+                    live scoring itself uses (holeSequence.ts), via the
+                    starting-holes endpoint this component already
+                    calls — no second inference path. */}
                 {teeTime && <span> · ⏰ {formatTeeTime(teeTime)}</span>}
                 {startType === 'shotgun' && hole != null && <span> · Start Hole {hole}</span>}
-                {startType !== 'shotgun' && <span> · Hole 1</span>}
+                {startType !== 'shotgun' && <span> · Hole {startingHoleNumber}</span>}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {groupMembers.map(m => (

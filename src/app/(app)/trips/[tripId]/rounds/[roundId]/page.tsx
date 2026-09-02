@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import ScoreSessionShell from './ScoreSessionShell'
 import SelfMarkerScoreShell from './SelfMarkerScoreShell'
 import PaperScorecardStatus from './PaperScorecardStatus'
-import { detectSharedDeviceGroup } from '@/lib/scoring/sharedDeviceScoring'
+import { detectSharedDeviceGroup, resolveMarkedPlayerId } from '@/lib/scoring/sharedDeviceScoring'
 
 // Same reasoning as the trip detail page — never serve a cached render here.
 export const dynamic = 'force-dynamic'
@@ -251,76 +251,54 @@ export default async function RoundScorePage({ params }: Props) {
   if (round.score_capture_mode !== 'group_scorer') {
     const myCard = allCards.find((c) => c.player_id === user.id) ?? null
 
-    // Add-on 1 — corrected architecture. Shared-device scoring is now a
-    // MODE FLAG on the existing SelfMarkerScoreShell, not a separate,
-    // stripped-down component. The key insight: SelfMarkerScoreShell's
-    // "who is my marker/who do I mark" resolution normally comes from
-    // round_markers, but that lookup is only a MEANS to get a
-    // ScorecardWithGroup — Marnie's real scorecard (with her real
-    // playing_handicap) already exists in allCards regardless. Setting
-    // markedCard directly from allCards, bypassing round_markers
-    // entirely, means currentMarked is truthy from the very first
-    // render — the "Choose your Playing Partner" flow (which only ever
-    // fires when requiresMarker && !currentMarked) structurally never
-    // triggers, with no separate code path needed to suppress it. This
-    // is what makes every other Side Games/leaderboard/Pro Tip/hole-
-    // navigation feature "just work" unchanged: none of that was ever
-    // specific to round_markers-based pairing, only to currentMarked
-    // being set.
-    const isSharedDeviceForMe = sharedDeviceDetection.isSharedDevice && sharedDeviceDetection.digitalPlayerId === user.id
-    const sharedDevicePaperCard = isSharedDeviceForMe
-      ? allCards.find((c) => c.player_id === sharedDeviceDetection.paperPlayerId) ?? null
-      : null
-
-    // 'individual' mode genuinely has no marker concept — skip the
-    // round_markers lookup entirely rather than fetching it and then
-    // discarding it, so there's no path by which a stray row could leak
-    // through into the UI for this mode.
+    // 1 Sep field-test bundle — refactored to call the same shared,
+    // tested resolveMarkedPlayerId() that /my-scores/route.ts now uses,
+    // instead of this file's own separate inline version of the exact
+    // same decision. This is the direct fix for the original P0's real
+    // cause: two independent implementations of "who is my marked/
+    // shared-device partner" were free to silently drift apart, and did.
+    // Behaviour is unchanged — this performs the identical query only
+    // when it was already being performed (round_markers is still
+    // skipped entirely for a shared-device pair or 'individual' mode,
+    // exactly as before), it just delegates the actual decision to the
+    // shared function rather than re-implementing it a second time.
     const usesMarkers = round.score_capture_mode === 'self_and_marker'
+    const isSharedDeviceForMe = sharedDeviceDetection.isSharedDevice && sharedDeviceDetection.digitalPlayerId === user.id
 
-    let markedByProfile: ScorecardProfile | null = null
-    let markedCard: ScorecardWithGroup | null = null
-
-    if (isSharedDeviceForMe) {
-      // Shared-device mode — markedCard is Marnie's real scorecard,
-      // resolved directly above from allCards, not from round_markers
-      // (round_markers is never written for this pairing at all — see
-      // the shared-device-score endpoint's own write path). Alex has
-      // no one marking HIM (markedByProfile stays null), exactly like
-      // a solo digital player would.
-      markedCard = sharedDevicePaperCard
-    } else if (usesMarkers) {
+    let markerRows: Array<{ player_id: string; marker_player_id: string }> = []
+    if (usesMarkers && !isSharedDeviceForMe) {
       const markersRes = await admin
         .from('round_markers')
         .select('player_id, marker_player_id')
         .eq('round_id', roundId)
-
       if (markersRes.error) {
         console.error('[round page] round_markers query failed', { roundId, error: markersRes.error })
       }
-      const markerRows: Array<{ player_id: string; marker_player_id: string }> = markersRes.data ?? []
+      markerRows = markersRes.data ?? []
+    }
 
-      // Who marks me? (a row where I'm the one being marked)
-      const markedByRow = markerRows.find(r => r.player_id === user.id)
-      // Who do I mark? (a row where I'm the marker)
-      const iMarkRow = markerRows.find(r => r.marker_player_id === user.id)
+    const resolution = resolveMarkedPlayerId({
+      myUserId: user.id,
+      sharedDeviceDetection,
+      usesMarkers,
+      markerRows: markerRows.map(r => ({ playerId: r.player_id, markerPlayerId: r.marker_player_id })),
+    })
 
-      markedByProfile = markedByRow
-        ? allCards.find((c) => c.player_id === markedByRow.marker_player_id)?.profiles ?? null
-        : null
+    const markedByProfile: ScorecardProfile | null = resolution.markedByPlayerId
+      ? allCards.find((c) => c.player_id === resolution.markedByPlayerId)?.profiles ?? null
+      : null
+    const markedCard: ScorecardWithGroup | null = resolution.markedPlayerId
+      ? allCards.find((c) => c.player_id === resolution.markedPlayerId) ?? null
+      : null
 
-      markedCard = iMarkRow
-        ? allCards.find((c) => c.player_id === iMarkRow.player_id) ?? null
-        : null
-
-      if (DEBUG) {
-        console.log('[round page] diagnostic (self+marker)', {
-          user_id: user.id, round_id: roundId,
-          my_scorecard_found: !!myCard,
-          marked_by: markedByRow?.marker_player_id ?? null,
-          i_mark: iMarkRow?.player_id ?? null,
-        })
-      }
+    if (DEBUG) {
+      console.log('[round page] diagnostic (self+marker)', {
+        user_id: user.id, round_id: roundId,
+        my_scorecard_found: !!myCard,
+        marked_by: resolution.markedByPlayerId,
+        i_mark: resolution.markedPlayerId,
+        is_shared_device: resolution.isSharedDevice,
+      })
     }
 
     // A genuine data problem here means: this player has a trip membership

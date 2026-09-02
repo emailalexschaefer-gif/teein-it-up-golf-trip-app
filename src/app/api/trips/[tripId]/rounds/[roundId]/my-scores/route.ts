@@ -25,7 +25,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { detectSharedDeviceGroup } from '@/lib/scoring/sharedDeviceScoring'
+import { detectSharedDeviceGroup, resolveMarkedPlayerId, type MarkerRelationshipRow } from '@/lib/scoring/sharedDeviceScoring'
 
 // This is a polling endpoint (SelfMarkerScoreShell hits it every ~7s while a
 // round is active) — it must never be cached. Without this, Next.js can
@@ -156,37 +156,36 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       relevantCards.map((c: { player_id: string; scoring_method: string }) => ({ playerId: c.player_id, scoringMethod: c.scoring_method === 'paper' ? 'paper' : 'digital' }))
     )
   }
-  const isSharedDeviceForMe = sharedDeviceDetection.isSharedDevice && sharedDeviceDetection.digitalPlayerId === user.id
-
   const usesMarkers = round.score_capture_mode === 'self_and_marker'
   let markedByProfile: ScorecardProfile | null = null
   let markedCard: ScorecardRow | null = null
 
-  if (isSharedDeviceForMe) {
-    // Shared-device pairing takes priority and is resolved the exact
-    // same way page.tsx resolves it — Marnie's real scorecard, found
-    // directly in allCards, never via round_markers (which this
-    // pairing never writes to at all). No marker relationship exists
-    // for this player in this mode, matching page.tsx's own comment on
-    // this ("Alex has no one marking HIM").
-    markedCard = allCards.find((c) => c.player_id === sharedDeviceDetection.paperPlayerId) ?? null
-  } else if (usesMarkers) {
-    const markersRes = await admin
-      .from('round_markers')
-      .select('player_id, marker_player_id')
-      .eq('round_id', roundId)
+  // 1 Sep field-test bundle — now calls the extracted, tested
+  // resolveMarkedPlayerId() rather than the inline if/isSharedDeviceForMe
+  // /else-if/usesMarkers logic this replaced — same decision, same
+  // priority order, now covered by sharedDeviceScoring.test.ts's
+  // resolution-specific tests instead of only being correct by
+  // inspection.
+  const markersRes = usesMarkers
+    ? await admin.from('round_markers').select('player_id, marker_player_id').eq('round_id', roundId)
+    : { data: [] }
+  const markerRows: MarkerRelationshipRow[] = (markersRes.data ?? []).map(
+    (r: { player_id: string; marker_player_id: string }) => ({ playerId: r.player_id, markerPlayerId: r.marker_player_id })
+  )
 
-    const markerRows: Array<{ player_id: string; marker_player_id: string }> = markersRes.data ?? []
-    const markedByRow = markerRows.find((r) => r.player_id === user.id)
-    const iMarkRow = markerRows.find((r) => r.marker_player_id === user.id)
+  const resolution = resolveMarkedPlayerId({
+    myUserId: user.id,
+    sharedDeviceDetection,
+    usesMarkers,
+    markerRows,
+  })
 
-    markedByProfile = markedByRow
-      ? allCards.find((c) => c.player_id === markedByRow.marker_player_id)?.profiles ?? null
-      : null
-    markedCard = iMarkRow
-      ? allCards.find((c) => c.player_id === iMarkRow.player_id) ?? null
-      : null
-  }
+  markedCard = resolution.markedPlayerId
+    ? allCards.find((c) => c.player_id === resolution.markedPlayerId) ?? null
+    : null
+  markedByProfile = resolution.markedByPlayerId
+    ? allCards.find((c) => c.player_id === resolution.markedByPlayerId)?.profiles ?? null
+    : null
 
   // Score Management redesign — audit detail for the "⚙️ Organiser
   // Override" indicator and its expandable "Resolved by organiser" view.

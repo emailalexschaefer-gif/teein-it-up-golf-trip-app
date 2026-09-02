@@ -98,6 +98,29 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       return {
         playerId: sc.player_id,
         playerName: sc.profiles?.full_name ?? 'Player',
+        // 1 Sep field-test bundle — "Group Makers & Breakers missing,"
+        // root cause. This reads scorecards.group_id, per this file's
+        // own interface comment ("round-specific group snapshot... set
+        // once at begin_round()... the SAME snapshot mechanism
+        // multiRound.ts already relies on") — a deliberate design
+        // choice, preserved here. The actual bug was upstream:
+        // begin_round() (migration 064, then 069) never actually wrote
+        // group_id in its scorecards INSERT/ON CONFLICT at all,
+        // despite start/route.ts already correctly building
+        // scorecardData with a group_id field for every player — the
+        // RPC simply dropped it on the floor. Every scorecard's
+        // group_id has been silently NULL since that column's own
+        // introduction, meaning bucketByGroup() (which requires a
+        // truthy groupId) never had anything to bucket, and every
+        // group-scope Makers & Breakers finder always received zero
+        // eligible groups. Not a threshold, not a Paper-player
+        // exclusion, not a minimum-group-count gate — the data was
+        // simply never persisted. Fixed at the actual source (see
+        // migration 070) rather than switching this or any other
+        // consumer to a different, architecturally-deliberate-not-to-
+        // use data source.
+        groupId: sc.group_id,
+        groupName: '',
         // Starting Tee fix — this used to default to hole 1 for every
         // non-shotgun round unconditionally. A group with a Shotgun
         // starting-hole assignment still takes priority (that's a
@@ -107,7 +130,12 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
         // cause of a 9-hole/10th-tee round's Makers & Breakers coming
         // back completely empty, since getPlayedSequence's lookups for
         // holes 1-9 would silently fail to match a back-nine player's
-        // real holes (all physically 10-18).
+        // real holes (all physically 10-18). This inherits the exact
+        // same group_id fix above — once migration 070 makes
+        // scorecards.group_id genuinely populated, this per-group
+        // shotgun lookup starts working correctly too, for the
+        // identical reason it was previously always falling through to
+        // the round-level default.
         startingHole: (sc.group_id && startingHoleByGroup.get(sc.group_id)) || roundRes.data.starting_hole_number || 1,
         holes,
       }

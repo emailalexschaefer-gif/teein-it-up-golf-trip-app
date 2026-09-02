@@ -10,6 +10,7 @@ interface EventStoryIndexItem {
   courses: string[]
   startDate: string | null
   endDate: string | null
+  isEventWinner: boolean
   badgeCount: number
   sideGameWinCount: number
 }
@@ -74,15 +75,28 @@ export default function MyEventStoriesSection() {
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 1 }}>
               {formatRange(story.startDate, story.endDate)}
             </div>
-            <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-              {story.badgeCount > 0 && (
+            <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
+              {/* 1 Sep field-test bundle — item 4, Event Winner, in the
+                  explicit order: Event Winner, then Side Game Wins,
+                  then Badges. Only earned categories render — isEventWinner
+                  is a plain boolean from authoritative countback
+                  standings (never inferred from badges/Side
+                  Games/presentation text), so there's no singular/
+                  plural concern for this one and no partial-credit
+                  state to handle. */}
+              {story.isEventWinner && (
                 <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#a1791f' }}>
-                  🏅 {story.badgeCount} Badge{story.badgeCount === 1 ? '' : 's'}
+                  🏆 Event Winner
                 </span>
               )}
               {story.sideGameWinCount > 0 && (
                 <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#a1791f' }}>
                   🎯 {story.sideGameWinCount} Side Game Win{story.sideGameWinCount === 1 ? '' : 's'}
+                </span>
+              )}
+              {story.badgeCount > 0 && (
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#a1791f' }}>
+                  🥇 {story.badgeCount} Badge{story.badgeCount === 1 ? '' : 's'}
                 </span>
               )}
             </div>

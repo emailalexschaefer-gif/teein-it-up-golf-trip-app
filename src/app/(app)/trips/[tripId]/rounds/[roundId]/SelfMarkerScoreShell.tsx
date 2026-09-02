@@ -578,7 +578,6 @@ export default function SelfMarkerScoreShell({
   // or everyone else already paired) — both correctly fall through to
   // normal scoring without a marker, exactly like today's existing
   // "no marker assigned" handling elsewhere in this file.
-  const [partnerCandidates, setPartnerCandidates] = useState<{ id: string; name: string }[] | null>(null)
   const [selectingPartnerId, setSelectingPartnerId] = useState<string | null>(null)
   const [partnerSelectError, setPartnerSelectError] = useState('')
   // Darren field-test fix (Release 1, item 2) — "Change who I'm
@@ -589,16 +588,46 @@ export default function SelfMarkerScoreShell({
   // whether currentMarked exists or not (the backend route is now an
   // upsert either way — see playing-partner/route.ts).
   const [changingPartner, setChangingPartner] = useState(false)
-  useEffect(() => {
-    if (!requiresMarker || (currentMarked && !changingPartner)) return
-    let cancelled = false
-    fetch(`/api/trips/${tripId}/rounds/${round.id}/playing-partner`)
-      .then(res => res.ok ? res.json() : null)
-      .then(body => { if (!cancelled && body) setPartnerCandidates(body.candidates ?? []) })
-      .catch(() => { if (!cancelled) setPartnerCandidates([]) }) // fail safe to "nothing to choose" — never blocks scoring
-    return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately re-checks only when currentMarked's presence or changingPartner changes, not on every unrelated re-render
-  }, [requiresMarker, !!currentMarked, changingPartner, tripId, round.id])
+
+  // 1 Sep field-test bundle — "Digital Playing Partner Availability /
+  // Refresh." Root cause, traced per the explicit investigation
+  // checklist: this used to be a raw useEffect + one-shot fetch(),
+  // never a React Query hook at all — no polling, no cache, no
+  // mechanism of any kind for "time passed" or "another player just
+  // joined" to ever trigger a re-check. Once the initial fetch
+  // resolved, this screen's candidate list was frozen until something
+  // else (currentMarked/changingPartner) changed the effect's own
+  // dependency array — which a second player joining the round does
+  // not do. That's the exact, complete explanation for "Darren waited
+  // roughly a minute and had to leave/re-enter" — leaving and
+  // re-entering was the only thing that ever re-ran this fetch.
+  // Converted to the same useQuery pattern already established
+  // elsewhere in this file (refetchLive) for consistency — not a new
+  // polling mechanism invented for this one screen. Scoped narrowly:
+  // `enabled` matches this effect's own original condition exactly
+  // (only fetches/polls while genuinely on this screen, waiting or
+  // actively changing partner), and `refetchInterval` stops entirely
+  // the moment that's no longer true — not application-wide polling.
+  const {
+    data: partnerCandidatesData, refetch: refetchPartnerCandidates, isFetching: isRefreshingPartnerCandidates,
+  } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['playing-partner-candidates', tripId, round.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/trips/${tripId}/rounds/${round.id}/playing-partner`)
+      if (!res.ok) return [] // fail safe to "nothing to choose" — never blocks scoring
+      const body = await res.json().catch(() => null)
+      return body?.candidates ?? []
+    },
+    enabled: requiresMarker && (!currentMarked || changingPartner),
+    staleTime: 0,
+    // ~7s — same cadence already established elsewhere in this file
+    // (refetchLive's own polling interval), within the brief's
+    // explicit 5-10s target. Only polls while this screen is actually
+    // the one being shown — `enabled` above already guarantees that,
+    // so this never becomes background/application-wide polling.
+    refetchInterval: (requiresMarker && (!currentMarked || changingPartner)) ? 7000 : false,
+  })
+  const partnerCandidates = partnerCandidatesData ?? null
 
   async function choosePartner(partnerId: string) {
     setSelectingPartnerId(partnerId)
@@ -1191,6 +1220,25 @@ export default function SelfMarkerScoreShell({
             </button>
           ))}
         </div>
+        {/* 1 Sep field-test bundle — "Refresh Playing Partners," the
+            explicit manual resilience control alongside the automatic
+            polling above. Refetches candidates in place — same query,
+            same cache key — without reloading the browser, navigating
+            away, or touching any scoring state. Disabled while a
+            refresh is already in flight, preventing rapid duplicate
+            taps from firing overlapping requests. */}
+        <button
+          onClick={() => void refetchPartnerCandidates()}
+          disabled={isRefreshingPartnerCandidates || selectingPartnerId !== null}
+          style={{
+            display: 'block', width: '100%', textAlign: 'center', background: 'none', border: 'none',
+            fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#a1791f',
+            cursor: isRefreshingPartnerCandidates ? 'default' : 'pointer', marginTop: 14,
+            opacity: isRefreshingPartnerCandidates ? 0.6 : 1,
+          }}
+        >
+          {isRefreshingPartnerCandidates ? 'Refreshing…' : '↻ Refresh Playing Partners'}
+        </button>
         {partnerSelectError && <p style={{ color: '#dc2626', fontSize: 12.5, marginTop: 12, fontFamily: 'var(--font-body)', textAlign: 'center' }}>{partnerSelectError}</p>}
         {/* Darren field-test fix (Release 1, item 2) — only shown once
             there's genuinely something to cancel back to (a partner
@@ -2111,7 +2159,14 @@ export default function SelfMarkerScoreShell({
                   tripId, roundId: round.id, holeNumber: holeNum, myGroupId: null,
                   sideCompId: comp.id, compType: comp.comp_type,
                   entryId: result.entryId,
-                  playerName: myName, claimedValue: result.claimedValue,
+                  // 1 Sep field-test bundle — was `myName` (the
+                  // authenticated device operator), which is only ever
+                  // correct when someone submits for themselves. Now
+                  // uses the actual competitor's name the submission
+                  // result carries — correct whether Alex is scoring
+                  // for himself or entering a result for his Paper
+                  // partner.
+                  playerName: result.competitorPlayerName, claimedValue: result.claimedValue,
                 })
               }}
             />
@@ -2656,20 +2711,39 @@ function ScoreCard({
     // otherwise — not a redesign, just enough edge definition to read
     // outdoors.
     <div style={{ borderRadius: 12, background: '#ffffff', border: '1.5px solid #a89f8a', boxShadow: '0 3px 14px rgba(0,0,0,0.08)', marginBottom: 6, overflow: 'hidden' }}>
-      <div className="scoring-card-header" style={{ background: '#f7f6f1', padding: '5px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #a89f8a' }}>
-        <div>
+      <div className="scoring-card-header" style={{ background: '#f7f6f1', padding: '5px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #a89f8a', gap: 8 }}>
+        {/* 1 Sep field-test bundle — P2 UX polish, "long player names."
+            minWidth: 0 is the actual fix here, not just decoration — a
+            flex child's default min-width is its content's natural
+            width, which silently defeats text-overflow:ellipsis
+            entirely; without it, a long name pushes the H{holeNum}/
+            par/SI side into wrapping or overflow instead of the name
+            itself truncating cleanly. */}
+        <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 8.5, fontWeight: 700, color: '#7a5c00', letterSpacing: 0.7 }}>{title}</div>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 16, fontWeight: 800, color: '#14532d', lineHeight: 1.1 }}>
-            {name}
+          <div
+            title={name}
+            style={{
+              fontFamily: 'var(--font-body)', fontSize: 16, fontWeight: 800, color: '#14532d', lineHeight: 1.1,
+              display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0,
+            }}
+          >
+            {/* Only the name itself truncates — the "✏️ Paper Player"
+                badge stays fully visible regardless of name length.
+                Losing that badge to truncation would undermine the
+                explicit "keep the distinction obvious" requirement for
+                exactly the names long enough to need truncating in the
+                first place. */}
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{name}</span>
             {badge && (
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#7a5c00', marginLeft: 6 }}>{badge}</span>
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#7a5c00', flexShrink: 0 }}>{badge}</span>
             )}
           </div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 500, color: '#4a4638' }}>
             Playing Handicap {hcp}
           </div>
         </div>
-        <div style={{ textAlign: 'right' }}>
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: '#7a5c00', lineHeight: 1 }}>
             H{holeNum}
           </div>

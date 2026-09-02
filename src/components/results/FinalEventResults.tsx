@@ -317,7 +317,7 @@ export default function FinalEventResults({ tripId }: { tripId: string }) {
             field. ─────────────────────────────────────────────────────── */}
         {data.sideCompetitionsByRound.some(r => r.competitions.some(c => c.winner || c.powerplayBest)) && (
           <>
-            <SectionLabel>Side Competition Winners</SectionLabel>
+            <SectionLabel>Side Game Winners</SectionLabel>
             {data.sideCompetitionsByRound.map(round => {
               const shown = round.competitions.filter(c => c.winner || c.powerplayBest)
               if (shown.length === 0) return null
