@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import ProfileForm from './ProfileForm'
 import DevResetSection from '@/components/profile/DevResetSection'
+import IntentSection from '@/components/profile/IntentSection'
 
 export const metadata: Metadata = { title: 'My Profile' }
 
@@ -16,7 +17,7 @@ export default async function ProfilePage() {
   const db: any = supabase
   const { data: profile, error: profileError } = await db
     .from('profiles')
-    .select('full_name, email, avatar_url, handicap, location, bio, occupation, company, golf_club, interests, ask_me_about, app_role')
+    .select('full_name, email, avatar_url, handicap, location, bio, occupation, company, golf_club, interests, ask_me_about, app_role, user_intent, organiser_types')
     .eq('id', user.id)
     .single()
 
@@ -87,6 +88,13 @@ export default async function ProfilePage() {
         initialInterests={profile?.interests ?? []}
         initialAskMeAbout={profile?.ask_me_about ?? ''}
         teeinItUpRole={teeinItUpRole}
+      />
+      {/* Crucial MVP Onboarding Update, item 4 — the self-serve path
+          for any account that never passed through (or already passed
+          through and wants to change) the onboarding gate. */}
+      <IntentSection
+        initialIntent={profile?.user_intent ?? null}
+        initialOrganiserTypes={profile?.organiser_types ?? null}
       />
       {showDevReset && (
         <DevResetSection

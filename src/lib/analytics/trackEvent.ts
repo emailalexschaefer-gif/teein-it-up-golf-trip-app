@@ -75,6 +75,8 @@ export type AnalyticsEvent =
   // Homepage My Golf achievement summary
   | 'my_golf_summary_expanded'
   | 'my_golf_summary_collapsed'
+  // Crucial MVP Onboarding Update
+  | 'onboarding_intent_captured'
 
 export interface AnalyticsEventProps {
   // Non-PII product/internal identifiers only — opaque UUIDs, enums,
