@@ -73,6 +73,20 @@ export interface Highlight {
   significance: number
   groupId?: string | null
   groupName?: string | null
+  // 3 Sep field-test package, item 6 — "the missing information is WHO
+  // the group actually is." The archetype qualification LOGIC (which
+  // finder function fires, its thresholds, its ranking) is completely
+  // unchanged by this — roster is populated from the exact same
+  // per-group member list bucketByGroup() already computes internally
+  // for every scoring calculation in this file; it was simply never
+  // surfaced into the returned object before. Only ever populated for
+  // scope='group' highlights. Sourced from PlayerRoundData.groupId,
+  // which is itself the round-specific scorecards.group_id snapshot
+  // (see migration 070/highlights route) — never the player's current,
+  // possibly-since-changed trip_members.group_id — so a roster
+  // genuinely describes who was in that group for that round, even if
+  // groups are later reassigned for a future round.
+  roster?: { playerId: string; playerName: string }[]
 }
 
 /**
@@ -546,7 +560,7 @@ export function findHotGroup(field: FieldRoundData): Highlight | null {
   return {
     category: 'hot_group', kind: 'maker', scope: 'group', icon: '🔥', title: 'The Hot Group',
     playerId: '', playerName: '',
-    groupId: best.group.groupId, groupName: best.group.groupName,
+    groupId: best.group.groupId, groupName: best.group.groupName, roster: best.group.members.map(m => ({ playerId: m.playerId, playerName: m.playerName })),
     statLine: `${best.avg.toFixed(1)} pt player average`,
     significance: best.avg,
   }
@@ -576,7 +590,7 @@ export function findBlackHoleGroup(field: FieldRoundData): Highlight | null {
   return {
     category: 'black_hole_group', kind: 'breaker', scope: 'group', icon: '🕳️', title: 'The Black Hole',
     playerId: '', playerName: '',
-    groupId: worst.group.groupId, groupName: worst.group.groupName,
+    groupId: worst.group.groupId, groupName: worst.group.groupName, roster: worst.group.members.map(m => ({ playerId: m.playerId, playerName: m.playerName })),
     statLine: `Hole ${worst.holeNumber} \u00b7 ${worst.combined} combined points`,
     caption: 'That one hurt.',
     significance: 20 - worst.combined,
@@ -663,7 +677,7 @@ export function findBackNineBandits(field: FieldRoundData): Highlight | null {
   if (best.avg < 16) return null
   return {
     category: 'back_nine_bandits', kind: 'maker', scope: 'group', icon: '👑', title: 'Back Nine Bandits',
-    playerId: '', playerName: '', groupId: best.group.groupId, groupName: best.group.groupName,
+    playerId: '', playerName: '', groupId: best.group.groupId, groupName: best.group.groupName, roster: best.group.members.map(m => ({ playerId: m.playerId, playerName: m.playerName })),
     statLine: `${best.avg.toFixed(1)} pt player average coming home`,
     significance: best.avg,
   }
@@ -685,7 +699,7 @@ export function findTheClosers(field: FieldRoundData): Highlight | null {
   if (best.avg < 6) return null // meaningful threshold — an ordinary finish shouldn't qualify
   return {
     category: 'the_closers', kind: 'maker', scope: 'group', icon: '🚀', title: 'The Closers',
-    playerId: '', playerName: '', groupId: best.group.groupId, groupName: best.group.groupName,
+    playerId: '', playerName: '', groupId: best.group.groupId, groupName: best.group.groupName, roster: best.group.members.map(m => ({ playerId: m.playerId, playerName: m.playerName })),
     statLine: `${best.avg.toFixed(1)} pt player average over the closing 3`,
     significance: best.avg,
   }
@@ -710,7 +724,7 @@ export function findTheFortress(field: FieldRoundData): Highlight | null {
   const best = scored.reduce((a, b) => (b.avg > a.avg ? b : a))
   return {
     category: 'the_fortress', kind: 'maker', scope: 'group', icon: '🧱', title: 'The Fortress',
-    playerId: '', playerName: '', groupId: best.group.groupId, groupName: best.group.groupName,
+    playerId: '', playerName: '', groupId: best.group.groupId, groupName: best.group.groupName, roster: best.group.members.map(m => ({ playerId: m.playerId, playerName: m.playerName })),
     statLine: `${best.avg.toFixed(1)} pt player average, only ${best.totalWipes} wipe${best.totalWipes === 1 ? '' : 's'} between them`,
     significance: best.avg - best.spread,
   }
@@ -725,7 +739,7 @@ export function findTheBirdcage(field: FieldRoundData): Highlight | null {
   const best = scored.reduce((a, b) => (b.birdies > a.birdies ? b : a))
   return {
     category: 'the_birdcage', kind: 'maker', scope: 'group', icon: '🐦', title: 'The Birdcage',
-    playerId: '', playerName: '', groupId: best.group.groupId, groupName: best.group.groupName,
+    playerId: '', playerName: '', groupId: best.group.groupId, groupName: best.group.groupName, roster: best.group.members.map(m => ({ playerId: m.playerId, playerName: m.playerName })),
     statLine: `${best.birdies} combined birdies`,
     significance: best.birdies,
   }
@@ -749,7 +763,7 @@ export function findDreamTeam(field: FieldRoundData): Highlight | null {
   const best = scored.reduce((a, b) => (b.avg - b.spread > a.avg - a.spread ? b : a))
   return {
     category: 'dream_team', kind: 'maker', scope: 'group', icon: '🤝', title: 'The Dream Team',
-    playerId: '', playerName: '', groupId: best.group.groupId, groupName: best.group.groupName,
+    playerId: '', playerName: '', groupId: best.group.groupId, groupName: best.group.groupName, roster: best.group.members.map(m => ({ playerId: m.playerId, playerName: m.playerName })),
     statLine: `Only ${best.spread} pts between highest and lowest player`,
     significance: best.avg - best.spread,
   }
@@ -771,7 +785,7 @@ export function findWheelsOff(field: FieldRoundData): Highlight | null {
   const worst = scored.reduce((a, b) => (b.drop > a.drop ? b : a))
   return {
     category: 'wheels_off', kind: 'breaker', scope: 'group', icon: '🛞', title: 'Wheels Off',
-    playerId: '', playerName: '', groupId: worst.group.groupId, groupName: worst.group.groupName,
+    playerId: '', playerName: '', groupId: worst.group.groupId, groupName: worst.group.groupName, roster: worst.group.members.map(m => ({ playerId: m.playerId, playerName: m.playerName })),
     statLine: `${worst.front.toFixed(1)} out, ${worst.back.toFixed(1)} home — per player`,
     significance: worst.drop,
   }
@@ -790,7 +804,7 @@ export function findDamageReport(field: FieldRoundData): Highlight | null {
   const worst = scored.reduce((a, b) => (b.totalWipes > a.totalWipes ? b : a))
   return {
     category: 'damage_report', kind: 'breaker', scope: 'group', icon: '🚑', title: 'The Damage Report',
-    playerId: '', playerName: '', groupId: worst.group.groupId, groupName: worst.group.groupName,
+    playerId: '', playerName: '', groupId: worst.group.groupId, groupName: worst.group.groupName, roster: worst.group.members.map(m => ({ playerId: m.playerId, playerName: m.playerName })),
     statLine: `${worst.totalWipes} wipes between them`,
     significance: worst.totalWipes,
   }
@@ -820,7 +834,7 @@ export function findDeepFreeze(field: FieldRoundData): Highlight | null {
   if (worst.avg > windowSize * 1.2) return null
   return {
     category: 'deep_freeze', kind: 'breaker', scope: 'group', icon: '🥶', title: 'The Deep Freeze',
-    playerId: '', playerName: '', groupId: worst.group.groupId, groupName: worst.group.groupName,
+    playerId: '', playerName: '', groupId: worst.group.groupId, groupName: worst.group.groupName, roster: worst.group.members.map(m => ({ playerId: m.playerId, playerName: m.playerName })),
     statLine: `${worst.avg.toFixed(1)} pt player average over their worst ${windowSize} holes`,
     significance: windowSize * 4 - worst.avg,
   }
@@ -839,7 +853,7 @@ export function findStillInCarPark(field: FieldRoundData): Highlight | null {
   const worst = scored.reduce((a, b) => (b.avg < a.avg ? b : a))
   return {
     category: 'still_in_car_park', kind: 'breaker', scope: 'group', icon: '🚗', title: 'Still in the Car Park',
-    playerId: '', playerName: '', groupId: worst.group.groupId, groupName: worst.group.groupName,
+    playerId: '', playerName: '', groupId: worst.group.groupId, groupName: worst.group.groupName, roster: worst.group.members.map(m => ({ playerId: m.playerId, playerName: m.playerName })),
     statLine: `${worst.avg.toFixed(1)} pt player average over the opening 3`,
     significance: 10 - worst.avg,
   }
@@ -859,7 +873,7 @@ export function findBackNineBreakdown(field: FieldRoundData): Highlight | null {
   const worst = scored.reduce((a, b) => (b.avg < a.avg ? b : a))
   return {
     category: 'back_nine_breakdown', kind: 'breaker', scope: 'group', icon: '🏚️', title: 'Back Nine Breakdown',
-    playerId: '', playerName: '', groupId: worst.group.groupId, groupName: worst.group.groupName,
+    playerId: '', playerName: '', groupId: worst.group.groupId, groupName: worst.group.groupName, roster: worst.group.members.map(m => ({ playerId: m.playerId, playerName: m.playerName })),
     statLine: `${worst.avg.toFixed(1)} pt player average coming home`,
     significance: 20 - worst.avg,
   }

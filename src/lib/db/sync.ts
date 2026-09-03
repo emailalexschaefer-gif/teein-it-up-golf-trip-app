@@ -136,5 +136,28 @@ export function initSyncListeners(): () => void {
   const handleOnline = () => syncScoreQueue()
   window.addEventListener('online', handleOnline)
   syncScoreQueue()
-  return () => window.removeEventListener('online', handleOnline)
+
+  // 3 Sep field-test package, item 5 — root cause of "N scores still
+  // syncing" lingering with nothing happening on a healthy-but-spotty
+  // connection. syncScoreQueue's own comment already documented the
+  // actual design gap: it only ever runs on three specific triggers
+  // (mount, queueing a new entry, the browser's online event) — never
+  // a periodic retry. A genuinely OFFLINE→ONLINE transition correctly
+  // retries via the online listener above; a merely SLOW or
+  // momentarily-failing connection (patchy course reception, not a
+  // full disconnect) never fires that event at all, and once a round
+  // is finished there's no further score entry left to incidentally
+  // trigger a retry either — exactly the Round Summary scenario
+  // described. This closes that gap directly: while genuinely pending
+  // entries exist, retry automatically every 8 seconds; stops calling
+  // itself entirely the moment the queue clears, so this never becomes
+  // an indefinite background poll once everything's synced.
+  const intervalId = window.setInterval(() => {
+    if (useSyncStore.getState().pendingCount > 0) syncScoreQueue()
+  }, 8000)
+
+  return () => {
+    window.removeEventListener('online', handleOnline)
+    window.clearInterval(intervalId)
+  }
 }

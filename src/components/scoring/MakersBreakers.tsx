@@ -21,7 +21,7 @@ interface Highlight {
   caption?: string
 }
 
-type Stage = 'loading' | 'error' | 'course_report' | 'curating' | 'presenting'
+type Stage = 'loading' | 'error' | 'course_report' | 'curating' | 'presenting' | 'published'
 
 interface CourseReport {
   fieldAverage: number
@@ -49,6 +49,20 @@ export default function MakersBreakers({
   const [presentIndex, setPresentIndex] = useState(0)
   const [publishState, setPublishState] = useState<'idle' | 'publishing' | 'done'>('idle')
   const [publishError, setPublishError] = useState('')
+  // 3 Sep field-test package, item 7 — "publish once, then lock." The
+  // organiser-side selection (the state above) survives only for the
+  // current browser session; published_round_highlights is the real,
+  // authoritative, server-side record — already correctly persisted,
+  // round-scoped (UNIQUE on round_id), and organiser-write-gated by
+  // the existing /published-highlights route (confirmed by reading it
+  // directly before making any change here). The actual gap was
+  // entirely on this side: nothing here ever checked that record
+  // before offering to regenerate. publishedHighlights holds exactly
+  // what was actually published, once confirmed to exist — the
+  // read-only 'published' stage below renders this, never anything
+  // freshly (re)computed.
+  const [publishedHighlights, setPublishedHighlights] = useState<Highlight[] | null>(null)
+  const [publishedAt, setPublishedAt] = useState<string | null>(null)
 
   async function publish() {
     setPublishState('publishing')
@@ -79,27 +93,48 @@ export default function MakersBreakers({
 
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/trips/${tripId}/rounds/${roundId}/highlights`)
-      .then(async res => {
-        const body = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(body.error ?? 'Could not generate highlights.')
-        return body as { makers: Highlight[]; breakers: Highlight[]; courseReport: CourseReport }
-      })
-      .then(body => {
+    // 3 Sep field-test package, item 7 — check the authoritative
+    // published record FIRST, before ever calling the candidate-
+    // generation endpoint. If this round already has a published
+    // selection, jump straight to the read-only view — the
+    // generate/curate/select flow below never runs at all in that
+    // case, meaning the algorithm genuinely does not re-run once a
+    // round is published, not merely "re-runs but the organiser can't
+    // see it." This is the actual lock.
+    fetch(`/api/trips/${tripId}/rounds/${roundId}/published-highlights`)
+      .then(res => res.ok ? res.json() : null)
+      .then((published: { publishedAt: string | null; highlights: Highlight[] } | null) => {
         if (cancelled) return
-        setMakers(body.makers)
-        setBreakers(body.breakers)
-        setCourseReport(body.courseReport)
-        // Target presentation set: 3 makers + 3 breakers by default
-        // (item 4), capped to however many actually generated — the
-        // organiser can still adjust from here, this is just a sensible
-        // starting selection, not a hard rule.
-        const defaultSelection = new Set([
-          ...body.makers.slice(0, 3).map(h => h.category),
-          ...body.breakers.slice(0, 3).map(h => h.category),
-        ])
-        setSelected(defaultSelection)
-        setStage('course_report')
+        if (published?.publishedAt) {
+          setPublishedHighlights(published.highlights)
+          setPublishedAt(published.publishedAt)
+          setStage('published')
+          return
+        }
+        // Not yet published — proceed with the existing, unchanged
+        // generate/curate flow exactly as before this item.
+        return fetch(`/api/trips/${tripId}/rounds/${roundId}/highlights`)
+          .then(async res => {
+            const body = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(body.error ?? 'Could not generate highlights.')
+            return body as { makers: Highlight[]; breakers: Highlight[]; courseReport: CourseReport }
+          })
+          .then(body => {
+            if (cancelled) return
+            setMakers(body.makers)
+            setBreakers(body.breakers)
+            setCourseReport(body.courseReport)
+            // Target presentation set: 3 makers + 3 breakers by default
+            // (item 4), capped to however many actually generated — the
+            // organiser can still adjust from here, this is just a sensible
+            // starting selection, not a hard rule.
+            const defaultSelection = new Set([
+              ...body.makers.slice(0, 3).map(h => h.category),
+              ...body.breakers.slice(0, 3).map(h => h.category),
+            ])
+            setSelected(defaultSelection)
+            setStage('course_report')
+          })
       })
       .catch(() => { if (!cancelled) setStage('error') })
     return () => { cancelled = true }
@@ -293,9 +328,15 @@ export default function MakersBreakers({
             {current.definition}
           </div>
         )}
-        <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, color: '#e8c96a', marginTop: 14 }}>
-          {current.playerName}
-        </div>
+        {current.scope === 'group' ? (
+          <div style={{ marginTop: 14 }}>
+            <GroupIdentity highlight={current} index={order.slice(0, presentIndex).filter(h => h.scope === 'group').length} dark />
+          </div>
+        ) : (
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, color: '#e8c96a', marginTop: 14 }}>
+            {current.playerName}
+          </div>
+        )}
         <div style={{ fontFamily: 'var(--font-body)', fontSize: 15, color: 'rgba(255,255,255,0.9)', marginTop: 6 }}>
           {current.statLine}
         </div>
@@ -322,12 +363,115 @@ export default function MakersBreakers({
     )
   }
 
+  if (stage === 'published') {
+    // 3 Sep field-test package, item 7 — the read-only published view.
+    // Renders publishedHighlights exactly as persisted — never
+    // makers/breakers/selected (the curation-flow state, which was
+    // never populated on this path at all, since the generate/curate
+    // fetch above is skipped entirely once a published record exists).
+    // No select/toggle/publish controls anywhere in this branch —
+    // "no normal edit/regenerate option," per the explicit instruction.
+    const groupItems = (publishedHighlights ?? []).filter(h => h.scope === 'group')
+    let groupIndex = -1
+    return (
+      <div>
+        <div style={{ textAlign: 'center', marginBottom: 16 }}>
+          <div style={{ fontSize: 28, marginBottom: 4 }}>🔥</div>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: '#14532d' }}>
+            Published Round Highlights
+          </div>
+          {publishedAt && (
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginTop: 2 }}>
+              Published {new Date(publishedAt).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+          {(publishedHighlights ?? []).map(h => {
+            if (h.scope === 'group') groupIndex += 1
+            return (
+              <div key={h.category} style={{ background: '#fff', border: '1px solid #eceae3', borderRadius: 12, padding: '12px 14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: h.kind === 'maker' ? '#166534' : '#991b1b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    {h.kind === 'maker' ? '⭐ Maker' : '💀 Breaker'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>{h.icon}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#1a1a16' }}>{h.title}</div>
+                    {h.scope === 'group' ? (
+                      <div style={{ marginTop: 2 }}>
+                        <GroupIdentity highlight={h} index={groupIndex} dark={false} />
+                      </div>
+                    ) : (
+                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#4a4638', fontWeight: 600, marginTop: 2 }}>{h.playerName}</div>
+                    )}
+                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260', marginTop: 4 }}>{h.statLine}</div>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <button
+          onClick={onProceedToResults}
+          style={{ width: '100%', padding: 12, borderRadius: 10, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
+        >
+          Present Round Results →
+        </button>
+      </div>
+    )
+  }
+
   // Every Stage value is handled by a preceding branch above (loading,
   // error, curating, presenting — which itself covers its own "reached
   // the end" case internally) — this is only reachable if stage somehow
   // holds an unexpected value, which TypeScript's control-flow analysis
   // can't fully prove without a switch/exhaustiveness check.
   return null
+}
+
+function GroupIdentity({ highlight, index, dark }: { highlight: Highlight; index: number; dark: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  // 3 Sep field-test package, item 6 — "Playing Group N" fallback,
+  // applied here at the DISPLAY layer (never inside the calculation
+  // engine itself, which stays completely untouched) using this card's
+  // own position in the list for the number — bucketByGroup's own
+  // internal fallback ('Group') is a data-layer safety default, not
+  // the specific player-facing copy requested here.
+  const groupLabel = highlight.groupName || `Playing Group ${index + 1}`
+  const roster = highlight.roster ?? []
+  const textColor = dark ? 'rgba(255,255,255,0.9)' : '#4a4638'
+  const mutedColor = dark ? 'rgba(255,255,255,0.6)' : '#9ca3af'
+  return (
+    <div>
+      <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, color: dark ? '#e8c96a' : '#14532d' }}>
+        {groupLabel}
+      </div>
+      {roster.length > 0 && (
+        <div style={{ marginTop: 4 }}>
+          <button
+            onClick={() => setExpanded(e => !e)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: mutedColor, padding: 0 }}
+          >
+            Players ({roster.length}) {expanded ? '▴' : '▾'}
+          </button>
+          {expanded && (
+            <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {roster.map(p => (
+                <div key={p.playerId} style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: textColor }}>
+                  {p.playerName}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function HighlightGroup({
@@ -338,7 +482,7 @@ function HighlightGroup({
     <div style={{ marginBottom: 14 }}>
       <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#a1791f', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>{title}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {items.map(h => {
+        {items.map((h, index) => {
           const isSelected = selected.has(h.category)
           return (
             <button
@@ -353,8 +497,18 @@ function HighlightGroup({
             >
               <span style={{ fontSize: 18 }}>{h.icon}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#1a1a16' }}>{h.title} — {h.playerName}</div>
-                <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7a7260' }}>{h.statLine}</div>
+                {h.scope === 'group' ? (
+                  <>
+                    <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#1a1a16' }}>{h.title}</div>
+                    <GroupIdentity highlight={h} index={index} dark={false} />
+                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7a7260', marginTop: 4 }}>{h.statLine}</div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#1a1a16' }}>{h.title} — {h.playerName}</div>
+                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7a7260' }}>{h.statLine}</div>
+                  </>
+                )}
               </div>
               <span style={{ fontSize: 16, flexShrink: 0 }}>{isSelected ? '✅' : '⬜'}</span>
             </button>

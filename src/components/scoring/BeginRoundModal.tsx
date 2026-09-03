@@ -1293,11 +1293,11 @@ export default function BeginRoundModal({
               {hasValidLibraryData ? (
                 <>
                   <button type="button" onClick={() => setStage('confirm')} style={btnStyle('primary')}>
-                    Start Round →
+                    Confirm &amp; Continue →
                   </button>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button type="button" onClick={() => setStage('holes')} style={{ ...btnStyle('ghost'), flex: 1 }}>
-                      Edit holes & indexes
+                      Review / Edit Holes
                     </button>
                     <button type="button" onClick={onClose} style={{ ...btnStyle('ghost'), flex: 1 }}>Cancel</button>
                   </div>
@@ -1324,7 +1324,7 @@ export default function BeginRoundModal({
               )}
               <div style={{ display: 'flex', gap: 8, marginTop: !canBegin ? 10 : 0 }}>
                 <button type="button" onClick={() => setStage('confirm')} disabled={!canBegin} style={btnStyle(canBegin ? 'primary' : 'disabled')}>
-                  Review & Confirm →
+                  Confirm &amp; Continue →
                 </button>
                 <button type="button" onClick={() => setStage('review')} style={btnStyle('ghost')}>← Back</button>
               </div>

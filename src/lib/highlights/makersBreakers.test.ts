@@ -263,6 +263,41 @@ test('findTheClosers — qualifying group over the closing 3 holes', () => {
   assert.equal(result?.groupId, 'g1')
 })
 
+// 3 Sep field-test package, item 6 — "the missing information is WHO
+// the group actually is." Group Makers & Breakers generation itself
+// passed real-device testing and is explicitly protected from rewrite
+// in this pass — this only covers the new roster field now surfaced
+// on the returned Highlight, using the brief's own real example
+// ("THE CLOSERS... 7.7 pt player average over the closing 3").
+test('findTheClosers — roster lists exactly the players who comprised that group, by id and name', () => {
+  const early = makeHoles([1, 1, 1, 1, 1, 1])
+  const closing = makeHoles([3, 3, 3]).map(h => ({ ...h, holeNumber: h.holeNumber + 6 }))
+  const a = player('a', 'Alex', [...early, ...closing], 1, 'g1', 'Group 1')
+  const b = player('b', 'Dave', [...early, ...closing], 1, 'g1', 'Group 1')
+  const field: FieldRoundData = { players: [a, b], totalHoles: 9 }
+  const result = findTheClosers(field)
+  assert.ok(result?.roster)
+  assert.equal(result!.roster!.length, 2)
+  const rosterIds = result!.roster!.map(r => r.playerId).sort()
+  assert.deepEqual(rosterIds, ['a', 'b'])
+  const alexEntry = result!.roster!.find(r => r.playerId === 'a')
+  assert.equal(alexEntry?.playerName, 'Alex')
+})
+
+test('findTheClosers — a player in a DIFFERENT group never appears in this group\u2019s roster', () => {
+  const early = makeHoles([1, 1, 1, 1, 1, 1])
+  const closing = makeHoles([3, 3, 3]).map(h => ({ ...h, holeNumber: h.holeNumber + 6 }))
+  const a = player('a', 'Alex', [...early, ...closing], 1, 'g1', 'Group 1')
+  const b = player('b', 'Dave', [...early, ...closing], 1, 'g1', 'Group 1')
+  // A third player in a separate group, with an even stronger closing
+  // stretch — must never leak into Group 1's own roster.
+  const c = player('c', 'Sam', makeHoles([1, 1, 1, 1, 1, 1, 4, 4, 4]), 1, 'g2', 'Group 2')
+  const field: FieldRoundData = { players: [a, b, c], totalHoles: 9 }
+  const result = findTheClosers(field)
+  const rosterIds = result?.roster?.map(r => r.playerId) ?? []
+  assert.ok(!rosterIds.includes('c'))
+})
+
 test('findTheFortress — strong, consistent, wipe-free group qualifies', () => {
   const a = player('a', 'Alex', makeHoles(new Array(18).fill(2)), 1, 'g1', 'Group 1')
   const b = player('b', 'Dave', makeHoles(new Array(18).fill(2)), 1, 'g1', 'Group 1')

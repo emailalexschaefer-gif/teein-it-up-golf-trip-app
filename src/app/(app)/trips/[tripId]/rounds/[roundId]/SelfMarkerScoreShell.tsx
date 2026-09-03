@@ -533,7 +533,7 @@ export default function SelfMarkerScoreShell({
   // resolves on first load, seeded with that same data via `initialData` so
   // there's no loading flash, then keeps it fresh via polling + window-focus
   // + reconnect — all without touching holeIdx or any in-progress draft.
-  const { data: liveData, refetch: refetchLive } = useQuery<LiveScores>({
+  const { data: liveData, refetch: refetchLive, isFetching: isRefreshingLive } = useQuery<LiveScores>({
     queryKey: ['round-my-scores', tripId, round.id],
     queryFn: () => fetchLiveScores(tripId, round.id),
     initialData: {
@@ -1644,9 +1644,28 @@ export default function SelfMarkerScoreShell({
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#a1791f', marginBottom: 4 }}>
               Saving your scores…
             </div>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
               {pendingCount} score{pendingCount === 1 ? '' : 's'} still syncing. You&apos;ll be able to confirm once everything&apos;s saved.
             </div>
+            {/* 3 Sep field-test package, item 5 — the explicit manual
+                fail-safe, alongside (not instead of) the automatic
+                retry above. Reuses the exact same syncScoreQueue() the
+                automatic paths already call — never a second, parallel
+                sync implementation. Local queued data is never
+                discarded or duplicated by this — queueScoreEntry
+                already wrote it to Dexie synchronously at entry time;
+                this only ever retries the existing queue. */}
+            <button
+              onClick={() => void syncScoreQueue()}
+              disabled={syncState === 'syncing'}
+              style={{
+                background: 'none', border: '1px solid #d9b83f', borderRadius: 8, padding: '7px 16px',
+                fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#7a5c00',
+                cursor: syncState === 'syncing' ? 'default' : 'pointer', opacity: syncState === 'syncing' ? 0.6 : 1,
+              }}
+            >
+              {syncState === 'syncing' ? 'Syncing…' : '↻ Sync Now'}
+            </button>
           </div>
         )}
 
@@ -2307,7 +2326,15 @@ export default function SelfMarkerScoreShell({
             no explanation. This is a different, more specific
             situation than "no partner at all" (which correctly still
             renders neither block — nothing to explain there). Exact
-            copy from the brief. */}
+            copy from the brief.
+            3 Sep field-test package — added the manual "Refresh
+            Playing Partner" action. This panel structurally can never
+            show for a shared-device Paper partner (isSharedDeviceScoring
+            resolves markedScorecard directly from allCards, never
+            null, so !markedScorecard is always false for that case) —
+            confirmed by inspection, not just by convention, before
+            adding this button, satisfying the explicit shared-device
+            guardrail without any extra gating needed here. */}
         {requiresMarker && !markedScorecard && partnerName && (
           <div style={{
             marginTop: 12, background: '#faf9f6', border: '1.5px dashed #d9c9a3', borderRadius: 14,
@@ -2316,10 +2343,21 @@ export default function SelfMarkerScoreShell({
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#7a7260', marginBottom: 6 }}>
               ⏳ Waiting for {partnerName}
             </div>
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', lineHeight: 1.6, margin: 0 }}>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', lineHeight: 1.6, margin: '0 0 12px' }}>
               Your playing partner hasn&apos;t started scoring yet.<br />
               You can begin entering your score while you wait.
             </p>
+            <button
+              onClick={() => void refetchLive()}
+              disabled={isRefreshingLive}
+              style={{
+                background: 'none', border: '1px solid #d9c9a3', borderRadius: 8, padding: '7px 16px',
+                fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#7a5c00',
+                cursor: isRefreshingLive ? 'default' : 'pointer', opacity: isRefreshingLive ? 0.6 : 1,
+              }}
+            >
+              {isRefreshingLive ? 'Refreshing…' : '↻ Refresh Playing Partner'}
+            </button>
           </div>
         )}
         </div>

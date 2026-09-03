@@ -12,6 +12,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import PlayerCardModal, { type PlayerCardData } from '@/components/shared/PlayerCardModal'
+import RoundHighlightsSection from './RoundHighlightsSection'
 import { derivePreviousCurrentTotal } from '@/lib/scoring/multiRound'
 import { trackEvent } from '@/lib/analytics/trackEvent'
 
@@ -357,6 +358,18 @@ export default function LiveLeaderboard({
           )}
         </>
       )}
+      {/* 3 Sep field-test package, item 8 — beneath the round leaderboard,
+          collapsed by default, per the exact requested placement. Reads
+          only the published record for THIS round (roundId, already
+          the exact round this whole component is scoped to) — never
+          another round's, structurally guaranteed by
+          published_round_highlights' own UNIQUE(round_id) constraint,
+          not something this component has to enforce itself. Renders
+          nothing at all before publication, satisfying "do not expose
+          candidate highlights to players" without any extra
+          conditional needed here — that check already lives inside
+          RoundHighlightsSection itself. */}
+      <RoundHighlightsSection tripId={tripId} roundId={roundId} roundName={data.roundName} />
       {selectedPlayer && <PlayerCardModal player={selectedPlayer} onClose={() => setSelectedPlayer(null)} />}
     </div>
   )
