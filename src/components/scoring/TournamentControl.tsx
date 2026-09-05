@@ -8,6 +8,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import PlayingPartnerStatus from './PlayingPartnerStatus'
 import MomentViewer, { type MomentViewerData } from '@/components/moments/MomentViewer'
 import MakersBreakers from './MakersBreakers'
+import RoundHighlightsSection from './RoundHighlightsSection'
+import CollapsibleSection from '@/components/shared/CollapsibleSection'
 import { trackEvent } from '@/lib/analytics/trackEvent'
 
 interface GroupPlayer {
@@ -172,7 +174,13 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
     setTimeout(() => setNotifyTarget(null), 1200)
   }
   const [closing, setClosing] = useState(false)
-  // Post-round UX top-up, item 8 — multi-round integrity. roundId (the
+  // My Golf + My HQ UX Cleanup brief (5 Sep) — "CLOSE ROUND CONFIRMATION
+  // FLOW." Purely a UI gate in front of the existing handleClose below —
+  // no second/parallel close-round implementation, no new readiness
+  // definition. Back performs no mutation at all; Confirm calls the
+  // exact same handleClose that already respects every existing
+  // reconciliation/readiness/permission check server-side.
+  const [showConfirmClose, setShowConfirmClose] = useState(false)  // Post-round UX top-up, item 8 — multi-round integrity. roundId (the
   // PROP) tracks whatever round the parent currently resolves as
   // "active," which can change out from under this component the
   // moment router.refresh() runs after a successful close (Round 1
@@ -296,6 +304,7 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
       setClosedRoundId(roundId)
       setClosedRoundName(data?.roundName ?? '')
       setClosedCourseName(data?.courseName ?? null)
+      setShowConfirmClose(false)
       setPostRoundStage('snapshot')
       setSnapshotLoading(true)
       fetch(`/api/trips/${tripId}/rounds/${roundId}/highlights`)
@@ -480,7 +489,127 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           </div>
         </div>
       )}
-      {/* ── 1. Event Health ───────────────────────────────────────────── */}
+      {/* ── Leaderboard Snapshot — top 5 only, never the full board ────── */}
+      <SectionTitle>Leaderboard Snapshot</SectionTitle>
+      <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 8, overflow: 'hidden' }}>
+        {data.leaderboardSnapshot.length === 0 && <EmptyNote>No scores yet.</EmptyNote>}
+        {data.leaderboardSnapshot.map((row, i) => (
+          <div key={row.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: i < data.leaderboardSnapshot.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
+            <span style={{ width: 20, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 13, color: row.position <= 3 ? '#a1791f' : '#9ca3af' }}>{row.position}</span>
+            <Link href={`/trips/${tripId}/players/${row.playerId}`} style={{ flex: 1, fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, color: '#14532d', textDecoration: 'none' }}>{row.name}</Link>
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af' }}>{row.finished ? 'Finished' : `Thru ${row.holesPlayed}`}</span>
+            <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 14, color: '#14532d' }}>{row.totalPts} pts</span>
+          </div>
+        ))}
+      </div>
+      <Link href={`/trips/${tripId}/leaderboard`} style={{ ...actionLinkStyle, textAlign: 'center', marginBottom: 14, display: 'block' }}>
+        View Full Leaderboard →
+      </Link>
+
+
+      {/* ── 2.5 Organiser Close Round — only when genuinely ready ───────── */}
+      {roundStatus === 'active' && data.summary.completionPct === 100 && data.summary.awaitingReconciliation === 0 && (
+        <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 14, padding: '14px 16px', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <span style={{ fontSize: 18 }}>🟢</span>
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: 14.5, fontWeight: 800, color: '#14532d' }}>Round Ready to Close</span>
+          </div>
+          {closeError && !showConfirmClose && (
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#dc2626', marginBottom: 8 }}>{closeError}</div>
+          )}
+          {/* My Golf + My HQ UX Cleanup brief (5 Sep) — this button no
+              longer calls handleClose directly. It only opens the
+              confirmation modal below; the existing readiness gate
+              wrapping this whole block (completionPct===100 &&
+              awaitingReconciliation===0) is completely unchanged —
+              this package changes discoverability + confirmation
+              safety, never when the button itself is shown or
+              enabled. */}
+          <button
+            onClick={() => setShowConfirmClose(true)}
+            disabled={closing}
+            style={{
+              width: '100%', padding: 12, borderRadius: 10, border: 'none',
+              background: closing ? '#9ca3af' : 'linear-gradient(135deg,#2d7a52,#16a34a)',
+              color: '#fff', fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700,
+              cursor: closing ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {closing ? 'Closing…' : 'Close Round'}
+          </button>
+        </div>
+      )}
+
+      {/* CLOSE ROUND CONFIRMATION FLOW — Back performs no mutation at
+          all and simply closes this modal; Confirm calls the exact
+          same handleClose defined above, the one and only close-round
+          implementation. disabled={closing} on the Confirm button is
+          the double-submit protection — the same closing flag that
+          already disables the button above, not a second, separate
+          guard. On failure, the modal stays open and shows the
+          server's own authoritative error right here, so the
+          organiser never loses context or has to go looking for it —
+          the round remains untouched either way. */}
+      {showConfirmClose && (
+        <div
+          role="dialog" aria-modal="true"
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        >
+          <div style={{ background: '#fff', borderRadius: 16, padding: '24px 22px', maxWidth: 340, width: '100%', textAlign: 'center' }}>
+            <div style={{ fontSize: 30, marginBottom: 8 }}>⚠️</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#14532d', marginBottom: 8 }}>
+              Confirm Close Round
+            </div>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#6b7280', lineHeight: 1.5, marginBottom: 16 }}>
+              Are you sure you want to close the current round? Once confirmed, the round will continue through the existing completion/finalisation flow.
+            </p>
+            {closeError && (
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '8px 10px', marginBottom: 14, textAlign: 'left' }}>
+                {closeError}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => { setShowConfirmClose(false); setCloseError(null) }}
+                disabled={closing}
+                style={{
+                  flex: 1, padding: 12, borderRadius: 10, border: '1.5px solid #d1d5db', background: '#fff',
+                  fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#374151',
+                  cursor: closing ? 'not-allowed' : 'pointer', opacity: closing ? 0.6 : 1,
+                }}
+              >
+                Back
+              </button>
+              <button
+                onClick={handleClose}
+                disabled={closing}
+                style={{
+                  flex: 1, padding: 12, borderRadius: 10, border: 'none',
+                  background: closing ? '#9ca3af' : 'linear-gradient(135deg,#2d7a52,#16a34a)',
+                  color: '#fff', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14,
+                  cursor: closing ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {closing ? 'Closing…' : 'Confirm Close Round'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* My Golf + My HQ UX Cleanup brief (5 Sep), item 4 — "COLLAPSED
+          MUST NEVER MEAN AN IMPORTANT PROBLEM IS INVISIBLE." The status
+          badge (health.text + healthIcon) is the exact same summary
+          already computed for the always-visible version — shown here
+          in the collapsed HEADER itself, not only inside the expanded
+          content, so an organiser never has to open this section just
+          to learn whether anything needs attention. Event Health's own
+          calculation is completely untouched — only where/how its
+          existing summary text is displayed changed. */}
+      <CollapsibleSection
+        icon="🩺" title="Event Health / Progress"
+        statusBadge={<span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: healthBorder }}>{healthIcon} {data.health.text}</span>}
+      >
       <div style={{ background: healthBg, border: `1.5px solid ${healthBorder}`, borderRadius: 14, padding: '14px 16px', marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 22 }}>{healthIcon}</span>
@@ -510,31 +639,8 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           </div>
         )}
       </div>
+      </CollapsibleSection>
 
-      {/* ── 2.5 Organiser Close Round — only when genuinely ready ───────── */}
-      {roundStatus === 'active' && data.summary.completionPct === 100 && data.summary.awaitingReconciliation === 0 && (
-        <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 14, padding: '14px 16px', marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span style={{ fontSize: 18 }}>🟢</span>
-            <span style={{ fontFamily: 'var(--font-display)', fontSize: 14.5, fontWeight: 800, color: '#14532d' }}>Round Ready to Close</span>
-          </div>
-          {closeError && (
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#dc2626', marginBottom: 8 }}>{closeError}</div>
-          )}
-          <button
-            onClick={handleClose}
-            disabled={closing}
-            style={{
-              width: '100%', padding: 12, borderRadius: 10, border: 'none',
-              background: closing ? '#9ca3af' : 'linear-gradient(135deg,#2d7a52,#16a34a)',
-              color: '#fff', fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700,
-              cursor: closing ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {closing ? 'Closing…' : 'Close Round'}
-          </button>
-        </div>
-      )}
 
       {/* ── 2.2 Round Summary ────────────────────────────────────── */}
       <div style={{ background: 'linear-gradient(135deg,#14532d,#1a6b3a)', borderRadius: 14, padding: '14px 16px', marginBottom: 14, boxShadow: '0 4px 18px rgba(20,83,45,0.25)' }}>
@@ -756,29 +862,12 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
         </>
       )}
 
-      {/* ── Leaderboard Snapshot — top 5 only, never the full board ────── */}
-      <SectionTitle>Leaderboard Snapshot</SectionTitle>
-      <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 8, overflow: 'hidden' }}>
-        {data.leaderboardSnapshot.length === 0 && <EmptyNote>No scores yet.</EmptyNote>}
-        {data.leaderboardSnapshot.map((row, i) => (
-          <div key={row.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: i < data.leaderboardSnapshot.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
-            <span style={{ width: 20, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 13, color: row.position <= 3 ? '#a1791f' : '#9ca3af' }}>{row.position}</span>
-            <Link href={`/trips/${tripId}/players/${row.playerId}`} style={{ flex: 1, fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, color: '#14532d', textDecoration: 'none' }}>{row.name}</Link>
-            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af' }}>{row.finished ? 'Finished' : `Thru ${row.holesPlayed}`}</span>
-            <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 14, color: '#14532d' }}>{row.totalPts} pts</span>
-          </div>
-        ))}
-      </div>
-      <Link href={`/trips/${tripId}/leaderboard`} style={{ ...actionLinkStyle, textAlign: 'center', marginBottom: 14, display: 'block' }}>
-        View Full Leaderboard →
-      </Link>
-
       {/* Bug 5 (field-test corrective) — real, round-scoped Side Games
           Snapshot, replacing the previous hardcoded placeholder that
           unconditionally said "not set up" regardless of actual data.
           Icon/label map copied from the established convention in
           SideGamesClient.tsx, not reinvented. */}
-      <SectionTitle>Side Games Snapshot</SectionTitle>
+      <CollapsibleSection icon="🏆" title="Side Games" count={sideGamesData?.competitions.length ?? 0}>
       {!sideGamesData || sideGamesData.competitions.length === 0 ? (
         <Link href={`/trips/${tripId}/sidegames`} style={{ display: 'block', background: '#f3f4f6', border: '1px dashed #d1d5db', borderRadius: 12, padding: '12px 14px', marginBottom: 14, textDecoration: 'none', textAlign: 'center' }}>
           <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af' }}>Not set up for this round yet — tap to open Side Games</span>
@@ -804,6 +893,7 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           </div>
         </Link>
       )}
+      </CollapsibleSection>
 
       {/* ── The Story — milestones only, never every hole or every score.
           Rebuilt from real entered_at timestamps (see the API route) —
@@ -820,10 +910,10 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           multi-round/trip-level Event Story view stays out of scope for
           this pass, per the explicit "prepare, don't overbuild"
           instruction. ─────────────────────────────────────────────────── */}
+      <CollapsibleSection icon="📖" title="The Story">
       <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 13, fontWeight: 800, letterSpacing: 0.3, marginBottom: 6, textTransform: 'uppercase' }}>
         {data.roundName}{data.courseName ? ` — ${data.courseName}` : ''}
       </div>
-      <SectionTitle>The Story</SectionTitle>
       {(() => {
         const roundMomentItems: TimelineItem[] = (roundMomentsData?.moments ?? []).map(m => ({
           kind: 'moment', at: m.created_at, imageUrl: m.imageUrl, caption: m.caption,
@@ -838,8 +928,13 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
       {/* Deployment A — passive-only pairing visibility, replacing the
           removed active reassignment link above. */}
       <PlayingPartnerStatus tripId={tripId} roundId={roundId} />
+      </CollapsibleSection>
 
-      {/* ── Quick Actions — only real, existing destinations ───────────── */}
+      {/* ── Live Statistics (includes Quick Actions — small, closely
+          related navigation links, folded into the same section rather
+          than left as an unlabelled, always-visible fragment on its
+          own) ───────────────────────────────────────────── */}
+      <CollapsibleSection icon="📊" title="Live Statistics">
       <SectionTitle>Quick Actions</SectionTitle>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
         {/* Deployment A — "Review Marker Assignments" (an active
@@ -859,9 +954,6 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           View Leaderboard →
         </Link>
       </div>
-
-      {/* ── Live Statistics ───────────────────────────────────────────── */}
-      <SectionTitle>Live Statistics</SectionTitle>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
         <StatCard label="Birdies" value={data.stats.birdies} />
         <StatCard label="Eagles" value={data.stats.eagles} />
@@ -881,8 +973,10 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 2 }}>Coming in Sprint 5D</div>
         </div>
       </div>
+      </CollapsibleSection>
 
       {/* ── 2.8 Group Map — compact operational table ────────────────── */}
+      <CollapsibleSection icon="✏️" title="Score Management">
       <SectionTitle>Group Map</SectionTitle>
       <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
         {data.groups.map((g, i) => {
@@ -903,6 +997,19 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           )
         })}
       </div>
+      </CollapsibleSection>
+
+      {/* My Golf + My HQ UX Cleanup brief (5 Sep), item 6 — MAKERS &
+          BREAKERS. Reuses RoundHighlightsSection exactly as built for
+          the player-facing leaderboard (item 8 of the 3 Sep package) —
+          same component, same /published-highlights read-only fetch,
+          same publish-once lock. Already has its own collapsed header
+          built in, so it is NOT nested inside a second
+          CollapsibleSection here — that would just be two accordion
+          headers for one thing. Renders nothing at all before the
+          organiser has published this round's Makers & Breakers,
+          exactly as it already did on the leaderboard. */}
+      <RoundHighlightsSection tripId={tripId} roundId={roundId} roundName={data.roundName} />
 
       {/* ── Event Story — Sprint 6. Merges the Golf Story milestones
           already computed above ("The Story" section, unchanged) with
@@ -913,8 +1020,9 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           Moments are fetched once via their own query (not folded into
           the tournament query), so this section can refresh
           independently without recomputing the checkpoint-replay logic. */}
-      <SectionTitle>Event Story</SectionTitle>
+      <CollapsibleSection icon="📖" title="Event Story">
       <EventStorySection tripId={tripId} golfStory={data.story} />
+      </CollapsibleSection>
     </div>
   )
 }

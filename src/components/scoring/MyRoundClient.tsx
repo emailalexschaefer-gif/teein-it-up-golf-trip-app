@@ -1,39 +1,38 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import RoundSchedule, { type ScheduleRound } from './RoundSchedule'
 import PlayerRoundView from './PlayerRoundView'
 import MyGolfEventStory from './MyGolfEventStory'
 import MyAchievementsSection from './MyAchievementsSection'
 import MyBadgesSection from './MyBadgesSection'
 import MyEventStoriesSection from './MyEventStoriesSection'
+import CollapsibleSection from '@/components/shared/CollapsibleSection'
 import { trackEvent } from '@/lib/analytics/trackEvent'
+import type { BadgeType } from '@/app/api/me/badges/route'
 
 /**
- * My Golf brief (31 Aug) — "MY GOLF = MY GOLF LIFE." Reorganised per
- * the explicit new information hierarchy (item 2):
- *   1. My Achievements  (always — reuses the same canonical summary
- *      Home's card already fetches, never recalculated independently)
- *   2. My Badges         (always — self-shows an honest empty state)
- *   3. My Event Stories   (the just-finished-event celebration banner,
- *      when the whole event has JUST completed, followed by the
- *      permanent chronological index of every completed event — two
- *      genuinely different things, not a duplicate: the banner is a
- *      rich, one-time "fresh recap," the index is a lightweight,
- *      permanent list. Neither reimplements Event Story itself.)
- *   4. Current / Upcoming Golf (the existing round schedule/performance
- *      view, preserved in full — repositioned and reframed under its
- *      own heading, per the explicit "reposition/reframe... do not
- *      remove" instruction, not rebuilt.)
+ * My Golf + My HQ UX Cleanup brief (5 Sep) — final ordering:
+ *   1. My Achievements (visible), My Badges expandable within it
+ *   2. Current / Upcoming Golf (visible)
+ *   3. Results Are Ready — this is PlayerRoundView's own existing
+ *      "published" status banner (STATUS_META['published'] = "Results
+ *      are ready"), already rendered unconditionally at the top of
+ *      whatever PlayerRoundView shows for the selected round — no
+ *      separate component needed, since that banner already IS this
+ *      requirement, already visible, already correct.
+ *   4. Your Event Story — collapsed by default
+ *   5. Recap Round — collapsed by default (implemented inside
+ *      PlayerRoundView itself, see that file's own comment — the
+ *      status banner and any "needs your attention" alert stay
+ *      outside/visible; everything else moves into this one wrapper)
+ *   6. My Event Stories — unchanged, own ordering logic already lives
+ *      in that component
  *
- * Item 12 — "View My Golf →" from Home already lands at the top of
- * this exact component (same route, same order), so a player now sees
- * My Achievements first, not the round schedule — satisfied by this
- * reordering alone, no separate routing change needed.
- *
- * Item 9's own reasoning (below) is unchanged — selectedRoundId is
- * still plain useState, a manual tap is still the only thing that
- * changes it after mount.
+ * This is a presentation/ordering change only — every data source,
+ * query, and calculation below is exactly the one already in use
+ * before this package.
  */
 export default function MyRoundClient({
   tripId, rounds, defaultRoundId, eventFullyComplete = false, currentPlayerId,
@@ -57,28 +56,33 @@ export default function MyRoundClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Same queryKey ['my-badges'] MyBadgesSection itself uses — React
+  // Query dedupes identical concurrent queries by key, so this is not
+  // a second network request, only a second subscriber to the one
+  // MyBadgesSection already makes. Needed here only for the count
+  // shown in the collapsible header itself; MyBadgesSection's own
+  // internals are otherwise completely unchanged.
+  const { data: badgesData } = useQuery<{ badgeTypes: BadgeType[] }>({
+    queryKey: ['my-badges'],
+    queryFn: async () => {
+      const res = await fetch('/api/me/badges')
+      if (!res.ok) throw new Error('Could not load badges.')
+      return res.json()
+    },
+    staleTime: 60000,
+  })
+
   return (
     <div>
+      {/* 1. MY ACHIEVEMENTS — visible, My Badges expandable within it */}
       <MyAchievementsSection />
-      <MyBadgesSection />
+      <CollapsibleSection icon="🏅" title="My Badges" count={badgesData?.badgeTypes.length ?? 0}>
+        <MyBadgesSection />
+      </CollapsibleSection>
 
-      {/* Release 2, item 6 — shown ABOVE the event-stories index, only
-          once the whole event (not just the round currently selected
-          below) is fully complete. This is deliberately the FIRST
-          thing a player sees for a just-finished event — "a permanent
-          chapter in My Golf" — not something they have to scroll past
-          the ordinary round view to find. */}
-      {eventFullyComplete && currentPlayerId && (
-        <MyGolfEventStory tripId={tripId} playerId={currentPlayerId} />
-      )}
-
-      <MyEventStoriesSection />
-
-      {/* My Golf brief, item 11 — "Current / Upcoming Golf." The exact
-          same RoundSchedule/PlayerRoundView experience as before,
-          preserved in full, simply given its own heading and moved
-          below the achievement/badge/story content above it — not
-          rebuilt, not removed. */}
+      {/* 2. CURRENT / UPCOMING GOLF — visible, unchanged experience.
+          3. RESULTS ARE READY lives inside PlayerRoundView's own
+          status banner below (see this file's own top comment). */}
       <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 15, fontWeight: 800, marginBottom: 10 }}>
         Current / Upcoming Golf
       </div>
@@ -97,6 +101,19 @@ export default function MyRoundClient({
           Your organiser hasn&apos;t set up any rounds yet.
         </div>
       )}
+
+      {/* 4. YOUR EVENT STORY — collapsed by default. Only rendered at
+          all once the whole event is fully complete, exactly as
+          before — this package only changes WHERE/HOW it's shown
+          (collapsed, not always-open), never whether or what. */}
+      {eventFullyComplete && currentPlayerId && (
+        <CollapsibleSection icon="📖" title="Your Event Story">
+          <MyGolfEventStory tripId={tripId} playerId={currentPlayerId} />
+        </CollapsibleSection>
+      )}
+
+      {/* 6. MY EVENT STORIES — historical archive, unchanged. */}
+      <MyEventStoriesSection />
     </div>
   )
 }

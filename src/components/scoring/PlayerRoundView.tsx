@@ -5,6 +5,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import MomentViewer, { type MomentViewerData } from '@/components/moments/MomentViewer'
+import CollapsibleSection from '@/components/shared/CollapsibleSection'
 
 interface MyRoundData {
   hasScorecard: boolean
@@ -135,32 +136,10 @@ export default function PlayerRoundView({
         )}
       </div>
 
-      {/* 2. Personal score snapshot */}
-      {data.holesPlayed !== undefined && data.holesPlayed > 0 && (
-        <>
-          <SectionLabel>How you&apos;re going</SectionLabel>
-          <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', padding: 16, marginBottom: 16 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 12 }}>
-              <Stat label="Points" value={data.totalPts ?? 0} big />
-              <Stat label="Thru" value={`${data.holesPlayed}/${data.totalHoles ?? 18}`} big />
-              <Stat label="Position" value={data.position ? `${data.position}/${data.totalPlayers}` : '—'} big />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280', borderTop: '1px solid #f3f4f1', paddingTop: 10, marginBottom: 10 }}>
-              <span>Front 9: <strong style={{ color: '#14532d' }}>{data.front9Pts ?? 0}</strong></span>
-              <span>Back 9: <strong style={{ color: '#14532d' }}>{data.back9Pts ?? 0}</strong></span>
-              <span>HCP: <strong style={{ color: '#14532d' }}>{data.playingHandicap}</strong></span>
-            </div>
-            <div style={{ display: 'flex', gap: 14, fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280' }}>
-              {(data.birdies ?? 0) > 0 && <span>⛳ {data.birdies} birdie{data.birdies === 1 ? '' : 's'}</span>}
-              {(data.eagles ?? 0) > 0 && <span>🦅 {data.eagles} eagle{data.eagles === 1 ? '' : 's'}</span>}
-              {(data.holeInOnes ?? 0) > 0 && <span>🏆 {data.holeInOnes} hole-in-one{data.holeInOnes === 1 ? '' : 's'}</span>}
-              {data.bestHole && <span>Best: H{data.bestHole.number} ({data.bestHole.pts} pts)</span>}
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* 3. Personal alerts — only issues affecting this player */}
+      {/* 3. Personal alerts — only issues affecting this player. My Golf
+          + My HQ UX Cleanup brief (5 Sep) — "NEVER HIDE A PROBLEM" is
+          explicit and non-negotiable: this stays outside Recap Round,
+          visible unconditionally, exactly as before this package. */}
       {data.mismatches && data.mismatches.length > 0 && data.status !== 'review_required' && (
         <>
           <SectionLabel>Needs your attention</SectionLabel>
@@ -174,84 +153,123 @@ export default function PlayerRoundView({
         </>
       )}
 
-      {/* My Group */}
-      {data.groupName && (
-        <>
-          <SectionLabel>My Group</SectionLabel>
-          <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', padding: 14, marginBottom: 16 }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d', marginBottom: 4 }}>{data.groupName}</div>
-            {data.groupMembers && data.groupMembers.length > 0 && (
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#6b7280', marginBottom: data.markerName ? 4 : 0 }}>
-                {data.groupMembers.join(', ')}
-              </div>
-            )}
-            {data.markerName && (
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af' }}>Playing Partner: {data.markerName}</div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* 5. My Golf Story — personal milestones only */}
-      {data.story && data.story.length > 0 && (
-        <>
-          <SectionLabel>What happened today</SectionLabel>
-          <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
-            {data.story.map((s, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderBottom: i < data.story!.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
-                <span style={{ fontSize: 14 }}>{s.icon}</span>
-                <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#14532d' }}>{s.text}</span>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* Publish Lifecycle, item 5/6/7 — "🔥 Round Highlights," only
-          ever populated once the organiser has published this round's
-          Makers & Breakers (my-round route returns empty arrays until
-          then — see that route's own comment). Personal and group
-          highlights shown as two clearly separate lists, matching the
-          brief's own "YOUR HIGHLIGHTS" / "GROUP HIGHLIGHTS" example —
-          never a recalculation, purely a render of what the organiser
-          already published. */}
-      {((data.myHighlights && data.myHighlights.length > 0) || (data.myGroupHighlights && data.myGroupHighlights.length > 0)) && (
-        <>
-          <SectionLabel>🔥 Round Highlights</SectionLabel>
-          {data.myHighlights && data.myHighlights.length > 0 && (
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#a1791f', letterSpacing: 0.4, marginBottom: 6 }}>YOUR HIGHLIGHTS</div>
-              <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
-                {data.myHighlights.map((h, i) => (
-                  <div key={h.category} style={{ padding: '10px 14px', borderBottom: i < data.myHighlights!.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
-                    <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d' }}>{h.icon} {h.title}</div>
-                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7a7260', marginTop: 1 }}>{h.statLine}</div>
+      {/* My Golf + My HQ UX Cleanup brief (5 Sep) — "RECAP ROUND,"
+          collapsed by default. Everything below was previously always
+          visible, uncollapsed, directly on this screen — this is a
+          pure presentation wrapper: no data, query, or calculation
+          here changed at all, only where it renders. Organised into
+          the four named subcategories exactly as specified; "How
+          you're going" (personal score snapshot) folds into "What
+          Happened Today" as the most natural fit — there wasn't a
+          fifth, separate slot for it in the brief's own four-item
+          list, and it's genuinely part of "what happened," not a
+          distinct category of its own. */}
+      {(
+        (data.holesPlayed !== undefined && data.holesPlayed > 0) ||
+        !!data.groupName || (data.story && data.story.length > 0) ||
+        (data.myHighlights && data.myHighlights.length > 0) || (data.myGroupHighlights && data.myGroupHighlights.length > 0)
+      ) && (
+        <CollapsibleSection icon="⛳" title="Recap Round">
+          {/* MY GROUP */}
+          {data.groupName && (
+            <>
+              <SectionLabel>My Group</SectionLabel>
+              <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', padding: 14, marginBottom: 16 }}>
+                <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d', marginBottom: 4 }}>{data.groupName}</div>
+                {data.groupMembers && data.groupMembers.length > 0 && (
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#6b7280', marginBottom: data.markerName ? 4 : 0 }}>
+                    {data.groupMembers.join(', ')}
                   </div>
-                ))}
+                )}
+                {data.markerName && (
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af' }}>Playing Partner: {data.markerName}</div>
+                )}
               </div>
+            </>
+          )}
+
+          {/* WHAT HAPPENED TODAY — personal score snapshot + golf story,
+              combined under this one heading. */}
+          {data.holesPlayed !== undefined && data.holesPlayed > 0 && (
+            <>
+              <SectionLabel>What Happened Today</SectionLabel>
+              <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', padding: 16, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 12 }}>
+                  <Stat label="Points" value={data.totalPts ?? 0} big />
+                  <Stat label="Thru" value={`${data.holesPlayed}/${data.totalHoles ?? 18}`} big />
+                  <Stat label="Position" value={data.position ? `${data.position}/${data.totalPlayers}` : '—'} big />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280', borderTop: '1px solid #f3f4f1', paddingTop: 10, marginBottom: 10 }}>
+                  <span>Front 9: <strong style={{ color: '#14532d' }}>{data.front9Pts ?? 0}</strong></span>
+                  <span>Back 9: <strong style={{ color: '#14532d' }}>{data.back9Pts ?? 0}</strong></span>
+                  <span>HCP: <strong style={{ color: '#14532d' }}>{data.playingHandicap}</strong></span>
+                </div>
+                <div style={{ display: 'flex', gap: 14, fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280' }}>
+                  {(data.birdies ?? 0) > 0 && <span>⛳ {data.birdies} birdie{data.birdies === 1 ? '' : 's'}</span>}
+                  {(data.eagles ?? 0) > 0 && <span>🦅 {data.eagles} eagle{data.eagles === 1 ? '' : 's'}</span>}
+                  {(data.holeInOnes ?? 0) > 0 && <span>🏆 {data.holeInOnes} hole-in-one{data.holeInOnes === 1 ? '' : 's'}</span>}
+                  {data.bestHole && <span>Best: H{data.bestHole.number} ({data.bestHole.pts} pts)</span>}
+                </div>
+              </div>
+            </>
+          )}
+          {data.story && data.story.length > 0 && (
+            <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden', marginBottom: 16 }}>
+              {data.story.map((s, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderBottom: i < data.story!.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
+                  <span style={{ fontSize: 14 }}>{s.icon}</span>
+                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#14532d' }}>{s.text}</span>
+                </div>
+              ))}
             </div>
           )}
-          {data.myGroupHighlights && data.myGroupHighlights.length > 0 && (
-            <div>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#a1791f', letterSpacing: 0.4, marginBottom: 6 }}>GROUP HIGHLIGHTS</div>
-              <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
-                {data.myGroupHighlights.map((h, i) => (
-                  <div key={h.category} style={{ padding: '10px 14px', borderBottom: i < data.myGroupHighlights!.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
-                    <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d' }}>{h.icon} {h.title}</div>
-                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7a7260', marginTop: 1 }}>{h.groupName ? `${h.groupName} — ` : ''}{h.statLine}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </>
-      )}
 
-      {/* 6. My Moments — Sprint 6, Part 5. Only this player's own captured
-          Moments, thumbnail + caption + hole + time. A separate query
-          from the round-summary one above, since Moments can span the
-          whole trip, not just this round. */}
-      <MyMoments tripId={tripId} />
+          {/* YOUR HIGHLIGHTS — Publish Lifecycle, item 5/6/7. Only ever
+              populated once the organiser has published this round's
+              Makers & Breakers (my-round route returns empty arrays
+              until then) — never a recalculation here, purely a render
+              of what the organiser already published. */}
+          {((data.myHighlights && data.myHighlights.length > 0) || (data.myGroupHighlights && data.myGroupHighlights.length > 0)) && (
+            <>
+              <SectionLabel>Your Highlights</SectionLabel>
+              {data.myHighlights && data.myHighlights.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#a1791f', letterSpacing: 0.4, marginBottom: 6 }}>YOUR HIGHLIGHTS</div>
+                  <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+                    {data.myHighlights.map((h, i) => (
+                      <div key={h.category} style={{ padding: '10px 14px', borderBottom: i < data.myHighlights!.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
+                        <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d' }}>{h.icon} {h.title}</div>
+                        <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7a7260', marginTop: 1 }}>{h.statLine}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {data.myGroupHighlights && data.myGroupHighlights.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#a1791f', letterSpacing: 0.4, marginBottom: 6 }}>GROUP HIGHLIGHTS</div>
+                  <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+                    {data.myGroupHighlights.map((h, i) => (
+                      <div key={h.category} style={{ padding: '10px 14px', borderBottom: i < data.myGroupHighlights!.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
+                        <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d' }}>{h.icon} {h.title}</div>
+                        <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7a7260', marginTop: 1 }}>{h.groupName ? `${h.groupName} — ` : ''}{h.statLine}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* MY MOMENTS — Sprint 6, Part 5. Only this player's own
+              captured Moments, thumbnail + caption + hole + time. A
+              separate query from the round-summary one above, since
+              Moments can span the whole trip, not just this round —
+              unchanged by this package. */}
+          <SectionLabel>My Moments</SectionLabel>
+          <MyMoments tripId={tripId} />
+        </CollapsibleSection>
+      )}
     </div>
   )
 }

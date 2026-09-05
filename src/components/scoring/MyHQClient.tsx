@@ -6,6 +6,7 @@ import RoundSchedule, { type ScheduleRound } from './RoundSchedule'
 import TournamentControl from './TournamentControl'
 import RoundHighlightsCard from './RoundHighlightsCard'
 import MyRoundSummary from './MyRoundSummary'
+import CollapsibleSection from '@/components/shared/CollapsibleSection'
 import { trackEvent } from '@/lib/analytics/trackEvent'
 
 /**
@@ -135,10 +136,13 @@ export default function MyHQClient({
           {organiserIsPlaying && (
             <div style={{ marginTop: 20 }}>
               <div style={{ height: 1, background: '#eceae3', marginBottom: 16 }} />
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: '#a1791f', marginBottom: 8 }}>
-                My Round
-              </div>
-              <MyRoundSummary tripId={tripId} roundId={selected.id} roundStatus={selected.status} />
+              {/* My Golf + My HQ UX Cleanup brief (5 Sep), item 9 —
+                  "MY ROUND." The organiser-as-player summary — never to
+                  be confused with My Golf's player-facing "Recap Round"
+                  (a different page entirely, per that file's own note). */}
+              <CollapsibleSection icon="⛳" title="My Round">
+                <MyRoundSummary tripId={tripId} roundId={selected.id} roundStatus={selected.status} />
+              </CollapsibleSection>
             </div>
           )}
         </>

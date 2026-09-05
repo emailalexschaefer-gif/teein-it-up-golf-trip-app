@@ -41,10 +41,6 @@ export default function MyBadgesSection() {
 
   return (
     <div style={{ marginBottom: 20 }}>
-      <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 15, fontWeight: 800, marginBottom: 10 }}>
-        My Badges
-      </div>
-
       {badgeTypes.length === 0 ? (
         // Data integrity — never fabricate a badge that wasn't
         // genuinely published for this player. A player with none yet
