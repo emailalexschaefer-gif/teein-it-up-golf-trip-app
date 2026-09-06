@@ -176,3 +176,47 @@ This has not been packaged as a "full PASS" — it's a complete,
 tested-where-testable implementation with one explicit, named scope
 gap, ready for the real-device pass that decides whether it's actually
 done.
+
+---
+
+## FOLLOW-UP — DARREN'S FEEDBACK (5 Sep, post-delivery)
+
+Two items came back from real-device review. Both addressed directly,
+same package, same test suite re-run.
+
+**1. "Can Event Story and The Story be merged — or too hard due to
+where info is stored?"**
+
+Investigated before touching anything: both sections combined the
+exact same round-scoped golf-story milestones (`data.story`) with a
+Moments feed from the same `/api/trips/{tripId}/moments` endpoint —
+"The Story" merely added a `?roundId=` filter. "Event Story" was
+already a strict superset (same milestones, plus every Moment across
+the whole Event rather than only this round's) — not "hard due to
+storage," genuinely just duplicated rendering of the same source data.
+Removed the redundant "The Story" section entirely and renamed "Event
+Story" to "The Story," so there's now exactly one, correctly matching
+the merged name Darren asked for. `PlayingPartnerStatus` (which lived
+inside the removed section but isn't story content at all) was moved
+out, not deleted, and now renders as its own standalone element rather
+than being bundled into a story-shaped section.
+
+**2. "Makers and breakers doesn't stay with makers and breakers, it
+appears lower down the list."**
+
+Confirmed: `RoundHighlightsSection` had been placed after Score
+Management rather than directly beneath Side Games. Moved it — no
+change to the component itself, purely its position, now directly
+after Side Games as the two organiser-facing round-results sections
+sitting together.
+
+**Minor, non-breaking note:** removing the duplicate section left one
+now-unused query (`roundMomentsData`) declared but unread. Harmless —
+an extra fetch nobody consumes, not a correctness issue — but worth a
+follow-up cleanup pass rather than risking a further edit to squeeze
+in right now.
+
+**Test result after this follow-up: 350/350 pass** (274 scoring + 61
+highlights + 8 analytics + 7 profile) — every business-logic suite
+re-run fresh, unaffected, exactly as expected for another
+presentation-only change.

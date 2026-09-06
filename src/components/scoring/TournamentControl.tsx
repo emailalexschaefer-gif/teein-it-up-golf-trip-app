@@ -895,40 +895,36 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
       )}
       </CollapsibleSection>
 
-      {/* ── The Story — milestones only, never every hole or every score.
-          Rebuilt from real entered_at timestamps (see the API route) —
-          lead changes, hole-in-ones, review moments, group finishes,
-          not an activity log. Also merges in this round's Moments
-          (any trip member's, not just the organiser's — see
-          roundMomentsData above), chronologically alongside the golf
-          milestones, so a player-posted Moment shows up here too, not
-          only in Event Story further down. ───────────────────────────── */}
-      {/* ── Round Story header — the beginning of "each round is a
-          chapter" (Event Story architecture). Uses data already in this
-          response (roundName/courseName) — no new query. Deliberately
-          minimal: just names which round's chapter this is; the actual
-          multi-round/trip-level Event Story view stays out of scope for
-          this pass, per the explicit "prepare, don't overbuild"
-          instruction. ─────────────────────────────────────────────────── */}
-      <CollapsibleSection icon="📖" title="The Story">
-      <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 13, fontWeight: 800, letterSpacing: 0.3, marginBottom: 6, textTransform: 'uppercase' }}>
-        {data.roundName}{data.courseName ? ` — ${data.courseName}` : ''}
-      </div>
-      {(() => {
-        const roundMomentItems: TimelineItem[] = (roundMomentsData?.moments ?? []).map(m => ({
-          kind: 'moment', at: m.created_at, imageUrl: m.imageUrl, caption: m.caption,
-          playerName: m.playerName, holeNumber: m.hole_number,
-        }))
-        const systemItems: TimelineItem[] = data.story.map(s => ({ kind: 'system', icon: s.icon, text: s.text, at: s.at, imageUrl: s.imageUrl }))
-        const storyCombined: TimelineItem[] = [...systemItems, ...roundMomentItems].sort((a, b) => b.at.localeCompare(a.at))
-        if (storyCombined.length === 0) return <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 14, overflow: 'hidden' }}><EmptyNote>The story of the round will appear here as it unfolds.</EmptyNote></div>
-        return <div style={{ marginBottom: 14 }}><StoryTimelineList items={storyCombined} /></div>
-      })()}
-
-      {/* Deployment A — passive-only pairing visibility, replacing the
-          removed active reassignment link above. */}
+      {/* My Golf + My HQ UX Cleanup brief, follow-up (5 Sep) — Darren's
+          own feedback: "The Story" and "Event Story" duplicated each
+          other almost entirely. Confirmed by reading both sections'
+          actual data sources directly before touching anything: both
+          combined the exact same round-scoped golf-story milestones
+          (data.story) with a Moments feed from the same
+          /api/trips/{tripId}/moments endpoint — this section's own
+          version merely added a ?roundId= filter, making it a strict
+          SUBSET of what "Event Story" (below, now renamed to "The
+          Story" — see that section) already showed. Not "too hard due
+          to where info is stored" — genuinely just duplicated
+          rendering of the same source data. Removing this section
+          loses nothing: everything it displayed is still shown by the
+          renamed section below, which if anything shows slightly MORE
+          (this round's milestones plus every Moment across the whole
+          Event, rather than only this round's). PlayingPartnerStatus
+          below is NOT story content and was never meant to be bundled
+          with it — moved here, standalone, instead of being deleted
+          along with this section. */}
       <PlayingPartnerStatus tripId={tripId} roundId={roundId} />
-      </CollapsibleSection>
+
+      {/* My Golf + My HQ UX Cleanup brief, follow-up (5 Sep) — "Makers
+          and breakers doesn't stay with makers and breakers, it
+          appears lower down the list." Moved from after Score
+          Management to directly beneath Side Games, keeping the two
+          Side Games / Makers & Breakers organiser-facing round
+          results sections adjacent. No change to RoundHighlightsSection
+          itself — same component, same publish-lock-respecting read,
+          only its position moved. */}
+      <RoundHighlightsSection tripId={tripId} roundId={roundId} roundName={data.roundName} />
 
       {/* ── Live Statistics (includes Quick Actions — small, closely
           related navigation links, folded into the same section rather
@@ -999,28 +995,18 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
       </div>
       </CollapsibleSection>
 
-      {/* My Golf + My HQ UX Cleanup brief (5 Sep), item 6 — MAKERS &
-          BREAKERS. Reuses RoundHighlightsSection exactly as built for
-          the player-facing leaderboard (item 8 of the 3 Sep package) —
-          same component, same /published-highlights read-only fetch,
-          same publish-once lock. Already has its own collapsed header
-          built in, so it is NOT nested inside a second
-          CollapsibleSection here — that would just be two accordion
-          headers for one thing. Renders nothing at all before the
-          organiser has published this round's Makers & Breakers,
-          exactly as it already did on the leaderboard. */}
-      <RoundHighlightsSection tripId={tripId} roundId={roundId} roundName={data.roundName} />
-
-      {/* ── Event Story — Sprint 6. Merges the Golf Story milestones
-          already computed above ("The Story" section, unchanged) with
-          real captured Moments, chronologically. Golf Story records
-          scores/leader-changes/milestones; Event Story records people,
-          celebrations, and memories — two separate timelines that
-          combine here into one, per the brief's own product principle.
-          Moments are fetched once via their own query (not folded into
-          the tournament query), so this section can refresh
-          independently without recomputing the checkpoint-replay logic. */}
-      <CollapsibleSection icon="📖" title="Event Story">
+      {/* My Golf + My HQ UX Cleanup brief, follow-up (5 Sep) — this
+          section (originally "Event Story") now serves as the single
+          "The Story" — Darren's own request to merge the two. See the
+          removed duplicate section above (right after Side Games) for
+          the full explanation: this one already combined the same
+          round's golf-story milestones with Moments, just from the
+          whole-Event moments feed rather than a round-scoped subset —
+          a strict superset of what the other section showed, so
+          nothing is lost by keeping only this one. EventStorySection
+          itself is completely unchanged; only which section wraps it,
+          and its title, changed. */}
+      <CollapsibleSection icon="📖" title="The Story">
       <EventStorySection tripId={tripId} golfStory={data.story} />
       </CollapsibleSection>
     </div>
