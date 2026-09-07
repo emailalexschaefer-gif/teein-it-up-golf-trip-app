@@ -243,8 +243,19 @@ function RoundCard({ round, index, tripId, canBegin, onBeginRound }: RoundCardPr
           )}
 
           {isCompleted && (
+            // Teein' It Up bug-fix package (7 Sep), item 3 — was
+            // /trips/{tripId}/rounds/{round.id}, the scoring route (the
+            // exact same one "Continue Scoring" above uses) — tapping
+            // View Results landed back on scoring, never a genuine
+            // results screen. Now routes to the leaderboard page,
+            // which already supports a ?roundId= override (built for
+            // exactly this "View Final Results for a specific
+            // completed round" case, per that page's own comment) —
+            // reusing round.id here, not the trip's default/current
+            // round, is what keeps this correctly scoped to THIS round
+            // even when a later round exists.
             <a
-              href={`/trips/${tripId}/rounds/${round.id}`}
+              href={`/trips/${tripId}/leaderboard?roundId=${round.id}`}
               style={{
                 display: 'block', width: '100%', padding: '10px 18px', textAlign: 'center',
                 background: '#f2e8d0', borderRadius: 10, textDecoration: 'none',

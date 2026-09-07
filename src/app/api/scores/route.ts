@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     .eq('profile_id', user.id)
     .maybeSingle()
 
-  if (!memberResult?.data) return NextResponse.json({ error: 'Not a trip member' }, { status: 403 })
+  if (!memberResult?.data) return NextResponse.json({ error: 'Not an event member' }, { status: 403 })
 
   const isOrganiser = memberResult.data.role === 'organiser'
   const isOwnCard = scorecard.player_id === user.id

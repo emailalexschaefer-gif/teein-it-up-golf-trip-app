@@ -53,7 +53,7 @@ export default function PendingJoinHandler() {
       })
       .catch((err) => {
         console.error('[PendingJoinHandler] network error:', err)
-        setJoinError('Network error while joining trip. Try entering the code below.')
+        setJoinError('Network error while joining event. Try entering the code below.')
       })
   }, [router, queryClient])
 
@@ -65,7 +65,7 @@ export default function PendingJoinHandler() {
       borderRadius: 12, padding: '12px 14px',
     }}>
       <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#b91c1c', fontWeight: 600, marginBottom: 4 }}>
-        Could not join trip
+        Could not join event
       </p>
       <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#dc2626' }}>{joinError}</p>
       <button

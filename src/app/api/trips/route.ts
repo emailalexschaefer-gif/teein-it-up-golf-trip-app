@@ -55,15 +55,30 @@ const RoundSchema = z.object({
 })
 
 const CreateTripSchema = z.object({
-  name:              z.string().min(1, 'Trip name is required').max(100),
+  name:              z.string().min(1, 'Event name is required').max(100),
   event_type:        z.string().default('golf_trip'),
   location:          z.string().max(200).default(''),
   start_date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   end_date:          z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   description:       z.string().max(1000).default(''),
   expected_players:  z.number().int().min(0).max(500).default(0),
-  players_per_group:    z.number().int().min(2).max(8).default(4),
+  // Separate Solo Event Play from Practice Round Mode (5 Sep) — was
+  // min(2). This field is stored on trips purely as a default/hint for
+  // that trip's own later group-setup UI, confirmed by tracing every
+  // use of it in this route: it's written to one column and never read
+  // back to enforce an actual runtime group-size limit anywhere.
+  // Lowering the floor to 1 doesn't weaken any real constraint — a
+  // one-player group's validity is governed entirely by the existing
+  // solo-Event support this brief explicitly protects, not by this
+  // stored hint. Needed as a hard requirement for Practice Round
+  // creation (always exactly 1 player), which reuses this same route.
+  players_per_group:    z.number().int().min(1).max(8).default(4),
   organiser_is_playing: z.boolean().default(false),
+  // Separate Solo Event Play from Practice Round Mode (5 Sep) — the one
+  // explicit classification this whole feature hinges on. Defaults to
+  // false so every existing caller of this route (the normal trip
+  // wizard) is completely unaffected without passing anything new.
+  is_practice:          z.boolean().default(false),
   rounds:            z.array(RoundSchema).min(1).max(10),
 })
 
@@ -87,7 +102,7 @@ export async function POST(request: Request) {
   }
 
   const { name, event_type, location, start_date, end_date, description,
-          expected_players, players_per_group, organiser_is_playing, rounds } = parsed.data
+          expected_players, players_per_group, organiser_is_playing, is_practice, rounds } = parsed.data
 
   if (end_date < start_date) {
     return NextResponse.json({ error: 'End date must be on or after start date' }, { status: 400 })
@@ -115,6 +130,7 @@ export async function POST(request: Request) {
       expected_players,
       players_per_group,
       organiser_is_playing,
+      is_practice,
     })
     .select('id, invite_code')
     .single()
@@ -125,7 +141,12 @@ export async function POST(request: Request) {
     const isMissingColumn = errMsg.includes('column') && (
       errMsg.includes('expected_players') ||
       errMsg.includes('players_per_group') ||
-      errMsg.includes('organiser_is_playing')
+      errMsg.includes('organiser_is_playing') ||
+      // Separate Solo Event Play from Practice Round Mode (5 Sep) —
+      // same defensive pattern as the three columns above, for the
+      // same reason: this route must not hard-fail if migration 074
+      // hasn't run yet in whichever environment it's hit in.
+      errMsg.includes('is_practice')
     )
 
     if (isMissingColumn) {

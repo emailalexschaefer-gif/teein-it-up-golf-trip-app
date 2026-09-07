@@ -46,6 +46,16 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
     const roundRes = await admin.from('rounds').select('id, holes, status, starting_hole_number').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
     if (!roundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
+    // Separate Solo Event Play from Practice Round Mode (5 Sep) — a
+    // Practice Round must not generate Individual or Group Makers &
+    // Breakers, by explicit product rule ("do not allow a golfer to
+    // manufacture competitive achievement history through unverified
+    // solo play"). Checked before this route does any generation work
+    // at all, not filtered from an already-generated result.
+    const practiceCheck = await admin.from('trips').select('is_practice').eq('id', tripId).maybeSingle()
+    if (practiceCheck.data?.is_practice) {
+      return NextResponse.json({ error: 'Practice rounds do not generate Makers & Breakers.', isPractice: true }, { status: 200 })
+    }
     if (roundRes.data.status !== 'completed') {
       // Item 1 — "after a round is fully completed/reconciled." Not a
       // hard architectural requirement of the engine itself (it would

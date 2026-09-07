@@ -150,10 +150,10 @@ function NewTripForm() {
       <div className="mb-6">
         <Link href={isEditing ? `/trips/${editingTripId}` : '/dashboard'}
           className="inline-flex items-center text-sm text-text-muted hover:text-brand-600 transition-colors mb-2">
-          ← {isEditing ? 'Back to trip' : 'My Trips'}
+          ← {isEditing ? 'Back to event' : 'My Events'}
         </Link>
         <h1 className="text-2xl font-bold text-text">
-          {isEditing ? 'Edit trip' : 'Create a trip'}
+          {isEditing ? 'Edit event' : 'Create an event'}
         </h1>
       </div>
 

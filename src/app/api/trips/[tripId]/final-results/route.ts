@@ -60,8 +60,15 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     const memberCheck = await admin.from('trip_members').select('role').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
     if (!memberCheck.data) return NextResponse.json({ error: 'Not a trip member.' }, { status: 403 })
 
-    const tripRes = await admin.from('trips').select('id, name, status').eq('id', tripId).maybeSingle()
+    const tripRes = await admin.from('trips').select('id, name, status, is_practice').eq('id', tripId).maybeSingle()
     if (!tripRes.data) return NextResponse.json({ error: 'Trip not found.' }, { status: 404 })
+    // Separate Solo Event Play from Practice Round Mode (5 Sep) — a
+    // Practice Round has no Event Winner by product rule. Gated here,
+    // before the completed-status check below, so this never even
+    // attempts the champions/standings computation for a practice trip.
+    if (tripRes.data.is_practice) {
+      return NextResponse.json({ error: 'Practice rounds do not have an Event Winner.', isPractice: true }, { status: 200 })
+    }
     if (tripRes.data.status !== 'completed') {
       return NextResponse.json({ error: 'This event is not yet complete.' }, { status: 409 })
     }

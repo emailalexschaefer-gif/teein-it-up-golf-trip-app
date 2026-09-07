@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { resolvePlayingHandicap, deriveBeginRoundHoles, deriveNineHoles } from '@/lib/scoring/defaultHoles'
 import type { HoleTemplate, PlayingNine } from '@/lib/scoring/defaultHoles'
 import { calculateDailyHandicap } from '@/lib/scoring/dailyHandicap'
+import CollapsibleSection from '@/components/shared/CollapsibleSection'
 import { useScoringFocusStore } from '@/store/scoringFocusStore'
 import BrandLogo from '@/components/brand/BrandLogo'
 import { trackEvent } from '@/lib/analytics/trackEvent'
@@ -1169,6 +1170,28 @@ export default function BeginRoundModal({
                 </p>
               </div>
 
+              {/* Teein' It Up bug-fix package (7 Sep), item 1 — "Hole
+                  Setup screen is too heavy by default." The normal/
+                  default path is now: accept the shown template, tap
+                  Confirm & Continue, done — the full editable table
+                  only appears once the organiser deliberately opens
+                  "Need to edit holes or indexes?" This is a
+                  presentation change only: `holes` state, updateHole,
+                  and everything persisted to the round are completely
+                  unchanged — the table below is the exact same table,
+                  just collapsed by default instead of always open.
+                  Custom nine is the one case defaulted OPEN instead of
+                  closed — "Custom" exists specifically because the
+                  standard template doesn't fit, so editing is already
+                  the expected next action there, not an exception to
+                  go looking for. */}
+              <div style={{ background: '#f8f4eb', border: '1px solid #e8d98a', borderRadius: 10, padding: '10px 14px', marginBottom: 10 }}>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#1a4731', fontWeight: 600 }}>
+                  Par {holes.reduce((sum: number, h: HoleTemplate) => sum + h.par, 0)} · {holes.length} holes — using the template shown above.
+                </p>
+              </div>
+
+              <CollapsibleSection icon="⛳" title="Need to edit holes or indexes?" defaultExpanded={holeCount === 9 && playingNine === 'custom'}>
               {/* Hole table */}
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-body)', fontSize: 13 }}>
@@ -1222,6 +1245,7 @@ export default function BeginRoundModal({
                   </tbody>
                 </table>
               </div>
+              </CollapsibleSection>
             </>
           )}
 

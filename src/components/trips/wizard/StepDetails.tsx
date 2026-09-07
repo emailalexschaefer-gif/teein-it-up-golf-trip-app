@@ -22,7 +22,7 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
 
   return (
     <div className="space-y-4">
-      <Field label="Trip name" required>
+      <Field label="Event name" required>
         <Input
           value={data.name}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('name', e.target.value)}
@@ -93,7 +93,7 @@ export default function StepDetails({ data, onChange, onNext }: Props) {
         <Textarea
           value={data.description}
           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => set('description', e.target.value)}
-          placeholder="Annual west coast trip. 3 rounds, great craic."
+          placeholder="Annual west coast golf trip. 3 rounds, great craic."
           rows={3}
           maxLength={500}
         />

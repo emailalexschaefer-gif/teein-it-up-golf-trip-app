@@ -112,7 +112,7 @@ export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRef
       {/* ── No players guidance ──────────────────────────────────────── */}
       {playerCount === 0 && isOrganiser && (
         <div style={{ background: '#fffbeb', border: '1.5px solid #fcd34d', borderRadius: 12, padding: '12px 14px', fontFamily: 'var(--font-body)', fontSize: 12, color: '#92400e' }}>
-          No players have joined yet. Share the invite link from the trip header.
+          No players have joined yet. Share the invite link from the event header.
         </div>
       )}
 
@@ -148,7 +148,7 @@ export default function TripPlayersTab({ trip, currentUserId, isOrganiser, onRef
           <div className="card p-8 text-center">
             <p style={{ fontSize: 32, marginBottom: 8 }}>👥</p>
             <p style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: '#1a1a16', marginBottom: 4 }}>No players yet</p>
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260' }}>Share the invite link from the trip header.</p>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260' }}>Share the invite link from the event header.</p>
           </div>
         ) : (
           <div className="card overflow-hidden">

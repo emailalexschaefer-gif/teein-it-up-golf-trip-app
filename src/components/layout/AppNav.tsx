@@ -114,7 +114,7 @@ export default function AppNav({ userName, avatarUrl }: Props) {
                 textDecoration: 'none',
               }}
             >
-              + New Trip
+              + New Event
             </Link>
 
             <div style={{
@@ -175,8 +175,8 @@ export default function AppNav({ userName, avatarUrl }: Props) {
 
             {/* Nav links — Tailwind hover, no inline JS handlers */}
             {[
-              { label: '🏠  My Trips',   href: '/dashboard' },
-              { label: '+ New Trip',     href: '/trips/new' },
+              { label: '🏠  My Events',   href: '/dashboard' },
+              { label: '+ New Event',     href: '/trips/new' },
               { label: '👤  My Profile', href: '/profile' },
             ].map(({ label, href }) => (
               <a

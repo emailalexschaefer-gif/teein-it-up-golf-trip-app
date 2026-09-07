@@ -8,6 +8,7 @@ import MyGolfEventStory from './MyGolfEventStory'
 import MyAchievementsSection from './MyAchievementsSection'
 import MyBadgesSection from './MyBadgesSection'
 import MyEventStoriesSection from './MyEventStoriesSection'
+import MyPracticeRoundsSection from './MyPracticeRoundsSection'
 import CollapsibleSection from '@/components/shared/CollapsibleSection'
 import { trackEvent } from '@/lib/analytics/trackEvent'
 import type { BadgeType } from '@/app/api/me/badges/route'
@@ -111,6 +112,16 @@ export default function MyRoundClient({
           <MyGolfEventStory tripId={tripId} playerId={currentPlayerId} />
         </CollapsibleSection>
       )}
+
+      {/* Practice Round My Golf display follow-up (5 Sep) — positioned
+          directly beside My Event Stories, the closest existing
+          personal-history location, per the explicit "do not force
+          Practice into Event Stories, use the closest existing
+          personal round/history location, or add a very small
+          subsection" instruction. Self-hiding (renders nothing) when
+          the player has no practice rounds at all — never an empty
+          section cluttering My Golf for a player who's never used it. */}
+      <MyPracticeRoundsSection />
 
       {/* 6. MY EVENT STORIES — historical archive, unchanged. */}
       <MyEventStoriesSection />

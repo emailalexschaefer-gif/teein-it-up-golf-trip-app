@@ -646,10 +646,10 @@ export default function ProfileForm({
         background: '#faf6ed', border: '1px solid #d9c9a3',
       }}>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260' }}>
-          <strong style={{ color: '#1a1a16' }}>Trip handicaps:</strong>{' '}
-          Updating your profile handicap sets your default for future trips.
-          It does not change the playing handicap for any current trips.
-          To update a trip-specific handicap, go to the trip and use Edit HCP in the Players tab.
+          <strong style={{ color: '#1a1a16' }}>Event handicaps:</strong>{' '}
+          Updating your profile handicap sets your default for future events.
+          It does not change the playing handicap for any current events.
+          To update an event-specific handicap, go to the event and use Edit HCP in the Players tab.
         </p>
       </div>
 

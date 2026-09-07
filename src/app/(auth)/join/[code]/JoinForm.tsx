@@ -317,7 +317,7 @@ export default function JoinForm() {
   // ── Render states ──────────────────────────────────────────────────────────
 
   if (step === 'checking' || step === 'joining') {
-    const label = step === 'joining' ? 'Joining trip…' : 'Loading…'
+    const label = step === 'joining' ? 'Joining event…' : 'Loading…'
     return (
       <div className="flex flex-col items-center py-10 gap-4">
         <div className="w-10 h-10 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
@@ -372,7 +372,7 @@ export default function JoinForm() {
         </p>
         <p className="text-text-muted text-sm text-center">
           Tap it to join <strong>{tripName}</strong>.
-          The link will add you to the trip automatically.
+          The link will add you to the event automatically.
         </p>
       </>
     )
@@ -511,7 +511,7 @@ export default function JoinForm() {
 
             <button type="submit"
               className="w-full bg-brand-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-brand-700 transition-colors">
-              Sign In &amp; Join Trip
+              Sign In &amp; Join Event
             </button>
           </form>
 
@@ -569,7 +569,7 @@ export default function JoinForm() {
                 Your golf handicap<span className="text-red-500 ml-0.5">*</span>
               </label>
               <p className="text-xs text-text-muted mb-2">
-                Your default handicap for future trips and events.
+                Your default handicap for future events.
               </p>
               {!noHandicap && (
                 <input
@@ -594,7 +594,7 @@ export default function JoinForm() {
 
             <button type="submit"
               className="w-full bg-brand-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-brand-700 transition-colors">
-              Create Account &amp; Join Trip
+              Create Account &amp; Join Event
             </button>
           </form>
 

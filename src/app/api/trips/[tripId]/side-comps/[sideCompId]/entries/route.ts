@@ -210,8 +210,17 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
       p_entered_by: user.id,
     })
     if (error) {
-      console.error('[side-comp entries] submit_side_comp_value_entry failed', { sideCompId, error: error.message })
-      return NextResponse.json({ error: error.message.includes('not currently active') ? 'This round is not currently active.' : "Couldn't save your result. Please try again." }, { status: error.message.includes('not currently active') ? 409 : 500 })
+      console.error('[side-comp entries] submit_side_comp_value_entry failed', { sideCompId, playerId, requestedPlayerId, error: error.message, code: error.code, details: error.details, hint: error.hint })
+      // P0 bug-fix package (7 Sep) — "log the exact underlying error
+      // before fixing it." TEMPORARY: surfaces the real Postgres/RPC
+      // error text to the client so the actual cause is visible on the
+      // next real-device attempt, rather than only in server logs
+      // nobody watching this session can see. Remove once the root
+      // cause is confirmed and fixed.
+      return NextResponse.json({
+        error: error.message.includes('not currently active') ? 'This round is not currently active.' : "Couldn't save your result. Please try again.",
+        debug: { message: error.message, code: error.code, details: error.details, hint: error.hint, playerId, requestedPlayerId },
+      }, { status: error.message.includes('not currently active') ? 409 : 500 })
     }
     const row = data?.[0]
     return NextResponse.json({
@@ -232,8 +241,13 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
       p_entered_by: user.id,
     })
     if (error) {
-      console.error('[side-comp entries] submit_longest_drive_entry failed', { sideCompId, error: error.message })
-      return NextResponse.json({ error: error.message.includes('not currently active') ? 'This round is not currently active.' : "Couldn't save your result. Please try again." }, { status: error.message.includes('not currently active') ? 409 : 500 })
+      console.error('[side-comp entries] submit_longest_drive_entry failed', { sideCompId, playerId, requestedPlayerId, error: error.message, code: error.code, details: error.details, hint: error.hint })
+      // Same TEMPORARY debug surfacing as the branch above — see that
+      // comment for why.
+      return NextResponse.json({
+        error: error.message.includes('not currently active') ? 'This round is not currently active.' : "Couldn't save your result. Please try again.",
+        debug: { message: error.message, code: error.code, details: error.details, hint: error.hint, playerId, requestedPlayerId },
+      }, { status: error.message.includes('not currently active') ? 409 : 500 })
     }
     const row = data?.[0]
     return NextResponse.json({

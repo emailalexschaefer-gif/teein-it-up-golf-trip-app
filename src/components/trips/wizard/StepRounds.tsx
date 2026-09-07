@@ -300,7 +300,7 @@ export default function StepRounds({ tripDetails, rounds, onChange, onNext, onBa
           borderRadius: 10, padding: '10px 14px',
           fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a5c00',
         }}>
-          ⚠ {dateWarnings.length === 1 ? 'A round date' : `${dateWarnings.length} round dates`} fall outside the trip dates ({tripDetails.start_date} – {tripDetails.end_date}). You can continue, but check the dates are correct.
+          ⚠ {dateWarnings.length === 1 ? 'A round date' : `${dateWarnings.length} round dates`} fall outside the event dates ({tripDetails.start_date} – {tripDetails.end_date}). You can continue, but check the dates are correct.
         </div>
       )}
       <div className="space-y-3">

@@ -95,7 +95,7 @@ export default function HandicapPrompt({ inviteCode, onComplete, onCancel }: Pro
           fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 700, color: '#ffffff',
           boxShadow: '0 3px 12px rgba(26,71,49,0.35)',
         }}>
-          Save and Join Trip
+          Save and Join Event
         </button>
 
         <button type="button" onClick={onCancel} style={{
@@ -111,7 +111,7 @@ export default function HandicapPrompt({ inviteCode, onComplete, onCancel }: Pro
         fontFamily: 'var(--font-body)', fontSize: 11, color: '#a89e88',
         textAlign: 'center', marginTop: 12,
       }}>
-        Trip code: <strong>{inviteCode}</strong> — you can update your handicap anytime in My Profile.
+        Event code: <strong>{inviteCode}</strong> — you can update your handicap anytime in My Profile.
       </p>
     </div>
   )

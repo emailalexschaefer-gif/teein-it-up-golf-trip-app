@@ -69,7 +69,7 @@ const KIND_META: Record<Kind, { icon: string; label: string; bg: string; border:
   announcement: { icon: '🟢', label: 'Announcement', bg: '#ffffff', border: '#eceae3', labelColor: '#16a34a' },
   notification: { icon: '🔔', label: 'Notification', bg: '#ffffff', border: '#eceae3', labelColor: '#a1791f' },
   chat:         { icon: '💬', label: 'Group Message', bg: '#ffffff', border: '#eceae3', labelColor: '#6b7280' },
-  publicPost:   { icon: '💬', label: 'Trip Message', bg: '#ffffff', border: '#eceae3', labelColor: '#1e3a5f' },
+  publicPost:   { icon: '💬', label: 'Event Message', bg: '#ffffff', border: '#eceae3', labelColor: '#1e3a5f' },
   moment:       { icon: '📷', label: 'Moment', bg: '#fdf3d9', border: '#e8c96a', labelColor: '#a1791f' },
 }
 
@@ -314,7 +314,7 @@ export default function EventMessages({
           composer and a separate standalone Moment panel, but ZERO
           normal chat input — "Do not leave organisers with only
           Announcement + giant Moment panel and no normal chat." Now
-          shown for both roles, unconditionally — this IS "Trip Chat",
+          shown for both roles, unconditionally — this IS "Event Chat",
           the same normal experience every player already had, with the
           Moment action compact and inline (MomentCapture's own default
           'closed' stage is already just the small "📷 Moment" pill;
@@ -322,11 +322,11 @@ export default function EventMessages({
           separate "Capture a Moment" panel is removed entirely — this
           one composer now covers both send-a-message and Moment
           capture for every role, matching the required layout order:
-          Event Announcement, then Trip Chat, then the shared feed. */}
+          Event Announcement, then Event Chat, then the shared feed. */}
       <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid #eceae3', padding: '10px 12px', marginBottom: 10 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Trip Chat
+            Event Chat
           </div>
           <MomentCapture tripId={tripId} roundId={roundId} holeNumber={holeNumber} myGroupId={myGroupId} />
         </div>
@@ -438,7 +438,7 @@ export default function EventMessages({
                 <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: meta.labelColor }}>
                   {m.is_pinned && '📌 '}{meta.icon} {meta.label} · {recipientLabel(m)} · {relativeTime(m.created_at)}
                 </span>
-                {/* Item 8 — Trip Chat pinning. Organiser-only, per
+                {/* Item 8 — Event Chat pinning. Organiser-only, per
                     "players can read but cannot pin/unpin". A player
                     who isn't the organiser simply never sees this
                     control at all, rather than seeing it disabled. */}

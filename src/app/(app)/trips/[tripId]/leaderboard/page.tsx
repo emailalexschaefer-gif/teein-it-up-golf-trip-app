@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import LiveLeaderboard from '@/components/scoring/LiveLeaderboard'
+import RoundSideGamesSection from '@/components/scoring/RoundSideGamesSection'
 import TheField from '@/components/scoring/TheField'
 import { resolveRequestedOrDefaultRound } from '@/lib/scoring/multiRound'
 
@@ -76,6 +77,16 @@ export default async function LeaderboardPage({ params, searchParams }: Props) {
             </div>
           )}
           <LiveLeaderboard tripId={tripId} roundId={round.id} roundStatus={round.status} />
+          {/* Teein' It Up bug-fix package (7 Sep), item 3 — the other
+              half of "the normal post-round content underneath/
+              alongside the leaderboard." Makers & Breakers is already
+              covered — LiveLeaderboard itself already renders
+              RoundHighlightsSection internally (built for this exact
+              purpose in the 3 Sep package). This adds the missing
+              piece: round-scoped Side Game results, reusing the same
+              round.id this whole page is already scoped to via the
+              ?roundId= override. */}
+          <RoundSideGamesSection tripId={tripId} roundId={round.id} />
         </div>
       )}
     </div>

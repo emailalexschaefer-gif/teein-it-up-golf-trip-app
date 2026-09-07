@@ -217,12 +217,12 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
         {/* ── Bottom nav ───────────────────────────────────────────────── */}
         {!isArchived && (
           <WizardNav
-            backHref="/dashboard" backLabel="← My Trips"
+            backHref="/dashboard" backLabel="← My Events"
             onNext={() => onTabChange('players')} nextLabel="Add Players →"
           />
         )}
         {isArchived && (
-          <WizardNav backHref="/dashboard" backLabel="← My Trips" />
+          <WizardNav backHref="/dashboard" backLabel="← My Events" />
         )}
       </div>
 

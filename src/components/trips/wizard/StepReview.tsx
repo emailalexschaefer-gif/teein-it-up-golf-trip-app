@@ -25,7 +25,7 @@ export default function StepReview({ tripDetails, rounds, onBack, onCreate, load
   return (
     <div className="space-y-4">
       <div className="bg-surface-muted rounded-2xl p-4 space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">Trip details</p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">Event details</p>
         <Row label="Name"     value={tripDetails.name} />
         <Row label="Type"     value={eventLabel} />
         {tripDetails.location && <Row label="Location" value={tripDetails.location} />}
@@ -72,7 +72,7 @@ export default function StepReview({ tripDetails, rounds, onBack, onCreate, load
 
       <div className="flex gap-3 pt-2">
         <Button variant="secondary" onClick={onBack} size="lg" className="flex-1" disabled={loading}>← Back</Button>
-        <Button onClick={onCreate} loading={loading} size="lg" className="flex-1">{isEditing ? 'Save changes ✓' : 'Create trip ⛳'}</Button>
+        <Button onClick={onCreate} loading={loading} size="lg" className="flex-1">{isEditing ? 'Save changes ✓' : 'Create event ⛳'}</Button>
       </div>
     </div>
   )

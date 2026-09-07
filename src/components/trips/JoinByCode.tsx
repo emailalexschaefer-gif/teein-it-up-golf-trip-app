@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { tripKeys } from '@/lib/queries/trips'
 
-// Always-visible "Join a trip" card — displayed at the top of My Trips
+// Always-visible "Join an event" card — displayed at the top of My Events
 export default function JoinByCode() {
   const router      = useRouter()
   const queryClient = useQueryClient()
@@ -37,7 +37,7 @@ export default function JoinByCode() {
     }
 
     // Specific error messages from the API
-    setError(data.error ?? 'Could not join trip. Check the code and try again.')
+    setError(data.error ?? 'Could not join event. Check the code and try again.')
   }
 
   return (
@@ -51,7 +51,7 @@ export default function JoinByCode() {
         fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700,
         color: '#7a7260', letterSpacing: 0.8, textTransform: 'uppercase',
         marginBottom: 8,
-      }}>Join a trip</p>
+      }}>Join an event</p>
 
       <form onSubmit={handleJoin}>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -84,7 +84,7 @@ export default function JoinByCode() {
               whiteSpace: 'nowrap',
             }}
           >
-            {loading ? 'Joining…' : success ? '✓ Joined' : 'Join Trip'}
+            {loading ? 'Joining…' : success ? '✓ Joined' : 'Join Event'}
           </button>
         </div>
         {error && (

@@ -47,9 +47,9 @@ export default function JoinWelcomeInner() {
     return (
       <>
         <p className="text-3xl text-center mb-3">⛳</p>
-        <h1 className="text-lg font-bold text-text text-center mb-2">Couldn&apos;t join trip</h1>
+        <h1 className="text-lg font-bold text-text text-center mb-2">Couldn&apos;t join event</h1>
         <p className="text-text-muted text-sm text-center mb-4">{error}</p>
-        <Link href="/dashboard" className="block text-center text-sm text-brand-600 hover:underline">Go to My Trips</Link>
+        <Link href="/dashboard" className="block text-center text-sm text-brand-600 hover:underline">Go to My Events</Link>
       </>
     )
   }

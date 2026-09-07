@@ -36,10 +36,16 @@ export async function GET() {
   const admin = createAdminClient()
 
   const membershipRes = await admin.from('trip_members')
-    .select('trip_id, trips!inner ( id, name, status )')
+    .select('trip_id, trips!inner ( id, name, status, is_practice )')
     .eq('profile_id', user.id)
-  const completedTripIds = ((membershipRes.data ?? []) as unknown as { trip_id: string; trips: { id: string; name: string; status: string } }[])
-    .filter(m => m.trips?.status === 'completed')
+  const completedTripIds = ((membershipRes.data ?? []) as unknown as { trip_id: string; trips: { id: string; name: string; status: string; is_practice: boolean } }[])
+    // Separate Solo Event Play from Practice Round Mode (5 Sep) —
+    // "Practice must not distort My Golf competitive history" /
+    // "Practice must not count as... verified achievement history."
+    // My Event Stories is exactly that history, so a Practice trip is
+    // excluded here at the same point completed status is already
+    // being filtered, not as a separate pass.
+    .filter(m => m.trips?.status === 'completed' && !m.trips?.is_practice)
     .map(m => m.trip_id)
 
   if (completedTripIds.length === 0) {

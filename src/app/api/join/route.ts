@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
-    return NextResponse.json({ error: 'Please sign in again before joining this trip.' }, { status: 401 })
+    return NextResponse.json({ error: 'Please sign in again before joining this event.' }, { status: 401 })
   }
 
   let body: unknown
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
 
   const parsed = JoinSchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json({ error: "We couldn't find a trip with that invite code." }, { status: 400 })
+    return NextResponse.json({ error: "We couldn't find an event with that invite code." }, { status: 400 })
   }
 
   const { invite_code, playing_handicap = null } = parsed.data
@@ -39,13 +39,13 @@ export async function POST(request: Request) {
     .single()
 
   if (tripResult?.error || !tripResult?.data) {
-    return NextResponse.json({ error: "We couldn't find a trip with that invite code." }, { status: 404 })
+    return NextResponse.json({ error: "We couldn't find an event with that invite code." }, { status: 404 })
   }
 
   const trip = tripResult.data
 
   if (trip.status === 'archived') {
-    return NextResponse.json({ error: 'This trip is no longer accepting players.' }, { status: 410 })
+    return NextResponse.json({ error: 'This event is no longer accepting players.' }, { status: 410 })
   }
 
   if (trip.status === 'completed' || trip.status === 'live') {
@@ -95,7 +95,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({
-      error: "We couldn't join the trip. Please try again."
+      error: "We couldn't join the event. Please try again."
     }, { status: 500 })
   }
 

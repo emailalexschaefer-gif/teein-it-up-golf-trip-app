@@ -65,7 +65,7 @@ export default async function ProfilePage() {
   const isOrganiserAnywhere = (roles ?? []).some((r: { role: string }) => r.role === 'organiser')
   const isPlayerAnywhere = (roles ?? []).some((r: { role: string }) => r.role === 'player')
   const teeinItUpRole = isOrganiserAnywhere && isPlayerAnywhere ? 'Player & Organiser'
-    : isOrganiserAnywhere ? 'Golf Trip Organiser'
+    : isOrganiserAnywhere ? 'Event Organiser'
     : isPlayerAnywhere ? 'Player'
     : 'Player'
 

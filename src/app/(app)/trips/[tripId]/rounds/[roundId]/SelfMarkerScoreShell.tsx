@@ -1368,6 +1368,38 @@ export default function SelfMarkerScoreShell({
     const outTotal = sumPts(outHoles)
     const inTotal = sumPts(inHoles)
     const allMatched = detailedSummaryRows.every(r => r.status === 'matched')
+
+    // Teein' It Up bug-fix package (7 Sep), item 2 — "completed shared-
+    // device Round Summary must show both players." Root cause: the
+    // detailed hole-by-hole table above was only ever built from mySelf/
+    // myHcp — there was no equivalent for the shared-device partner
+    // anywhere in this file, and the one summary block that DID show
+    // both totals side by side (line ~1552 below) was explicitly gated
+    // !isLocked, so it vanished the moment the round was actually
+    // submitted — exactly the reported symptom. This mirrors
+    // detailedSummaryRows exactly, using the SAME per-hole `status`
+    // already computed in `rows` above (never a second status
+    // computation) and the partner's own capture/handicap instead of
+    // mine — the identical shape SummaryRow/SubtotalRow already know how
+    // to render, reused as-is below, not a new table component.
+    const partnerDetailedSummaryRows = isSharedDeviceScoring ? holes.map((h, idx) => {
+      // Reuses detailedSummaryRows[idx].status directly rather than
+      // recomputing anything — for a shared-device pair, partnerStatus
+      // is always null (see the comment on that computation above), so
+      // the already-refined status there is inherently the SHARED
+      // per-hole state ("have both players entered this hole"), not a
+      // caller-specific one. Same status, different capture underneath.
+      const partnerCapture = partnerSelf[h.hole_number] ?? null
+      const gross = partnerCapture?.pickedUp ? 'P' : partnerCapture?.grossScore ?? null
+      const pts = (partnerCapture && !partnerCapture.pickedUp && partnerCapture.grossScore !== null)
+        ? calculateStableford({ grossScore: partnerCapture.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: partnerHcp, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
+        : (partnerCapture?.pickedUp ? 0 : null)
+      return { hole: h, status: detailedSummaryRows[idx].status, gross, pts }
+    }) : []
+    const partnerOutHoles = partnerDetailedSummaryRows.slice(0, 9)
+    const partnerInHoles = partnerDetailedSummaryRows.slice(9)
+    const partnerOutTotal = sumPts(partnerOutHoles)
+    const partnerInTotal = sumPts(partnerInHoles)
     // Bug 1 — the single canonical readiness result. allMatched alone
     // only reflects local, per-hole comparison state; confirmScore()
     // updates that local state synchronously, while the actual sync to
@@ -1548,8 +1580,16 @@ export default function SelfMarkerScoreShell({
             reconcile against (Marnie's total here is her own real,
             official score, not a marker copy of Alex's), so there is
             nothing to flag as "needing review" just because the two
-            totals differ, which they normally will. */}
-        {isSharedDeviceScoring && currentMarked && partnerGrandTotal !== null && !isLocked && (
+            totals differ, which they normally will.
+            Teein' It Up bug-fix package (7 Sep), item 2 — was
+            `!isLocked`, which hid this exact "both totals, side by
+            side" summary the moment the round was actually submitted —
+            precisely the reported bug. Removed; this card's own
+            content (allMatched/⏳ vs ✓) already reads correctly whether
+            locked or not, since allMatched only ever reaches true once
+            every hole genuinely has both entries regardless of lock
+            state. */}
+        {isSharedDeviceScoring && currentMarked && partnerGrandTotal !== null && (
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-around',
             background: '#fff', border: '1px solid #eceae3', borderRadius: 12, padding: '12px 14px', marginTop: 10,
@@ -1808,6 +1848,47 @@ export default function SelfMarkerScoreShell({
             <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 17, color: '#a1791f' }}>{myRunningTotal} pts</span>
           </div>
         </div>
+
+        {/* Teein' It Up bug-fix package (7 Sep), item 2 — the exact same
+            table structure as the caller's own above (SummaryRow/
+            SubtotalRow reused as-is, not a new table component), now
+            also rendered for the shared-device partner. Was completely
+            absent before this fix — the caller's own table above is
+            the only detailed hole-by-hole view this file ever built,
+            for anyone. Scoped specifically to isSharedDeviceScoring
+            (the reported scenario), not the general two-device marker
+            case, which already has its own separate reconciliation
+            presentation elsewhere on this screen and isn't what was
+            reported broken. */}
+        {isSharedDeviceScoring && currentMarked && (
+          <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden', marginBottom: 16 }}>
+            <div style={{ padding: '9px 14px', background: '#fdf3d9', borderBottom: '1px solid #eceae3' }}>
+              <span style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 12.5, color: '#7a5c00' }}>
+                {partnerName ?? 'Paper Player'} — Scorecard
+              </span>
+            </div>
+            <div style={{ display: 'flex', padding: '7px 14px', background: '#f7f6f1', borderBottom: '1px solid #eceae3' }}>
+              <span style={{ width: 56, fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af' }}>HOLE</span>
+              <span style={{ width: 40, fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textAlign: 'center' }}>PAR</span>
+              <span style={{ width: 48, fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textAlign: 'center' }}>GROSS</span>
+              <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textAlign: 'center' }}>PTS</span>
+              <span style={{ width: 24, fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: '#9ca3af', textAlign: 'right' }}> </span>
+            </div>
+            {partnerOutHoles.map(r => (
+              <SummaryRow key={r.hole.id} r={r} statusIcon={STATUS_ICON[r.status]} onClick={() => { setHoleIdx(holes.indexOf(r.hole)); setShowReconciliation(false) }} />
+            ))}
+            {partnerOutHoles.length > 0 && <SubtotalRow label="OUT" value={partnerOutTotal} />}
+            {partnerInHoles.map(r => (
+              <SummaryRow key={r.hole.id} r={r} statusIcon={STATUS_ICON[r.status]} onClick={() => { setHoleIdx(holes.indexOf(r.hole)); setShowReconciliation(false) }} />
+            ))}
+            {partnerInHoles.length > 0 && <SubtotalRow label="IN" value={partnerInTotal} />}
+            <div style={{ display: 'flex', alignItems: 'center', padding: '11px 14px', background: '#fdf3d9', borderTop: '2px solid #e8c96a' }}>
+              <span style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 13.5, color: '#a1791f' }}>TOTAL</span>
+              <span style={{ flex: 1 }} />
+              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 17, color: '#a1791f' }}>{partnerOutTotal + partnerInTotal} pts</span>
+            </div>
+          </div>
+        )}
 
         {/* Detailed breakdown, preserved from the previous reconciliation
             screen — the compact list above tells you WHICH holes need

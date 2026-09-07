@@ -37,7 +37,7 @@ export default function DashboardHero() {
           lineHeight: 1.1, letterSpacing: -0.5,
           marginBottom: 6,
         }}>
-          Run your golf trip<br />
+          Run your golf event<br />
           <span style={{ color: '#e8c96a' }}>like a pro</span>
         </h1>
 
@@ -51,24 +51,53 @@ export default function DashboardHero() {
           No admin chaos. Just great experiences.
         </p>
 
-        {/* Primary CTA — "Create Trip" not "Create Event" */}
-        <Link
-          href="/trips/new"
-          className="inline-flex items-center gap-2 active:scale-95 transition-transform"
-          style={{
-            background: 'linear-gradient(135deg, #c9a84c 0%, #e8c96a 50%, #c9a84c 100%)',
-            color: '#0f2d1c',
-            borderRadius: 12,
-            padding: '13px 24px',
-            fontFamily: 'var(--font-body)',
-            fontSize: 14.5, fontWeight: 800,
-            letterSpacing: 0.6,
-            boxShadow: '0 4px 18px rgba(201,168,76,0.5)',
-            textDecoration: 'none',
-          }}
-        >
-          + Create Trip
-        </Link>
+        {/* Trip -> Event terminology migration (7 Sep) — two obvious
+            creation paths, side by side, per the explicit brief
+            example ("+ Create Event | ⛳ Practice Round"). Practice
+            Round upgraded from the earlier small secondary text link
+            to a real second button of its own — still visually
+            secondary (outlined, not the gold gradient), but no longer
+            reads as an afterthought beneath the primary CTA. Route
+            (/trips/new) and every underlying trip/event-creation
+            mechanism are completely unchanged — this is copy/
+            presentation only, per the explicit "not a database
+            rename" instruction. */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <Link
+            href="/trips/new"
+            className="inline-flex items-center gap-2 active:scale-95 transition-transform"
+            style={{
+              background: 'linear-gradient(135deg, #c9a84c 0%, #e8c96a 50%, #c9a84c 100%)',
+              color: '#0f2d1c',
+              borderRadius: 12,
+              padding: '13px 24px',
+              fontFamily: 'var(--font-body)',
+              fontSize: 14.5, fontWeight: 800,
+              letterSpacing: 0.6,
+              boxShadow: '0 4px 18px rgba(201,168,76,0.5)',
+              textDecoration: 'none',
+            }}
+          >
+            + Create Event
+          </Link>
+          <Link
+            href="/practice/new"
+            className="inline-flex items-center gap-2 active:scale-95 transition-transform"
+            style={{
+              background: 'transparent',
+              color: '#f5e6b8',
+              border: '1.5px solid rgba(245,230,184,0.45)',
+              borderRadius: 12,
+              padding: '13px 24px',
+              fontFamily: 'var(--font-body)',
+              fontSize: 14.5, fontWeight: 800,
+              letterSpacing: 0.6,
+              textDecoration: 'none',
+            }}
+          >
+            ⛳ Practice Round
+          </Link>
+        </div>
       </div>
 
       {/* Watermark */}

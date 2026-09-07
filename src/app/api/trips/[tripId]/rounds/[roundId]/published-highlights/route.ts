@@ -67,6 +67,18 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   const roundCheck = await admin.from('rounds').select('id').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
   if (!roundCheck.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
 
+  // Separate Solo Event Play from Practice Round Mode (5 Sep) — belt
+  // and braces alongside the /highlights generation route's own gate:
+  // even if a client somehow obtained a highlights payload for a
+  // practice trip, this route refuses to persist it as a published
+  // record. Publication is the one irreversible step in this whole
+  // pipeline, so it gets its own independent check rather than relying
+  // solely on generation having already refused.
+  const practiceCheck = await admin.from('trips').select('is_practice').eq('id', tripId).maybeSingle()
+  if (practiceCheck.data?.is_practice) {
+    return NextResponse.json({ error: 'Practice rounds cannot publish Makers & Breakers.' }, { status: 403 })
+  }
+
   let body: Record<string, unknown>
   try { body = await req.json() } catch {
     return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 })

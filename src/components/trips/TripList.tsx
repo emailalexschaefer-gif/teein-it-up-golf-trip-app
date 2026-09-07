@@ -37,18 +37,18 @@ function groupLabel(trips: TripSummary[]): { upcoming: TripSummary[]; live: Trip
 const EMPTY_STATES: Record<FilterTab, { icon: string; title: string; body: string }> = {
   active: {
     icon:  '⛳',
-    title: 'No active trips yet',
-    body:  'Create your first trip and start bringing people together through golf.',
+    title: 'No active events yet',
+    body:  'Create your first event and start bringing people together through golf.',
   },
   completed: {
     icon:  '🏆',
-    title: 'No completed trips yet',
-    body:  'Finish your first trip and celebrate your results here.',
+    title: 'No completed events yet',
+    body:  'Finish your first event and celebrate your results here.',
   },
   archived: {
     icon:  '📁',
-    title: 'No archived trips',
-    body:  'Trips you archive will remain safely stored here — restore them any time.',
+    title: 'No archived events',
+    body:  'Events you archive will remain safely stored here — restore them any time.',
   },
 }
 
@@ -106,7 +106,7 @@ export default function TripList() {
     const message = error instanceof Error ? error.message : String(error)
     return (
       <div className="rounded-card bg-red-50 border border-red-100 p-5 text-center space-y-2">
-        <p className="text-sm font-semibold text-red-600">Couldn&apos;t load trips</p>
+        <p className="text-sm font-semibold text-red-600">Couldn&apos;t load events</p>
         <p className="text-xs text-red-400 font-mono break-all">{message}</p>
         <button
           onClick={() => refetch()}

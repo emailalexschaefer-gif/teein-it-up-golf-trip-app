@@ -460,7 +460,7 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
                   background: '#ffffff', border: '1.5px solid #d1d5db', textAlign: 'left', cursor: 'pointer',
                 }}
               >
-                <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 14, color: '#14532d' }}>📋 Trip Information →</div>
+                <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 14, color: '#14532d' }}>📋 Event Information →</div>
                 <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginTop: 2 }}>
                   Rounds, courses, itinerary &amp; event details
                 </div>

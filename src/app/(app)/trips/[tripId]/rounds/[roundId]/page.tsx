@@ -160,7 +160,7 @@ export default async function RoundScorePage({ params }: Props) {
       : null
     return (
       <PaperScorecardStatus
-        tripId={tripId} roundId={roundId} tripName={tripRes.data?.name ?? 'Trip'}
+        tripId={tripId} roundId={roundId} tripName={tripRes.data?.name ?? 'Event'}
         roundName={round.name} paperTotal={paperTotal}
         // Add-on 1, item 7 — Mick's own screen, when he's the paper
         // half of a detected shared-device pairing, gets the explicit
@@ -241,7 +241,7 @@ export default async function RoundScorePage({ params }: Props) {
   }
 
   const tripNameRes = await admin.from('trips').select('name').eq('id', tripId).single()
-  const tripName = tripNameRes.data?.name ?? 'Trip'
+  const tripName = tripNameRes.data?.name ?? 'Event'
 
   // ── Self + marker mode (the new Sprint 5B default) ──────────────────────────
   // group_scorer is the only mode that still uses the old "one scorer for
@@ -369,7 +369,7 @@ export default async function RoundScorePage({ params }: Props) {
     return (
       <ScoreSessionShell
         tripId={tripId}
-        tripName={tripRes.data?.name ?? 'Trip'}
+        tripName={tripRes.data?.name ?? 'Event'}
         round={round}
         myScorecard={scorecardRes.data ?? null}
         groupScorecards={groupScorecards}
@@ -422,7 +422,7 @@ export default async function RoundScorePage({ params }: Props) {
   return (
     <ScoreSessionShell
       tripId={tripId}
-      tripName={tripRes.data?.name ?? 'Trip'}
+      tripName={tripRes.data?.name ?? 'Event'}
       round={round}
       myScorecard={scorecardRes.data ?? null}
       groupScorecards={groupScorecards}

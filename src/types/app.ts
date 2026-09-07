@@ -45,10 +45,21 @@ export const TRIP_STATUS_TRANSITIONS: Record<TripStatus, TripStatus[]> = {
 export const EVENT_TYPE_OPTIONS = [
   { value: 'golf_trip',     label: 'Golf Trip' },
   { value: 'social_golf',   label: 'Social Golf' },
-  { value: 'corporate_day', label: 'Corporate Day' },
-  { value: 'charity_day',   label: 'Charity Day' },
+  // Trip -> Event terminology migration (7 Sep) — relabelled to match
+  // the brief's exact requested wording. Values (corporate_day,
+  // charity_day) are deliberately unchanged — these are stored data
+  // on existing trips already, and relabelling display text only,
+  // without touching the underlying value, is exactly what keeps this
+  // a copy change rather than a data migration.
+  { value: 'corporate_day', label: 'Corporate Golf' },
+  { value: 'charity_day',   label: 'Charity/Fundraiser' },
   { value: 'golf_society',  label: 'Golf Society' },
   { value: 'bucks_weekend', label: 'Bucks Weekend' },
+  // New option, per the brief's explicit requested list — architecture
+  // only, no dedicated competition/tournament workflow built in this
+  // pass, matching "do not build separate complex workflows for all
+  // of these as part of this change."
+  { value: 'competition',   label: 'Competition/Tournament' },
   { value: 'other',         label: 'Other' },
 ] as const
 

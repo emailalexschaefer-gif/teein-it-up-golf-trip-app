@@ -41,6 +41,18 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       .eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
     if (!memberCheck.data) return NextResponse.json({ error: 'Not a trip member.' }, { status: 403 })
 
+  // Separate Solo Event Play from Practice Round Mode (5 Sep) — a
+  // Practice Round must never appear on a competitive leaderboard, per
+  // the explicit product rule. Checked here, at the very top, before
+  // any standings computation runs at all — not filtered out of an
+  // already-computed board, which would still mean this endpoint did
+  // competitive-shaped work for a non-competitive round. Gated on
+  // is_practice specifically, never group size or player count.
+  const practiceCheck = await admin.from('trips').select('is_practice').eq('id', tripId).maybeSingle()
+  if (practiceCheck.data?.is_practice) {
+    return NextResponse.json({ error: 'Practice rounds do not have a competitive leaderboard.', isPractice: true }, { status: 200 })
+  }
+
   const roundRes = await admin.from('rounds').select('id, name, holes, status, scoring_format, created_at, starting_hole_number').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
   if (!roundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
   const totalHoles: number = roundRes.data.holes ?? 18

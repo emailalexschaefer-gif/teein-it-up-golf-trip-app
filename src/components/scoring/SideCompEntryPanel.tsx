@@ -32,7 +32,13 @@ export interface SideCompSubmitResult {
   verificationStatus: SideCompVerificationStatus
   wouldLeadIfVerified: boolean
   requiredVerifierId: string | null
-  verifierSource: 'marker' | 'organiser_fallback' | 'self_verified_fallback' | null
+  // P0 bug-fix package (7 Sep) -- added 'shared_device_partner', matching
+  // the actual set of values resolve_side_comp_verifier() has returned
+  // since migration 071 (and the DB CHECK constraint now permits, per
+  // migration 076). This type was out of sync with reality but had zero
+  // runtime effect on its own -- nothing here branches on the specific
+  // value -- fixed for accuracy alongside the real (database-level) fix.
+  verifierSource: 'marker' | 'organiser_fallback' | 'self_verified_fallback' | 'shared_device_partner' | null
   currentLeader: SideCompLeader | null
   // The value THIS player just submitted — sourced from the client's own
   // input, not the server response, since it's simply "what did I just
@@ -247,7 +253,18 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
       const responseBody = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(responseBody.error ?? "Couldn't save your claim. Please try again."); return }
+      if (!res.ok) {
+        // P0 bug-fix package (7 Sep) — TEMPORARY: appends the server's
+        // own debug detail (real Postgres/RPC error text), when
+        // present, to the message already shown here — see the route's
+        // own comment on this. Remove once the root cause is confirmed
+        // and fixed; this is deliberately visible in-app rather than
+        // only in server logs for this investigation specifically.
+        const baseMsg = responseBody.error ?? "Couldn't save your claim. Please try again."
+        const debugMsg = responseBody.debug?.message ? ` (${responseBody.debug.message})` : ''
+        setError(baseMsg + debugMsg)
+        return
+      }
       const result: SideCompSubmitResult = {
         entryId: responseBody.entryId ?? null,
         verificationStatus: responseBody.verificationStatus ?? 'pending',

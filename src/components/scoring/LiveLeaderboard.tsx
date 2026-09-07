@@ -65,6 +65,12 @@ interface LeaderboardResponse {
   scoringNow: number
   finishedCount: number
   cumulativeStandings?: CumulativeStandingEntry[]
+  // Separate Solo Event Play from Practice Round Mode (5 Sep) — present
+  // only when the route's own practice gate fired; every other field
+  // above is absent in that response, never a partially-populated
+  // board. Checked immediately below, before any field that assumes a
+  // real board is ever touched.
+  isPractice?: boolean
   roundsSummary?: { roundId: string; roundNumber: number; isLive: boolean }[]
 }
 
@@ -203,6 +209,20 @@ export default function LiveLeaderboard({
         {error instanceof Error && (
           <div style={{ marginTop: 6, fontSize: 11, color: '#c9a3a3' }}>{error.message}</div>
         )}
+      </div>
+    )
+  }
+
+  // Separate Solo Event Play from Practice Round Mode (5 Sep) — the
+  // route returns this shape (no board field at all) for a Practice
+  // trip. Checked here, immediately after the loading/error states and
+  // before any of the many unguarded data.board accesses further down
+  // this component, which would otherwise throw on undefined.
+  if (data.isPractice) {
+    return (
+      <div style={{ textAlign: 'center', padding: '32px 16px', fontFamily: 'var(--font-body)', color: '#7a7260', fontSize: 13 }}>
+        <div style={{ fontSize: 22, marginBottom: 6 }}>⛳</div>
+        This is a Practice Round — there&apos;s no competitive leaderboard to show.
       </div>
     )
   }

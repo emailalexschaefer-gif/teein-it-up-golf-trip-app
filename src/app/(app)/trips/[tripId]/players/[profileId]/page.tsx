@@ -35,7 +35,7 @@ export default async function PlayerProfilePage({ params }: Props) {
   const isOrganiserAnywhere = (roleRows ?? []).some((r: { role: string }) => r.role === 'organiser')
   const isPlayerAnywhere = (roleRows ?? []).some((r: { role: string }) => r.role === 'player')
   const role = isOrganiserAnywhere && isPlayerAnywhere ? 'Player & Organiser'
-    : isOrganiserAnywhere ? 'Golf Trip Organiser' : 'Player'
+    : isOrganiserAnywhere ? 'Event Organiser' : 'Player'
 
   const initials = (profile.full_name || '?').split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
 

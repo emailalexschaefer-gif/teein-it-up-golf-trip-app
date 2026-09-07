@@ -216,7 +216,7 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
           fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600,
           color: 'rgba(245,230,184,0.55)', letterSpacing: 0.3,
           display: 'inline-block', marginBottom: 8,
-        }}>← My Trips</Link>
+        }}>← My Events</Link>
 
         <div style={{ height: 1, margin: '0 0 10px', background: 'linear-gradient(90deg, transparent, #c9a84c, transparent)' }} />
 

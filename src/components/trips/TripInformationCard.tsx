@@ -16,7 +16,7 @@ export default function TripInformationCard({ tripId, isOrganiser }: { tripId: s
     queryKey: ['trip-information', tripId],
     queryFn: async () => {
       const res = await fetch(`/api/trips/${tripId}/information`)
-      if (!res.ok) throw new Error('Could not load Trip Information.')
+      if (!res.ok) throw new Error('Could not load Event Information.')
       return res.json()
     },
   })
@@ -74,7 +74,7 @@ export default function TripInformationCard({ tripId, isOrganiser }: { tripId: s
   return (
     <div className="card p-4 space-y-3">
       <div className="flex" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-        <p className="s-label">Trip information</p>
+        <p className="s-label">Event information</p>
         {isOrganiser && !editing && (
           <button
             onClick={startEdit}
@@ -83,14 +83,14 @@ export default function TripInformationCard({ tripId, isOrganiser }: { tripId: s
               background: 'none', border: 'none', cursor: 'pointer', padding: 0,
             }}
           >
-            {info ? 'Edit Trip Information' : '+ Add Trip Information'}
+            {info ? 'Edit Event Information' : '+ Add Event Information'}
           </button>
         )}
       </div>
 
       {savedFlash && (
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#16a34a', fontWeight: 700 }}>
-          ✓ Trip Information saved
+          ✓ Event Information saved
         </p>
       )}
 
@@ -99,7 +99,7 @@ export default function TripInformationCard({ tripId, isOrganiser }: { tripId: s
           <textarea
             value={draft}
             onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDraft(e.target.value)}
-            placeholder="Paste your itinerary, accommodation details, tee times, or any other trip information here…"
+            placeholder="Paste your itinerary, accommodation details, tee times, or any other event information here…"
             rows={10}
             maxLength={20000}
             style={{
@@ -122,7 +122,7 @@ export default function TripInformationCard({ tripId, isOrganiser }: { tripId: s
                 opacity: saving ? 0.6 : 1,
               }}
             >
-              {saving ? 'Saving…' : 'Save Trip Information'}
+              {saving ? 'Saving…' : 'Save Event Information'}
             </button>
             <button
               onClick={cancelEdit}
@@ -142,8 +142,8 @@ export default function TripInformationCard({ tripId, isOrganiser }: { tripId: s
       ) : (
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#9ca3af' }}>
           {isOrganiser
-            ? 'Add all the important details for your trip in one place.'
-            : 'Trip information has not been added yet.'}
+            ? 'Add all the important details for your event in one place.'
+            : 'Event information has not been added yet.'}
         </p>
       )}
     </div>
@@ -186,7 +186,7 @@ function TripInformationDisplay({ info }: { info: string }) {
             fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#1a4731',
           }}
         >
-          {collapsed ? 'View Full Trip Information ↓' : 'Show Less ↑'}
+          {collapsed ? 'View Full Event Information ↓' : 'Show Less ↑'}
         </button>
       )}
     </div>
