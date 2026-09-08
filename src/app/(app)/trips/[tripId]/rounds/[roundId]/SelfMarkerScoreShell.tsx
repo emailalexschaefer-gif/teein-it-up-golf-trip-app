@@ -801,8 +801,38 @@ export default function SelfMarkerScoreShell({
     const existingPartner = isSharedDeviceScoring ? partnerSelf[holeNum] : partnerMarker[holeNum]
     setDraftPartnerGross(existingPartner?.grossScore ?? null)
     setDraftPartnerPickedUp(existingPartner?.pickedUp ?? false)
+    // 8 Sep field-test package, item 2 — root cause of "Hole 1 shows
+    // stale 0/0 on first load after navigating away and back, correct
+    // once you move holes and return." This effect previously
+    // depended on [holeNum] alone (deliberately, per the removed
+    // eslint-disable above it) — it only ever re-ran when the hole
+    // itself changed, never when the underlying persisted score for
+    // the CURRENT hole changed. On a remount, React Query can serve a
+    // stale cached liveData first, with the real, just-saved score
+    // arriving a moment later via its own background refetch — this
+    // effect ran once against the stale value and then never fired
+    // again, since holeNum hadn't changed, leaving the draft state
+    // permanently stuck at 0 for that hole until SOME navigation
+    // finally re-triggered it. Moving to hole 2 and back changes
+    // holeNum twice, re-running this effect twice, by which point the
+    // real data had long since arrived — masking the bug rather than
+    // avoiding it.
+    // Fixed by depending on the actual per-hole values themselves, not
+    // just which hole is selected — this re-syncs the moment the
+    // persisted score for THIS hole changes for any reason (a stale
+    // cache resolving, a background poll, a save completing), while
+    // remaining safe against stomping an in-progress edit: a value
+    // only changes here once it's actually been saved and refetched,
+    // at which point it equals whatever the user already sees on
+    // screen, so re-seeding the draft to that value is a no-op, not a
+    // visible reset.
+  }, [
+    holeNum,
+    mySelf[holeNum]?.grossScore, mySelf[holeNum]?.pickedUp,
+    isSharedDeviceScoring ? partnerSelf[holeNum]?.grossScore : partnerMarker[holeNum]?.grossScore,
+    isSharedDeviceScoring ? partnerSelf[holeNum]?.pickedUp : partnerMarker[holeNum]?.pickedUp,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [holeNum])
+  ])
 
   const myHcp = currentMy?.playing_handicap ?? 0
   const partnerHcp = currentMarked?.playing_handicap ?? 0
