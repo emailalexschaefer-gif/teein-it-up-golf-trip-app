@@ -240,8 +240,9 @@ export default async function RoundScorePage({ params }: Props) {
     })
   }
 
-  const tripNameRes = await admin.from('trips').select('name').eq('id', tripId).single()
+  const tripNameRes = await admin.from('trips').select('name, is_practice').eq('id', tripId).single()
   const tripName = tripNameRes.data?.name ?? 'Event'
+  const isPractice = tripNameRes.data?.is_practice === true
 
   // ── Self + marker mode (the new Sprint 5B default) ──────────────────────────
   // group_scorer is the only mode that still uses the old "one scorer for
@@ -333,6 +334,7 @@ export default async function RoundScorePage({ params }: Props) {
         isOrganiser={isOrganiser}
         dataProblem={dataProblem}
         fullGroupRoster={fullGroupRoster}
+        isPractice={isPractice}
         // Add-on 1 — corrected architecture. isSharedDeviceScoring only
         // changes: the partner card's heading/label, whether
         // partnerComparison is ever computed (never, in this mode —

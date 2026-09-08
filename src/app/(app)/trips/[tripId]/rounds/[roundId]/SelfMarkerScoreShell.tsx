@@ -144,6 +144,16 @@ interface Props {
   // Pick Up — is completely unchanged, since none of it was ever
   // specific to how the partner pairing was established.
   isSharedDeviceScoring?: boolean
+  // Consolidated field-test package (8 Sep), item 2 — "Practice Rounds
+  // have no marker by design." When true, every marker/reconciliation
+  // concept in this shell (mismatch, pending/waiting, "needs review")
+  // is bypassed at its single source of computation below — a solo,
+  // self-scored Practice round has no second party to compare against
+  // at all, and the existing matched/mismatch model was never built to
+  // represent "nothing to compare," only "comparison not yet
+  // resolved," which is why it showed every hole as permanently
+  // waiting rather than simply done.
+  isPractice?: boolean
 }
 
 type CaptureMap = Record<number, CaptureValue> // keyed by hole_number
@@ -245,7 +255,7 @@ function statusColor(status: ComparisonStatus): string {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function SelfMarkerScoreShell({
-  tripId, round, myScorecard, markedScorecard, markedByName, isOrganiser, dataProblem, fullGroupRoster = [], isSharedDeviceScoring = false,
+  tripId, round, myScorecard, markedScorecard, markedByName, isOrganiser, dataProblem, fullGroupRoster = [], isSharedDeviceScoring = false, isPractice = false,
 }: Props) {
   // 'individual' mode has no marker concept at all — comparison status,
   // the marker card, and reconciliation only make sense in self_and_marker
@@ -1354,8 +1364,17 @@ export default function SelfMarkerScoreShell({
     // showed up on the partner's card (exactly what happens when the person
     // you're marking changes their own score) was invisible here even
     // though the scoring screen's "YOUR MARKER" badge already showed it.
-    const mismatches = rows.filter(r => r.mineStatus === 'mismatch' || r.partnerStatus === 'mismatch')
-    const pending = rows.filter(r =>
+    // Consolidated field-test package (8 Sep), item 2 — for isPractice,
+    // both lists are forced empty here, at their single source, rather
+    // than patched at every downstream render site. Root cause this
+    // fixes: compareCaptures() always compares against myMarker, which
+    // is permanently empty for a genuinely marker-less Practice round —
+    // every scored hole was reading as "pending_self"/mismatch-shaped
+    // forever, never "matched," because "matched" in this model has
+    // always meant "both parties agree," which is a meaningless
+    // question when there is no second party at all.
+    const mismatches = isPractice ? [] : rows.filter(r => r.mineStatus === 'mismatch' || r.partnerStatus === 'mismatch')
+    const pending = isPractice ? [] : rows.filter(r =>
       r.mineStatus !== 'mismatch' && r.partnerStatus !== 'mismatch' &&
       (PENDING.includes(r.mineStatus) || (r.partnerStatus !== null && PENDING.includes(r.partnerStatus)))
     )
@@ -1369,15 +1388,25 @@ export default function SelfMarkerScoreShell({
     const NOT_STARTED: ComparisonStatus[] = ['not_started']
     const detailedSummaryRows = holes.map(h => {
       const r = rows.find(row => row.hole.id === h.id)!
-      const isMismatch = r.mineStatus === 'mismatch' || r.partnerStatus === 'mismatch'
-      const isNotStarted = !isMismatch && (
-        NOT_STARTED.includes(r.mineStatus) && (r.partnerStatus === null || NOT_STARTED.includes(r.partnerStatus))
-      )
-      const status: 'matched' | 'mismatch' | 'awaiting' | 'not_started' =
-        isMismatch ? 'mismatch' : isNotStarted ? 'not_started'
-        : (PENDING.includes(r.mineStatus) || (r.partnerStatus !== null && PENDING.includes(r.partnerStatus))) ? 'awaiting'
-        : 'matched'
       const myCapture = mySelf[h.hole_number] ?? null
+      // Consolidated field-test package (8 Sep), item 2 — for Practice,
+      // status is derived purely from whether THIS player has entered
+      // their own score for this hole, never from a marker/partner
+      // comparison that structurally cannot exist. A scored hole is
+      // 'matched' (green, done); an unscored one is 'not_started'.
+      // 'mismatch'/'awaiting' never apply.
+      let status: 'matched' | 'mismatch' | 'awaiting' | 'not_started'
+      if (isPractice) {
+        status = (myCapture && (myCapture.pickedUp || myCapture.grossScore !== null)) ? 'matched' : 'not_started'
+      } else {
+        const isMismatch = r.mineStatus === 'mismatch' || r.partnerStatus === 'mismatch'
+        const isNotStarted = !isMismatch && (
+          NOT_STARTED.includes(r.mineStatus) && (r.partnerStatus === null || NOT_STARTED.includes(r.partnerStatus))
+        )
+        status = isMismatch ? 'mismatch' : isNotStarted ? 'not_started'
+          : (PENDING.includes(r.mineStatus) || (r.partnerStatus !== null && PENDING.includes(r.partnerStatus))) ? 'awaiting'
+          : 'matched'
+      }
       const gross = myCapture?.pickedUp ? 'P' : myCapture?.grossScore ?? null
       const pts = (myCapture && !myCapture.pickedUp && myCapture.grossScore !== null)
         ? calculateStableford({ grossScore: myCapture.grossScore, par: h.par, strokeIndex: h.stroke_index, playingHandicap: myHcp, isPowerplayHole: powerplayHoleNumbers.has(h.hole_number) })
@@ -1550,7 +1579,9 @@ export default function SelfMarkerScoreShell({
             <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#14532d', marginTop: 2 }}>{myName}</div>
           )}
           <div style={{ fontFamily: 'var(--font-body)', color: '#6b7280', fontSize: 11, marginTop: 6 }}>
-            {isSharedDeviceScoring
+            {isPractice
+              ? (allMatched ? 'Practice round complete ✓' : `${detailedSummaryRows.filter(r => r.status === 'matched').length} of ${rows.length} holes recorded`)
+              : isSharedDeviceScoring
               ? (allMatched ? 'Shared-device scoring complete ✓' : `${rows.length - pending.length} of ${rows.length} holes recorded`)
               : <>{rows.length - mismatches.length - pending.length} holes matched · {mismatches.length} need review{pending.length > 0 ? ` · ${pending.length} waiting` : ''}</>}
           </div>
@@ -1685,7 +1716,15 @@ export default function SelfMarkerScoreShell({
           </div>
         )}
 
-        {!allMatched && !isLocked && !isSharedDeviceScoring && (
+        {/* Consolidated field-test package (8 Sep), item 2 — explicit
+            !isPractice gate, not just relying on allMatched/mismatches
+            being empty: for a PARTIALLY-scored practice round,
+            allMatched is still false (unscored holes are
+            'not_started', not 'matched'), which would otherwise show
+            this banner with an empty hole list rather than not showing
+            it at all. "Needs review" is a marker concept that doesn't
+            exist for Practice regardless of completion state. */}
+        {!allMatched && !isLocked && !isSharedDeviceScoring && !isPractice && (
           <div style={{ background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 12, padding: 14, marginTop: 10, marginBottom: 16 }}>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#dc2626', marginBottom: 6 }}>
               Scores still need review.
@@ -1785,7 +1824,38 @@ export default function SelfMarkerScoreShell({
             Chat) is completely unaffected by this block either way,
             since this is just content within the existing scoring
             page, not a modal or a redirect. */}
-        {isLocked && isOrganiser && (
+        {/* Consolidated field-test package (8 Sep), item 3 — Practice
+            gets its own branch, checked before isOrganiser: a Practice
+            Round's creator is always its own trip's organiser (see
+            /api/practice/create), so without this explicit check every
+            Practice completion would show "Go to My HQ to review and
+            close the round" — a screen and a ceremony that doesn't
+            exist for Practice at all. "Practice Round Complete... View
+            in My Golf" per the explicit required completion content;
+            no Makers & Breakers, no Event Story, no reconciliation
+            language anywhere in this branch. */}
+        {isLocked && isPractice && (
+          <div style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 12, padding: 14, marginTop: 10, marginBottom: 16, textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#16a34a', marginBottom: 4 }}>
+              ⛳ Practice Round Complete
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280', lineHeight: 1.5, marginBottom: 12 }}>
+              {grandTotal} Stableford points. Your round has been saved.
+            </div>
+            <Link
+              href="/dashboard"
+              style={{
+                display: 'inline-block', padding: '10px 20px', borderRadius: 10,
+                background: 'linear-gradient(135deg,#2d7a52,#16a34a)', color: '#fff',
+                fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, textDecoration: 'none',
+              }}
+            >
+              View in My Golf →
+            </Link>
+          </div>
+        )}
+
+        {isLocked && !isPractice && isOrganiser && (
           <div style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 12, padding: 14, marginTop: 10, marginBottom: 16, textAlign: 'center' }}>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#16a34a', marginBottom: 4 }}>
               ✅ Results submitted
