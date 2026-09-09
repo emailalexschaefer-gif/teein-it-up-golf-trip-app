@@ -87,12 +87,27 @@ export default async function TournamentPage({ params, searchParams }: Props) {
   // "Organiser who is also playing" — reuses the trip's existing
   // organiser_is_playing flag (the same signal this app has used for
   // this exact question since Sprint 5C.2), not a new per-round check.
-  const { data: tripRow } = await supabase.from('trips').select('organiser_is_playing').eq('id', tripId).maybeSingle()
+  // Consolidated field-test bundle (9 Sep), item 1 — is_practice fetched
+  // alongside it. Root cause of "My Golf returns to Home": a Practice
+  // round's creator is always their own trip's organiser (per
+  // /api/practice/create), and organiser_is_playing was never set for a
+  // Practice trip either — so the condition below, unmodified, could
+  // never reach the MyRoundClient/"My Golf" branch for Practice at all,
+  // regardless of which URL the nav pointed at. Checked is_practice
+  // directly here rather than depending on organiser_is_playing being
+  // set correctly for Practice specifically — a genuinely more robust
+  // fix than only changing the Practice creation route, since nothing
+  // about "Practice always wants My Golf, never My HQ" should ever
+  // depend on that flag being set right in every current and future
+  // creation path.
+  const { data: tripRow } = await supabase.from('trips').select('organiser_is_playing, is_practice').eq('id', tripId).maybeSingle()
   const organiserIsPlaying = isOrganiser && (tripRow?.organiser_is_playing ?? false)
+  const isPractice = tripRow?.is_practice === true
 
-  if (!isOrganiser || (organiserIsPlaying && view === 'mygolf')) {
+  if (!isOrganiser || isPractice || (organiserIsPlaying && view === 'mygolf')) {
     // ── Player: My Golf — also reachable by an organiser who is also
-    // playing, via the My HQ shortcut below (?view=mygolf). Same
+    // playing, via the My HQ shortcut below (?view=mygolf), and always
+    // reachable for Practice (which has no My HQ concept at all). Same
     // component, same data, same experience every other player gets —
     // per the explicit "do NOT duplicate all personal content inside
     // MyHQ" instruction, this is the ONE My Golf implementation,
@@ -101,7 +116,7 @@ export default async function TournamentPage({ params, searchParams }: Props) {
       <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '16px 16px 90px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
           <Link
-            href={isOrganiser ? `/trips/${tripId}/tournament` : `/trips/${tripId}`}
+            href={isPractice ? '/dashboard' : (isOrganiser ? `/trips/${tripId}/tournament` : `/trips/${tripId}`)}
             style={{ color: '#9ca3af', fontSize: 18, textDecoration: 'none' }}
           >
             ←
@@ -111,8 +126,10 @@ export default async function TournamentPage({ params, searchParams }: Props) {
               shortcut needs an obvious way back to My HQ; a regular
               player's back arrow above already goes to the trip
               overview, which was always correct for them and stays
-              unchanged. */}
-          {isOrganiser && (
+              unchanged. Consolidated field-test bundle (9 Sep) —
+              never shown for Practice: there is no My HQ for a
+              Practice round to link back to at all. */}
+          {isOrganiser && !isPractice && (
             <Link
               href={`/trips/${tripId}/tournament`}
               style={{ marginLeft: 'auto', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#a1791f', textDecoration: 'none' }}

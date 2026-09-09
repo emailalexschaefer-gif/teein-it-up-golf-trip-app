@@ -122,6 +122,21 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
     return NextResponse.json({ error: 'Could not close the round.' }, { status: 500 })
   }
 
+  // My Golf Side Games -- live status + official round winners (9 Sep).
+  // Called immediately after the round genuinely transitions to
+  // 'completed', not before -- a failed close above never reaches
+  // this. finalize_side_comp_winners() is idempotent at the DB level
+  // (its own UPDATE is scoped to official_winner_entry_id IS NULL), so
+  // this call is safe even if close were ever somehow retried for a
+  // round that already finalised its Side Games. Best-effort: a
+  // failure here is logged but never rolls back or blocks the round
+  // close itself, matching this route's own existing pattern for the
+  // trip-lifecycle hook immediately below.
+  const finalizeRes = await admin.rpc('finalize_side_comp_winners', { p_round_id: roundId })
+  if (finalizeRes.error) {
+    console.error('[close-round] finalize_side_comp_winners failed', finalizeRes.error)
+  }
+
   // Automatic lifecycle: LIVE -> COMPLETED, only once every round on this
   // trip is complete — not merely because this one just finished. This
   // is the explicit "do not mark a multi-round trip completed simply

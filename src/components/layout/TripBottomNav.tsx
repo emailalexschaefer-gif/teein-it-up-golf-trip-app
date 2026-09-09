@@ -41,7 +41,18 @@ function buildItems(tripId: string, isOrganiser: boolean, activeRoundId: string 
         href: activeRoundId ? `${base}/rounds/${activeRoundId}/my-stats` : base,
         label: 'My Stats', icon: '📊', match: (p) => p.includes('/my-stats'),
       },
-      { href: '/dashboard', label: 'My Golf', icon: '🏌️', match: (p) => p === '/dashboard' },
+      // Consolidated field-test bundle (9 Sep), item 1 — was
+      // '/dashboard'. Root cause: My Golf's real content
+      // (achievements, badges, Practice History/Progress) lives at
+      // /trips/{tripId}/tournament (MyRoundClient), the exact same
+      // route a normal Event's non-organiser player already uses for
+      // "My Golf" — /dashboard is the generic app Home page (hero,
+      // Join an Event, My Events list), so landing there read as
+      // "this took me back to Home," not to a dedicated My Golf page,
+      // even though a My Golf summary card does sit further down that
+      // same page. Reuses the existing, already-correct destination
+      // rather than building a second one.
+      { href: `${base}/tournament`, label: 'My Golf', icon: '🏌️', match: (p) => p.startsWith(`${base}/tournament`) },
     ]
   }
 

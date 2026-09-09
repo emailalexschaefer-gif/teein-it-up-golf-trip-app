@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import MomentViewer, { type MomentViewerData } from '@/components/moments/MomentViewer'
 import CollapsibleSection from '@/components/shared/CollapsibleSection'
+import MySideGamesSection from '@/components/scoring/MySideGamesSection'
 
 interface MyRoundData {
   hasScorecard: boolean
@@ -260,6 +261,13 @@ export default function PlayerRoundView({
               )}
             </>
           )}
+
+          {/* My Golf Side Games -- live status (9 Sep), item 4.
+              Positioned exactly per the requested Recap Round order:
+              My Group -> What Happened Today -> Your Highlights ->
+              My Side Games -> My Moments. Read-only, provisional-only
+              -- never shows Winner. */}
+          <MySideGamesSection tripId={tripId} roundId={roundId} />
 
           {/* MY MOMENTS — Sprint 6, Part 5. Only this player's own
               captured Moments, thumbnail + caption + hole + time. A

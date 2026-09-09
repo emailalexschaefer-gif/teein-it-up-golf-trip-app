@@ -2662,42 +2662,65 @@ export default function SelfMarkerScoreShell({
           return <div style={{ marginTop: 12 }}>{blocks}</div>
         })()}
 
-        {/* Live Leaderboard — a toggled overlay, not a navigation. Full-
-            width, visually secondary to score entry (outlined, not
-            filled green like Confirm Score), placed exactly where
-            specified: below Playing Partner, above the organiser link, with
-            enough margin that it isn't confused with that link. */}
-        <button
-          onClick={() => setShowLeaderboard(true)}
-          style={{
-            display: 'block', width: '100%', marginTop: 14, padding: '11px 16px',
-            background: '#fdf8ee', border: '1.5px solid #d9c9a3', borderRadius: 10,
-            fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: '#7a5c00',
-            cursor: 'pointer', textAlign: 'center',
-          }}
-        >
-          🏆 Live Leaderboard
-        </button>
-
-        {/* Live Leaderboard overlay — covers the screen while open, but
-          this component never unmounts underneath it, so returning via
-          "Back to Hole N" lands exactly back where the player left off:
-          same hole, same draft scores, same sync state. Reuses the
-          existing LiveLeaderboard component and its own data-fetching —
-          no second leaderboard implementation. */}
-      {showLeaderboard && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 250, background: '#faf9f6', overflowY: 'auto' }}>
-          <div style={{
-            paddingTop: 'env(safe-area-inset-top, 0px)',
-            background: 'linear-gradient(135deg, #0f2d1c, #1a4731)',
-            borderBottom: '2px solid #c9a84c',
-          }}>
-            <div style={{ padding: '14px 16px', fontFamily: 'var(--font-display)', color: '#f5e6b8', fontSize: 15, fontWeight: 700 }}>
+        {/* Consolidated field-test bundle (9 Sep), item 2 — Practice
+            never renders this button or the overlay beneath it at
+            all; "📊 View My Stats" is a plain navigation to the
+            dedicated My Stats page instead, not another toggled
+            overlay. This is the direct fix for the reported crash:
+            whatever the exact cause, the safest and most correct fix
+            per "Practice must never enter Event leaderboard logic" is
+            that LiveLeaderboard is never mounted for Practice at all,
+            not merely guarded once it's already rendering. */}
+        {isPractice ? (
+          <Link
+            href={`/trips/${tripId}/rounds/${round.id}/my-stats`}
+            style={{
+              display: 'block', width: '100%', marginTop: 14, padding: '11px 16px',
+              background: '#fdf8ee', border: '1.5px solid #d9c9a3', borderRadius: 10,
+              fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: '#7a5c00',
+              textAlign: 'center', textDecoration: 'none',
+            }}
+          >
+            📊 View My Stats
+          </Link>
+        ) : (
+          <>
+            {/* Live Leaderboard — a toggled overlay, not a navigation. Full-
+                width, visually secondary to score entry (outlined, not
+                filled green like Confirm Score), placed exactly where
+                specified: below Playing Partner, above the organiser link, with
+                enough margin that it isn't confused with that link. */}
+            <button
+              onClick={() => setShowLeaderboard(true)}
+              style={{
+                display: 'block', width: '100%', marginTop: 14, padding: '11px 16px',
+                background: '#fdf8ee', border: '1.5px solid #d9c9a3', borderRadius: 10,
+                fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: '#7a5c00',
+                cursor: 'pointer', textAlign: 'center',
+              }}
+            >
               🏆 Live Leaderboard
-            </div>
-          </div>
-          <div style={{ padding: '16px 16px 8px' }}>
-            <LiveLeaderboard tripId={tripId} roundId={round.id} roundStatus={round.status} />
+            </button>
+
+            {/* Live Leaderboard overlay — covers the screen while open, but
+              this component never unmounts underneath it, so returning via
+              "Back to Hole N" lands exactly back where the player left off:
+              same hole, same draft scores, same sync state. Reuses the
+              existing LiveLeaderboard component and its own data-fetching —
+              no second leaderboard implementation. */}
+          {showLeaderboard && (
+            <div style={{ position: 'fixed', inset: 0, zIndex: 250, background: '#faf9f6', overflowY: 'auto' }}>
+              <div style={{
+                paddingTop: 'env(safe-area-inset-top, 0px)',
+                background: 'linear-gradient(135deg, #0f2d1c, #1a4731)',
+                borderBottom: '2px solid #c9a84c',
+              }}>
+                <div style={{ padding: '14px 16px', fontFamily: 'var(--font-display)', color: '#f5e6b8', fontSize: 15, fontWeight: 700 }}>
+                  🏆 Live Leaderboard
+                </div>
+              </div>
+              <div style={{ padding: '16px 16px 8px' }}>
+                <LiveLeaderboard tripId={tripId} roundId={round.id} roundStatus={round.status} />
           </div>
           {/* "Back to Hole N" moved to the bottom, centred, with its own
               bottom safe-area spacing — the old top placement could sit
@@ -2725,6 +2748,8 @@ export default function SelfMarkerScoreShell({
           </div>
         </div>
       )}
+          </>
+        )}
 
       {/* Fixed scoring action tray. Now that TripBottomNav is hidden
           during active scoring (scoring focus mode), this sits directly
