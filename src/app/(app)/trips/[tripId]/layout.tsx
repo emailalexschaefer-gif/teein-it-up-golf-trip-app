@@ -39,6 +39,17 @@ export default async function TripScopedLayout({ params, children }: Props) {
 
   const isOrganiser = membership?.role === 'organiser'
 
+  // Practice V2 (8 Sep), item 5/6 — Practice-specific navigation.
+  // Fetched once here, alongside the existing membership check, so
+  // both TripBottomNav and DesktopTripNav (which already share one
+  // buildItems() function) can render a Practice-appropriate item set
+  // without either needing its own separate trips query.
+  const tripResult = await withTimeout(
+    supabase.from('trips').select('is_practice').eq('id', tripId).maybeSingle(),
+    4000,
+  ).catch(() => null)
+  const isPractice = tripResult?.data?.is_practice === true
+
   // The active round, if any — used to make "Scorecard" in the bottom nav
   // jump straight into live scoring, and to detect a just-started round for
   // the notification banner. One lightweight query, reused by both.
@@ -64,12 +75,12 @@ export default async function TripScopedLayout({ params, children }: Props) {
 
   return (
     <div style={{ minHeight: '100vh' }}>
-      <DesktopTripNav tripId={tripId} isOrganiser={isOrganiser} activeRoundId={activeRound?.id ?? null} />
+      <DesktopTripNav tripId={tripId} isOrganiser={isOrganiser} activeRoundId={activeRound?.id ?? null} isPractice={isPractice} />
       {activeRound && (
         <RoundStartBanner tripId={tripId} roundId={activeRound.id} roundName={activeRound.name} />
       )}
       {children}
-      <TripBottomNav tripId={tripId} isOrganiser={isOrganiser} activeRoundId={activeRound?.id ?? null} />
+      <TripBottomNav tripId={tripId} isOrganiser={isOrganiser} activeRoundId={activeRound?.id ?? null} isPractice={isPractice} />
     </div>
   )
 }

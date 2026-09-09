@@ -89,7 +89,7 @@ export default async function RoundScorePage({ params }: Props) {
   // Fetch round details
   const roundRes = await admin
     .from('rounds')
-    .select('id, name, status, holes, scoring_format, course_name, tee_time, play_date, trip_id, score_capture_mode')
+    .select('id, name, status, holes, scoring_format, course_name, tee_time, play_date, trip_id, score_capture_mode, track_practice_stats')
     .eq('id', roundId)
     .eq('trip_id', tripId)
     .single()
@@ -243,7 +243,6 @@ export default async function RoundScorePage({ params }: Props) {
   const tripNameRes = await admin.from('trips').select('name, is_practice').eq('id', tripId).single()
   const tripName = tripNameRes.data?.name ?? 'Event'
   const isPractice = tripNameRes.data?.is_practice === true
-
   // ── Self + marker mode (the new Sprint 5B default) ──────────────────────────
   // group_scorer is the only mode that still uses the old "one scorer for
   // the whole group" flow — retained, not deleted, for charity days /
@@ -335,6 +334,7 @@ export default async function RoundScorePage({ params }: Props) {
         dataProblem={dataProblem}
         fullGroupRoster={fullGroupRoster}
         isPractice={isPractice}
+        trackStats={round.track_practice_stats === true}
         // Add-on 1 — corrected architecture. isSharedDeviceScoring only
         // changes: the partner card's heading/label, whether
         // partnerComparison is ever computed (never, in this mode —

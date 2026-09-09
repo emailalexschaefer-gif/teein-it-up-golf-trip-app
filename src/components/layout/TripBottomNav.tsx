@@ -20,9 +20,31 @@ import { useScoringFocusStore } from '@/store/scoringFocusStore'
 
 interface NavItem { href: string; label: string; icon: string; match: (path: string) => boolean }
 
-function buildItems(tripId: string, isOrganiser: boolean, activeRoundId: string | null): NavItem[] {
+function buildItems(tripId: string, isOrganiser: boolean, activeRoundId: string | null, isPractice: boolean): NavItem[] {
   const base = `/trips/${tripId}`
   const scorecardHref = activeRoundId ? `${base}/rounds/${activeRoundId}` : base
+
+  // Practice V2 (8 Sep), items 5/6 — Practice gets its own, simplified
+  // item set entirely, reusing this same shell/component rather than
+  // duplicating the whole navigation architecture, per the explicit
+  // "reuse the existing navigation shell where possible" instruction.
+  // No Event Leaderboard, no Side Games, no Chat, no organiser-style
+  // My HQ — "My Stats"/"My Round" replaces the Leaderboard slot
+  // conceptually (same position in the bar), and "My Golf" replaces
+  // the My HQ/Chat destinations, since Practice has no organiser
+  // ceremony or group chat to route to at all.
+  if (isPractice) {
+    return [
+      { href: base, label: 'Home', icon: '🏠', match: (p) => p === base },
+      { href: scorecardHref, label: 'Scorecard', icon: '⛳', match: (p) => p.startsWith(`${base}/rounds`) && !p.includes('/my-stats') },
+      {
+        href: activeRoundId ? `${base}/rounds/${activeRoundId}/my-stats` : base,
+        label: 'My Stats', icon: '📊', match: (p) => p.includes('/my-stats'),
+      },
+      { href: '/dashboard', label: 'My Golf', icon: '🏌️', match: (p) => p === '/dashboard' },
+    ]
+  }
+
   const items: NavItem[] = [
     { href: base, label: 'Home', icon: '🏠', match: (p) => p === base },
     // Highest-frequency destination during live play (players visit this
@@ -40,15 +62,18 @@ function buildItems(tripId: string, isOrganiser: boolean, activeRoundId: string 
   return items
 }
 
-export function TripBottomNav({ tripId, isOrganiser, activeRoundId }: { tripId: string; isOrganiser: boolean; activeRoundId: string | null }) {
+export function TripBottomNav({ tripId, isOrganiser, activeRoundId, isPractice = false }: { tripId: string; isOrganiser: boolean; activeRoundId: string | null; isPractice?: boolean }) {
   const pathname = usePathname() ?? ''
-  const items = buildItems(tripId, isOrganiser, activeRoundId)
+  const items = buildItems(tripId, isOrganiser, activeRoundId, isPractice)
   const [hasUnread, setHasUnread] = useState(false)
   const scoringFocusActive = useScoringFocusStore(s => s.isActive)
 
   // Reuses the existing messages endpoint — no new API for this. No
   // refetchInterval: checked on mount and on window focus only, per the
   // explicit "do not introduce unnecessary polling" constraint.
+  // Practice V2 (8 Sep) — Chat doesn't exist for Practice at all, so this
+  // query is skipped entirely rather than firing against a route Practice
+  // never uses.
   const { data } = useQuery<{ messages: { created_at: string }[] }>({
     queryKey: ['event-messages', tripId],
     queryFn: async () => {
@@ -56,6 +81,7 @@ export function TripBottomNav({ tripId, isOrganiser, activeRoundId }: { tripId: 
       if (!res.ok) throw new Error('failed')
       return res.json()
     },
+    enabled: !isPractice,
     refetchOnWindowFocus: true,
     staleTime: 30000,
   })
@@ -118,9 +144,9 @@ export function TripBottomNav({ tripId, isOrganiser, activeRoundId }: { tripId: 
   )
 }
 
-export function DesktopTripNav({ tripId, isOrganiser, activeRoundId }: { tripId: string; isOrganiser: boolean; activeRoundId: string | null }) {
+export function DesktopTripNav({ tripId, isOrganiser, activeRoundId, isPractice = false }: { tripId: string; isOrganiser: boolean; activeRoundId: string | null; isPractice?: boolean }) {
   const pathname = usePathname() ?? ''
-  const items = buildItems(tripId, isOrganiser, activeRoundId)
+  const items = buildItems(tripId, isOrganiser, activeRoundId, isPractice)
   const scoringFocusActive = useScoringFocusStore(s => s.isActive)
   if (scoringFocusActive) return null
 

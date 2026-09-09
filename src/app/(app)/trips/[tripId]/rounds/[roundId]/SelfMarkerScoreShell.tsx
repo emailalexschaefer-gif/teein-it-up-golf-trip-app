@@ -18,6 +18,7 @@ import dynamic from 'next/dynamic'
 import type { NewLeaderContext } from '@/components/scoring/NewLeaderPrompt'
 import PendingVerificationCard from '@/components/scoring/PendingVerificationCard'
 import ExpandableRoundScorecard from '@/components/scoring/ExpandableRoundScorecard'
+import PracticeHoleStatsPanel from '@/components/scoring/PracticeHoleStatsPanel'
 
 // P0 live-scoring crash investigation — the one recent, genuinely
 // unverified change reachable from this file's own import chain.
@@ -154,6 +155,12 @@ interface Props {
   // resolved," which is why it showed every hole as permanently
   // waiting rather than simply done.
   isPractice?: boolean
+  // Practice V2 (8 Sep), item 3 — the round's own persisted setup
+  // choice (rounds.track_practice_stats), threaded down alongside
+  // isPractice. Never inferred from whether stat rows happen to
+  // exist — matches the explicit "do not infer stat tracking merely
+  // from whether some stats happen to exist" instruction.
+  trackStats?: boolean
 }
 
 type CaptureMap = Record<number, CaptureValue> // keyed by hole_number
@@ -255,7 +262,7 @@ function statusColor(status: ComparisonStatus): string {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function SelfMarkerScoreShell({
-  tripId, round, myScorecard, markedScorecard, markedByName, isOrganiser, dataProblem, fullGroupRoster = [], isSharedDeviceScoring = false, isPractice = false,
+  tripId, round, myScorecard, markedScorecard, markedByName, isOrganiser, dataProblem, fullGroupRoster = [], isSharedDeviceScoring = false, isPractice = false, trackStats = false,
 }: Props) {
   // 'individual' mode has no marker concept at all — comparison status,
   // the marker card, and reconciliation only make sense in self_and_marker
@@ -1843,14 +1850,14 @@ export default function SelfMarkerScoreShell({
               {grandTotal} Stableford points. Your round has been saved.
             </div>
             <Link
-              href="/dashboard"
+              href={`/trips/${tripId}/rounds/${round.id}/practice-summary`}
               style={{
                 display: 'inline-block', padding: '10px 20px', borderRadius: 10,
                 background: 'linear-gradient(135deg,#2d7a52,#16a34a)', color: '#fff',
                 fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, textDecoration: 'none',
               }}
             >
-              View in My Golf →
+              View Practice Summary →
             </Link>
           </div>
         )}
@@ -2401,6 +2408,16 @@ export default function SelfMarkerScoreShell({
           status={myComparison} onOpenSummary={() => setShowReconciliation(true)} isLockedForSide={isLocked}
           activeSideComps={activeSideComps} isPowerplayHole={isPowerplayHole} basePts={myBasePts}
         />
+
+        {/* Practice V2 (8 Sep), item 3 — mounted directly beneath the
+            normal scoring controls, scoped strictly to
+            isPractice && trackStats. par comes from the same `par`
+            value ScoreCard above was just given for this hole — no
+            second lookup, no risk of drifting from what's actually
+            displayed. */}
+        {isPractice && trackStats && (
+          <PracticeHoleStatsPanel tripId={tripId} roundId={round.id} holeNumber={holeNum} par={par} />
+        )}
 
         {/* P0 fix (shared-device layout) — Marnie's own, independently
             expandable scorecard, relocated to sit immediately above her

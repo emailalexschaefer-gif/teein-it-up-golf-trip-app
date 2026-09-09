@@ -106,8 +106,18 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   const memberCheck = await admin.from('trip_members').select('id').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
   if (!memberCheck.data) return NextResponse.json({ error: 'Not a trip member.' }, { status: 403 })
 
-  const roundRes = await admin.from('rounds').select('id, holes, score_capture_mode').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
+  const roundRes = await admin.from('rounds').select('id, holes, score_capture_mode, trip_id').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
   if (!roundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
+
+  // Consolidated field-test package (8 Sep), item 1 — explicit,
+  // canonical Practice check, not solely relying on score_capture_mode
+  // being 'individual' (belt-and-braces: this gate must never block a
+  // genuinely Practice round's finalisation, regardless of what mode
+  // any given Practice round happens to carry, past or future). Scoped
+  // strictly to is_practice — a normal Event's own marker/reconciliation
+  // requirement below is completely untouched by this check.
+  const tripPracticeRes = await admin.from('trips').select('is_practice').eq('id', tripId).maybeSingle()
+  const isPracticeTrip = tripPracticeRes.data?.is_practice === true
 
   const scorecardRes = await admin
     .from('scorecards')
@@ -161,7 +171,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   if (selfByHole.size < totalHoles) {
     return NextResponse.json({ error: `Score entry isn't complete — ${selfByHole.size} of ${totalHoles} holes entered.` }, { status: 422 })
   }
-  if (roundRes.data.score_capture_mode === 'self_and_marker' && !isSharedDevice) {
+  if (roundRes.data.score_capture_mode === 'self_and_marker' && !isSharedDevice && !isPracticeTrip) {
     for (const [holeId, self] of selfByHole) {
       const marker = markerByHole.get(holeId)
       if (!marker) {

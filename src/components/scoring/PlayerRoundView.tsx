@@ -265,8 +265,15 @@ export default function PlayerRoundView({
               captured Moments, thumbnail + caption + hole + time. A
               separate query from the round-summary one above, since
               Moments can span the whole trip, not just this round —
-              unchanged by this package. */}
-          <SectionLabel>My Moments</SectionLabel>
+              unchanged by this package.
+              Practice V2 (8 Sep), item 11 — removed the duplicate
+              "My Moments" label that used to render here: MyMoments
+              itself already renders its own SectionLabel internally
+              (and does so conditionally, only when there actually are
+              moments — this outer copy would show an empty heading
+              even when MyMoments correctly returns null for zero
+              moments). One label, owned by the component that knows
+              whether there's anything to show under it. */}
           <MyMoments tripId={tripId} />
         </CollapsibleSection>
       )}

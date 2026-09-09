@@ -75,6 +75,16 @@ const PracticeCreateSchema = z.object({
   courseName: z.string().max(100).default(''),
   teeName: z.string().max(50).default(''),
   holes: z.union([z.literal(9), z.literal(18)]).default(18),
+  // Consolidated field-test package (8 Sep), items 2+3 — the new
+  // golfer-authoritative hole model. nineSelection required when
+  // holes=9, startingHole required when holes=18 — validated below,
+  // not in the schema itself, so a genuinely bad combination gets a
+  // clear error message rather than a generic Zod one.
+  nineSelection: z.enum(['front', 'back']).optional(),
+  startingHole: z.union([z.literal(1), z.literal(10)]).optional(),
+  // Practice V2 (8 Sep), item 1 — persisted explicitly to
+  // rounds.track_practice_stats below, never inferred later.
+  trackStats: z.boolean(),
   playDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   // Practice Round Course Library follow-up (8 Sep) -- optional: when
   // present, this is CourseLibrarySearch's own real hole data (the
@@ -83,7 +93,10 @@ const PracticeCreateSchema = z.object({
   // STANDARD_18 template below. Absent entirely for a genuinely
   // course-less practice round (manual course name, or no course name
   // at all) -- STANDARD_18 remains the fallback for that case only,
-  // not removed.
+  // not removed. IMPORTANT: this is no longer used to derive the hole
+  // COUNT (that bug is exactly what items 2+3 fix) — only to supply
+  // real par/SI/distance for whichever hole_numbers the golfer's own
+  // holes/nineSelection/startingHole choice actually requires.
   libraryHoles: z.array(LibraryHoleSchema).min(1).max(18).optional(),
 })
 
@@ -96,7 +109,31 @@ export async function POST(request: Request) {
   try { body = await request.json() } catch { return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 }) }
   const parsed = PracticeCreateSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: 'Validation failed.', issues: parsed.error.issues }, { status: 400 })
-  const { courseName, teeName, holes, playDate, libraryHoles } = parsed.data
+  const { courseName, teeName, holes, nineSelection, startingHole, trackStats, playDate, libraryHoles } = parsed.data
+
+  // Consolidated field-test package (8 Sep), items 2+3 — the golfer's
+  // own choice is validated and used to build the exact play sequence
+  // of hole_numbers, entirely independent of what the selected course/
+  // tee (if any) happens to have available. This is the direct fix for
+  // "an 18-hole Course Library course means 18 holes are available, it
+  // does not mean the golfer selected an 18-hole Practice Round" — the
+  // sequence below is never touched by libraryHoles' own length.
+  let holeSequence: number[]
+  if (holes === 9) {
+    if (nineSelection !== 'front' && nineSelection !== 'back') {
+      return NextResponse.json({ error: 'Select Front 9 or Back 9.' }, { status: 400 })
+    }
+    holeSequence = nineSelection === 'front'
+      ? [1, 2, 3, 4, 5, 6, 7, 8, 9]
+      : [10, 11, 12, 13, 14, 15, 16, 17, 18]
+  } else {
+    if (startingHole !== 1 && startingHole !== 10) {
+      return NextResponse.json({ error: 'Select 1st Tee or 10th Tee.' }, { status: 400 })
+    }
+    holeSequence = startingHole === 1
+      ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+      : [10, 11, 12, 13, 14, 15, 16, 17, 18, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin: any = createAdminClient()
@@ -140,42 +177,50 @@ export async function POST(request: Request) {
   await admin.from('trip_members').update({ group_id: groupId }).eq('id', memberRes.data.id)
 
   // -- Round -------------------------------------------------------------------
-  // Practice Round Course Library follow-up (8 Sep) -- when real
-  // library hole data was sent, it is authoritative for both the hole
-  // count and the actual layout (par/SI/distance) -- derived from
-  // libraryHoles.length rather than trusting the separately-sent
-  // `holes` field, which could otherwise drift from what was actually
-  // selected. Falls back to the existing STANDARD_18 template
-  // unchanged for a course-less practice round.
-  const effectiveHoleCount = libraryHoles ? libraryHoles.length : holes
-  const holeSlice = libraryHoles
-    ? libraryHoles.map(h => ({
-        hole_number: h.hole_number, par: h.par,
-        // A tee set can have incomplete stroke-index data (see
-        // CourseLibrarySearch's own "handles partial records
-        // gracefully" comment) -- begin_round's own hole insert needs
-        // a real value, so this falls back to the hole's own number as
-        // a reasonable placeholder ordering, never blocking round
-        // creation over an incomplete library record.
-        stroke_index: h.stroke_index ?? h.hole_number,
-        distance: h.distance ?? null,
-      }))
-    : (holes === 9 ? STANDARD_18.slice(0, 9) : STANDARD_18)
+  // Consolidated field-test package (8 Sep), items 2+3 — build a full
+  // hole-number -> {par, stroke_index, distance} pool first (from the
+  // library selection where present, STANDARD_18 otherwise), then slice
+  // it by holeSequence above — the golfer's own choice, never the
+  // pool's own size. A library selection that happens to be, say, a
+  // 9-hole-only tee set still works correctly here: any hole_number the
+  // sequence needs that isn't in the pool falls back to STANDARD_18's
+  // own value for that number, rather than failing outright.
+  const libraryByHoleNumber = new Map(
+    (libraryHoles ?? []).map(h => [h.hole_number, { par: h.par, stroke_index: h.stroke_index ?? h.hole_number, distance: h.distance ?? null }])
+  )
+  const standardByHoleNumber = new Map(STANDARD_18.map(h => [h.hole_number, { par: h.par, stroke_index: h.stroke_index, distance: null as number | null }]))
+  const holeSlice = holeSequence.map(hn => {
+    const src = libraryByHoleNumber.get(hn) ?? standardByHoleNumber.get(hn)!
+    return { hole_number: hn, par: src.par, stroke_index: src.stroke_index, distance: src.distance }
+  })
+
   const roundRes = await admin.from('rounds').insert({
     trip_id: tripId,
     name: 'Practice Round',
     course_name: courseName || null,
     tee_name: teeName || null,
     play_date: playDate,
-    holes: effectiveHoleCount,
+    holes,
     scoring_format: 'stableford',
     status: 'upcoming',
-    // If the selected library tee happens to be a back-nine-only
-    // layout (holes 10-18), the round must start there, not at 1 --
-    // derived from the actual lowest hole_number present, reusing the
-    // same starting-hole concept already established for shotgun/
-    // back-nine Event rounds elsewhere in this app.
-    starting_hole_number: libraryHoles ? Math.min(...libraryHoles.map(h => h.hole_number)) : 1,
+    // Consolidated field-test package (8 Sep), item 1 — P0 root cause:
+    // this round was previously created with no score_capture_mode set
+    // at all, defaulting to 'self_and_marker' (the app-wide default for
+    // a normal Event). A solo Practice player is never shared-device
+    // (there is no partner in the group at all) and has no marker, so
+    // the finalisation gate's own marker-requirement block fired for
+    // every Practice round, blocking Confirm Final Scores forever.
+    // 'individual' is the existing mode that already has no marker
+    // concept by design — this creates Practice rounds correctly from
+    // the start rather than patching around the gate afterward.
+    score_capture_mode: 'individual',
+    // Practice V2 (8 Sep), item 1 — the golfer's own explicit setup
+    // choice, persisted directly, not inferred later from whether any
+    // practice_hole_stats rows happen to exist for this round.
+    track_practice_stats: trackStats,
+    // The play sequence's own first hole — 1, 10, or (for a back-9
+    // Practice round) 10 — never inferred from library data.
+    starting_hole_number: holeSequence[0],
   }).select('id').single()
 
   if (roundRes.error || !roundRes.data) {
