@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { z } from 'zod'
+import { buildPracticeHoleSequence } from '@/lib/scoring/practiceHoleSequence'
 
 /**
  * POST /api/practice/create
@@ -75,13 +76,23 @@ const PracticeCreateSchema = z.object({
   courseName: z.string().max(100).default(''),
   teeName: z.string().max(50).default(''),
   holes: z.union([z.literal(9), z.literal(18)]).default(18),
-  // Consolidated field-test package (8 Sep), items 2+3 — the new
-  // golfer-authoritative hole model. nineSelection required when
-  // holes=9, startingHole required when holes=18 — validated below,
-  // not in the schema itself, so a genuinely bad combination gets a
-  // clear error message rather than a generic Zod one.
-  nineSelection: z.enum(['front', 'back']).optional(),
-  startingHole: z.union([z.literal(1), z.literal(10)]).optional(),
+  // P0 fix (9 Sep) — root cause: the client always sends BOTH
+  // nineSelection and startingHole keys, since they're plain useState
+  // fields initialised to null, not undefined — whichever one isn't
+  // the active path for the golfer's holes choice is still present in
+  // the JSON body as an explicit `null`, never simply absent. Zod's
+  // .optional() only tolerates a MISSING key (undefined) — it rejects
+  // an explicit null outright, which is exactly why every tested
+  // configuration failed identically regardless of Front/Back,
+  // 9/18, or Track Stats: every single submission includes one
+  // explicit null somewhere. .nullable() (making this .nullable()
+  // .optional(), equivalently .nullish()) is the actual fix — accepts
+  // undefined OR null OR a real value, and null is then treated
+  // identically to "not provided" by the existing holes===9/18
+  // validation below, which already produces its own clear error
+  // ("Select Front 9 or Back 9.") for a genuinely missing choice.
+  nineSelection: z.enum(['front', 'back']).nullable().optional(),
+  startingHole: z.union([z.literal(1), z.literal(10)]).nullable().optional(),
   // Practice V2 (8 Sep), item 1 — persisted explicitly to
   // rounds.track_practice_stats below, never inferred later.
   trackStats: z.boolean(),
@@ -108,7 +119,13 @@ export async function POST(request: Request) {
   let body: unknown
   try { body = await request.json() } catch { return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 }) }
   const parsed = PracticeCreateSchema.safeParse(body)
-  if (!parsed.success) return NextResponse.json({ error: 'Validation failed.', issues: parsed.error.issues }, { status: 400 })
+  if (!parsed.success) {
+    // P0 fix (9 Sep) — logged server-side too, not just returned to the
+    // client, so this is visible in server logs during field testing
+    // without needing the client's own display of it.
+    console.error('[practice/create] validation failed', JSON.stringify(parsed.error.issues))
+    return NextResponse.json({ error: 'Validation failed.', issues: parsed.error.issues }, { status: 400 })
+  }
   const { courseName, teeName, holes, nineSelection, startingHole, trackStats, playDate, libraryHoles } = parsed.data
 
   // Consolidated field-test package (8 Sep), items 2+3 — the golfer's
@@ -118,22 +135,14 @@ export async function POST(request: Request) {
   // "an 18-hole Course Library course means 18 holes are available, it
   // does not mean the golfer selected an 18-hole Practice Round" — the
   // sequence below is never touched by libraryHoles' own length.
-  let holeSequence: number[]
-  if (holes === 9) {
-    if (nineSelection !== 'front' && nineSelection !== 'back') {
-      return NextResponse.json({ error: 'Select Front 9 or Back 9.' }, { status: 400 })
-    }
-    holeSequence = nineSelection === 'front'
-      ? [1, 2, 3, 4, 5, 6, 7, 8, 9]
-      : [10, 11, 12, 13, 14, 15, 16, 17, 18]
-  } else {
-    if (startingHole !== 1 && startingHole !== 10) {
-      return NextResponse.json({ error: 'Select 1st Tee or 10th Tee.' }, { status: 400 })
-    }
-    holeSequence = startingHole === 1
-      ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
-      : [10, 11, 12, 13, 14, 15, 16, 17, 18, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  // P0 fix (9 Sep) — extracted to buildPracticeHoleSequence(), a pure,
+  // directly-tested function, rather than inline logic that could only
+  // ever be exercised through a full HTTP request in this sandbox.
+  const sequenceResult = buildPracticeHoleSequence(holes, nineSelection, startingHole)
+  if (!sequenceResult.ok) {
+    return NextResponse.json({ error: sequenceResult.error }, { status: 400 })
   }
+  const holeSequence = sequenceResult.holeSequence
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin: any = createAdminClient()

@@ -1173,7 +1173,9 @@ export default function SelfMarkerScoreShell({
         <div style={{ textAlign: 'center', maxWidth: 320, padding: '0 20px' }}>
           <p style={{ fontSize: 32, marginBottom: 8 }}>⛳</p>
           <p style={{ fontFamily: 'var(--font-body)', color: '#6b7280', fontSize: 13 }}>{message}</p>
-          <Link href={`/trips/${tripId}`} style={{ display: 'block', marginTop: 16, fontFamily: 'var(--font-body)', fontSize: 12, color: '#14532d', fontWeight: 700, textDecoration: 'none' }}>← Back to trip</Link>
+          <Link href={isPractice ? '/dashboard' : `/trips/${tripId}`} style={{ display: 'block', marginTop: 16, fontFamily: 'var(--font-body)', fontSize: 12, color: '#14532d', fontWeight: 700, textDecoration: 'none' }}>
+            {isPractice ? '← Home' : '← Back to trip'}
+          </Link>
         </div>
       </div>
     )
@@ -2149,11 +2151,23 @@ export default function SelfMarkerScoreShell({
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           height: 44, padding: '0 14px',
         }}>
+        {/* Practice Home/Back release (9 Sep), item 1 — for a normal
+            Event, "✕ Exit" -> the trip lobby is exactly right and
+            unchanged. For Practice, that destination is meaningless
+            (no organiser ceremony, no lobby a solo practice trip ever
+            shows) — this is the fix for the explicit "must not rely on
+            browser history" requirement: an explicit, always-correct
+            link to the main app Home, not a back() call that could
+            land on Practice setup or Course Library depending on
+            history. Does not cancel/finalise/abandon anything — it's
+            a normal navigation, and the active Practice round is
+            simply left exactly as it is, resumable from Home's own
+            "My Events" list at any time. */}
         <Link
-          href={`/trips/${tripId}`}
+          href={isPractice ? '/dashboard' : `/trips/${tripId}`}
           style={{ color: '#f5e6b8', textDecoration: 'none', fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 700 }}
         >
-          ✕ Exit
+          {isPractice ? '← Home' : '✕ Exit'}
         </Link>
         <div style={{ textAlign: 'right', lineHeight: 1.15 }}>
           <div style={{ color: '#f5e6b8', fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 800, letterSpacing: 0.3 }}>

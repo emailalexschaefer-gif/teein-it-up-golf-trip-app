@@ -80,7 +80,17 @@ export default function NewPracticeRoundPage() {
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(body.error ?? 'Could not start your practice round.')
+        // P0 fix (9 Sep) — the server already returns Zod's own
+        // per-field issues array; this was never being read here,
+        // leaving field testing with only the generic "Validation
+        // failed." Surfaces the first failing field/reason
+        // specifically (e.g. "startingHole: Expected number, received
+        // null") when present, falling back to the generic message
+        // only when the server genuinely didn't return issue detail
+        // (e.g. a 401/500, not a validation failure).
+        const issue = body.issues?.[0]
+        const detail = issue ? `${issue.path?.join('.') ?? 'field'}: ${issue.message}` : null
+        setError(detail ? `${body.error ?? 'Validation failed.'} (${detail})` : (body.error ?? 'Could not start your practice round.'))
         setSubmitting(false)
         return
       }
