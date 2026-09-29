@@ -25,6 +25,9 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [restoring, setRestoring] = useState(false)
+  // Event Management Phase 2 (10 Sep) -- Run Again.
+  const [runningAgain, setRunningAgain] = useState(false)
+  const [runAgainError, setRunAgainError] = useState<string | null>(null)
 
   const eventLabel   = EVENT_TYPE_OPTIONS.find(o => o.value === trip.event_type)?.label ?? 'Golf Trip'
   const expected     = trip.expected_players ?? 0
@@ -48,6 +51,20 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
     toast(`Trip restored to ${TRIP_STATUS_LABELS[restoreStatus]}`, 'success')
     router.refresh()
     setRestoring(false)
+  }
+
+  async function handleRunAgain() {
+    setRunningAgain(true)
+    setRunAgainError(null)
+    try {
+      const res = await fetch(`/api/trips/${trip.id}/run-again`)
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error ?? 'Could not start Run Again.')
+      router.push(body.prefillUrl)
+    } catch (err) {
+      setRunAgainError(err instanceof Error ? err.message : 'Could not start Run Again.')
+      setRunningAgain(false)
+    }
   }
 
   async function handleArchive() {
@@ -177,6 +194,33 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
         {isOrganiser && !isArchived && (
           <div className="card p-4">
             <p className="s-label" style={{ marginBottom: 10 }}>Trip management</p>
+            {/* Event Management Phase 2 (10 Sep) -- Run Again, gated
+                strictly to 'completed' (not the wider !isArchived scope
+                Archive itself uses), matching the brief's own explicit
+                UX: "Completed Event -> Run Again" -- an organiser
+                wanting to Run Again an archived trip restores it first. */}
+            {trip.status === 'completed' && (
+              <div style={{ paddingTop: 0, marginBottom: 10 }}>
+                <button
+                  onClick={handleRunAgain}
+                  disabled={runningAgain}
+                  style={{
+                    width: '100%', padding: '9px 16px', borderRadius: 10,
+                    border: 'none', background: 'linear-gradient(160deg, #2d7a52 0%, #1a4731 100%)', cursor: 'pointer',
+                    fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#fff',
+                    opacity: runningAgain ? 0.6 : 1,
+                  }}
+                >
+                  {runningAgain ? 'Preparing…' : '↻ Run Again'}
+                </button>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a89e88', marginTop: 4, paddingLeft: 2 }}>
+                  Creates a new draft event using this one&apos;s course and setup — this event is never changed.
+                </p>
+                {runAgainError && (
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#dc2626', marginTop: 4, paddingLeft: 2 }}>{runAgainError}</p>
+                )}
+              </div>
+            )}
             <div style={{ paddingTop: 0 }}>
               <button
                 onClick={() => setShowArchiveDialog(true)}

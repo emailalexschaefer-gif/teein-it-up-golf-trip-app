@@ -473,3 +473,59 @@ test('buildCourseReport — 9-hole round only considers holes actually belonging
   assert.ok((report.hardestHole?.holeNumber ?? 0) <= 9)
   assert.equal(report.fieldAverage, (18 + 27) / 2)
 })
+
+// Next-release Event Management package (10 Sep), item 1 -- Hole from
+// Hell acceptance tests, per the brief's own explicit criteria.
+
+function makeHolesWithNumbers(entries: { holeNumber: number; pts: number }[], par = 4, startGross = 4): PlayerHoleResult[] {
+  return entries.map(e => ({ holeNumber: e.holeNumber, stablefordPts: e.pts, grossScore: startGross, par }))
+}
+
+test('findHoleFromHell — statLine includes the actual hole number, not just the caption', () => {
+  const a = player('a', 'Alex', makeHoles([0, 2, 2]))
+  const b = player('b', 'Dave', makeHoles([3, 2, 2]))
+  const c = player('c', 'Mick', makeHoles([3, 2, 2]))
+  const field: FieldRoundData = { players: [a, b, c], totalHoles: 3 }
+  const result = findHoleFromHell(field)
+  // The disaster hole is hole 1 (index 0) -- statLine itself must name
+  // it, since several rendering surfaces show statLine only and never
+  // caption (confirmed by reading every consumer before this fix).
+  assert.match(result?.statLine ?? '', /^Hole 1 \u00b7/)
+})
+
+test('findHoleFromHell — a genuine 9-hole round starting on the back nine (real hole numbers 10-18) is computed correctly, not silently skipped', () => {
+  // Real hole_number values are 10-18 here, exactly as a genuine 9-hole
+  // Back 9 round would have -- not 1-9. The disaster is on actual hole
+  // 14 (the 5th hole played), matching the brief's own example.
+  const holeNumbers = [10, 11, 12, 13, 14, 15, 16, 17, 18]
+  const aEntries = holeNumbers.map(h => ({ holeNumber: h, pts: h === 14 ? 0 : 2 }))
+  const bEntries = holeNumbers.map(h => ({ holeNumber: h, pts: 2 }))
+  const cEntries = holeNumbers.map(h => ({ holeNumber: h, pts: 2 }))
+  const a = player('a', 'Alex', makeHolesWithNumbers(aEntries))
+  const b = player('b', 'Dave', makeHolesWithNumbers(bEntries))
+  const c = player('c', 'Mick', makeHolesWithNumbers(cEntries))
+  const field: FieldRoundData = { players: [a, b, c], totalHoles: 9 }
+  const result = findHoleFromHell(field)
+  assert.ok(result, 'Hole from Hell must still be found for a real hole-numbers-10-18 round, not return null')
+  assert.equal(result?.playerId, 'a')
+  assert.match(result?.statLine ?? '', /^Hole 14 \u00b7/)
+  assert.match(result?.caption ?? '', /hole 14/)
+})
+
+test('findHoleFromHell — 18 holes starting from the 10th tee reports the actual canonical hole, not played-order position', () => {
+  // 18-hole round, all real hole numbers 1-18 present (a shotgun/
+  // 10th-tee start reorders PLAY SEQUENCE, not the hole_number values
+  // themselves) -- the disaster is on actual hole 10 (the very first
+  // hole this player played, since they started there).
+  const holeNumbers = Array.from({ length: 18 }, (_, i) => i + 1)
+  const aEntries = holeNumbers.map(h => ({ holeNumber: h, pts: h === 10 ? 0 : 2 }))
+  const bEntries = holeNumbers.map(h => ({ holeNumber: h, pts: 2 }))
+  const cEntries = holeNumbers.map(h => ({ holeNumber: h, pts: 2 }))
+  const a = player('a', 'Alex', makeHolesWithNumbers(aEntries), 10)
+  const b = player('b', 'Dave', makeHolesWithNumbers(bEntries), 10)
+  const c = player('c', 'Mick', makeHolesWithNumbers(cEntries), 10)
+  const field: FieldRoundData = { players: [a, b, c], totalHoles: 18 }
+  const result = findHoleFromHell(field)
+  assert.equal(result?.playerId, 'a')
+  assert.match(result?.statLine ?? '', /^Hole 10 \u00b7/)
+})

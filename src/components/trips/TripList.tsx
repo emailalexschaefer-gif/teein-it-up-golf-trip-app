@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { useMyTrips } from '@/lib/queries/trips'
 import { useAuthUser } from '@/lib/hooks/useAuthUser'
+import { useQueryClient } from '@tanstack/react-query'
 import TripCard from './TripCard'
 import type { TripSummary } from '@/types/app'
 
@@ -74,6 +75,60 @@ export default function TripList() {
   const [filter, setFilter] = useState<FilterTab>('active')
   const { user, authResolved } = useAuthUser()
   const { data: trips, isLoading, error, refetch, isFetching } = useMyTrips(user?.id, authResolved)
+  const queryClient = useQueryClient()
+
+  // Event Management Phase 2 (10 Sep), Part 3-5 -- Manage mode. Only
+  // ever entered deliberately (never on a normal tap), and only
+  // offered on Completed/Archived at all -- the tab bar itself never
+  // renders a Manage toggle for Active, per the explicit "do not add
+  // destructive bulk management to Active" instruction.
+  const [manageMode, setManageMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkPending, setBulkPending] = useState(false)
+  const [bulkResult, setBulkResult] = useState<{ succeededCount: number; failed: { id: string; reason: string }[] } | null>(null)
+
+  function changeTab(tab: FilterTab) {
+    setFilter(tab)
+    // Manage mode and any selection are scoped to one tab visit --
+    // switching tabs always exits it cleanly rather than carrying a
+    // Completed-tab selection into Archived by accident.
+    setManageMode(false)
+    setSelectedIds(new Set())
+    setBulkResult(null)
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  async function runBulkAction(action: 'archive' | 'restore') {
+    if (selectedIds.size === 0) return
+    setBulkPending(true)
+    setBulkResult(null)
+    try {
+      const res = await fetch('/api/trips/bulk-status', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tripIds: [...selectedIds], action }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error ?? 'Bulk operation failed.')
+      // Partial-failure reporting, per the explicit "must not simply
+      // say '10 Events archived' if only 8 succeeded" instruction --
+      // the response is read and shown accurately, not assumed.
+      setBulkResult({ succeededCount: (body.succeededIds ?? []).length, failed: body.failed ?? [] })
+      setSelectedIds(new Set((body.failed ?? []).map((f: { id: string }) => f.id)))
+      await queryClient.invalidateQueries({ queryKey: ['trips'] })
+      await refetch()
+    } catch (err) {
+      setBulkResult({ succeededCount: 0, failed: [...selectedIds].map(id => ({ id, reason: err instanceof Error ? err.message : 'Failed.' })) })
+    } finally {
+      setBulkPending(false)
+    }
+  }
 
   const filtered   = filterTrips(trips ?? [], filter)
 
@@ -140,7 +195,7 @@ export default function TripList() {
             <button
               key={key}
               type="button"
-              onClick={() => setFilter(key)}
+              onClick={() => changeTab(key)}
               className="flex-1 transition-all duration-150 active:scale-95"
               style={{
                 padding: '8px 4px',
@@ -176,6 +231,53 @@ export default function TripList() {
           )
         })}
       </div>
+
+      {/* Event Management Phase 2 (10 Sep), Part 3 -- Manage mode toggle.
+          Only offered on Completed/Archived, never Active, per the
+          explicit "do not add destructive bulk management to Active"
+          instruction. */}
+      {filter !== 'active' && filtered.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 2px' }}>
+          {manageMode ? (
+            <>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 600, color: '#1a4731' }}>
+                <input
+                  type="checkbox"
+                  checked={selectedIds.size === filtered.length && filtered.length > 0}
+                  onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map(t => t.id)) : new Set())}
+                  style={{ width: 20, height: 20 }}
+                />
+                Select all {selectedIds.size > 0 && `(${selectedIds.size} selected)`}
+              </label>
+              <button
+                onClick={() => { setManageMode(false); setSelectedIds(new Set()); setBulkResult(null) }}
+                style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#1a4731', background: 'none', border: 'none', cursor: 'pointer', padding: '8px 4px' }}
+              >
+                Done
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setManageMode(true)}
+              style={{ marginLeft: 'auto', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#1a4731', background: 'none', border: 'none', cursor: 'pointer', padding: '8px 4px' }}
+            >
+              Manage
+            </button>
+          )}
+        </div>
+      )}
+
+      {bulkResult && (
+        <div style={{
+          borderRadius: 10, padding: '10px 12px', fontFamily: 'var(--font-body)', fontSize: 12,
+          background: bulkResult.failed.length > 0 ? '#fef2f2' : '#f0fdf4',
+          border: `1px solid ${bulkResult.failed.length > 0 ? '#fecaca' : '#bbf7d0'}`,
+          color: bulkResult.failed.length > 0 ? '#dc2626' : '#166534',
+        }}>
+          {bulkResult.succeededCount} event{bulkResult.succeededCount === 1 ? '' : 's'} updated.
+          {bulkResult.failed.length > 0 && ` ${bulkResult.failed.length} could not be updated — still selected, you can retry.`}
+        </div>
+      )}
 
       {/* Trip cards */}
       {filtered.length === 0 ? (
@@ -221,10 +323,88 @@ export default function TripList() {
             </>
           )}
           {upcoming.map(trip => (
-            <div key={trip.id} className="animate-fadeUp">
-              <TripCard trip={trip} />
+            <div key={trip.id} className="animate-fadeUp" style={{ position: 'relative' }}>
+              {manageMode ? (
+                <div style={{ display: 'flex', alignItems: 'stretch', gap: 10 }}>
+                  <button
+                    onClick={() => toggleSelected(trip.id)}
+                    aria-label={selectedIds.has(trip.id) ? 'Deselect event' : 'Select event'}
+                    style={{
+                      flexShrink: 0, width: 44, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: 'transparent', border: 'none', cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(trip.id)}
+                      onChange={() => toggleSelected(trip.id)}
+                      style={{ width: 24, height: 24, pointerEvents: 'none' }}
+                    />
+                  </button>
+                  {/* Manage mode (Part 13, mobile UX) -- the card itself
+                      becomes a non-navigating toggle, not a Link, so there
+                      is no accidental navigation while selecting; tapping
+                      anywhere on the card row toggles selection exactly
+                      like the checkbox does. */}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleSelected(trip.id)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleSelected(trip.id) }}
+                    style={{
+                      flex: 1, cursor: 'pointer', borderRadius: 16,
+                      outline: selectedIds.has(trip.id) ? '2px solid #1a4731' : 'none', outlineOffset: 2,
+                    }}
+                  >
+                    <div style={{ pointerEvents: 'none' }}>
+                      <TripCard trip={trip} />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <TripCard trip={trip} />
+              )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Sticky bulk action bar (Part 13, mobile UX -- easy to reach with
+          a thumb, destructive/primary action visually distinct). */}
+      {manageMode && selectedIds.size > 0 && (
+        <div style={{
+          position: 'sticky', bottom: 0, left: 0, right: 0, marginTop: 8,
+          background: '#f8f4eb', border: '1.5px solid #d9c9a3', borderRadius: 14,
+          padding: '10px 12px', display: 'flex', gap: 8, boxShadow: '0 -4px 16px rgba(0,0,0,0.08)',
+        }}>
+          {filter === 'completed' && (
+            <button
+              onClick={() => runBulkAction('archive')}
+              disabled={bulkPending}
+              style={{
+                flex: 1, padding: '11px 0', borderRadius: 10, border: 'none',
+                background: '#1a4731', color: '#fff', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700,
+                cursor: bulkPending ? 'default' : 'pointer', opacity: bulkPending ? 0.6 : 1,
+              }}
+            >
+              {bulkPending ? 'Archiving…' : `Archive Selected (${selectedIds.size})`}
+            </button>
+          )}
+          {filter === 'archived' && (
+            <button
+              onClick={() => runBulkAction('restore')}
+              disabled={bulkPending}
+              style={{
+                flex: 1, padding: '11px 0', borderRadius: 10, border: 'none',
+                background: '#1a4731', color: '#fff', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700,
+                cursor: bulkPending ? 'default' : 'pointer', opacity: bulkPending ? 0.6 : 1,
+              }}
+            >
+              {bulkPending ? 'Restoring…' : `Restore Selected (${selectedIds.size})`}
+            </button>
+          )}
+          {/* Delete Permanently intentionally not offered here yet --
+              deferred pending the storage/DB safety audit (Parts 6-9). */}
         </div>
       )}
     </div>

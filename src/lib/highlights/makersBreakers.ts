@@ -419,8 +419,25 @@ export function findHoleFromHell(field: FieldRoundData): Highlight | null {
   const completedPlayers = field.players.filter(p => hasCompleteRound(p, field.totalHoles))
   if (completedPlayers.length < 2) return null // "field average" needs at least a couple of data points to mean anything
 
+  // Next-release Event Management package (10 Sep), item 1 -- root
+  // cause of a second, more severe issue found while tracing the
+  // reported bug: this loop previously assumed hole numbers run
+  // contiguously from 1 to field.totalHoles. That's only true when a
+  // round starts on hole 1. For a genuine 9-hole round that starts on
+  // the back nine (a real, DB-allowed configuration -- rounds.holes
+  // IN (9,18), independent of starting hole; confirmed this is not
+  // Practice-only), totalHoles is 9 but the actual hole_number values
+  // present are 10-18 -- the old range (1..9) would never match any of
+  // them, meaning Hole from Hell couldn't be computed AT ALL for such
+  // a round, not merely mislabelled. Deriving the real hole-number set
+  // directly from a completed player's own holes (every completed
+  // player shares the same set, by hasCompleteRound's own definition)
+  // fixes both the reported mislabelling and this underlying gap in
+  // the same change, without assuming any particular numeric range.
+  const realHoleNumbers = [...new Set(completedPlayers[0].holes.map(h => h.holeNumber))]
+
   let best: { player: PlayerRoundData; holeNumber: number; fieldAvg: number } | null = null
-  for (let holeNumber = 1; holeNumber <= field.totalHoles; holeNumber++) {
+  for (const holeNumber of realHoleNumbers) {
     const entriesOnHole = completedPlayers
       .map(p => p.holes.find(h => h.holeNumber === holeNumber))
       .filter((h): h is PlayerHoleResult => h != null)
@@ -439,7 +456,19 @@ export function findHoleFromHell(field: FieldRoundData): Highlight | null {
   return {
     category: 'hole_from_hell', kind: 'breaker', scope: 'individual', icon: '🕳️', title: 'Hole from Hell',
     playerId: best.player.playerId, playerName: best.player.playerName,
-    statLine: `Field average: ${best.fieldAvg.toFixed(1)} pts \u00b7 ${best.player.playerName.split(' ')[0]}: 0`,
+    // Next-release Event Management package (10 Sep), item 1 -- the
+    // canonical hole number (best.holeNumber, already the real
+    // hole_number the loop above iterates by, never derived from
+    // array index/order-played/9-hole position) was already correct
+    // in this function -- it just was never present in statLine, only
+    // buried mid-sentence in caption. Several rendering surfaces
+    // (MakersBreakers.tsx's list/card views, RoundHighlightsSection.tsx)
+    // render statLine only, never caption -- confirmed by reading
+    // every consuming component before concluding this was the fix,
+    // not assumed. Prepending it here fixes every one of those
+    // surfaces from this single source, rather than patching each
+    // surface's own rendering separately.
+    statLine: `Hole ${best.holeNumber} \u00b7 Field average: ${best.fieldAvg.toFixed(1)} pts \u00b7 ${best.player.playerName.split(' ')[0]}: 0`,
     caption: `Everyone liked hole ${best.holeNumber}. ${best.player.playerName.split(' ')[0]} apparently didn't.`,
     significance: best.fieldAvg,
   }

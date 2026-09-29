@@ -367,9 +367,24 @@ export async function DELETE(_request: NextRequest, { params }: Props) {
   const admin: any = createAdminClient()
 
   // Verify organiser
-  const tripRes = await admin.from('trips').select('organiser_id, name').eq('id', tripId).single()
+  const tripRes = await admin.from('trips').select('organiser_id, name, status').eq('id', tripId).single()
   if (!tripRes.data || tripRes.data.organiser_id !== user.id) {
     return NextResponse.json({ error: 'Not authorised' }, { status: 403 })
+  }
+
+  // Next-release Event Management package (10 Sep) -- P0 safety gap
+  // found during the required pre-implementation audit: this route had
+  // no server-side check on trip.status at all. The client
+  // (TripOverviewTab.tsx) only shows the delete button once a trip is
+  // already archived, but that is a UI-level gate only -- a direct
+  // call to this endpoint could permanently delete a Live, Upcoming,
+  // or Completed trip, including a real, in-progress Event, with
+  // nothing server-side to stop it. Permanent deletion must only ever
+  // be reachable from Archived, per the explicit "do not rely only on
+  // hidden UI buttons for security -- enforce permissions server-side"
+  // instruction -- enforced here now, not merely documented.
+  if (tripRes.data.status !== 'archived') {
+    return NextResponse.json({ error: 'Only an archived event can be permanently deleted.' }, { status: 409 })
   }
 
   // Delete the trip — all related data cascades via FK ON DELETE CASCADE:
