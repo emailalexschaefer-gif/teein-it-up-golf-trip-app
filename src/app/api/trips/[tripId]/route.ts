@@ -387,6 +387,29 @@ export async function DELETE(_request: NextRequest, { params }: Props) {
     return NextResponse.json({ error: 'Only an archived event can be permanently deleted.' }, { status: 409 })
   }
 
+  // P0 Permanent Delete safety gate (10 Sep) -- the archived-only
+  // check above is necessary but not sufficient: an Archived event
+  // can still contain genuine player participation/history (players
+  // joined, scoring occurred, Side Game results, Moments, chat,
+  // published highlights). This check must run BEFORE any destructive
+  // work below -- confirmed nothing between here and the actual
+  // .delete() call mutates anything, so a rejection here leaves the
+  // trip completely untouched. trip_has_protected_history() is the
+  // single, authoritative, server-side (not client-trusted) source of
+  // truth -- see migration 084 for the full signal list and the
+  // reasoning behind each one.
+  const historyRes = await admin.rpc('trip_has_protected_history', { p_trip_id: tripId })
+  if (historyRes.error) {
+    console.error('[DELETE /api/trips] history check failed', { tripId, error: historyRes.error.message })
+    return NextResponse.json({ error: 'Could not verify this event is safe to delete. Please try again.' }, { status: 500 })
+  }
+  if (historyRes.data === true) {
+    return NextResponse.json({
+      error: 'EVENT_HAS_PLAYER_HISTORY',
+      message: 'This event contains player history and cannot be permanently deleted. Keep it archived instead.',
+    }, { status: 409 })
+  }
+
   // Delete the trip — all related data cascades via FK ON DELETE CASCADE:
   // trip_members, rounds, trip_groups, scorecards, score_entries, side_comps, etc.
   const { error: deleteError } = await admin.from('trips').delete().eq('id', tripId)

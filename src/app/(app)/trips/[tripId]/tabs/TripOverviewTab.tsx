@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { formatTripDateRange } from '@/lib/utils'
 import { TRIP_STATUS_LABELS, EVENT_TYPE_OPTIONS } from '@/types/app'
@@ -28,12 +28,29 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
   // Event Management Phase 2 (10 Sep) -- Run Again.
   const [runningAgain, setRunningAgain] = useState(false)
   const [runAgainError, setRunAgainError] = useState<string | null>(null)
+  // P0 Permanent Delete safety gate (10 Sep) -- advisory eligibility
+  // for the UI's own display decision; the DELETE route re-checks
+  // independently and is what actually enforces this.
+  const [deletionEligible, setDeletionEligible] = useState<boolean | null>(null)
 
   const eventLabel   = EVENT_TYPE_OPTIONS.find(o => o.value === trip.event_type)?.label ?? 'Golf Trip'
   const expected     = trip.expected_players ?? 0
   const ppg          = trip.players_per_group ?? 4
 
   const isArchived = trip.status === 'archived'
+
+  // P0 Permanent Delete safety gate (10 Sep) -- fetched only once the
+  // trip is actually archived (Permanent Delete is never offered
+  // otherwise at all, so there's nothing to check before then).
+  useEffect(() => {
+    if (!isArchived || !isOrganiser) { setDeletionEligible(null); return }
+    let cancelled = false
+    fetch(`/api/trips/${trip.id}/deletion-eligibility`)
+      .then(res => res.json())
+      .then(body => { if (!cancelled) setDeletionEligible(body.eligible === true) })
+      .catch(() => { if (!cancelled) setDeletionEligible(null) })
+    return () => { cancelled = true }
+  }, [isArchived, isOrganiser, trip.id])
 
   async function handleRestore() {
     setRestoring(true)
@@ -113,7 +130,7 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
               }}>
                 {restoring ? 'Restoring…' : 'Restore Trip'}
               </button>
-              {isOrganiser && (
+              {isOrganiser && deletionEligible === true && (
                 <button onClick={() => { setDeleteConfirmText(''); setShowDeleteDialog(true) }} style={{
                   padding: '10px 14px', borderRadius: 10,
                   border: '1.5px solid #fca5a5', background: '#fff',
@@ -124,6 +141,17 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
                 </button>
               )}
             </div>
+            {/* P0 Permanent Delete safety gate (10 Sep) -- the server
+                is the authoritative check; this message only explains
+                why the button isn't offered. Shown once the eligibility
+                fetch resolves to false -- never while still loading
+                (deletionEligible === null), to avoid a flash of the
+                locked message before the check completes. */}
+            {isOrganiser && deletionEligible === false && (
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7a7260', marginTop: 10, lineHeight: 1.5 }}>
+                🔒 This event contains player history and can&apos;t be permanently deleted. Archive keeps player scores, results and memories safe.
+              </p>
+            )}
           </div>
         )}
 
@@ -236,25 +264,6 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
                 Hides this trip from your active list. All data is preserved.
               </p>
             </div>
-
-            {/* Delete — only from completed or long-lived statuses */}
-            {['completed', 'draft'].includes(trip.status) && (
-              <div style={{ marginTop: 8 }}>
-                <button
-                  onClick={() => { setDeleteConfirmText(''); setShowDeleteDialog(true) }}
-                  style={{
-                    width: '100%', padding: '9px 16px', borderRadius: 10,
-                    border: '1.5px solid #fca5a5', background: 'transparent', cursor: 'pointer',
-                    fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600, color: '#b91c1c',
-                  }}
-                >
-                  Delete Trip Permanently
-                </button>
-                <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a89e88', marginTop: 4, paddingLeft: 2 }}>
-                  Permanently removes all trip data. Cannot be undone.
-                </p>
-              </div>
-            )}
           </div>
         )}
 
@@ -300,13 +309,13 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
       {showDeleteDialog && (
         <Dialog onClose={() => !deleting && setShowDeleteDialog(false)}>
           <p style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, color: '#1a1a16', marginBottom: 6 }}>
-            Delete Trip?
+            Delete this event permanently?
           </p>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#7a7260', marginBottom: 4 }}>
-            This permanently deletes <strong>{trip.name}</strong> and all associated data including players, groups, rounds and scores.
+            <strong>{trip.name}</strong> has no player history and can be safely removed.
           </p>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#b91c1c', marginBottom: 16 }}>
-            This action cannot be undone.
+            This cannot be undone.
           </p>
 
           <label style={{
