@@ -22,9 +22,26 @@ export async function PATCH(request: NextRequest, { params }: Props) {
   const admin: any = createAdminClient()
 
   // Verify organiser
-  const tripRes = await admin.from('trips').select('organiser_id').eq('id', tripId).single()
+  const tripRes = await admin.from('trips').select('organiser_id, status').eq('id', tripId).single()
   if (!tripRes.data || tripRes.data.organiser_id !== user.id) {
     return NextResponse.json({ error: 'Not authorised' }, { status: 403 })
+  }
+
+  // P0 Completed-Event-to-ongoing-series audit (10 Sep) -- an archived
+  // event must never silently become an ongoing series again through
+  // this route. Confirmed no such guard existed before this fix: the
+  // wizard's own "Edit trip" link (TripDetailClient.tsx) has no status
+  // gating at all, so an organiser could already reach this route for
+  // an archived trip -- and the completed -> live revert logic below
+  // only ever fires for status === 'completed', never 'archived', so
+  // a round genuinely would have been added while the trip stayed
+  // archived: an upcoming round hiding where nobody would look for it.
+  // Per the explicit "I wouldn't have adding a round silently unarchive
+  // something" instruction, this is blocked outright -- Restore first,
+  // then edit -- rather than auto-reactivating on the organiser's
+  // behalf.
+  if (tripRes.data.status === 'archived') {
+    return NextResponse.json({ error: 'This event is archived. Restore it before adding or editing rounds.' }, { status: 409 })
   }
 
   let body: Record<string, unknown>
@@ -334,16 +351,29 @@ export async function PATCH(request: NextRequest, { params }: Props) {
   // from current round data every time, exactly as requested.
   const finalRounds = (finalRoundsRes.data ?? []) as { id: string; name: string; play_date: string; status: string }[]
   let revertedToLive = false
+  // P0 Completed-Event-to-ongoing-series audit (10 Sep) -- traced the
+  // group/tab logic (TripList.tsx's groupLabel) before choosing the
+  // revert target: it splits purely on status === 'live' for "Live
+  // Now" vs everything else for "Upcoming". 'live' itself means "a
+  // round is actually in progress" -- confirmed by its only other
+  // writer (rounds/[roundId]/start/route.ts, set exactly when a round
+  // begins), not "this trip has a round scheduled." The previous
+  // revert target ('live') would have misclassified a newly-continued
+  // series under Live Now the moment a 4th round was added, even
+  // though nothing has actually started yet -- 'ready' is the correct
+  // target: the same status a trip with fully configured, not-yet-
+  // started rounds already carries, which groupLabel already places
+  // under Upcoming within the Active tab, exactly as required.
   if (finalRounds.length > 0) {
     const tripStatusRes = await admin.from('trips').select('status').eq('id', tripId).maybeSingle()
     const allStillComplete = finalRounds.every(r => r.status === 'completed')
     if (tripStatusRes.data?.status === 'completed' && !allStillComplete) {
-      const { error: revertError } = await admin.from('trips').update({ status: 'live' }).eq('id', tripId)
+      const { error: revertError } = await admin.from('trips').update({ status: 'ready' }).eq('id', tripId)
       if (revertError) {
-        console.error('[PATCH /api/trips] completed -> live lifecycle revert failed', revertError)
+        console.error('[PATCH /api/trips] completed -> ready lifecycle revert failed', revertError)
       } else {
         revertedToLive = true
-        console.log('[PATCH /api/trips] trip lifecycle reverted completed -> live (new round added after completion)', { tripId })
+        console.log('[PATCH /api/trips] trip lifecycle reverted completed -> ready (new round added after completion)', { tripId })
       }
     }
   }

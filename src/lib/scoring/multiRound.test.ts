@@ -833,3 +833,73 @@ test('compareCountbackKeys — higher value at first difference wins, regardless
   assert.ok(compareCountbackKeys([10, 1, 1], [9, 100, 100]) < 0) // [10,..] ranks first (negative = a before b)
   assert.ok(compareCountbackKeys([5, 5], [5, 5]) === 0)
 })
+
+// P0 Completed Event -> Add Round -> continue social series audit (10 Sep)
+// -- proves computeCumulativeStandings/derivePreviousCurrentTotal are
+// genuinely generic across round count, not merely 1-2 round cases,
+// by walking the exact scenario from the brief: a 3-round-completed
+// series extended with a 4th round.
+
+test('extending an already-completed 3-round series to 4 rounds: Previous/Current/Total are correct at every stage, with no hardcoded round-count assumption', () => {
+  const round1 = [{ playerId: 'alex', playerName: 'Alex', roundPoints: 34 }, { playerId: 'dave', playerName: 'Dave', roundPoints: 30 }]
+  const round2 = [{ playerId: 'alex', playerName: 'Alex', roundPoints: 32 }, { playerId: 'dave', playerName: 'Dave', roundPoints: 36 }]
+  const round3 = [{ playerId: 'alex', playerName: 'Alex', roundPoints: 38 }, { playerId: 'dave', playerName: 'Dave', roundPoints: 33 }]
+  const round4 = [{ playerId: 'alex', playerName: 'Alex', roundPoints: 30 }, { playerId: 'dave', playerName: 'Dave', roundPoints: 35 }]
+
+  // Before Round 4 exists at all — three completed rounds, the
+  // ordinary case the series already had.
+  const standings3 = computeCumulativeStandings([round1, round2, round3])
+  const alex3 = standings3.find(s => s.playerId === 'alex')!
+  assert.equal(alex3.totalPoints, 34 + 32 + 38)
+  assert.equal(alex3.roundsPlayed, 3)
+
+  // Round 4 is added and goes live, unstarted — every active scorecard
+  // still contributes a 0-point row (matching the existing
+  // "unstarted round" convention proven in the Darren scenario test
+  // above), so the standings/PCT model sees 4 rounds immediately, not
+  // 3-with-a-gap.
+  const round4Unstarted = [{ playerId: 'alex', playerName: 'Alex', roundPoints: 0 }, { playerId: 'dave', playerName: 'Dave', roundPoints: 0 }]
+  const standingsUnstarted = computeCumulativeStandings([round1, round2, round3, round4Unstarted])
+  const alexUnstarted = standingsUnstarted.find(s => s.playerId === 'alex')!
+  assert.equal(alexUnstarted.totalPoints, 34 + 32 + 38 + 0)
+  assert.equal(alexUnstarted.roundsPlayed, 4)
+
+  const pctUnstarted = derivePreviousCurrentTotal(alexUnstarted.totalPoints, 0, alexUnstarted.roundsPlayed)
+  assert.equal(pctUnstarted.previous, 34 + 32 + 38) // Previous = all three prior completed rounds
+  assert.equal(pctUnstarted.current, 0)
+  assert.equal(pctUnstarted.total, 34 + 32 + 38)
+  assert.equal(pctUnstarted.isFirstRound, false) // three real prior rounds exist — never treated as a fresh series
+
+  // Round 4 completes.
+  const standingsFinal = computeCumulativeStandings([round1, round2, round3, round4])
+  const alexFinal = standingsFinal.find(s => s.playerId === 'alex')!
+  assert.equal(alexFinal.totalPoints, 34 + 32 + 38 + 30)
+  assert.equal(alexFinal.roundsPlayed, 4)
+
+  const pctFinal = derivePreviousCurrentTotal(alexFinal.totalPoints, 30, alexFinal.roundsPlayed)
+  assert.equal(pctFinal.previous, 34 + 32 + 38) // Previous = the three historical rounds, unchanged by Round 4
+  assert.equal(pctFinal.current, 30)             // Current = Round 4 only
+  assert.equal(pctFinal.total, 34 + 32 + 38 + 30) // Total = Previous + Current, always
+})
+
+test('extending 1 round to 2, and 2 rounds to 3, both produce the same correct Previous/Current/Total shape as extending 3 to 4', () => {
+  const round1 = [{ playerId: 'a', playerName: 'A', roundPoints: 20 }]
+  const round2 = [{ playerId: 'a', playerName: 'A', roundPoints: 25 }]
+  const round3 = [{ playerId: 'a', playerName: 'A', roundPoints: 18 }]
+
+  // 1 -> 2
+  const s2 = computeCumulativeStandings([round1, round2]).find(s => s.playerId === 'a')!
+  const pct2 = derivePreviousCurrentTotal(s2.totalPoints, 25, s2.roundsPlayed)
+  assert.equal(pct2.previous, 20)
+  assert.equal(pct2.current, 25)
+  assert.equal(pct2.total, 45)
+  assert.equal(pct2.isFirstRound, false)
+
+  // 2 -> 3
+  const s3 = computeCumulativeStandings([round1, round2, round3]).find(s => s.playerId === 'a')!
+  const pct3 = derivePreviousCurrentTotal(s3.totalPoints, 18, s3.roundsPlayed)
+  assert.equal(pct3.previous, 45)
+  assert.equal(pct3.current, 18)
+  assert.equal(pct3.total, 63)
+  assert.equal(pct3.isFirstRound, false)
+})
