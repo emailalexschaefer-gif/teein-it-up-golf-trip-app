@@ -11,6 +11,7 @@ import MakersBreakers from './MakersBreakers'
 import RoundHighlightsSection from './RoundHighlightsSection'
 import CollapsibleSection from '@/components/shared/CollapsibleSection'
 import { trackEvent } from '@/lib/analytics/trackEvent'
+import EventMemoriesCard from './EventMemoriesCard'
 
 interface GroupPlayer {
   playerId: string; name: string; holesPlayed: number; finished: boolean; hasMismatch: boolean; waitingForMarker: boolean
@@ -1009,6 +1010,11 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
       <CollapsibleSection icon="📖" title="The Story">
       <EventStorySection tripId={tripId} golfStory={data.story} />
       </CollapsibleSection>
+
+      {/* Event Memories V1 follow-up (10 Sep) -- the My HQ entry point
+          the original spec called for, added here after review found
+          it missing from the initial delivery. */}
+      <EventMemoriesCard tripId={tripId} />
     </div>
   )
 }
