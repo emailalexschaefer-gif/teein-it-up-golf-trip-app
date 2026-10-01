@@ -15,6 +15,16 @@ function readRoute(relativePath: string): string {
 function readMigration(filename: string): string {
   return fs.readFileSync(path.join(process.cwd(), 'supabase', 'migrations', filename), 'utf8')
 }
+// V1.1 Phase 2 (11 Sep) -- the actual data-fetching this file's own
+// tests check (memories query, Side Game winners, highlights,
+// deferred champion) was extracted out of memory-manifest/route.ts
+// into this shared function, so the export route could read the same
+// canonical data without duplicating it. The behaviour these tests
+// verify is unchanged -- only its file moved -- so the tests now read
+// from where the logic actually lives, not where it used to.
+function readEventMemoryData(): string {
+  return fs.readFileSync(path.join(process.cwd(), 'src', 'lib', 'trips', 'eventMemoryData.ts'), 'utf8')
+}
 
 test('is_event_favourite: additive column, NOT NULL DEFAULT false -- existing moments are unaffected', () => {
   const sql = readMigration('085_moments_event_favourite.sql')
@@ -28,26 +38,35 @@ test('manifest route: membership is required to read the manifest -- not organis
 })
 
 test('manifest route: memories are read from a single, unfiltered query scoped to trip_id -- one row per moment, no fan-out join that could duplicate a row', () => {
-  const ts = readRoute('[tripId]/memory-manifest/route.ts')
+  const ts = readEventMemoryData()
   const momentsQueryMatch = ts.match(/momentsRes = await admin\.from\('moments'\)[\s\S]*?\.order\([^)]*\)/)
   assert.ok(momentsQueryMatch, 'moments query not found')
   assert.match(momentsQueryMatch![0], /\.eq\('trip_id', tripId\)/)
 })
 
 test('manifest route: side game winners are read from official_winner_entry_id, never recomputed from raw entries/lead changes', () => {
-  const ts = readRoute('[tripId]/memory-manifest/route.ts')
+  const ts = readEventMemoryData()
   assert.match(ts, /official_winner_entry_id/)
-  assert.doesNotMatch(ts, /side_comp_lead_changes/)
+  // V1.1 (11 Sep) correctly added a separate, explicit query against
+  // side_comp_lead_changes -- but only for the per-Memory reverse
+  // Side Game link (a different concern), never for computing who
+  // won. Scoped specifically to the winners computation block itself,
+  // not the whole file, so this remains a precise check rather than
+  // the overly broad "never appears anywhere" assertion that would
+  // have made this test fail on a legitimate, unrelated addition.
+  const winnersBlockMatch = ts.match(/const sideGameWinners = sideComps[\s\S]*?\}\)\)/)
+  assert.ok(winnersBlockMatch, 'sideGameWinners computation block not found')
+  assert.doesNotMatch(winnersBlockMatch![0], /side_comp_lead_changes/)
 })
 
 test('manifest route: highlights are read from published_round_highlights, never regenerated from raw scores', () => {
-  const ts = readRoute('[tripId]/memory-manifest/route.ts')
+  const ts = readEventMemoryData()
   assert.match(ts, /from\('published_round_highlights'\)/)
   assert.doesNotMatch(ts, /score_entries/)
 })
 
 test('manifest route: champion is explicitly deferred (null), not fabricated with a guessed calculation', () => {
-  const ts = readRoute('[tripId]/memory-manifest/route.ts')
+  const ts = readEventMemoryData()
   assert.match(ts, /champion:\s*null/)
 })
 
