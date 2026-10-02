@@ -261,3 +261,57 @@ test('buildEventSummaryText reports no Memories captured for a round with none, 
   )
   assert.match(text, /No Memories captured for this round/)
 })
+
+// -- Event Memories V1.3 (13 Sep): championResult in the summary --
+
+test('buildEventSummaryText: with no championResult, still says Champion: not available (unchanged default behaviour)', () => {
+  const memories = [memory({ momentId: 'a' })]
+  const exportResult = buildExportManifest('Event', { kind: 'all' }, memories)
+  const text = buildEventSummaryText(
+    { name: 'Event', startDate: null, endDate: null, playerCount: 1 },
+    [], memories, [], exportResult,
+  )
+  assert.match(text, /Champion: not available in this export/)
+})
+
+test('buildEventSummaryText: with a real championResult, prints the champion name, score, and full final standings -- never "not available"', () => {
+  const memories = [memory({ momentId: 'a' })]
+  const exportResult = buildExportManifest('Event', { kind: 'all' }, memories)
+  const text = buildEventSummaryText(
+    { name: 'Event', startDate: null, endDate: null, playerCount: 2 },
+    [], memories, [], exportResult,
+    {
+      champions: [{ playerId: 'p1', playerName: 'Darren Lappen', totalPoints: 72 }],
+      hasTie: false,
+      standings: [
+        { playerId: 'p1', playerName: 'Darren Lappen', totalPoints: 72, position: 1 },
+        { playerId: 'p2', playerName: 'Alex Schaefer', totalPoints: 68, position: 2 },
+      ],
+    },
+  )
+  assert.match(text, /Champion: Darren Lappen/)
+  assert.match(text, /Winning Score: 72 points/)
+  assert.match(text, /FINAL STANDINGS/)
+  assert.match(text, /1\. Darren Lappen/)
+  assert.match(text, /2\. Alex Schaefer/)
+  assert.doesNotMatch(text, /not available in this export/)
+})
+
+test('buildEventSummaryText: a tied championResult shows both names and marks the tie, never picking one arbitrarily', () => {
+  const memories = [memory({ momentId: 'a' })]
+  const exportResult = buildExportManifest('Event', { kind: 'all' }, memories)
+  const text = buildEventSummaryText(
+    { name: 'Event', startDate: null, endDate: null, playerCount: 2 },
+    [], memories, [], exportResult,
+    {
+      champions: [{ playerId: 'p1', playerName: 'Darren Lappen', totalPoints: 72 }, { playerId: 'p2', playerName: 'Alex Schaefer', totalPoints: 72 }],
+      hasTie: true,
+      standings: [
+        { playerId: 'p1', playerName: 'Darren Lappen', totalPoints: 72, position: 1 },
+        { playerId: 'p2', playerName: 'Alex Schaefer', totalPoints: 72, position: 1 },
+      ],
+    },
+  )
+  assert.match(text, /Darren Lappen & Alex Schaefer/)
+  assert.match(text, /\(tie\)/)
+})

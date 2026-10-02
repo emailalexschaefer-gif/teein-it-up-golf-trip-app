@@ -11,17 +11,37 @@
  *
  * Every provenance decision documented in memory-manifest/route.ts's
  * own file-level comment (sourceType, Side Game reverse-link,
- * side_comps.name as the authoritative label, deferred champion)
- * applies identically here -- this is the same logic, relocated, not
- * reimplemented.
+ * side_comps.name as the authoritative label) applies identically
+ * here -- this is the same logic, relocated, not reimplemented.
+ *
+ * EXTENDED for Event Memories V1.3 (13 Sep): `results.champion` was
+ * deferred in V1.1/V1.2 specifically because computing it correctly
+ * needed the same complex countback logic final-results/route.ts
+ * already had, and re-implementing it here would have either
+ * duplicated that logic or risked a second, subtly different
+ * calculation. That route's computation is now extracted into
+ * computeFinalResults (finalResults.ts) -- moved verbatim, not
+ * rewritten (confirmed by diffing the extracted body against the
+ * original route line for line). This function now calls that shared
+ * computation directly, only when the trip is actually completed
+ * (matching computeFinalResults' own gate) -- a live/incomplete event
+ * still correctly gets `results: null`, never a guessed or partial
+ * result.
  */
 import { createAdminClient } from '@/lib/supabase/admin'
+import { computeFinalResults, type FinalResultsResult } from './finalResults'
 
 const SIDE_COMP_LABEL: Record<string, string> = {
   nearest_pin: 'Nearest the Pin', longest_drive: 'Longest Drive', pros_approach: "Pro's Approach", powerplay: 'Powerplay',
 }
 
 export type MemorySourceType = 'GENERAL' | 'SIDE_GAME' | 'CHAT' | 'MAKER' | 'BREAKER' | 'HIGHLIGHT'
+
+export interface EventFinalResults {
+  champions: { playerId: string; playerName: string; totalPoints: number }[]
+  hasTie: boolean
+  standings: { playerId: string; playerName: string; totalPoints: number; position: number }[]
+}
 
 export interface EventMemoryData {
   event: { id: string; name: string; eventType: string | null; location: string | null; startDate: string | null; endDate: string | null; status: string }
@@ -35,7 +55,7 @@ export interface EventMemoryData {
   }[]
   sideGameWinners: { sideCompId: string; roundId: string; compType: string; label: string; holeNumber: number | null; winnerPlayerId: string | null; winnerName: string | null }[]
   playerCount: number
-  results: { champion: null }
+  results: { champion: EventFinalResults | null }
 }
 
 /** generateSignedUrls: false skips the batch signed-URL call entirely
@@ -139,6 +159,24 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
     )
   }
 
+  // Champion/standings -- only attempted once the trip is actually
+  // completed, matching computeFinalResults' own gate exactly (it
+  // returns ok: false for a live/incomplete event or a practice trip).
+  // A live event correctly gets `champion: null` here, never a
+  // guessed or partial result from an in-progress computation.
+  let champion: EventFinalResults | null = null
+  if (tripRes.data.status === 'completed') {
+    const finalResultsResult: FinalResultsResult = await computeFinalResults(tripId, admin)
+    if (finalResultsResult.ok) {
+      champion = {
+        champions: finalResultsResult.data.champions,
+        hasTie: finalResultsResult.data.hasTie,
+        standings: (finalResultsResult.data.standings as { playerId: string; playerName: string; totalPoints: number; position: number }[])
+          .map(s => ({ playerId: s.playerId, playerName: s.playerName, totalPoints: s.totalPoints, position: s.position })),
+      }
+    }
+  }
+
   return {
     event: {
       id: tripRes.data.id, name: tripRes.data.name, eventType: tripRes.data.event_type,
@@ -172,6 +210,6 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
     }),
     sideGameWinners,
     playerCount,
-    results: { champion: null },
+    results: { champion },
   }
 }

@@ -192,7 +192,7 @@ export default function EventMemoriesPage() {
                 background: '#1a4731', color: '#fff', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, cursor: 'pointer',
               }}
             >
-              \u25b6 Produce Slideshow
+              ▶ Produce Slideshow
             </button>
           )}
 
@@ -243,7 +243,7 @@ export default function EventMemoriesPage() {
 
           {isOrganiser && (
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#9ca3af', marginBottom: 10 }}>
-              \u2b50 Favourite your best Memories to use them in Event Highlights and post-event exports.
+              ⭐ Favourite your best Memories to use them in Event Highlights and post-event exports.
             </p>
           )}
 
@@ -324,18 +324,18 @@ export default function EventMemoriesPage() {
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: 20, width: '100%' }}>
             <p style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#1a1a16', marginBottom: 12 }}>Produce Slideshow</p>
             <button onClick={() => startSlideshow('favourites')} style={sourceOptionStyle}>
-              \u2b50 Favourites <span style={{ color: '#9ca3af' }}>\u2014 {manifest.memories.filter(m => m.organiserFavourite).length} Memories</span>
+              ⭐ Favourites <span style={{ color: '#9ca3af' }}>— {manifest.memories.filter(m => m.organiserFavourite).length} Memories</span>
             </button>
             <button onClick={() => startSlideshow('all')} style={sourceOptionStyle}>
-              All Memories <span style={{ color: '#9ca3af' }}>\u2014 {manifest.memories.length} Memories</span>
+              All Memories <span style={{ color: '#9ca3af' }}>— {manifest.memories.length} Memories</span>
             </button>
             {selected.size > 0 && (
               <button onClick={() => startSlideshow('selected', [...selected])} style={sourceOptionStyle}>
-                Selected Memories <span style={{ color: '#9ca3af' }}>\u2014 {selected.size} Memories</span>
+                Selected Memories <span style={{ color: '#9ca3af' }}>— {selected.size} Memories</span>
               </button>
             )}
             {manifest.memories.filter(m => m.organiserFavourite).length === 0 && (
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginTop: 6 }}>No Favourite Memories yet \u2014 choose All Memories, or favourite a few first.</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginTop: 6 }}>No Favourite Memories yet — choose All Memories, or favourite a few first.</p>
             )}
             <button onClick={() => setSlideshowStep('closed')} style={{ width: '100%', padding: '10px 0', marginTop: 10, border: 'none', background: 'none', fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', cursor: 'pointer' }}>Cancel</button>
           </div>
@@ -348,7 +348,7 @@ export default function EventMemoriesPage() {
           <div style={{ padding: 16, borderBottom: '1px solid #eceae3', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <button onClick={() => setSlideshowStep('closed')} style={{ border: 'none', background: 'none', fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151', cursor: 'pointer' }}>Cancel</button>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#1a1a16' }}>{slideshowDeck.memoryCount} Memories</p>
-            <button onClick={() => setSlideshowStep('playing')} style={{ border: 'none', background: '#1a4731', color: '#fff', borderRadius: 8, padding: '7px 14px', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>\u25b6 Play</button>
+            <button onClick={() => setSlideshowStep('playing')} style={{ border: 'none', background: '#1a4731', color: '#fff', borderRadius: 8, padding: '7px 14px', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>▶ Play</button>
           </div>
 
           <div style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #f3f4f1' }}>
@@ -373,9 +373,9 @@ export default function EventMemoriesPage() {
                       {[m.sideCompName, m.holeNumber ? `Hole ${m.holeNumber}` : null, m.playerName].filter(Boolean).join(' \u00b7 ') || 'Memory'}
                     </p>
                   </div>
-                  <button onClick={() => reorderSlide(id, -1)} disabled={i === 0} style={curateIconButtonStyle(i === 0)}>\u2191</button>
-                  <button onClick={() => reorderSlide(id, 1)} disabled={i === arr.length - 1} style={curateIconButtonStyle(i === arr.length - 1)}>\u2193</button>
-                  <button onClick={() => removeFromSlideshow(id)} style={curateIconButtonStyle(false)}>\u2715</button>
+                  <button onClick={() => reorderSlide(id, -1)} disabled={i === 0} style={curateIconButtonStyle(i === 0)}>↑</button>
+                  <button onClick={() => reorderSlide(id, 1)} disabled={i === arr.length - 1} style={curateIconButtonStyle(i === arr.length - 1)}>↓</button>
+                  <button onClick={() => removeFromSlideshow(id)} style={curateIconButtonStyle(false)}>✕</button>
                 </div>
               )
             })}

@@ -112,16 +112,26 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit 
     if (!slide || !slide.imageUrl) return null
     const failed = failedUrls.has(slide.imageUrl)
     return (
-      <div style={{ position: 'absolute', inset: 0, display: visible ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
+      <div style={{ position: 'absolute', inset: 0, display: visible ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', background: '#000', overflow: 'hidden' }}>
         {failed ? (
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#9ca3af' }}>Photo unavailable</p>
         ) : (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={slide.imageUrl} alt={slide.caption ?? 'Event memory'}
-            style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-            onError={() => setFailedUrls(prev => new Set(prev).add(slide.imageUrl!))}
-          />
+          <>
+            {/* Blurred, darkened backdrop of the same image -- fills the
+                frame behind any photo whose aspect ratio doesn't match the
+                screen, replacing large flat black bars without cropping
+                the actual photo (which stays full-contain in the foreground
+                below). No extra permanent file is created -- this is the
+                same already-loaded image, rendered twice via CSS. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={slide.imageUrl} alt="" aria-hidden style={{ position: 'absolute', inset: -20, width: 'calc(100% + 40px)', height: 'calc(100% + 40px)', objectFit: 'cover', filter: 'blur(28px) brightness(0.55)', transform: 'scale(1.1)' }} />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={slide.imageUrl} alt={slide.caption ?? 'Event memory'}
+              style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+              onError={() => setFailedUrls(prev => new Set(prev).add(slide.imageUrl!))}
+            />
+          </>
         )}
       </div>
     )
@@ -164,12 +174,12 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit 
       {/* Controls -- fade during playback, reappear on interaction. */}
       <div style={{ position: 'absolute', inset: 0, opacity: controlsVisible ? 1 : 0, transition: 'opacity 0.3s', pointerEvents: controlsVisible ? 'auto' : 'none' }}>
         <button onClick={onExit} style={{ position: 'absolute', top: 16, right: 16, width: 36, height: 36, borderRadius: 18, border: 'none', background: 'rgba(0,0,0,0.5)', color: '#fff', fontSize: 16, cursor: 'pointer' }}>
-          \u2715
+          ✕
         </button>
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: isPhoto(current) ? 110 : 24, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 20 }}>
-          <button onClick={() => goTo(index - 1)} disabled={index === 0} style={navButtonStyle(index === 0)}>\u2039</button>
-          <button onClick={() => setPlaying(p => !p)} style={playButtonStyle}>{playing ? '\u23f8' : '\u25b6'}</button>
-          <button onClick={() => goTo(index + 1)} disabled={index === slides.length - 1} style={navButtonStyle(index === slides.length - 1)}>\u203a</button>
+          <button onClick={() => goTo(index - 1)} disabled={index === 0} style={navButtonStyle(index === 0)}>‹</button>
+          <button onClick={() => setPlaying(p => !p)} style={playButtonStyle}>{playing ? '⏸' : '▶'}</button>
+          <button onClick={() => goTo(index + 1)} disabled={index === slides.length - 1} style={navButtonStyle(index === slides.length - 1)}>›</button>
         </div>
       </div>
     </div>
@@ -202,10 +212,72 @@ function NonPhotoSlide({ slide }: { slide: Slide }) {
       </div>
     )
   }
+  if (slide.kind === 'sideGameWinner') {
+    // Competition/result-first treatment -- distinct from an ordinary
+    // photo slide, so a Side Game Memory is never confused with the
+    // official winner announcement.
+    return (
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: slide.winnerImageUrl ? `linear-gradient(rgba(20,83,45,0.3), rgba(20,83,45,0.85)), url(${slide.winnerImageUrl}) center/cover` : '#14532d' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, letterSpacing: 2, color: '#d9c9a3', textTransform: 'uppercase', marginBottom: 10 }}>{slide.label}{slide.holeNumber ? ` \u00b7 Hole ${slide.holeNumber}` : ''}</p>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 8 }}>{slide.winnerName}</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#e5e7eb', letterSpacing: 1, textTransform: 'uppercase' }}>Winner</p>
+        </div>
+      </div>
+    )
+  }
+  if (slide.kind === 'makersBreakers') {
+    return (
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#1a1a16', padding: 24 }}>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, letterSpacing: 2, color: '#d9c9a3', textTransform: 'uppercase', marginBottom: 18 }}>{slide.roundName} &middot; Makers &amp; Breakers</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 360, width: '100%' }}>
+          {slide.highlights.map((h, i) => (
+            <div key={i} style={{ background: h.kind === 'maker' ? 'rgba(234,179,8,0.15)' : 'rgba(239,68,68,0.15)', borderRadius: 12, padding: 14, textAlign: 'center' }}>
+              <p style={{ fontSize: 26, marginBottom: 6 }}>{h.icon}</p>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{h.title}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#fff', marginBottom: 2 }}>{h.playerName}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#d1d5db' }}>{h.statLine}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+  if (slide.kind === 'champion') {
+    const names = slide.champions.map(c => c.playerName).join(slide.hasTie ? ' & ' : '')
+    return (
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: slide.photoUrl ? `linear-gradient(rgba(234,179,8,0.15), rgba(20,83,45,0.9)), url(${slide.photoUrl}) center/cover` : 'linear-gradient(#14532d, #1a4731)' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+          <p style={{ fontSize: 38, marginBottom: 10 }}>🏆</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, letterSpacing: 2, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 10 }}>Event {slide.hasTie ? 'Co-Champions' : 'Champion'}</p>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: 30, fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 10 }}>{names}</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, color: '#e5e7eb' }}>{slide.champions[0]?.totalPoints} points</p>
+        </div>
+      </div>
+    )
+  }
+  if (slide.kind === 'leaderboard') {
+    return (
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#fff', padding: 24 }}>
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 800, color: '#1a1a16', marginBottom: 4 }}>Final Leaderboard</p>
+        {slide.totalPages > 1 && <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', marginBottom: 16 }}>{(slide.page - 1) * 10 + 1}&ndash;{Math.min(slide.page * 10, (slide.page - 1) * 10 + slide.entries.length)}</p>}
+        <div style={{ width: '100%', maxWidth: 360 }}>
+          {slide.entries.map(e => (
+            <div key={e.position} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 4px', borderBottom: '1px solid #eceae3' }}>
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: '#374151' }}>{e.position}. {e.playerName}</span>
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#1a4731' }}>{e.totalPoints}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
   // closing
   return (
-    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#14532d' }}>
-      <p style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 800, color: '#fff', letterSpacing: 1 }}>EVENT HIGHLIGHTS</p>
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#14532d' }}>
+      <p style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 800, color: '#fff', letterSpacing: 1, marginBottom: 10 }}>EVENT HIGHLIGHTS</p>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#d9c9a3' }}>Teein' It Up</p>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a3c9b1' }}>Run your next golf event like a pro.</p>
     </div>
   )
 }

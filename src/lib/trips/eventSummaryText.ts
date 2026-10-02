@@ -39,12 +39,27 @@ export interface SummaryEvent {
  * filenames always match what's actually in the package -- never a
  * second, independently derived naming pass that could drift.
  */
+export interface SummaryChampionResult {
+  champions: { playerId: string; playerName: string; totalPoints: number }[]
+  hasTie: boolean
+  standings: { playerId: string; playerName: string; totalPoints: number; position: number }[]
+}
+
+/**
+ * championResult: Event Memories V1.3 (13 Sep) -- optional, read
+ * verbatim from data.results.champion (eventMemoryData.ts), itself
+ * sourced from the authoritative computeFinalResults(), never
+ * recalculated here. Undefined/null for a live or incomplete event --
+ * the "Champion: not available" line is the correct, honest output in
+ * that case, not a placeholder to be filled in later.
+ */
 export function buildEventSummaryText(
   event: SummaryEvent,
   rounds: SummaryRound[],
   memories: ExportMemory[],
   sideGameWinners: SummarySideGameWinner[],
   exportResult: ExportResult,
+  championResult?: SummaryChampionResult | null,
 ): string {
   const filenameByMomentId = new Map(
     exportResult.entries.filter(e => !e.isFavouriteDuplicate).map(e => [e.momentId, `${e.folderPath}/${e.filename}`])
@@ -129,7 +144,18 @@ export function buildEventSummaryText(
   lines.push('')
   lines.push('EVENT RESULT')
   lines.push('')
-  lines.push('Champion: not available in this export.')
+  if (championResult && championResult.champions.length > 0) {
+    const names = championResult.champions.map(c => c.playerName).join(' & ')
+    lines.push(`Champion: ${names}${championResult.hasTie ? ' (tie)' : ''}`)
+    lines.push(`Winning Score: ${championResult.champions[0].totalPoints} points`)
+    lines.push('')
+    lines.push('FINAL STANDINGS')
+    lines.push('')
+    const sortedStandings = [...championResult.standings].sort((a, b) => a.position - b.position)
+    sortedStandings.forEach(s => lines.push(`${s.position}. ${s.playerName} \u2014 ${s.totalPoints} points`))
+  } else {
+    lines.push('Champion: not available in this export.')
+  }
 
   const favourites = memories.filter(m => m.organiserFavourite).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   if (favourites.length > 0) {

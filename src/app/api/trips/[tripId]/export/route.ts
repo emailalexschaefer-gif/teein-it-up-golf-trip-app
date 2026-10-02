@@ -123,6 +123,13 @@ export async function POST(request: Request, { params }: RouteProps) {
     return NextResponse.json({ error: 'Nothing matches this export selection.' }, { status: 409 })
   }
 
+  // Event Memories V1.3 (13 Sep) -- read verbatim from
+  // data.results.champion (itself sourced from the authoritative
+  // computeFinalResults()), never recalculated in this route. null
+  // for a live/incomplete event, correctly producing the "Champion:
+  // not available" line rather than a guess.
+  const championResult = data.results.champion
+
   const summaryText = buildEventSummaryText(
     { name: data.event.name, startDate: data.event.startDate, endDate: data.event.endDate, playerCount: data.playerCount },
     data.rounds.map(r => ({ id: r.id, ordinal: r.ordinal ?? 0, name: r.name, courseName: r.courseName, playDate: r.playDate })),
@@ -132,12 +139,14 @@ export async function POST(request: Request, { params }: RouteProps) {
     exportMemories.filter(m => exportResult.entries.some(e => e.momentId === m.momentId && !e.isFavouriteDuplicate)),
     data.sideGameWinners.map(w => ({ roundId: w.roundId, label: w.label, holeNumber: w.holeNumber, winnerName: w.winnerName })),
     exportResult,
+    championResult,
   )
 
   const manifestJson = JSON.stringify({
     event: data.event, rounds: data.rounds,
     memories: exportMemories.filter(m => exportResult.entries.some(e => e.momentId === m.momentId && !e.isFavouriteDuplicate)),
     sideGameWinners: data.sideGameWinners,
+    results: { champion: championResult },
     export: { scope, generatedAt: new Date().toISOString(), memoryCount: exportResult.memoryCount, favouriteCount: exportResult.favouriteCount },
   }, null, 2)
 

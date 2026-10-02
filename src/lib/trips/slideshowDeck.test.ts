@@ -278,3 +278,206 @@ test('realistic fixture: 60 memories across 3 rounds plus event-level, with Side
   const favDeck = buildSlideshowDeck(data, 'favourites')
   assert.equal(favDeck.memoryCount, favourites)
 })
+
+// -- Event Memories V1.3 (13 Sep): Champion / Leaderboard / Side Game winner / Makers & Breakers --
+
+function championSlides(slides: Slide[]): Extract<Slide, { kind: 'champion' }>[] {
+  return slides.filter((s): s is Extract<Slide, { kind: 'champion' }> => s.kind === 'champion')
+}
+function leaderboardSlides(slides: Slide[]): Extract<Slide, { kind: 'leaderboard' }>[] {
+  return slides.filter((s): s is Extract<Slide, { kind: 'leaderboard' }> => s.kind === 'leaderboard')
+}
+function winnerSlides(slides: Slide[]): Extract<Slide, { kind: 'sideGameWinner' }>[] {
+  return slides.filter((s): s is Extract<Slide, { kind: 'sideGameWinner' }> => s.kind === 'sideGameWinner')
+}
+function makersBreakersSlides(slides: Slide[]): Extract<Slide, { kind: 'makersBreakers' }>[] {
+  return slides.filter((s): s is Extract<Slide, { kind: 'makersBreakers' }> => s.kind === 'makersBreakers')
+}
+
+test('Champion present: a champion slide and at least one leaderboard slide appear when data.results.champion is set', () => {
+  const data = baseData({
+    results: { champion: { champions: [{ playerId: 'p1', playerName: 'Darren Lappen', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'Darren Lappen', totalPoints: 72, position: 1 }] } },
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(championSlides(deck.slides).length, 1)
+  assert.equal(leaderboardSlides(deck.slides).length, 1)
+})
+
+test('Champion absent: no champion or leaderboard slide at all when data.results.champion is null -- never a guessed result', () => {
+  const data = baseData({ results: { champion: null } })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(championSlides(deck.slides).length, 0)
+  assert.equal(leaderboardSlides(deck.slides).length, 0)
+})
+
+test('Champion with Favourite photo: the champion photo is the matching player\'s Favourite image', () => {
+  const data = baseData({
+    memories: [memory({ momentId: 'a', playerId: 'p1', organiserFavourite: true, imageUrl: 'https://x/champ.jpg' })],
+    results: { champion: { champions: [{ playerId: 'p1', playerName: 'Darren Lappen', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'Darren Lappen', totalPoints: 72, position: 1 }] } },
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(championSlides(deck.slides)[0].photoUrl, 'https://x/champ.jpg')
+})
+
+test('Champion without photo: photoUrl is null, never guessed from an unrelated photo', () => {
+  const data = baseData({
+    memories: [memory({ momentId: 'a', playerId: 'someone-else', organiserFavourite: true, imageUrl: 'https://x/other.jpg' })],
+    results: { champion: { champions: [{ playerId: 'p1', playerName: 'Darren Lappen', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'Darren Lappen', totalPoints: 72, position: 1 }] } },
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(championSlides(deck.slides)[0].photoUrl, null)
+})
+
+test('Correct Champion photo selected deterministically: the EARLIEST chronological Favourite of the champion, not any Favourite of theirs', () => {
+  const data = baseData({
+    memories: [
+      memory({ momentId: 'late', playerId: 'p1', organiserFavourite: true, imageUrl: 'https://x/late.jpg', createdAt: '2026-09-12T10:00:00Z' }),
+      memory({ momentId: 'early', playerId: 'p1', organiserFavourite: true, imageUrl: 'https://x/early.jpg', createdAt: '2026-09-11T08:00:00Z' }),
+    ],
+    results: { champion: { champions: [{ playerId: 'p1', playerName: 'Darren Lappen', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'Darren Lappen', totalPoints: 72, position: 1 }] } },
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(championSlides(deck.slides)[0].photoUrl, 'https://x/early.jpg')
+})
+
+test('Final leaderboard ordering: entries are ordered by authoritative position, read verbatim, never recomputed from Memory data', () => {
+  const standings = [
+    { playerId: 'p2', playerName: 'Second', totalPoints: 60, position: 2 },
+    { playerId: 'p1', playerName: 'First', totalPoints: 72, position: 1 },
+    { playerId: 'p3', playerName: 'Third', totalPoints: 55, position: 3 },
+  ]
+  const data = baseData({ results: { champion: { champions: [{ playerId: 'p1', playerName: 'First', totalPoints: 72 }], hasTie: false, standings } } })
+  const deck = buildSlideshowDeck(data, 'all')
+  const entries = leaderboardSlides(deck.slides)[0].entries
+  assert.deepEqual(entries.map(e => e.position), [1, 2, 3])
+})
+
+test('Leaderboard pagination: more than 10 standings produces multiple pages, never squeezed onto one slide', () => {
+  const standings = Array.from({ length: 23 }, (_, i) => ({ playerId: `p${i}`, playerName: `Player ${i}`, totalPoints: 100 - i, position: i + 1 }))
+  const data = baseData({ results: { champion: { champions: [standings[0]], hasTie: false, standings } } })
+  const deck = buildSlideshowDeck(data, 'all')
+  const pages = leaderboardSlides(deck.slides)
+  assert.equal(pages.length, 3) // 23 entries / 10 per page = 3 pages
+  assert.equal(pages[0].entries.length, 10)
+  assert.equal(pages[1].entries.length, 10)
+  assert.equal(pages[2].entries.length, 3)
+  assert.deepEqual(pages.map(p => p.page), [1, 2, 3])
+  assert.ok(pages.every(p => p.totalPages === 3))
+})
+
+test('Round with Memories but no Side Games: no sideGameWinner slide appears for that round', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1 })], memories: [memory({ momentId: 'a', roundId: 'r1' })] })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(winnerSlides(deck.slides).length, 0)
+})
+
+test('Side Game winner with matching Memory: the winner slide carries that Memory\'s imageUrl', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 })],
+    memories: [memory({ momentId: 'a', roundId: 'r1', playerId: 'winner-id', sourceType: 'SIDE_GAME', sideCompId: 'sc1', imageUrl: 'https://x/winner.jpg' })],
+    sideGameWinners: [{ sideCompId: 'sc1', roundId: 'r1', compType: 'longest_drive', label: 'Longest Drive', holeNumber: 5, winnerPlayerId: 'winner-id', winnerName: 'Alex Schaefer' }],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  const winners = winnerSlides(deck.slides)
+  assert.equal(winners.length, 1)
+  assert.equal(winners[0].winnerImageUrl, 'https://x/winner.jpg')
+  assert.equal(winners[0].winnerName, 'Alex Schaefer')
+})
+
+test('Side Game winner without a matching Memory: the slide still renders, with a null image, never fabricated', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 })],
+    memories: [],
+    sideGameWinners: [{ sideCompId: 'sc1', roundId: 'r1', compType: 'longest_drive', label: 'Longest Drive', holeNumber: 5, winnerPlayerId: 'winner-id', winnerName: 'Alex Schaefer' }],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  const winners = winnerSlides(deck.slides)
+  assert.equal(winners.length, 1)
+  assert.equal(winners[0].winnerImageUrl, null)
+})
+
+test('A Side Game Memory belonging to a NON-winner never becomes a winner slide -- the critical rule', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 })],
+    memories: [memory({ momentId: 'a', roundId: 'r1', playerId: 'not-the-winner', sourceType: 'SIDE_GAME', sideCompId: 'sc1' })],
+    sideGameWinners: [{ sideCompId: 'sc1', roundId: 'r1', compType: 'longest_drive', label: 'Longest Drive', holeNumber: 5, winnerPlayerId: 'actual-winner', winnerName: 'Alex Schaefer' }],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  const winners = winnerSlides(deck.slides)
+  assert.equal(winners.length, 1)
+  // The winner slide's photo must NOT be the non-winner's Memory -- there is no match (different playerId).
+  assert.equal(winners[0].winnerImageUrl, null)
+})
+
+test('An official winner with no official_winner_entry_id yet (no name/playerId) never produces a winner slide', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 })],
+    sideGameWinners: [{ sideCompId: 'sc1', roundId: 'r1', compType: 'longest_drive', label: 'Longest Drive', holeNumber: 5, winnerPlayerId: null, winnerName: null }],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(winnerSlides(deck.slides).length, 0)
+})
+
+test('Makers & Breakers present: a published highlight for a round produces a makersBreakers slide with that content verbatim', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1, publishedHighlights: [{ kind: 'maker', icon: '\u{1F525}', title: 'Hot Start', playerName: 'Alex Schaefer', statLine: 'Birdied the first 3 holes' }] })],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  const mb = makersBreakersSlides(deck.slides)
+  assert.equal(mb.length, 1)
+  assert.equal(mb[0].highlights[0].title, 'Hot Start')
+  assert.equal(mb[0].highlights[0].playerName, 'Alex Schaefer')
+})
+
+test('Makers & Breakers absent: no slide appears for a round with no published highlights, never an empty slide', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1, publishedHighlights: null })], memories: [memory({ momentId: 'a', roundId: 'r1' })] })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(makersBreakersSlides(deck.slides).length, 0)
+})
+
+test('malformed published highlights data is parsed defensively -- never throws, never fabricates a highlight from garbage', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1, publishedHighlights: 'not-an-array' })], memories: [memory({ momentId: 'a', roundId: 'r1' })] })
+  assert.doesNotThrow(() => buildSlideshowDeck(data, 'all'))
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(makersBreakersSlides(deck.slides).length, 0)
+})
+
+test('a round with zero Memories but a real Side Game winner still gets a round divider -- results do not depend on curated Memories', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 })],
+    memories: [],
+    sideGameWinners: [{ sideCompId: 'sc1', roundId: 'r1', compType: 'longest_drive', label: 'Longest Drive', holeNumber: 5, winnerPlayerId: 'w1', winnerName: 'Alex Schaefer' }],
+  })
+  const deck = buildSlideshowDeck(data, 'favourites') // favourites source -- zero favourites selected
+  assert.equal(deck.slides.filter(s => s.kind === 'roundDivider').length, 1)
+  assert.equal(winnerSlides(deck.slides).length, 1)
+})
+
+test('results do not depend upon Favourite status: the champion/leaderboard/winner slides are identical regardless of chosen source', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 })],
+    memories: [memory({ momentId: 'a', roundId: 'r1', organiserFavourite: false })],
+    sideGameWinners: [{ sideCompId: 'sc1', roundId: 'r1', compType: 'longest_drive', label: 'Longest Drive', holeNumber: 5, winnerPlayerId: 'w1', winnerName: 'Alex Schaefer' }],
+    results: { champion: { champions: [{ playerId: 'w1', playerName: 'Alex Schaefer', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'w1', playerName: 'Alex Schaefer', totalPoints: 72, position: 1 }] } },
+  })
+  const favDeck = buildSlideshowDeck(data, 'favourites')
+  const allDeck = buildSlideshowDeck(data, 'all')
+  assert.equal(winnerSlides(favDeck.slides).length, winnerSlides(allDeck.slides).length)
+  assert.equal(championSlides(favDeck.slides).length, championSlides(allDeck.slides).length)
+})
+
+test('no duplicate Champion/leaderboard slides -- exactly one champion slide even with multiple co-champions (a tie)', () => {
+  const data = baseData({
+    results: {
+      champion: {
+        champions: [{ playerId: 'p1', playerName: 'A', totalPoints: 72 }, { playerId: 'p2', playerName: 'B', totalPoints: 72 }],
+        hasTie: true,
+        standings: [{ playerId: 'p1', playerName: 'A', totalPoints: 72, position: 1 }, { playerId: 'p2', playerName: 'B', totalPoints: 72, position: 1 }],
+      },
+    },
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(championSlides(deck.slides).length, 1)
+  assert.equal(championSlides(deck.slides)[0].hasTie, true)
+  assert.equal(championSlides(deck.slides)[0].champions.length, 2)
+})

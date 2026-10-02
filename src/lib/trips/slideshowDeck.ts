@@ -48,6 +48,13 @@ import type { EventMemoryData, MemorySourceType } from './eventMemoryData'
 
 export type SlideshowSource = 'favourites' | 'all' | 'selected'
 
+/** HighlightLike mirrors makersBreakers.ts's own Highlight shape
+ * (category, kind, scope, icon, title, playerId, playerName,
+ * statLine, definition) -- confirmed this is exactly what
+ * published_round_highlights.highlights stores, read verbatim here,
+ * never regenerated. */
+interface HighlightLike { kind: 'maker' | 'breaker'; icon: string; title: string; playerName: string; statLine: string }
+
 export type Slide =
   | { kind: 'opening'; eventName: string; dateRange: string | null; heroImageUrl: string | null }
   | { kind: 'eventDivider' }
@@ -58,6 +65,24 @@ export type Slide =
       roundName: string | null; holeNumber: number | null; playerName: string | null
       sourceType: MemorySourceType; sideCompName: string | null; organiserFavourite: boolean
     }
+  // Official Side Game winner -- NEVER inferred from a Memory's own
+  // sourceType/sideCompName. This slide is produced exclusively from
+  // the authoritative sideGameWinners array (official_winner_entry_id,
+  // set once by finalize_side_comp_winners()). An ordinary Side Game
+  // Memory belonging to a non-winner never becomes one of these --
+  // see the critical "Memory context is not a result" rule.
+  | { kind: 'sideGameWinner'; sideCompId: string; label: string; holeNumber: number | null; winnerName: string; winnerImageUrl: string | null }
+  // Published Makers & Breakers -- read verbatim from
+  // published_round_highlights, never regenerated or recalculated here.
+  | { kind: 'makersBreakers'; roundId: string; roundName: string; highlights: HighlightLike[] }
+  // Event Champion -- from the authoritative standings (position 1),
+  // never inferred from which player has the most photos or
+  // Favourites. Absent entirely (no slide at all) when no authoritative
+  // champion exists yet (event not completed).
+  | { kind: 'champion'; champions: { playerId: string; playerName: string; totalPoints: number }[]; hasTie: boolean; photoUrl: string | null }
+  // Final leaderboard, paginated -- `page`/`totalPages` so a large
+  // field never gets squeezed onto one unreadable slide.
+  | { kind: 'leaderboard'; entries: { position: number; playerName: string; totalPoints: number }[]; page: number; totalPages: number }
 
 export interface SlideshowDeck {
   slides: Slide[]
@@ -125,18 +150,45 @@ function selectMemories(data: EventMemoryData, source: SlideshowSource, selected
  */
 export function buildSlideshowDeck(data: EventMemoryData, source: SlideshowSource, selectedMomentIds?: string[]): SlideshowDeck {
   const selected = selectMemories(data, source, selectedMomentIds)
-  const slides: Slide[] = []
-
-  // Opening. Hero image: deterministic, not AI-chosen -- the first
-  // Favourite in final chronological order if one exists among the
-  // selected set, else null (clean event branding, no guess at "the
-  // best photo"). This is a plain, explainable rule, not a heuristic
-  // that could look like it "picked" a favourite scene.
   const chronological = sortMemoriesChronologically(selected)
+  const slides = buildCoreSlides(data, chronological)
+  return { slides, memoryCount: selected.length }
+}
+
+function toPhotoSlide(m: MemoryLike, roundName: string | null): Slide {
+  return {
+    kind: 'photo', momentId: m.momentId, imageUrl: m.imageUrl, caption: m.caption,
+    roundName, holeNumber: m.holeNumber, playerName: m.playerName,
+    sourceType: m.sourceType, sideCompName: m.sideCompName, organiserFavourite: m.organiserFavourite,
+  }
+}
+
+/**
+ * buildCoreSlides -- shared by buildSlideshowDeck and
+ * rebuildDeckFromOrder: opening -> event-level photos -> for each
+ * round with at least one selected photo: round divider, that round's
+ * photos, then (Event Memories V1.3, 13 Sep) its official Side Game
+ * winner slides and published Makers & Breakers -- both read
+ * verbatim from authoritative data, NEVER inferred from which photos
+ * happen to be in this round. A round can show its winner/Makers &
+ * Breakers slides even if none of its own photos were selected for
+ * this slideshow (results are automatic, not tied to curation, per
+ * the brief's own explicit "results should not require manual
+ * curation" rule) -- so these are added per round regardless of
+ * whether `roundMemories.length === 0`, unlike the round divider
+ * itself, which still only appears when the round has photos OR
+ * result content for it.
+ *
+ * Champion and Final Leaderboard appear once, after every round,
+ * before the closing slide -- read from data.results.champion, which
+ * is `null` for a live/incomplete event (see eventMemoryData.ts); no
+ * slide is produced at all in that case, never a guessed result.
+ */
+function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[]): Slide[] {
+  const slides: Slide[] = []
   const firstFavourite = chronological.find(m => m.organiserFavourite)
   slides.push({
-    kind: 'opening',
-    eventName: data.event.name,
+    kind: 'opening', eventName: data.event.name,
     dateRange: formatDateRange(data.event.startDate, data.event.endDate),
     heroImageUrl: firstFavourite?.imageUrl ?? null,
   })
@@ -148,33 +200,86 @@ export function buildSlideshowDeck(data: EventMemoryData, source: SlideshowSourc
   }
 
   const roundsById = new Map(data.rounds.map(r => [r.id, r]))
-  const roundIdsInOrdinalOrder = [...data.rounds]
-    .sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0))
-    .map(r => r.id)
+  const roundIdsInOrdinalOrder = [...data.rounds].sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0)).map(r => r.id)
+  const winnersByRoundId = new Map<string, EventMemoryData['sideGameWinners']>()
+  for (const w of data.sideGameWinners) {
+    const list = winnersByRoundId.get(w.roundId) ?? []
+    list.push(w)
+    winnersByRoundId.set(w.roundId, list)
+  }
 
   for (const roundId of roundIdsInOrdinalOrder) {
     const roundMemories = chronological.filter(m => m.roundId === roundId)
-    if (roundMemories.length === 0) continue // no empty round chapters
     const round = roundsById.get(roundId)
-    if (!round) continue // defensive: a memory referencing a round not in this data set is never surfaced
-    slides.push({
-      kind: 'roundDivider', roundId: round.id, roundName: round.name,
-      courseName: round.courseName, playDate: round.playDate,
-    })
+    if (!round) continue
+    const roundWinners = (winnersByRoundId.get(roundId) ?? []).filter(w => w.winnerPlayerId !== null && w.winnerName !== null)
+    const roundHighlights = parsePublishedHighlights(round.publishedHighlights)
+    // The round divider (and this round's section at all) only appears
+    // when there is something real to show for it -- photos, an
+    // official winner, or published Makers & Breakers. A round with
+    // none of these produces no chapter at all, matching "no empty
+    // chapters."
+    if (roundMemories.length === 0 && roundWinners.length === 0 && roundHighlights.length === 0) continue
+
+    slides.push({ kind: 'roundDivider', roundId: round.id, roundName: round.name, courseName: round.courseName, playDate: round.playDate })
     for (const m of roundMemories) slides.push(toPhotoSlide(m, round.name))
+
+    for (const w of roundWinners) {
+      // The winner's own photo, if one genuinely exists among this
+      // round's Memories for that exact player AND that exact Side
+      // Game -- never any Side Game Memory from a non-winner, which
+      // is precisely the "Memory context is not a result" rule this
+      // whole feature depends on.
+      const winnerPhoto = chronological.find(m => m.roundId === roundId && m.sideCompId === w.sideCompId && m.playerId === w.winnerPlayerId)
+      slides.push({
+        kind: 'sideGameWinner', sideCompId: w.sideCompId, label: w.label, holeNumber: w.holeNumber,
+        winnerName: w.winnerName as string, winnerImageUrl: winnerPhoto?.imageUrl ?? null,
+      })
+    }
+
+    if (roundHighlights.length > 0) {
+      slides.push({ kind: 'makersBreakers', roundId: round.id, roundName: round.name, highlights: roundHighlights })
+    }
+  }
+
+  if (data.results.champion) {
+    const champ = data.results.champion
+    // Champion photo: the earliest Favourite (chronologically) whose
+    // playerId matches a champion -- deterministic, never AI/guessed;
+    // null (an elegant card with no photo) when no such Favourite
+    // exists, per the brief's own explicit rule.
+    const championIds = new Set(champ.champions.map(c => c.playerId))
+    const championPhoto = chronological.find(m => m.organiserFavourite && championIds.has(m.playerId))
+    slides.push({ kind: 'champion', champions: champ.champions, hasTie: champ.hasTie, photoUrl: championPhoto?.imageUrl ?? null })
+
+    const pageSize = 10
+    const sorted = [...champ.standings].sort((a, b) => a.position - b.position)
+    const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
+    for (let page = 1; page <= totalPages; page++) {
+      const entries = sorted.slice((page - 1) * pageSize, page * pageSize)
+        .map(s => ({ position: s.position, playerName: s.playerName, totalPoints: s.totalPoints }))
+      slides.push({ kind: 'leaderboard', entries, page, totalPages })
+    }
   }
 
   slides.push({ kind: 'closing' })
-
-  return { slides, memoryCount: selected.length }
+  return slides
 }
 
-function toPhotoSlide(m: MemoryLike, roundName: string | null): Slide {
-  return {
-    kind: 'photo', momentId: m.momentId, imageUrl: m.imageUrl, caption: m.caption,
-    roundName, holeNumber: m.holeNumber, playerName: m.playerName,
-    sourceType: m.sourceType, sideCompName: m.sideCompName, organiserFavourite: m.organiserFavourite,
-  }
+/** parsePublishedHighlights -- defensive parsing of the JSON blob
+ * stored in published_round_highlights.highlights. Returns [] for
+ * anything that doesn't genuinely look like a Highlight[] -- never
+ * throws, never fabricates a highlight from malformed/absent data. */
+function parsePublishedHighlights(raw: unknown): HighlightLike[] {
+  if (!Array.isArray(raw)) return []
+  return raw.filter((h): h is HighlightLike =>
+    typeof h === 'object' && h !== null &&
+    (h as Record<string, unknown>).kind !== undefined &&
+    ((h as Record<string, unknown>).kind === 'maker' || (h as Record<string, unknown>).kind === 'breaker') &&
+    typeof (h as Record<string, unknown>).playerName === 'string' &&
+    typeof (h as Record<string, unknown>).title === 'string' &&
+    typeof (h as Record<string, unknown>).statLine === 'string'
+  )
 }
 
 /**
@@ -191,46 +296,18 @@ export function photoMomentIdsInOrder(deck: SlideshowDeck): string[] {
 
 /**
  * rebuildDeckFromOrder -- given a curated (possibly reordered/
- * filtered/extended) list of Moment ids, rebuilds a full deck:
- * opening, dividers only where that section still has at least one
- * photo in the curated order, and closing. Round dividers follow the
- * ROUND's own chronological ordinal position, not the order the
- * organiser happened to drag photos into -- a photo moved to sit
- * after a different round's photos is still grouped under its own
- * round's divider, exactly like the export system's own folder
- * assignment is never affected by display order.
+ * filtered/extended) list of Moment ids, rebuilds a full deck via the
+ * same buildCoreSlides logic buildSlideshowDeck uses -- results
+ * (Side Game winners, Makers & Breakers, Champion, Leaderboard) are
+ * never affected by curation, matching "results should not require
+ * manual curation": reordering or removing photos changes which
+ * Memories play, never which results appear.
  */
 export function rebuildDeckFromOrder(data: EventMemoryData, orderedMomentIds: string[]): SlideshowDeck {
   const memoryById = new Map(data.memories.map(m => [m.momentId, m]))
   const orderedMemories = orderedMomentIds
     .map(id => memoryById.get(id))
     .filter((m): m is EventMemoryData['memories'][number] => m !== undefined)
-
-  const slides: Slide[] = []
-  const firstFavourite = orderedMemories.find(m => m.organiserFavourite)
-  slides.push({
-    kind: 'opening', eventName: data.event.name,
-    dateRange: formatDateRange(data.event.startDate, data.event.endDate),
-    heroImageUrl: firstFavourite?.imageUrl ?? null,
-  })
-
-  const eventLevel = orderedMemories.filter(m => m.roundId === null)
-  if (eventLevel.length > 0) {
-    slides.push({ kind: 'eventDivider' })
-    for (const m of eventLevel) slides.push(toPhotoSlide(m, null))
-  }
-
-  const roundsById = new Map(data.rounds.map(r => [r.id, r]))
-  const roundIdsInOrdinalOrder = [...data.rounds].sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0)).map(r => r.id)
-  for (const roundId of roundIdsInOrdinalOrder) {
-    const roundMemories = orderedMemories.filter(m => m.roundId === roundId)
-    if (roundMemories.length === 0) continue
-    const round = roundsById.get(roundId)
-    if (!round) continue
-    slides.push({ kind: 'roundDivider', roundId: round.id, roundName: round.name, courseName: round.courseName, playDate: round.playDate })
-    for (const m of roundMemories) slides.push(toPhotoSlide(m, round.name))
-  }
-
-  slides.push({ kind: 'closing' })
+  const slides = buildCoreSlides(data, orderedMemories)
   return { slides, memoryCount: orderedMemories.length }
 }
