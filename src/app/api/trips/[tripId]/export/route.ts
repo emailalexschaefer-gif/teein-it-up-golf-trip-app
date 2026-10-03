@@ -9,21 +9,25 @@ import { buildEventSummaryText } from '@/lib/trips/eventSummaryText'
 
 interface RouteProps { params: Promise<{ tripId: string }> }
 
-// VERCEL HOBBY CONFIRMED (11 Sep). RESOLVED (12 Sep) -- researched
-// Vercel's own current documentation directly (not relied on training
-// data, which was outdated here) to settle the regime uncertainty this
-// comment originally flagged. Confirmed, from Vercel's own AI SDK
-// troubleshooting docs: "With Vercel's Fluid Compute, the default
-// function duration is now 5 minutes (300 seconds) across all plans"
-// -- Fluid Compute is Vercel's current universal default, not an
-// opt-in a project might or might not have. An actively developed
-// project like this one is overwhelmingly likely to already be on it.
-// Raising maxDuration to 300 is also a SAFE change to attempt even if
-// that assumption is wrong: Vercel rejects an invalid maxDuration at
-// BUILD time with a hard failure (confirmed from a real, documented
-// case), not a silent runtime cap -- so the worst case here is a loud,
-// obvious deploy error, never a dangerous surprise in production.
-export const maxDuration = 300
+// VERCEL HOBBY CONFIRMED (11 Sep). RESEARCH SUGGESTED 300 (12 Sep),
+// REVERTED (13 Sep) -- the V1.3 deployment that shipped with
+// maxDuration = 300 failed to build (npm run build exited 1). This is
+// exactly the specific, concrete risk flagged when that value was
+// chosen: declaring maxDuration above what this project's actual
+// Vercel regime allows causes a build-time failure, not a silent
+// runtime cap. Vercel's own documentation states Fluid Compute (which
+// would make 300 valid on Hobby) is the current default for newer
+// projects, but this project's own real build behaviour is the only
+// authoritative answer to which regime it's actually on -- and that
+// answer, now observed directly, is that 300 does not build. Reverted
+// to 60, the value confirmed valid under BOTH possible regimes (the
+// legacy pre-Fluid-Compute ceiling is 60s maximum), which is what this
+// file used before the unconfirmed 300 change. This is the single
+// smallest change that resolves the observed failure without
+// guessing at anything further -- see the delivery report for the
+// full reasoning on why this is treated as the primary suspect rather
+// than the ESLint warnings also present in the build log.
+export const maxDuration = 60
 
 
 /**
@@ -39,21 +43,21 @@ export const maxDuration = 300
  * Vercel Function response is capped at 4.5MB -- far too small for a
  * multi-tens-of-MB ZIP -- but Vercel's own documentation states
  * streaming responses do NOT carry this limit, which is exactly why
- * this route streams rather than buffers. Execution duration: Fluid
- * Compute (Vercel's current universal default -- confirmed directly
- * from Vercel's own documentation, not assumed) gives Hobby a 300s
- * ceiling, set via maxDuration above. At the confirmed ~200-500KB
+ * this route streams rather than buffers. Execution duration: set to
+ * 60s (see the comment directly above maxDuration below for why this
+ * is 60, not the Fluid-Compute-dependent 300 an earlier revision
+ * tried and which failed to build). At the confirmed ~200-500KB
  * per-photo size and batched (not strictly sequential) downloads, a
- * 100-150 photo export is comfortably within this window with wide
- * margin -- the real bottleneck is Storage network I/O per photo, and
- * batching 6 at a time directly reduces that wall-clock cost. This
- * remains a genuine, named limit for a very large event: if real-world
- * testing on a genuinely large event (300+) shows this ceiling is
- * reached, the brief's own recommended fallback (staging the export
- * outside the request lifecycle with a signed download once ready) is
- * the next step -- not attempted here, since the brief's own
- * instruction was not to introduce that complexity unless direct
- * generation proves genuinely insufficient, and nothing in this
+ * 100-150 photo export should fit within 60s with reasonable margin --
+ * the real bottleneck is Storage network I/O per photo, and batching
+ * 6 at a time directly reduces that wall-clock cost. This remains a
+ * genuine, named limit for a larger event: if real-world testing
+ * shows 60s is reached before a realistically-sized export completes,
+ * the brief's own recommended fallback (staging the export outside
+ * the request lifecycle with a signed download once ready) is the
+ * next step -- not attempted here, since the brief's own instruction
+ * was not to introduce that complexity unless direct generation
+ * proves genuinely insufficient, and nothing in this
  * session's research suggests it will be for a realistic golf-trip-
  * sized event. NOT load-tested against a real large event in this
  * session -- this is reasoned from documented limits and measured
