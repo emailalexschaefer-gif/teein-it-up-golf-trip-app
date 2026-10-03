@@ -29,6 +29,9 @@ export interface ExportMemory {
   organiserFavourite: boolean
   sourceType: ExportMemorySourceType
   sideCompName: string | null
+  // V1.4 completion patch (14 Sep) -- migration 086/088.
+  mediaType: 'photo' | 'text' | 'video'
+  isBlooper: boolean
 }
 
 export type ExportScope =
@@ -43,16 +46,32 @@ export interface ExportEntry {
   filename: string
   imagePath: string // the real Storage path -- for the ZIP step to actually fetch the bytes from
   isFavouriteDuplicate: boolean // true for the copy placed under "90 - FAVOURITE HIGHLIGHTS/"
+  // V1.4 completion patch (14 Sep) -- true for the copy placed under
+  // "91 - BLOOPERS/". Independent of isFavouriteDuplicate -- a single
+  // Memory could in principle produce up to three entries (primary +
+  // Favourite copy + Blooper copy) if it is both Favourite and
+  // Blooper; each entry's own two flags describe which copy it is.
+  isBlooperDuplicate: boolean
 }
 
 export interface ExportResult {
   eventFolderName: string
   entries: ExportEntry[]
-  memoryCount: number // distinct Memories included (favourite duplicates don't count twice)
+  memoryCount: number // distinct Memories included (favourite/blooper duplicates don't count twice)
   favouriteCount: number
+  blooperCount: number
 }
 
 const FAVOURITE_HIGHLIGHTS_FOLDER = '90 - FAVOURITE HIGHLIGHTS'
+// V1.4 completion patch (14 Sep) -- mirrors Favourite Highlights'
+// own pattern exactly: a selected Blooper remains in its normal
+// round-level location AND gets a second, duplicated copy here --
+// never a symlink/reference, a real second ZIP entry, matching the
+// brief's own explicit "something obvious such as Bloopers/" request.
+// Numbered 91 (immediately after 90) so both curated-highlight
+// folders sort together at the end of the archive, after every real
+// round folder.
+const BLOOPERS_FOLDER = '91 - BLOOPERS'
 const MAX_FILENAME_LENGTH = 180 // leaves headroom under common filesystem limits even with a folder path prefixed on extraction
 
 /**
@@ -89,9 +108,24 @@ function fileExtension(imagePath: string): string {
  */
 export function folderPathFor(memory: ExportMemory): string {
   if (!memory.roundId || memory.roundOrdinal === null) {
-    return '00 - EVENT/GENERAL'
+    // V1.4 completion patch (14 Sep) -- a video Moment at event level
+    // (no round) still never shares a folder with event-level photos
+    // -- it is a different kind of media, and mixing them in one
+    // listing would make the folder's own contents ambiguous at a
+    // glance without opening each file.
+    return memory.mediaType === 'video' ? '00 - EVENT/VIDEOS' : '00 - EVENT/GENERAL'
   }
   const roundFolder = `${String(memory.roundOrdinal).padStart(2, '0')} - ROUND ${memory.roundOrdinal}`
+  // V1.4 completion patch (14 Sep) -- a video Moment is never routed
+  // through the Side Game folder logic below, even if it happens to
+  // carry sourceType === 'SIDE_GAME' context (a video captured
+  // alongside a Side Game claim is a real, supported case) -- its own
+  // ROUND/VIDEOS folder keeps every clip discoverable in one place
+  // per round, rather than scattered across Side Game subfolders
+  // alongside photos.
+  if (memory.mediaType === 'video') {
+    return `${roundFolder}/VIDEOS`
+  }
   if (memory.sourceType === 'SIDE_GAME' && memory.sideCompName) {
     const gameFolder = sanitiseNameFragment(memory.sideCompName).toUpperCase() || 'SIDE-GAME'
     return `${roundFolder}/SIDE GAMES/${gameFolder}`
@@ -110,7 +144,14 @@ function baseFilenameFor(memory: ExportMemory): string {
   const parts: string[] = []
   parts.push(memory.roundOrdinal !== null ? `R${String(memory.roundOrdinal).padStart(2, '0')}` : 'EVENT')
   if (memory.holeNumber !== null) parts.push(`H${String(memory.holeNumber).padStart(2, '0')}`)
-  if (memory.sourceType === 'SIDE_GAME' && memory.sideCompName) {
+  if (memory.mediaType === 'video') {
+    // V1.4 completion patch (14 Sep) -- CLIP, never GENERAL or a Side
+    // Game name, even if sourceType happens to be SIDE_GAME -- the
+    // filename itself should make "this is a video, not a photo"
+    // obvious without opening it, matching the same principle as the
+    // dedicated VIDEOS folder above.
+    parts.push('CLIP')
+  } else if (memory.sourceType === 'SIDE_GAME' && memory.sideCompName) {
     const gameName = sanitiseNameFragment(memory.sideCompName).toUpperCase()
     if (gameName) parts.push(gameName)
   } else {
@@ -121,6 +162,13 @@ function baseFilenameFor(memory: ExportMemory): string {
     if (playerFragment) parts.push(playerFragment)
   }
   if (memory.organiserFavourite) parts.push('FAVOURITE')
+  // V1.4 completion patch (14 Sep) -- mirrors the FAVOURITE marker
+  // immediately above. A Moment could in principle be both Favourite
+  // and Blooper (independent selections, per the brief's own explicit
+  // "do not require a video to also be a Favourite" -- which cuts
+  // both ways: it also never prevents one) -- the filename simply
+  // reflects whichever markers genuinely apply, in a fixed order.
+  if (memory.isBlooper) parts.push('BLOOPER')
   return truncateFragment(parts.join('_'), MAX_FILENAME_LENGTH)
 }
 
@@ -135,6 +183,13 @@ function baseFilenameFor(memory: ExportMemory): string {
  */
 export function buildExportManifest(eventName: string, scope: ExportScope, allMemories: ExportMemory[]): ExportResult {
   const inScope = allMemories.filter(m => {
+    // V1.4 completion patch (14 Sep) -- a text Moment has no
+    // underlying file at all (image_path is null at the database
+    // level for moment_type = 'text' -- confirmed directly against
+    // migration 030's own CHECK constraint); it can never produce a
+    // real ZIP entry, so it is excluded from every scope here, not
+    // just silently dropped later when a download attempt would fail.
+    if (m.mediaType === 'text') return false
     if (scope.kind === 'all') return true
     if (scope.kind === 'favourites') return m.organiserFavourite
     if (scope.kind === 'round') return m.roundId === scope.roundId
@@ -151,6 +206,7 @@ export function buildExportManifest(eventName: string, scope: ExportScope, allMe
   const sequenceByBaseKey = new Map<string, number>()
   const entries: ExportEntry[] = []
   let favouriteCount = 0
+  let blooperCount = 0
 
   for (const memory of sorted) {
     const folderPath = folderPathFor(memory)
@@ -161,7 +217,7 @@ export function buildExportManifest(eventName: string, scope: ExportScope, allMe
     const ext = fileExtension(memory.imagePath)
     const filename = `${baseFilename}_${String(nextSeq).padStart(3, '0')}.${ext}`
 
-    entries.push({ momentId: memory.momentId, folderPath, filename, imagePath: memory.imagePath, isFavouriteDuplicate: false })
+    entries.push({ momentId: memory.momentId, folderPath, filename, imagePath: memory.imagePath, isFavouriteDuplicate: false, isBlooperDuplicate: false })
 
     if (memory.organiserFavourite) {
       favouriteCount += 1
@@ -172,6 +228,19 @@ export function buildExportManifest(eventName: string, scope: ExportScope, allMe
       // shortcuts/symlinks that may fail on another device" instruction.
       entries.push({ momentId: memory.momentId, folderPath: FAVOURITE_HIGHLIGHTS_FOLDER, filename, imagePath: memory.imagePath, isFavouriteDuplicate: true })
     }
+    if (memory.isBlooper) {
+      blooperCount += 1
+      // V1.4 completion patch (14 Sep) -- identical duplication
+      // pattern to Favourite Highlights above, for the same reason:
+      // a real second ZIP entry under a dedicated, obvious folder,
+      // never a symlink. isFavouriteDuplicate stays false here (this
+      // flag means specifically "this is the Favourite Highlights
+      // copy") -- the Blooper copy is tracked separately via
+      // isBlooperDuplicate, since a clip can independently be both,
+      // neither, or either without the two concepts being conflated
+      // into one boolean.
+      entries.push({ momentId: memory.momentId, folderPath: BLOOPERS_FOLDER, filename, imagePath: memory.imagePath, isFavouriteDuplicate: false, isBlooperDuplicate: true })
+    }
   }
 
   const eventFolderName = sanitiseNameFragment(eventName) || 'Event'
@@ -181,5 +250,6 @@ export function buildExportManifest(eventName: string, scope: ExportScope, allMe
     entries,
     memoryCount: sorted.length,
     favouriteCount,
+    blooperCount,
   }
 }

@@ -10,6 +10,7 @@ function memory(overrides: Partial<EventMemoryData['memories'][number]> & { mome
     imagePath: 'trip/general/p1/1.jpg', imageUrl: 'https://signed.example/1.jpg', audience: 'everyone',
     createdAt: '2026-09-11T10:00:00Z', organiserFavourite: false,
     sourceType: 'GENERAL', sideCompId: null, sideCompName: null, sideCompType: null,
+    mediaType: 'photo', durationSeconds: null, isBlooper: false,
     ...overrides,
   }
 }
@@ -464,6 +465,118 @@ test('results do not depend upon Favourite status: the champion/leaderboard/winn
   const allDeck = buildSlideshowDeck(data, 'all')
   assert.equal(winnerSlides(favDeck.slides).length, winnerSlides(allDeck.slides).length)
   assert.equal(championSlides(favDeck.slides).length, championSlides(allDeck.slides).length)
+})
+
+// -- V1.4 (14 Sep): group photo and Bloopers/Outtakes --------------------
+
+function groupPhotoSlides(slides: Slide[]): Extract<Slide, { kind: 'groupPhoto' }>[] {
+  return slides.filter((s): s is Extract<Slide, { kind: 'groupPhoto' }> => s.kind === 'groupPhoto')
+}
+function blooperSlides(slides: Slide[]): Extract<Slide, { kind: 'blooper' }>[] {
+  return slides.filter((s): s is Extract<Slide, { kind: 'blooper' }> => s.kind === 'blooper')
+}
+
+test('group photo: an explicit selection that matches a real photo Memory produces a groupPhoto slide right after opening', () => {
+  const data = baseData({ memories: [memory({ momentId: 'group-pic', imageUrl: 'https://x/group.jpg' })] })
+  const deck = buildSlideshowDeck(data, 'all', undefined, 'group-pic')
+  const kinds = deck.slides.map(s => s.kind)
+  assert.deepEqual(kinds.slice(0, 2), ['opening', 'groupPhoto'])
+  assert.equal(groupPhotoSlides(deck.slides)[0].imageUrl, 'https://x/group.jpg')
+})
+
+test('group photo: no selection produces no groupPhoto slide at all', () => {
+  const data = baseData({ memories: [memory({ momentId: 'a' })] })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(groupPhotoSlides(deck.slides).length, 0)
+})
+
+test('group photo: a selection that does not match any real Memory in this event is silently omitted, never fabricated', () => {
+  const data = baseData({ memories: [memory({ momentId: 'a' })] })
+  const deck = buildSlideshowDeck(data, 'all', undefined, 'does-not-exist')
+  assert.equal(groupPhotoSlides(deck.slides).length, 0)
+})
+
+test('group photo: a selection pointing at a video Moment is rejected -- group photo must be a genuine photo', () => {
+  const data = baseData({ memories: [memory({ momentId: 'vid', mediaType: 'video', durationSeconds: 8 })] })
+  const deck = buildSlideshowDeck(data, 'all', undefined, 'vid')
+  assert.equal(groupPhotoSlides(deck.slides).length, 0)
+})
+
+test('text and video Moments never appear as regular photo slides, regardless of source', () => {
+  const data = baseData({
+    memories: [
+      memory({ momentId: 'photo-1', mediaType: 'photo' }),
+      memory({ momentId: 'text-1', mediaType: 'text', imageUrl: null, caption: 'Great round today' }),
+      memory({ momentId: 'video-1', mediaType: 'video', durationSeconds: 9 }),
+    ],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.deepEqual(photoMomentIdsInOrder(deck), ['photo-1'])
+})
+
+test('Bloopers: only organiser-selected (isBlooper) video Memories appear, in a dedicated chapter after a divider', () => {
+  const data = baseData({
+    memories: [
+      memory({ momentId: 'vid-selected', mediaType: 'video', durationSeconds: 9, isBlooper: true, imageUrl: 'https://x/clip.mp4' }),
+      memory({ momentId: 'vid-not-selected', mediaType: 'video', durationSeconds: 7, isBlooper: false }),
+    ],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  const bloopers = blooperSlides(deck.slides)
+  assert.equal(bloopers.length, 1)
+  assert.equal(bloopers[0].momentId, 'vid-selected')
+  assert.equal(bloopers[0].videoUrl, 'https://x/clip.mp4')
+  assert.equal(bloopers[0].durationSeconds, 9)
+  assert.ok(deck.slides.some(s => s.kind === 'bloopersDivider'))
+})
+
+test('Bloopers: a photo or text Moment flagged isBlooper is still excluded -- Bloopers means video specifically', () => {
+  const data = baseData({
+    memories: [
+      memory({ momentId: 'photo-flagged', mediaType: 'photo', isBlooper: true }),
+      memory({ momentId: 'text-flagged', mediaType: 'text', imageUrl: null, caption: 'oops', isBlooper: true }),
+    ],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(blooperSlides(deck.slides).length, 0)
+})
+
+test('Bloopers: zero selected clips produces no Bloopers divider at all -- no empty chapter', () => {
+  const data = baseData({ memories: [memory({ momentId: 'vid', mediaType: 'video', durationSeconds: 5, isBlooper: false })] })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(blooperSlides(deck.slides).length, 0)
+  assert.ok(!deck.slides.some(s => s.kind === 'bloopersDivider'))
+})
+
+test('Bloopers appear after the Champion/Leaderboard and before the closing slide', () => {
+  const data = baseData({
+    memories: [memory({ momentId: 'vid', mediaType: 'video', durationSeconds: 5, isBlooper: true })],
+    results: { champion: { champions: [{ playerId: 'p1', playerName: 'A', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'A', totalPoints: 72, position: 1 }] } },
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  const kinds = deck.slides.map(s => s.kind)
+  const champIdx = kinds.indexOf('champion')
+  const blooperDividerIdx = kinds.indexOf('bloopersDivider')
+  const closingIdx = kinds.indexOf('closing')
+  assert.ok(champIdx < blooperDividerIdx)
+  assert.ok(blooperDividerIdx < closingIdx)
+})
+
+test('Bloopers source is independent of the chosen slideshow source (favourites/all/selected) and of Favourite status', () => {
+  const data = baseData({ memories: [memory({ momentId: 'vid', mediaType: 'video', durationSeconds: 5, isBlooper: true, organiserFavourite: false })] })
+  const favDeck = buildSlideshowDeck(data, 'favourites')
+  assert.equal(blooperSlides(favDeck.slides).length, 1)
+})
+
+test('Bloopers are chronologically ordered with a deterministic tie-break, same rule as photos', () => {
+  const data = baseData({
+    memories: [
+      memory({ momentId: 'later', mediaType: 'video', durationSeconds: 5, isBlooper: true, createdAt: '2026-09-11T12:00:00Z' }),
+      memory({ momentId: 'earlier', mediaType: 'video', durationSeconds: 5, isBlooper: true, createdAt: '2026-09-11T08:00:00Z' }),
+    ],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.deepEqual(blooperSlides(deck.slides).map(s => s.momentId), ['earlier', 'later'])
 })
 
 test('no duplicate Champion/leaderboard slides -- exactly one champion slide even with multiple co-champions (a tie)', () => {

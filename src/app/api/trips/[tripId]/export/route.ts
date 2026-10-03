@@ -125,6 +125,8 @@ export async function POST(request: Request, { params }: RouteProps) {
     momentId: m.momentId, roundId: m.roundId, roundOrdinal: m.roundOrdinal, holeNumber: m.holeNumber,
     playerName: m.playerName, caption: m.caption, imagePath: m.imagePath, createdAt: m.createdAt,
     organiserFavourite: m.organiserFavourite, sourceType: m.sourceType, sideCompName: m.sideCompName,
+    // V1.4 completion patch (14 Sep).
+    mediaType: m.mediaType, isBlooper: m.isBlooper,
   }))
 
   const exportResult = buildExportManifest(data.event.name, scope, exportMemories)

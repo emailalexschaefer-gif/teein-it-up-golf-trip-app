@@ -7,7 +7,7 @@ import {
   findHoleFromHell, findOneThatGotAway, findMaverick, generateMakersAndBreakers,
   findBackNineBandits, findTheClosers, findTheFortress, findTheBirdcage, findDreamTeam,
   findWheelsOff, findDamageReport, findDeepFreeze, findStillInCarPark, findBackNineBreakdown, findRollercoaster,
-  buildCourseReport,
+  buildCourseReport, findMailman,
   type FieldRoundData, type PlayerRoundData, type PlayerHoleResult,
 } from './makersBreakers'
 
@@ -528,4 +528,40 @@ test('findHoleFromHell — 18 holes starting from the 10th tee reports the actua
   const result = findHoleFromHell(field)
   assert.equal(result?.playerId, 'a')
   assert.match(result?.statLine ?? '', /^Hole 10 \u00b7/)
+})
+
+// -- V1.4 (14 Sep): "win by 0" fix --------------------------------------
+
+test('findMailman -- a genuine positive margin produces "won by N", never the old "the win by N" phrasing', () => {
+  const a = player('a', 'Alex', makeHoles([5, 5, 5, 5, 5, 5, 5, 5, 5])) // 45
+  const b = player('b', 'Dave', makeHoles([3, 3, 3, 3, 3, 3, 3, 3, 3])) // 27
+  const field: FieldRoundData = { players: [a, b], totalHoles: 9 }
+  const result = findMailman(field)
+  assert.equal(result?.playerId, 'a')
+  assert.equal(result?.statLine, '45 points \u2014 won by 18')
+})
+
+test('findMailman -- a tie for the top score never produces "win by 0"', () => {
+  const a = player('a', 'Alex', makeHoles([5, 5, 5, 5, 5, 5, 5, 5, 5])) // 45
+  const b = player('b', 'Dave', makeHoles([5, 5, 5, 5, 5, 5, 5, 5, 5])) // 45, tied
+  const field: FieldRoundData = { players: [a, b], totalHoles: 9 }
+  const result = findMailman(field)
+  assert.doesNotMatch(result?.statLine ?? '', /win by 0|won by 0/)
+  assert.equal(result?.statLine, '45 points \u2014 tied for the lead')
+})
+
+test('findMailman -- no runner-up (a single-player field) falls back to the no-margin phrasing, not a fabricated margin', () => {
+  const a = player('a', 'Alex', makeHoles([5, 5, 5, 5, 5, 5, 5, 5, 5]))
+  const field: FieldRoundData = { players: [a], totalHoles: 9 }
+  const result = findMailman(field)
+  assert.equal(result?.statLine, '45 points and the round win')
+})
+
+test('findMailman -- a three-way tie at the top also avoids "win by 0"', () => {
+  const a = player('a', 'Alex', makeHoles([5, 5, 5, 5, 5, 5, 5, 5, 5]))
+  const b = player('b', 'Dave', makeHoles([5, 5, 5, 5, 5, 5, 5, 5, 5]))
+  const c = player('c', 'Mick', makeHoles([5, 5, 5, 5, 5, 5, 5, 5, 5]))
+  const field: FieldRoundData = { players: [a, b, c], totalHoles: 9 }
+  const result = findMailman(field)
+  assert.doesNotMatch(result?.statLine ?? '', /win by 0|won by 0/)
 })

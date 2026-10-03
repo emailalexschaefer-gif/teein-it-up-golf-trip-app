@@ -83,6 +83,24 @@ export type Slide =
   // Final leaderboard, paginated -- `page`/`totalPages` so a large
   // field never gets squeezed onto one unreadable slide.
   | { kind: 'leaderboard'; entries: { position: number; playerName: string; totalPoints: number }[]; page: number; totalPages: number }
+  // Group photo -- V1.4 (14 Sep). Only ever produced from an
+  // explicit organiser selection (groupPhotoMomentId), never inferred
+  // (e.g. "the Memory with the most people" -- no such detection is
+  // attempted, per the brief's own explicit "do not attempt
+  // unreliable AI/person-count detection"). Absent entirely if no
+  // selection was made or the selected id doesn't match a real
+  // Memory in this deck's own data.
+  | { kind: 'groupPhoto'; momentId: string; imageUrl: string | null; caption: string | null }
+  // Bloopers chapter divider -- only emitted when at least one
+  // blooper clip genuinely exists, matching every other divider's
+  // "no empty chapter" rule.
+  | { kind: 'bloopersDivider' }
+  // Blooper (short video) -- V1.4 (14 Sep), migration 086. Only ever
+  // includes a Memory the organiser explicitly marked isBlooper, and
+  // only ever a mediaType === 'video' Memory -- a text or photo
+  // Moment can never appear here even if somehow flagged, matching
+  // "the organiser selects them," not an automatic classification.
+  | { kind: 'blooper'; momentId: string; videoUrl: string | null; durationSeconds: number | null; playerName: string | null; caption: string | null }
 
 export interface SlideshowDeck {
   slides: Slide[]
@@ -94,6 +112,8 @@ interface MemoryLike {
   playerName: string | null; caption: string | null; imageUrl: string | null
   createdAt: string; organiserFavourite: boolean
   sourceType: MemorySourceType; sideCompName: string | null
+  // V1.4 (14 Sep) -- migration 086.
+  mediaType: 'photo' | 'text' | 'video'; durationSeconds: number | null; isBlooper: boolean
 }
 
 /** Stable chronological order: created_at first, momentId as a
@@ -122,16 +142,24 @@ function formatDateRange(startDate: string | null, endDate: string | null): stri
 }
 
 function selectMemories(data: EventMemoryData, source: SlideshowSource, selectedMomentIds: string[] | undefined): MemoryLike[] {
-  if (source === 'favourites') return data.memories.filter(m => m.organiserFavourite)
+  // V1.4 (14 Sep) -- the regular photo sequence is photo Moments
+  // only. A video Moment belongs exclusively in the Bloopers chapter
+  // (built separately, see buildCoreSlides), never as a regular
+  // photo slide -- and a text Moment has no image to show at all.
+  // Filtered here, once, so every source (favourites/all/selected)
+  // gets this correctly rather than needing the same check repeated
+  // three times.
+  const photosOnly = data.memories.filter(m => m.mediaType === 'photo')
+  if (source === 'favourites') return photosOnly.filter(m => m.organiserFavourite)
   if (source === 'selected') {
     const idSet = new Set(selectedMomentIds ?? [])
     // Preserve the canonical data's own set membership -- a
     // client-supplied id that doesn't correspond to a real Memory in
     // this event is simply not present in data.memories and is
     // silently excluded, never fabricated into a slide.
-    return data.memories.filter(m => idSet.has(m.momentId))
+    return photosOnly.filter(m => idSet.has(m.momentId))
   }
-  return data.memories
+  return photosOnly
 }
 
 /**
@@ -148,10 +176,10 @@ function selectMemories(data: EventMemoryData, source: SlideshowSource, selected
  * divider at all -- no empty chapters, mirroring the export system's
  * own "no empty folders" rule.
  */
-export function buildSlideshowDeck(data: EventMemoryData, source: SlideshowSource, selectedMomentIds?: string[]): SlideshowDeck {
+export function buildSlideshowDeck(data: EventMemoryData, source: SlideshowSource, selectedMomentIds?: string[], groupPhotoMomentId?: string): SlideshowDeck {
   const selected = selectMemories(data, source, selectedMomentIds)
   const chronological = sortMemoriesChronologically(selected)
-  const slides = buildCoreSlides(data, chronological)
+  const slides = buildCoreSlides(data, chronological, groupPhotoMomentId)
   return { slides, memoryCount: selected.length }
 }
 
@@ -184,7 +212,7 @@ function toPhotoSlide(m: MemoryLike, roundName: string | null): Slide {
  * is `null` for a live/incomplete event (see eventMemoryData.ts); no
  * slide is produced at all in that case, never a guessed result.
  */
-function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[]): Slide[] {
+function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], groupPhotoMomentId?: string): Slide[] {
   const slides: Slide[] = []
   const firstFavourite = chronological.find(m => m.organiserFavourite)
   slides.push({
@@ -192,6 +220,20 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[]): Sl
     dateRange: formatDateRange(data.event.startDate, data.event.endDate),
     heroImageUrl: firstFavourite?.imageUrl ?? null,
   })
+
+  // Group photo (V1.4, 14 Sep) -- only ever from an explicit organiser
+  // selection, looked up against the full data.memories set (not the
+  // curated `chronological` photo sequence, since the group photo is
+  // its own separate selection, independent of which Memories made it
+  // into the main slideshow). Omitted entirely if no selection was
+  // made, or the selected id doesn't match a real photo Memory in
+  // this event -- never a fabricated or inferred substitute.
+  if (groupPhotoMomentId) {
+    const groupPhoto = data.memories.find(m => m.momentId === groupPhotoMomentId && m.mediaType === 'photo')
+    if (groupPhoto) {
+      slides.push({ kind: 'groupPhoto', momentId: groupPhoto.momentId, imageUrl: groupPhoto.imageUrl, caption: groupPhoto.caption })
+    }
+  }
 
   const eventLevel = chronological.filter(m => m.roundId === null)
   if (eventLevel.length > 0) {
@@ -262,6 +304,31 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[]): Sl
     }
   }
 
+  // Bloopers/Outtakes (V1.4, 14 Sep) -- always derived from the
+  // organiser's own is_blooper selection on data.memories directly,
+  // never from the chronological/curated photo sequence or from the
+  // chosen slideshow source (favourites/all/selected) -- Bloopers are
+  // their own separate curation layer, exactly like Side Game
+  // winners and Makers & Breakers are automatic results rather than
+  // tied to photo curation. Only a genuine video Moment can ever
+  // appear here -- a photo or text Moment flagged is_blooper (which
+  // the database schema does not prevent, by design -- see migration
+  // 086) is still excluded here, since the organiser's intent for
+  // Bloopers is specifically short video clips, and this is the
+  // layer that actually enforces that. No chapter divider or section
+  // is added at all when there are zero selected Bloopers -- no
+  // empty chapter, matching every other section's own rule.
+  const bloopers = data.memories
+    .filter(m => m.isBlooper && m.mediaType === 'video')
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.momentId.localeCompare(b.momentId))
+  if (bloopers.length > 0) slides.push({ kind: 'bloopersDivider' })
+  for (const b of bloopers) {
+    slides.push({
+      kind: 'blooper', momentId: b.momentId, videoUrl: b.imageUrl,
+      durationSeconds: b.durationSeconds, playerName: b.playerName, caption: b.caption,
+    })
+  }
+
   slides.push({ kind: 'closing' })
   return slides
 }
@@ -303,11 +370,15 @@ export function photoMomentIdsInOrder(deck: SlideshowDeck): string[] {
  * manual curation": reordering or removing photos changes which
  * Memories play, never which results appear.
  */
-export function rebuildDeckFromOrder(data: EventMemoryData, orderedMomentIds: string[]): SlideshowDeck {
+export function rebuildDeckFromOrder(data: EventMemoryData, orderedMomentIds: string[], groupPhotoMomentId?: string): SlideshowDeck {
   const memoryById = new Map(data.memories.map(m => [m.momentId, m]))
   const orderedMemories = orderedMomentIds
     .map(id => memoryById.get(id))
-    .filter((m): m is EventMemoryData['memories'][number] => m !== undefined)
-  const slides = buildCoreSlides(data, orderedMemories)
+    // Defensive, matching selectMemories: the curated id list should
+    // only ever contain ids that started as photo slides, but this
+    // guards against a video/text Moment id ever reaching the regular
+    // sequence regardless of how it got there.
+    .filter((m): m is EventMemoryData['memories'][number] => m !== undefined && m.mediaType === 'photo')
+  const slides = buildCoreSlides(data, orderedMemories, groupPhotoMomentId)
   return { slides, memoryCount: orderedMemories.length }
 }

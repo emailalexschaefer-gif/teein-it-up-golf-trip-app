@@ -119,12 +119,48 @@ interface Props {
   proxyPlayerId?: string
 }
 
-type ComposerStage = 'closed' | 'choosing' | 'cropping' | 'photoPreview' | 'textMoment'
+type ComposerStage = 'closed' | 'choosing' | 'cropping' | 'photoPreview' | 'textMoment' | 'videoPreview'
+
+// V1.4 completion patch (14 Sep) -- video Moment capture. Matches
+// migration 086's own storage bucket widening (allowed_mime_types,
+// updated there) and its server-side duration ceiling
+// (moments/route.ts, 15s). 10s is the brief's own stated target; the
+// client-side check here is a courtesy (reject obviously-too-long
+// clips before spending time uploading one), never the authoritative
+// check -- that's the server's own validation, which cannot be
+// bypassed by skipping this client-side path.
+const VIDEO_MAX_DURATION_SECONDS = 12
+const VIDEO_MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024 // matches the Storage bucket's own file_size_limit (086)
+const VIDEO_ACCEPTED_TYPES = ['video/mp4', 'video/webm', 'video/quicktime']
+
+/** Reads a video File's real duration via a detached <video> element's
+ * own loadedmetadata event -- the only reliable, standard way to get
+ * this in-browser without a server round-trip. Rejects (never
+ * resolves with a guessed/zero duration) if the browser can't decode
+ * the file at all, since an unreadable duration means this Moment
+ * could never satisfy the server's own "valid positive duration"
+ * requirement anyway. */
+function readVideoDuration(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const video = document.createElement('video')
+    video.preload = 'metadata'
+    video.onloadedmetadata = () => {
+      const duration = video.duration
+      URL.revokeObjectURL(url)
+      if (!Number.isFinite(duration) || duration <= 0) reject(new Error('Could not read this video\u2019s length.'))
+      else resolve(duration)
+    }
+    video.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read this video file.')) }
+    video.src = url
+  })
+}
 
 export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, onPosted, sideCompContext, autoOpenCamera, proxyPlayerId }: Props) {
   const queryClient = useQueryClient()
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const galleryInputRef = useRef<HTMLInputElement>(null)
+  const videoInputRef = useRef<HTMLInputElement>(null)
 
   const [stage, setStage] = useState<ComposerStage>('closed')
   const [previewFile, setPreviewFile] = useState<File | null>(null)
@@ -136,6 +172,12 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
   const [uploading, setUploading] = useState(false)
   const [uploadStage, setUploadStage] = useState<'idle' | 'preparing' | 'uploading'>('idle')
   const [error, setError] = useState('')
+  // V1.4 completion patch (14 Sep) -- video Moment capture state,
+  // kept separate from the photo pipeline's own previewFile/previewUrl
+  // so neither path risks disturbing the other's carefully-tuned flow.
+  const [videoFile, setVideoFile] = useState<File | null>(null)
+  const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const [videoDurationSeconds, setVideoDurationSeconds] = useState<number | null>(null)
 
   // Package 1 fix: previously fired the camera automatically the moment
   // a leading claim was made — the golfer had no chance to decline or
@@ -148,10 +190,14 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
   function resetAll() {
     if (previewUrl) URL.revokeObjectURL(previewUrl)
     if (cropSourceUrl) URL.revokeObjectURL(cropSourceUrl)
+    if (videoUrl) URL.revokeObjectURL(videoUrl)
     setPreviewFile(null)
     setPreviewUrl(null)
     setCropSourceUrl(null)
     setPreviewFailed(false)
+    setVideoFile(null)
+    setVideoUrl(null)
+    setVideoDurationSeconds(null)
     setCaption('')
     setAudience('everyone')
     setError('')
@@ -160,6 +206,10 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
 
   function chooseAnother() {
     galleryInputRef.current?.click()
+  }
+
+  function chooseAnotherVideo() {
+    videoInputRef.current?.click()
   }
 
   function handleSelect(e: ChangeEvent<HTMLInputElement>) {
@@ -182,6 +232,38 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
     if (cropSourceUrl) URL.revokeObjectURL(cropSourceUrl)
     setCropSourceUrl(URL.createObjectURL(file))
     setStage('cropping')
+  }
+
+  async function handleSelectVideo(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    logStage('video-file-selected', { filename: file.name, mimeType: file.type, size: file.size })
+    if (!VIDEO_ACCEPTED_TYPES.includes(file.type)) {
+      setError('Please choose an MP4, WEBM, or MOV video.')
+      return
+    }
+    if (file.size > VIDEO_MAX_FILE_SIZE_BYTES) {
+      setError(`That video is too large (${(file.size / 1024 / 1024).toFixed(0)}MB). Please choose a shorter clip.`)
+      return
+    }
+    setError('')
+    try {
+      const duration = await readVideoDuration(file)
+      logStage('video-duration-read', { duration })
+      if (duration > VIDEO_MAX_DURATION_SECONDS) {
+        setError(`Videos must be ${VIDEO_MAX_DURATION_SECONDS} seconds or shorter — this one is ${duration.toFixed(0)}s. Please trim it or choose a shorter clip.`)
+        return
+      }
+      if (videoUrl) URL.revokeObjectURL(videoUrl)
+      setVideoFile(file)
+      setVideoUrl(URL.createObjectURL(file))
+      setVideoDurationSeconds(duration)
+      setStage('videoPreview')
+    } catch (err) {
+      logStage('video-duration-read-failed', { error: err instanceof Error ? err.message : String(err) })
+      setError(err instanceof Error ? err.message : 'Could not read this video. Please try a different file.')
+    }
   }
 
   function handleCropCancel() {
@@ -268,6 +350,50 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
     }
   }
 
+  async function handlePostVideo() {
+    if (!videoFile || videoDurationSeconds === null) return
+    setUploading(true)
+    setError('')
+    setUploadStage('uploading')
+
+    try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not signed in.')
+
+      // No in-browser re-encoding/compression attempted for video --
+      // unlike the photo pipeline's canvas-based resize, client-side
+      // video transcoding is impractical in a web browser; the
+      // original captured/selected file is uploaded directly. The
+      // ~10s duration cap (not file size) is what keeps a video
+      // Moment's upload reasonably small in practice.
+      const extension = videoFile.type === 'video/webm' ? 'webm' : videoFile.type === 'video/quicktime' ? 'mov' : 'mp4'
+      const path = `${tripId}/${roundId ?? 'general'}/${user.id}/${Date.now()}.${extension}`
+      logStage('video-storage-upload-starting', { size: videoFile.size, path })
+      let uploadErr: { message: string } | null = null
+      try {
+        const result = await supabase.storage.from('event-moments').upload(path, videoFile, { contentType: videoFile.type })
+        uploadErr = result.error
+      } catch (networkErr) {
+        const detail = networkErr instanceof Error ? networkErr.message : String(networkErr)
+        throw new Error(`Video upload failed at the storage step: ${detail}`)
+      }
+      if (uploadErr) {
+        logStage('video-storage-upload-failed', { message: uploadErr.message })
+        throw new Error(`Video upload failed at the storage step: ${uploadErr.message}`)
+      }
+      logStage('video-storage-upload-complete', { path })
+
+      await postMoment({ imagePath: path, momentType: 'video', durationSeconds: videoDurationSeconds })
+    } catch (err) {
+      logStage('video-post-failed', { error: err instanceof Error ? err.message : String(err) })
+      setError(err instanceof Error ? err.message : "Video couldn't be posted. Please try again.")
+    } finally {
+      setUploading(false)
+      setUploadStage('idle')
+    }
+  }
+
   async function handlePostText() {
     if (!caption.trim()) { setError('Write something for this moment.'); return }
     setUploading(true)
@@ -281,8 +407,8 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
     }
   }
 
-  async function postMoment({ imagePath }: { imagePath?: string }) {
-    logStage('moment-row-insert-requested', { hasImage: !!imagePath, audience })
+  async function postMoment({ imagePath, momentType, durationSeconds }: { imagePath?: string; momentType?: 'photo' | 'video'; durationSeconds?: number }) {
+    logStage('moment-row-insert-requested', { hasImage: !!imagePath, audience, momentType })
     let res: Response
     try {
       res = await fetch(`/api/trips/${tripId}/moments`, {
@@ -291,6 +417,9 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
         body: JSON.stringify({
           imagePath: imagePath ?? null, caption: caption.trim(), roundId: roundId ?? null, holeNumber: holeNumber ?? null,
           audience: audience === 'group' && myGroupId ? 'group' : 'everyone',
+          // V1.4 completion patch (14 Sep) -- only present for a video
+          // Moment; every existing photo/text caller is unaffected.
+          ...(momentType === 'video' ? { momentType: 'video', durationSeconds } : {}),
           // Side Games proxy entry — sent only when genuinely capturing
           // on behalf of someone else; the moments route's own default
           // (self) is unaffected for every ordinary capture.
@@ -368,6 +497,10 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
           affected by this same iOS-specific issue. */}
       <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleSelect} style={{ display: 'none' }} />
       <input ref={galleryInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleSelect} style={{ display: 'none' }} />
+      {/* No `capture` attribute -- letting the OS picker offer both "record now" and
+          "choose an existing video" is friendlier than forcing straight into the camera,
+          since a player may already have the perfect clip from a moment ago. */}
+      <input ref={videoInputRef} type="file" accept="video/mp4,video/webm,video/quicktime" onChange={handleSelectVideo} style={{ display: 'none' }} />
 
       {stage === 'closed' && !autoOpenCamera && (
         <button
@@ -438,6 +571,9 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
             </button>
             <button type="button" onClick={() => galleryInputRef.current?.click()} style={composerOptionStyle}>
               🖼️ Choose from Gallery
+            </button>
+            <button type="button" onClick={() => videoInputRef.current?.click()} style={composerOptionStyle}>
+              🎬 Record/Upload Video ({VIDEO_MAX_DURATION_SECONDS}s max)
             </button>
             <button type="button" onClick={() => setStage('textMoment')} style={composerOptionStyle}>
               💬 Text Moment
@@ -530,6 +666,47 @@ export default function MomentCapture({ tripId, roundId, holeNumber, myGroupId, 
             <button type="button" onClick={resetAll} disabled={uploading} style={cancelButtonStyle}>Cancel</button>
           </div>
           <button type="button" onClick={chooseAnother} disabled={uploading} style={{ width: '100%', padding: 8, background: 'none', border: 'none', color: '#9ca3af', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}>
+            Choose Another
+          </button>
+        </div>
+      )}
+
+      {stage === 'videoPreview' && (
+        <div style={{ background: '#ffffff', border: '1px solid #eceae3', borderRadius: 12, padding: 12, marginTop: 8 }}>
+          {videoUrl && (
+            // eslint-disable-next-line jsx-a11y/media-has-caption -- a
+            // locally-recorded golf-trip clip has no caption track to supply
+            <video
+              src={videoUrl}
+              controls
+              playsInline
+              style={{ width: '100%', maxHeight: 260, borderRadius: 8, marginBottom: 8, background: '#000' }}
+            />
+          )}
+          {videoDurationSeconds !== null && (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginBottom: 8 }}>
+              {videoDurationSeconds.toFixed(1)}s clip
+            </p>
+          )}
+          <input
+            value={caption}
+            onChange={e => setCaption(e.target.value)}
+            placeholder="Caption (optional)"
+            maxLength={200}
+            style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 10px', fontFamily: 'var(--font-body)', fontSize: 13, marginBottom: 8 }}
+          />
+          {myGroupId && <AudiencePicker audience={audience} setAudience={setAudience} />}
+          {error && <p style={{ color: '#dc2626', fontSize: 11.5, marginBottom: 8, fontFamily: 'var(--font-body)' }}>{error}</p>}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <button
+              type="button" onClick={handlePostVideo} disabled={uploading}
+              style={{ flex: 1, padding: 10, borderRadius: 8, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: uploading ? 'default' : 'pointer', opacity: uploading ? 0.6 : 1 }}
+            >
+              {uploadStage === 'uploading' ? 'Uploading video…' : 'Post'}
+            </button>
+            <button type="button" onClick={resetAll} disabled={uploading} style={cancelButtonStyle}>Cancel</button>
+          </div>
+          <button type="button" onClick={chooseAnotherVideo} disabled={uploading} style={{ width: '100%', padding: 8, background: 'none', border: 'none', color: '#9ca3af', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}>
             Choose Another
           </button>
         </div>

@@ -8,6 +8,7 @@ function memory(overrides: Partial<ExportMemory> & { momentId: string }): Export
     roundId: null, roundOrdinal: null, holeNumber: null, playerName: null, caption: null,
     imagePath: 'trip-1/general/user-1/1000.jpg', createdAt: '2026-09-11T10:00:00Z',
     organiserFavourite: false, sourceType: 'GENERAL', sideCompName: null,
+    mediaType: 'photo', isBlooper: false,
     ...overrides,
   }
 }
@@ -314,4 +315,92 @@ test('buildEventSummaryText: a tied championResult shows both names and marks th
   )
   assert.match(text, /Darren Lappen & Alex Schaefer/)
   assert.match(text, /\(tie\)/)
+})
+
+// -- V1.4 completion patch (14 Sep): video-aware export ----------------
+
+test('a text Moment (no underlying file) is excluded from every export scope', () => {
+  const memories = [
+    memory({ momentId: 'photo-1', mediaType: 'photo' }),
+    memory({ momentId: 'text-1', mediaType: 'text', caption: 'Great round' }),
+  ]
+  const result = buildExportManifest('Event', { kind: 'all' }, memories)
+  assert.equal(result.entries.length, 1)
+  assert.equal(result.entries[0].momentId, 'photo-1')
+})
+
+test('a video Moment is routed to its own VIDEOS folder, never mixed with the photo GENERAL MOMENTS or SIDE GAMES folders', () => {
+  const memories = [
+    memory({ momentId: 'vid-1', mediaType: 'video', roundId: 'r1', roundOrdinal: 1, sourceType: 'SIDE_GAME', sideCompName: 'Longest Drive' }),
+    memory({ momentId: 'photo-1', mediaType: 'photo', roundId: 'r1', roundOrdinal: 1 }),
+  ]
+  const result = buildExportManifest('Event', { kind: 'all' }, memories)
+  const videoEntry = result.entries.find(e => e.momentId === 'vid-1')!
+  assert.equal(videoEntry.folderPath, '01 - ROUND 1/VIDEOS')
+  assert.doesNotMatch(videoEntry.folderPath, /SIDE GAMES|GENERAL MOMENTS/)
+})
+
+test('an event-level video Moment (no round) is routed to 00 - EVENT/VIDEOS, distinct from 00 - EVENT/GENERAL', () => {
+  const memories = [memory({ momentId: 'vid-1', mediaType: 'video', roundId: null, roundOrdinal: null })]
+  const result = buildExportManifest('Event', { kind: 'all' }, memories)
+  assert.equal(result.entries[0].folderPath, '00 - EVENT/VIDEOS')
+})
+
+test('a video Moment\'s filename uses CLIP, never GENERAL or a Side Game name, even when sourceType is SIDE_GAME', () => {
+  const memories = [memory({ momentId: 'vid-1', mediaType: 'video', roundId: 'r1', roundOrdinal: 1, sourceType: 'SIDE_GAME', sideCompName: 'Longest Drive', playerName: 'Alex Schaefer' })]
+  const result = buildExportManifest('Event', { kind: 'all' }, memories)
+  assert.match(result.entries[0].filename, /^R01_CLIP_Alex-Schaefer_001\./)
+})
+
+test('the exported filename preserves the real video file extension, never defaulting to jpg', () => {
+  const memories = [memory({ momentId: 'vid-1', mediaType: 'video', imagePath: 'trip/round/user/clip.mp4' })]
+  const result = buildExportManifest('Event', { kind: 'all' }, memories)
+  assert.match(result.entries[0].filename, /\.mp4$/)
+})
+
+test('a webm clip keeps its own extension too -- the extension is read from the real path, never assumed', () => {
+  const memories = [memory({ momentId: 'vid-1', mediaType: 'video', imagePath: 'trip/round/user/clip.webm' })]
+  const result = buildExportManifest('Event', { kind: 'all' }, memories)
+  assert.match(result.entries[0].filename, /\.webm$/)
+})
+
+test('a Blooper-selected video produces a genuine duplicate entry under 91 - BLOOPERS with the identical filename, not a symlink', () => {
+  const memories = [memory({ momentId: 'vid-1', mediaType: 'video', roundId: 'r1', roundOrdinal: 1, isBlooper: true })]
+  const result = buildExportManifest('Event', { kind: 'all' }, memories)
+  const primary = result.entries.find(e => !e.isBlooperDuplicate)!
+  const blooperCopy = result.entries.find(e => e.isBlooperDuplicate)!
+  assert.equal(result.blooperCount, 1)
+  assert.equal(blooperCopy.folderPath, '91 - BLOOPERS')
+  assert.equal(blooperCopy.filename, primary.filename)
+  assert.match(primary.filename, /BLOOPER/)
+})
+
+test('a non-Blooper video produces no 91 - BLOOPERS entry at all', () => {
+  const memories = [memory({ momentId: 'vid-1', mediaType: 'video', isBlooper: false })]
+  const result = buildExportManifest('Event', { kind: 'all' }, memories)
+  assert.equal(result.blooperCount, 0)
+  assert.ok(!result.entries.some(e => e.folderPath === '91 - BLOOPERS'))
+})
+
+test('a video that is BOTH a Favourite and a Blooper produces three entries: primary, Favourite copy, and Blooper copy', () => {
+  const memories = [memory({ momentId: 'vid-1', mediaType: 'video', organiserFavourite: true, isBlooper: true })]
+  const result = buildExportManifest('Event', { kind: 'all' }, memories)
+  assert.equal(result.entries.length, 3)
+  assert.equal(result.favouriteCount, 1)
+  assert.equal(result.blooperCount, 1)
+  assert.ok(result.entries.some(e => e.folderPath === '90 - FAVOURITE HIGHLIGHTS'))
+  assert.ok(result.entries.some(e => e.folderPath === '91 - BLOOPERS'))
+  // Every one of the three shares the exact same deterministic filename.
+  const filenames = new Set(result.entries.map(e => e.filename))
+  assert.equal(filenames.size, 1)
+})
+
+test('Export Favourites scope still correctly includes a Favourite video alongside Favourite photos', () => {
+  const memories = [
+    memory({ momentId: 'vid-1', mediaType: 'video', organiserFavourite: true }),
+    memory({ momentId: 'photo-1', mediaType: 'photo', organiserFavourite: false }),
+  ]
+  const result = buildExportManifest('Event', { kind: 'favourites' }, memories)
+  assert.equal(result.memoryCount, 1)
+  assert.ok(result.entries.some(e => e.momentId === 'vid-1' && !e.isFavouriteDuplicate))
 })

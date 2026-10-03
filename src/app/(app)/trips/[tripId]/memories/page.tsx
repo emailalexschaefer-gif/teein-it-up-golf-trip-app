@@ -49,6 +49,13 @@ export default function EventMemoriesPage() {
   const [slideshowStep, setSlideshowStep] = useState<'closed' | 'chooseSource' | 'curate' | 'playing'>('closed')
   const [slideshowDeck, setSlideshowDeck] = useState<SlideshowDeck | null>(null)
   const [slideshowDuration, setSlideshowDuration] = useState<5 | 8 | 10>(8)
+  // V1.4 completion patch (14 Sep) -- Group Photo picker. Persisted
+  // server-side (trips.group_photo_moment_id, migration 087), unlike
+  // the slideshow curation above -- feeds buildSlideshowDeck's own
+  // groupPhotoMomentId parameter, which already existed but had no
+  // UI able to populate it until this patch.
+  const [showGroupPhotoPicker, setShowGroupPhotoPicker] = useState(false)
+  const [settingGroupPhoto, setSettingGroupPhoto] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -76,6 +83,16 @@ export default function EventMemoriesPage() {
     try {
       await fetch(`/api/trips/${params.tripId}/memories/${momentId}/favourite`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ favourite: next }),
+      })
+    } catch { /* optimistic update stands; a manual refresh will reconcile if this failed */ }
+  }
+
+  async function toggleBlooper(momentId: string, next: boolean) {
+    if (!manifest) return
+    setManifest({ ...manifest, memories: manifest.memories.map(m => m.momentId === momentId ? { ...m, isBlooper: next } : m) })
+    try {
+      await fetch(`/api/trips/${params.tripId}/memories/${momentId}/blooper`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ blooper: next }),
       })
     } catch { /* optimistic update stands; a manual refresh will reconcile if this failed */ }
   }
@@ -119,7 +136,7 @@ export default function EventMemoriesPage() {
 
   function startSlideshow(source: SlideshowSource, selectedIds?: string[]) {
     if (!manifest) return
-    const deck = buildSlideshowDeck(manifest, source, selectedIds)
+    const deck = buildSlideshowDeck(manifest, source, selectedIds, manifest.event.groupPhotoMomentId ?? undefined)
     setSlideshowDeck(deck)
     setSlideshowStep('curate')
   }
@@ -131,19 +148,42 @@ export default function EventMemoriesPage() {
     const j = i + direction
     if (i === -1 || j < 0 || j >= ids.length) return
     ;[ids[i], ids[j]] = [ids[j], ids[i]]
-    setSlideshowDeck(rebuildDeckFromOrder(manifest, ids))
+    setSlideshowDeck(rebuildDeckFromOrder(manifest, ids, manifest.event.groupPhotoMomentId ?? undefined))
   }
 
   function removeFromSlideshow(momentId: string) {
     if (!manifest || !slideshowDeck) return
     const ids = photoMomentIdsInOrder(slideshowDeck).filter(id => id !== momentId)
-    setSlideshowDeck(rebuildDeckFromOrder(manifest, ids))
+    setSlideshowDeck(rebuildDeckFromOrder(manifest, ids, manifest.event.groupPhotoMomentId ?? undefined))
   }
 
   function addBackToSlideshow(momentId: string) {
     if (!manifest || !slideshowDeck) return
     const ids = [...photoMomentIdsInOrder(slideshowDeck), momentId]
-    setSlideshowDeck(rebuildDeckFromOrder(manifest, ids))
+    setSlideshowDeck(rebuildDeckFromOrder(manifest, ids, manifest.event.groupPhotoMomentId ?? undefined))
+  }
+
+  // V1.4 completion patch (14 Sep) -- set or clear the Group Photo.
+  // Optimistic update (the manifest's own event.groupPhotoMomentId is
+  // updated immediately), matching the existing favourite-toggle
+  // pattern in this same file; a failure here is non-destructive --
+  // a manual refresh reconciles if the server call didn't land.
+  async function setGroupPhoto(momentId: string | null) {
+    if (!manifest) return
+    setSettingGroupPhoto(true)
+    const previous = manifest.event.groupPhotoMomentId
+    setManifest({ ...manifest, event: { ...manifest.event, groupPhotoMomentId: momentId } })
+    try {
+      const res = await fetch(`/api/trips/${params.tripId}/group-photo`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ momentId }),
+      })
+      if (!res.ok) setManifest(m => m ? { ...m, event: { ...m.event, groupPhotoMomentId: previous } } : m)
+    } catch {
+      setManifest(m => m ? { ...m, event: { ...m.event, groupPhotoMomentId: previous } } : m)
+    } finally {
+      setSettingGroupPhoto(false)
+      setShowGroupPhotoPicker(false)
+    }
   }
 
   if (error) return <div style={{ padding: 24, textAlign: 'center', fontFamily: 'var(--font-body)', color: '#9ca3af' }}>{error}</div>
@@ -185,15 +225,26 @@ export default function EventMemoriesPage() {
           </div>
 
           {isOrganiser && photoCount > 0 && (
-            <button
-              onClick={() => setSlideshowStep('chooseSource')}
-              style={{
-                width: '100%', padding: '10px 0', marginBottom: 10, borderRadius: 8, border: 'none',
-                background: '#1a4731', color: '#fff', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-              }}
-            >
-              ▶ Produce Slideshow
-            </button>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <button
+                onClick={() => setShowGroupPhotoPicker(true)}
+                style={{
+                  flex: 1, padding: '10px 0', borderRadius: 8, border: '1.5px solid #d9c9a3', background: '#fff',
+                  fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#1a4731', cursor: 'pointer',
+                }}
+              >
+                📷 {manifest.event.groupPhotoMomentId ? 'Group Photo ✓' : 'Group Photo'}
+              </button>
+              <button
+                onClick={() => setSlideshowStep('chooseSource')}
+                style={{
+                  flex: 2, padding: '10px 0', borderRadius: 8, border: 'none',
+                  background: '#1a4731', color: '#fff', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                ▶ Produce Slideshow
+              </button>
+            </div>
           )}
 
           {isOrganiser && (
@@ -255,10 +306,20 @@ export default function EventMemoriesPage() {
                 onClick={() => manageMode ? toggleSelected(m.momentId) : setDetailMoment(m)}
                 style={{ position: 'relative', aspectRatio: '1', borderRadius: 8, overflow: 'hidden', cursor: 'pointer', background: '#f3f4f6' }}
               >
-                {m.imageUrl && (
+                {m.imageUrl && m.mediaType === 'video' ? (
+                  // V1.4 completion patch (14 Sep) -- a video Moment
+                  // cannot render inside an <img> tag at all; this was
+                  // a genuine bug before video Moments existed to
+                  // expose it. Muted, no controls -- the grid is a
+                  // thumbnail, not a player; tapping opens the detail
+                  // lightbox the same as a photo.
+                  <video src={m.imageUrl} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : m.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={m.imageUrl} alt={m.caption ?? 'Event memory'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                )}
+                ) : null}
+                {m.mediaType === 'video' && <span style={{ position: 'absolute', bottom: 4, left: 4, fontSize: 12, background: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>🎬 {m.durationSeconds ? `${Math.round(m.durationSeconds)}s` : ''}</span>}
+                {m.isBlooper && <span style={{ position: 'absolute', top: 4, left: 4, fontSize: 12, background: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>Blooper</span>}
                 {m.organiserFavourite && <span style={{ position: 'absolute', top: 4, right: 4, fontSize: 14 }}>⭐</span>}
                 {manageMode && (
                   <div style={{ position: 'absolute', top: 4, left: 4 }}>
@@ -294,10 +355,14 @@ export default function EventMemoriesPage() {
       {detailMoment && (
         <div onClick={() => setDetailMoment(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 50, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 16 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, overflow: 'hidden', maxWidth: 480, margin: '0 auto', width: '100%' }}>
-            {detailMoment.imageUrl && (
+            {detailMoment.imageUrl && detailMoment.mediaType === 'video' ? (
+              // V1.4 completion patch (14 Sep) -- same <img>-cannot-
+              // show-video fix as the grid thumbnail above.
+              <video src={detailMoment.imageUrl} controls playsInline style={{ width: '100%', display: 'block', maxHeight: '70vh' }} />
+            ) : detailMoment.imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={detailMoment.imageUrl} alt={detailMoment.caption ?? ''} style={{ width: '100%', display: 'block' }} />
-            )}
+            ) : null}
             <div style={{ padding: 14 }}>
               {detailMoment.caption && <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151', marginBottom: 6 }}>{detailMoment.caption}</p>}
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af' }}>
@@ -305,10 +370,16 @@ export default function EventMemoriesPage() {
                 {detailMoment.holeNumber ? ` · Hole ${detailMoment.holeNumber}` : ''}
                 {detailMoment.roundId ? ` · ${manifest.rounds.find(r => r.id === detailMoment.roundId)?.name ?? ''}` : ''}
               </p>
-              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
                 {isOrganiser && (
                   <button onClick={() => toggleFavourite(detailMoment.momentId, !detailMoment.organiserFavourite)} style={smallButtonStyle}>
                     {detailMoment.organiserFavourite ? '⭐ Favourited' : '☆ Favourite'}
+                  </button>
+                )}
+                {/* V1.4 completion patch (14 Sep) -- organiser-only, video Moments only. Never requires the Moment to also be a Favourite. */}
+                {isOrganiser && detailMoment.mediaType === 'video' && (
+                  <button onClick={() => toggleBlooper(detailMoment.momentId, !detailMoment.isBlooper)} style={smallButtonStyle}>
+                    {detailMoment.isBlooper ? '🎬 Blooper ✓' : '🎬 Add to Bloopers'}
                   </button>
                 )}
                 <button onClick={() => downloadOne(detailMoment.momentId)} style={smallButtonStyle}>⬇ Download</button>
@@ -414,6 +485,43 @@ export default function EventMemoriesPage() {
           durationSeconds={slideshowDuration}
           onExit={() => setSlideshowStep('curate')}
         />
+      )}
+
+      {/* Group Photo picker -- V1.4 completion patch (14 Sep). Only
+          genuine photo Moments are offered; the server independently
+          re-validates this on save (see the group-photo route), so a
+          stale client-side list is never trusted on its own. */}
+      {showGroupPhotoPicker && (
+        <div onClick={() => setShowGroupPhotoPicker(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 70, display: 'flex', alignItems: 'flex-end' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: 20, width: '100%', maxHeight: '75vh', display: 'flex', flexDirection: 'column' }}>
+            <p style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#1a1a16', marginBottom: 4 }}>Select Group Photo</p>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 12 }}>This photo opens your Event Highlights, right after the title slide.</p>
+            {manifest.event.groupPhotoMomentId && (
+              <button onClick={() => setGroupPhoto(null)} disabled={settingGroupPhoto} style={{ marginBottom: 10, padding: '8px 0', borderRadius: 8, border: '1px solid #d9c9a3', background: '#fff', fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260', cursor: 'pointer' }}>
+                Remove Group Photo
+              </button>
+            )}
+            <div style={{ overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+              {manifest.memories.filter(m => m.mediaType === 'photo').map(m => (
+                <button
+                  key={m.momentId} onClick={() => setGroupPhoto(m.momentId)} disabled={settingGroupPhoto}
+                  style={{ position: 'relative', aspectRatio: '1', borderRadius: 8, overflow: 'hidden', border: m.momentId === manifest.event.groupPhotoMomentId ? '3px solid #1a4731' : 'none', padding: 0, cursor: 'pointer', background: '#f3f4f6' }}
+                >
+                  {m.imageUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  )}
+                  {m.momentId === manifest.event.groupPhotoMomentId && (
+                    <span style={{ position: 'absolute', top: 4, right: 4, fontSize: 14 }}>✓</span>
+                  )}
+                </button>
+              ))}
+            </div>
+            {manifest.memories.filter(m => m.mediaType === 'photo').length === 0 && (
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', textAlign: 'center', padding: '20px 0' }}>No photos available yet.</p>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )

@@ -44,7 +44,7 @@ export interface EventFinalResults {
 }
 
 export interface EventMemoryData {
-  event: { id: string; name: string; eventType: string | null; location: string | null; startDate: string | null; endDate: string | null; status: string }
+  event: { id: string; name: string; eventType: string | null; location: string | null; startDate: string | null; endDate: string | null; status: string; groupPhotoMomentId: string | null }
   rounds: { id: string; ordinal: number | null; name: string; courseName: string | null; playDate: string; status: string; holes: number; publishedHighlights: unknown }[]
   memories: {
     momentId: string; roundId: string | null; roundOrdinal: number | null; holeNumber: number | null
@@ -52,6 +52,13 @@ export interface EventMemoryData {
     caption: string | null; imagePath: string; imageUrl: string | null; audience: string
     createdAt: string; organiserFavourite: boolean
     sourceType: MemorySourceType; sideCompId: string | null; sideCompName: string | null; sideCompType: string | null
+    // V1.4 (14 Sep) -- migration 086. mediaType distinguishes a video
+    // Moment from a photo one; durationSeconds is required and
+    // authoritative for a video (never re-derived from the file at
+    // render time); isBlooper is the organiser's own explicit
+    // selection for the Bloopers/Outtakes chapter, never inferred
+    // from mediaType alone.
+    mediaType: 'photo' | 'text' | 'video'; durationSeconds: number | null; isBlooper: boolean
   }[]
   sideGameWinners: { sideCompId: string; roundId: string; compType: string; label: string; holeNumber: number | null; winnerPlayerId: string | null; winnerName: string | null }[]
   playerCount: number
@@ -67,7 +74,7 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin: any = createAdminClient()
 
-  const tripRes = await admin.from('trips').select('id, name, event_type, location, start_date, end_date, status, organiser_id').eq('id', tripId).maybeSingle()
+  const tripRes = await admin.from('trips').select('id, name, event_type, location, start_date, end_date, status, organiser_id, group_photo_moment_id').eq('id', tripId).maybeSingle()
   if (!tripRes.data) return null
 
   const roundsRes = await admin.from('rounds')
@@ -82,7 +89,7 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
   const playerCount = new Set(((membersRes.data ?? []) as { profile_id: string }[]).map(m => m.profile_id)).size
 
   const momentsRes = await admin.from('moments')
-    .select('id, round_id, hole_number, player_id, captured_by, caption, image_path, audience, created_at, is_event_favourite, profiles:player_id(full_name)')
+    .select('id, round_id, hole_number, player_id, captured_by, caption, image_path, audience, created_at, is_event_favourite, moment_type, duration_seconds, is_blooper, profiles:player_id(full_name)')
     .eq('trip_id', tripId)
     .order('created_at', { ascending: true })
   const moments = momentsRes.data ?? []
@@ -181,7 +188,7 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
     event: {
       id: tripRes.data.id, name: tripRes.data.name, eventType: tripRes.data.event_type,
       location: tripRes.data.location, startDate: tripRes.data.start_date, endDate: tripRes.data.end_date,
-      status: tripRes.data.status,
+      status: tripRes.data.status, groupPhotoMomentId: tripRes.data.group_photo_moment_id,
     },
     rounds: rounds.map((r: { id: string; name: string; course_name: string | null; play_date: string; status: string; holes: number }) => ({
       id: r.id, ordinal: roundOrdinalById.get(r.id) ?? null, name: r.name, courseName: r.course_name, playDate: r.play_date, status: r.status, holes: r.holes,
@@ -190,7 +197,8 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
     memories: moments.map((m: {
       id: string; round_id: string | null; hole_number: number | null; player_id: string; captured_by: string | null
       caption: string | null; image_path: string; audience: string; created_at: string
-      is_event_favourite: boolean; profiles: { full_name: string } | null
+      is_event_favourite: boolean; moment_type: 'photo' | 'text' | 'video'; duration_seconds: number | null; is_blooper: boolean
+      profiles: { full_name: string } | null
     }) => {
       const linkedSideCompId = sideCompIdByMomentId.get(m.id) ?? null
       const linkedSideComp = linkedSideCompId ? sideCompById.get(linkedSideCompId) ?? null : null
@@ -206,6 +214,7 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
         sideCompId: linkedSideComp?.id ?? null,
         sideCompName: linkedSideComp ? (linkedSideComp.name || SIDE_COMP_LABEL[linkedSideComp.comp_type] || linkedSideComp.comp_type) : null,
         sideCompType: linkedSideComp?.comp_type ?? null,
+        mediaType: m.moment_type, durationSeconds: m.duration_seconds, isBlooper: m.is_blooper,
       }
     }),
     sideGameWinners,

@@ -73,7 +73,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   if (authError || !user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
 
   const body = await req.json().catch(() => ({}))
-  const { imagePath, caption, roundId, holeNumber, audience, sideCompId, sideCompEntryId, leadChangeId, playerId: requestedPlayerId } = body as {
+  const { imagePath, caption, roundId, holeNumber, audience, sideCompId, sideCompEntryId, leadChangeId, playerId: requestedPlayerId, momentType, durationSeconds } = body as {
     imagePath?: string; caption?: string; roundId?: string | null; holeNumber?: number | null; audience?: string
     // Sprint 9 Item 4 — Capture the Moment linking. Only ever present
     // when this Moment was launched from a New Leader prompt (see
@@ -84,12 +84,38 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     // from who's uploading it. Defaults to the submitter (every existing
     // caller that doesn't send this behaves identically to before).
     playerId?: string
+    // V1.4 completion patch (14 Sep), migration 086 — video Moment
+    // support. Omitted entirely by every existing caller (photo/text),
+    // which default to 'photo' below, identical to pre-V1.4 behaviour.
+    momentType?: 'photo' | 'video'; durationSeconds?: number
   }
 
-  // A Moment needs either a photo or a caption — a Text Moment (no
-  // image) must have something to actually show.
+  // A Moment needs either a photo/video or a caption — a Text Moment
+  // (no media) must have something to actually show.
   if (!imagePath && !caption?.trim()) {
     return NextResponse.json({ error: 'Add a photo or write something for this moment.' }, { status: 400 })
+  }
+  const resolvedMomentType: 'photo' | 'text' | 'video' = momentType === 'video' ? 'video' : imagePath ? 'photo' : 'text'
+  // Server-side validation matching migration 086's own CHECK
+  // constraint exactly, so an invalid combination is rejected with a
+  // clear error here rather than surfacing as an opaque database
+  // error later: a video Moment must have both an image_path (the
+  // video file's own Storage path, reusing this column rather than a
+  // parallel one) and a positive duration.
+  if (resolvedMomentType === 'video') {
+    if (!imagePath) return NextResponse.json({ error: 'A video Moment needs an uploaded file.' }, { status: 400 })
+    if (typeof durationSeconds !== 'number' || !Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+      return NextResponse.json({ error: 'A video Moment needs a valid duration.' }, { status: 400 })
+    }
+    // Sensible server-side ceiling, independent of whatever the client
+    // already checked -- never trust client-side duration validation
+    // alone for something the brief calls a hard constraint ("capped
+    // around 10 seconds"). 15s allows minor client-side rounding/
+    // measurement variance without being meaningfully different from
+    // the stated ~10s target.
+    if (durationSeconds > 15) {
+      return NextResponse.json({ error: 'Videos must be 15 seconds or shorter.' }, { status: 400 })
+    }
   }
   const resolvedAudience = audience === 'group' ? 'group' : 'everyone'
 
@@ -133,6 +159,8 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     caption: caption?.trim() || null,
     image_path: imagePath ?? null,
     audience: resolvedAudience,
+    moment_type: resolvedMomentType,
+    duration_seconds: resolvedMomentType === 'video' ? durationSeconds : null,
   }).select().single()
 
   if (momentErr) {
@@ -164,7 +192,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     message_type: 'moment',
     recipient_type: resolvedAudience === 'group' ? 'group' : 'all',
     recipient_group_id: resolvedAudience === 'group' ? membership.group_id : null,
-    message: caption?.trim() || '📷 Moment',
+    message: caption?.trim() || (resolvedMomentType === 'video' ? '🎬 Video' : '📷 Moment'),
     moment_id: moment.id,
   }
   let { error: msgErr } = await supabase.from('event_messages').insert(chatInsertPayload)

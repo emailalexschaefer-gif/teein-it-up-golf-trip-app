@@ -321,12 +321,27 @@ export function findMailman(field: FieldRoundData): Highlight | null {
   const winner = sorted[0]
   const runnerUp = sorted[1]
   const margin = runnerUp ? winner.pts - runnerUp.pts : null
+  // V1.4 (14 Sep) -- fixed "win by 0": margin !== null is true both
+  // for a genuine positive margin AND for a tie at the top
+  // (winner.pts === runnerUp.pts, margin === 0), and the previous
+  // condition treated both the same way, producing "the win by 0".
+  // A margin of 0 is not a meaningful winning gap -- there's a
+  // genuine distinction between "no margin could be established" and
+  // "a margin was established and it's zero," and both need their own
+  // honest copy, neither of which is "won by 0". The underlying
+  // winner-selection logic (sorted[0], no formal tie-break) is
+  // unchanged -- this is a copy fix, not a scoring change, per the
+  // explicit "do not alter scoring/results to solve a copy problem"
+  // instruction.
+  const statLine = margin !== null && margin > 0
+    ? `${winner.pts} points \u2014 won by ${margin}`
+    : margin === 0
+      ? `${winner.pts} points \u2014 tied for the lead`
+      : `${winner.pts} points and the round win`
   return {
     category: 'mailman', kind: 'maker', scope: 'individual', icon: '📬', title: 'The Mailman',
     playerId: winner.player.playerId, playerName: winner.player.playerName,
-    statLine: margin !== null
-      ? `${winner.pts} points \u2014 the win by ${margin}`
-      : `${winner.pts} points and the round win`,
+    statLine,
     significance: winner.pts,
   }
 }
