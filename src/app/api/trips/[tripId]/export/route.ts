@@ -9,25 +9,25 @@ import { buildEventSummaryText } from '@/lib/trips/eventSummaryText'
 
 interface RouteProps { params: Promise<{ tripId: string }> }
 
-// VERCEL HOBBY CONFIRMED (11 Sep). RESEARCH SUGGESTED 300 (12 Sep),
-// REVERTED (13 Sep) -- the V1.3 deployment that shipped with
-// maxDuration = 300 failed to build (npm run build exited 1). This is
-// exactly the specific, concrete risk flagged when that value was
-// chosen: declaring maxDuration above what this project's actual
-// Vercel regime allows causes a build-time failure, not a silent
-// runtime cap. Vercel's own documentation states Fluid Compute (which
-// would make 300 valid on Hobby) is the current default for newer
-// projects, but this project's own real build behaviour is the only
-// authoritative answer to which regime it's actually on -- and that
-// answer, now observed directly, is that 300 does not build. Reverted
-// to 60, the value confirmed valid under BOTH possible regimes (the
-// legacy pre-Fluid-Compute ceiling is 60s maximum), which is what this
-// file used before the unconfirmed 300 change. This is the single
-// smallest change that resolves the observed failure without
-// guessing at anything further -- see the delivery report for the
-// full reasoning on why this is treated as the primary suspect rather
-// than the ESLint warnings also present in the build log.
-export const maxDuration = 60
+// VERCEL HOBBY CONFIRMED (11 Sep). SET TO 300 (12 Sep). REVERTED TO 60
+// (13 Sep) on the mistaken hypothesis that this was the build
+// blocker. RESTORED TO 300 (14 Sep) once the real Vercel build log
+// showed the actual failure: an unrelated react/no-unescaped-entities
+// ESLint error in EventHighlightsPlayer.tsx (see that file's own
+// history for the fix). maxDuration was never the cause -- ESLint
+// errors fail a Next.js build during an earlier phase than route-
+// config validation, so this value was never even reached. This
+// sandbox still cannot verify which Vercel execution regime the
+// project is actually on (Fluid Compute, which permits 300 on Hobby,
+// vs. the legacy 60s ceiling) -- that remains genuinely unconfirmed,
+// reported as such rather than guessed at further. Restored to 300
+// because there is no evidence against it now that the real blocker
+// is fixed, and because an invalid maxDuration fails LOUDLY and
+// SPECIFICALLY at build time (confirmed from a documented case,
+// not a silent runtime cap) -- so the next real build attempt is
+// itself the definitive, unambiguous test of whether 300 is valid
+// here, not something to keep guessing about in the abstract.
+export const maxDuration = 300
 
 
 /**
@@ -38,21 +38,26 @@ export const maxDuration = 60
  * every image into memory first, per the explicit "do not buffer
  * hundreds of images into memory if streaming is available" instruction.
  *
- * *** VERCEL HOBBY PLAN -- CONFIRMED ARCHITECTURE, DURATION RESOLVED ***
- * Confirmed deployed on Hobby. Response body size: a non-streaming
- * Vercel Function response is capped at 4.5MB -- far too small for a
- * multi-tens-of-MB ZIP -- but Vercel's own documentation states
- * streaming responses do NOT carry this limit, which is exactly why
- * this route streams rather than buffers. Execution duration: set to
- * 60s (see the comment directly above maxDuration below for why this
- * is 60, not the Fluid-Compute-dependent 300 an earlier revision
- * tried and which failed to build). At the confirmed ~200-500KB
- * per-photo size and batched (not strictly sequential) downloads, a
- * 100-150 photo export should fit within 60s with reasonable margin --
- * the real bottleneck is Storage network I/O per photo, and batching
- * 6 at a time directly reduces that wall-clock cost. This remains a
- * genuine, named limit for a larger event: if real-world testing
- * shows 60s is reached before a realistically-sized export completes,
+ * *** VERCEL HOBBY PLAN -- CONFIRMED ARCHITECTURE, DURATION STILL
+ * GENUINELY UNVERIFIED *** Confirmed deployed on Hobby. Response body
+ * size: a non-streaming Vercel Function response is capped at 4.5MB
+ * -- far too small for a multi-tens-of-MB ZIP -- but Vercel's own
+ * documentation states streaming responses do NOT carry this limit,
+ * which is exactly why this route streams rather than buffers.
+ * Execution duration: set to 300s (see the comment directly above
+ * maxDuration below for the full history -- a prior session
+ * mistakenly reverted this to 60 after misdiagnosing an unrelated
+ * ESLint build failure as a maxDuration problem; restored once the
+ * real cause was found). Whether this project is actually on Fluid
+ * Compute (which permits 300 on Hobby) remains genuinely unconfirmed
+ * from this sandbox -- not guessed at as resolved. At the confirmed
+ * ~200-500KB per-photo size and batched (not strictly sequential)
+ * downloads, a 100-150 photo export should fit comfortably within
+ * either ceiling -- the real bottleneck is Storage network I/O per
+ * photo, and batching 6 at a time directly reduces that wall-clock
+ * cost. This remains a genuine, named limit for a larger event: if
+ * real-world testing shows the real ceiling (whichever it turns out
+ * to be) is reached before a realistically-sized export completes,
  * the brief's own recommended fallback (staging the export outside
  * the request lifecycle with a signed download once ready) is the
  * next step -- not attempted here, since the brief's own instruction

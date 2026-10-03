@@ -276,7 +276,7 @@ function NonPhotoSlide({ slide }: { slide: Slide }) {
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#14532d' }}>
       <p style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 800, color: '#fff', letterSpacing: 1, marginBottom: 10 }}>EVENT HIGHLIGHTS</p>
-      <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#d9c9a3' }}>Teein' It Up</p>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#d9c9a3' }}>Teein&apos; It Up</p>
       <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#a3c9b1' }}>Run your next golf event like a pro.</p>
     </div>
   )

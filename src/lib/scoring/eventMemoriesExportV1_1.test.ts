@@ -84,9 +84,9 @@ test('manifest and summary are both scoped to exactly what is in this export, no
   assert.match(ts, /exportMemories\.filter\(m => exportResult\.entries\.some\(e => e\.momentId === m\.momentId && !e\.isFavouriteDuplicate\)\)/)
 })
 
-test('maxDuration is explicitly set to 60 -- the value valid under both possible Hobby regimes, after 300 was observed to fail the real production build', () => {
+test('maxDuration is explicitly set to 300 -- restored after the real build blocker (an unrelated ESLint error) was found and fixed, confirming maxDuration was never the actual cause', () => {
   const ts = readExportRoute()
-  assert.match(ts, /export const maxDuration = 60/)
+  assert.match(ts, /export const maxDuration = 300/)
 })
 
 test('photo downloads are batched (concurrent within a batch), not strictly one-at-a-time, to reduce wall-clock time toward the duration ceiling', () => {
