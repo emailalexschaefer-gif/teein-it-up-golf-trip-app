@@ -61,8 +61,20 @@ test('manifest route: side game winners are read from official_winner_entry_id, 
 
 test('manifest route: highlights are read from published_round_highlights, never regenerated from raw scores', () => {
   const ts = readEventMemoryData()
+  const highlightsQueryMatch = ts.match(/admin\.from\('published_round_highlights'\)\.select\([^)]*\)[^\n]*/)
   assert.match(ts, /from\('published_round_highlights'\)/)
-  assert.doesNotMatch(ts, /score_entries/)
+  assert.ok(highlightsQueryMatch, 'published_round_highlights query not found')
+  // V1.5 (15 Sep) -- narrowed from "score_entries never appears
+  // anywhere in this file" to "the highlights query statement itself
+  // never touches score_entries", now that this same file also
+  // legitimately queries score_entries for an entirely separate,
+  // audited purpose (Round Winner, derived from existing round-scoped
+  // stableford_pts -- see the V1.5 delivery report). The original
+  // guarantee this test protects -- Makers & Breakers highlights are
+  // read verbatim, never recalculated from raw scores -- still holds
+  // exactly as before; only the detection mechanism needed to become
+  // precise enough to tell these two unrelated concerns apart.
+  assert.doesNotMatch(highlightsQueryMatch![0], /score_entries/)
 })
 
 test('manifest route: champion is explicitly deferred (null), not fabricated with a guessed calculation', () => {

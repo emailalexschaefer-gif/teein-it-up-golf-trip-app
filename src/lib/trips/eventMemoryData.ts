@@ -30,6 +30,7 @@
  */
 import { createAdminClient } from '@/lib/supabase/admin'
 import { computeFinalResults, type FinalResultsResult } from './finalResults'
+import { determineRoundWinners } from '@/lib/scoring/multiRound'
 
 const SIDE_COMP_LABEL: Record<string, string> = {
   nearest_pin: 'Nearest the Pin', longest_drive: 'Longest Drive', pros_approach: "Pro's Approach", powerplay: 'Powerplay',
@@ -45,7 +46,16 @@ export interface EventFinalResults {
 
 export interface EventMemoryData {
   event: { id: string; name: string; eventType: string | null; location: string | null; startDate: string | null; endDate: string | null; status: string; groupPhotoMomentId: string | null }
-  rounds: { id: string; ordinal: number | null; name: string; courseName: string | null; playDate: string; status: string; holes: number; publishedHighlights: unknown }[]
+  rounds: {
+    id: string; ordinal: number | null; name: string; courseName: string | null; playDate: string; status: string; holes: number; publishedHighlights: unknown
+    // V1.5 completion patch (15 Sep) -- null for a round not yet
+    // completed (never a mid-round snapshot); an empty array for a
+    // completed round with no scorecards at all (never a fabricated
+    // winner); otherwise every player tied for the round's own
+    // highest points, exactly as determineRoundWinners itself
+    // guarantees.
+    winners: { playerId: string; playerName: string; points: number }[] | null
+  }[]
   memories: {
     momentId: string; roundId: string | null; roundOrdinal: number | null; holeNumber: number | null
     playerId: string; playerName: string | null; capturedBy: string | null; capturedByName: string | null
@@ -84,6 +94,41 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
   const rounds = roundsRes.data ?? []
   const roundIds = rounds.map((r: { id: string }) => r.id)
   const roundOrdinalById = new Map(rounds.map((r: { id: string }, i: number) => [r.id, i + 1]))
+
+  // V1.5 completion patch (15 Sep) -- Round Winner, audited and
+  // confirmed derivable from existing round-scoped scoring data,
+  // without any schema change. Reuses determineRoundWinners
+  // (multiRound.ts) -- the exact same tie-safe, "never pick one
+  // arbitrarily" pure function computeFinalResults (finalResults.ts)
+  // already calls for its own per-round winners -- fed here from a
+  // simpler, round-scoped query rather than that function's own full
+  // event-wide computation, which is deliberately gated on the ENTIRE
+  // EVENT being status='completed' (confirmed by reading it directly)
+  // and so cannot answer "who won Round 1" while Round 2/3 are still
+  // being played -- exactly the brief's own "after Round 1 they can
+  // make a recap" use case. determineRoundWinners itself only ever
+  // reads roundPoints, never holePoints -- confirmed directly, so no
+  // countback/hole-sequence data is fetched here at all, only the sum
+  // of stableford_pts per player, the minimum this function needs.
+  // Only ever computed for a round whose own status is 'completed' --
+  // never a mid-round snapshot presented as a "result."
+  const completedRoundIds = rounds.filter((r: { status: string }) => r.status === 'completed').map((r: { id: string }) => r.id)
+  const roundWinnersByRoundId = new Map<string, { playerId: string; playerName: string; points: number }[]>()
+  if (completedRoundIds.length > 0) {
+    const roundResultsArrays = await Promise.all(completedRoundIds.map(async (roundId: string) => {
+      const scorecardsRes = await admin.from('scorecards')
+        .select('player_id, profiles:player_id(full_name), score_entries(stableford_pts, capture_role)')
+        .eq('round_id', roundId).neq('status', 'withdrawn')
+      const playerResults = ((scorecardsRes.data ?? []) as unknown as { player_id: string; profiles: { full_name: string } | null; score_entries: { stableford_pts: number | null; capture_role: string }[] }[])
+        .map(sc => ({
+          playerId: sc.player_id, playerName: sc.profiles?.full_name ?? 'Player',
+          roundPoints: (sc.score_entries ?? []).filter(e => e.capture_role === 'self').reduce((sum, e) => sum + (e.stableford_pts ?? 0), 0),
+          holePoints: [],
+        }))
+      return { roundId, winners: determineRoundWinners(playerResults) }
+    }))
+    for (const r of roundResultsArrays) roundWinnersByRoundId.set(r.roundId, r.winners)
+  }
 
   const membersRes = await admin.from('trip_members').select('profile_id').eq('trip_id', tripId)
   const playerCount = new Set(((membersRes.data ?? []) as { profile_id: string }[]).map(m => m.profile_id)).size
@@ -193,6 +238,7 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
     rounds: rounds.map((r: { id: string; name: string; course_name: string | null; play_date: string; status: string; holes: number }) => ({
       id: r.id, ordinal: roundOrdinalById.get(r.id) ?? null, name: r.name, courseName: r.course_name, playDate: r.play_date, status: r.status, holes: r.holes,
       publishedHighlights: highlightsByRoundId.get(r.id)?.highlights ?? null,
+      winners: r.status === 'completed' ? (roundWinnersByRoundId.get(r.id) ?? []) : null,
     })),
     memories: moments.map((m: {
       id: string; round_id: string | null; hole_number: number | null; player_id: string; captured_by: string | null

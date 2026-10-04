@@ -4,7 +4,11 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import type { EventMemoryData } from '@/lib/trips/eventMemoryData'
-import { buildSlideshowDeck, rebuildDeckFromOrder, photoMomentIdsInOrder, type SlideshowSource, type SlideshowDeck } from '@/lib/trips/slideshowDeck'
+import {
+  type SlideshowDeck,
+  buildPresentationDeck, getAvailableSections, defaultPresentationConfig,
+  type PresentationConfig, type PresentationScope, type RoundSectionConfig, type SectionAvailability,
+} from '@/lib/trips/slideshowDeck'
 import EventHighlightsPlayer from '@/components/memories/EventHighlightsPlayer'
 
 // Event Memories V1.2 (12 Sep) -- the gallery's own Memory/Round/
@@ -46,7 +50,16 @@ export default function EventMemoriesPage() {
   // for the current viewing session and is rebuilt fresh from
   // scratch (via buildSlideshowDeck) each time "Produce Slideshow" is
   // chosen again.
-  const [slideshowStep, setSlideshowStep] = useState<'closed' | 'chooseSource' | 'curate' | 'playing'>('closed')
+  // V1.5 completion patch (15 Sep) -- Create Slideshow flow: Choose
+  // Scope -> Choose Sections -> Review -> Play. Replaces the prior
+  // single-step "Produce Slideshow" (source-only) flow -- the
+  // underlying PresentationConfig/buildPresentationDeck engine is the
+  // tested foundation from the previous session; this page wires it
+  // into the organiser UI, per the explicit "do not create a second
+  // slide-generation path" instruction -- there is exactly one call
+  // to buildPresentationDeck, in the Play step below.
+  const [slideshowStep, setSlideshowStep] = useState<'closed' | 'scope' | 'sections' | 'review' | 'playing'>('closed')
+  const [presentationConfig, setPresentationConfig] = useState<PresentationConfig | null>(null)
   const [slideshowDeck, setSlideshowDeck] = useState<SlideshowDeck | null>(null)
   const [slideshowDuration, setSlideshowDuration] = useState<5 | 8 | 10>(8)
   // V1.4 completion patch (14 Sep) -- Group Photo picker. Persisted
@@ -134,33 +147,42 @@ export default function EventMemoriesPage() {
     }
   }
 
-  function startSlideshow(source: SlideshowSource, selectedIds?: string[]) {
+  // Choose Scope -- the organiser taps a round or Full Event; this
+  // seeds the config with defaultPresentationConfig (the tested
+  // intelligent-defaults function) and moves straight to Choose
+  // Sections, never dumping them into a raw Memory list first.
+  function chooseScope(scope: PresentationScope) {
     if (!manifest) return
-    const deck = buildSlideshowDeck(manifest, source, selectedIds, manifest.event.groupPhotoMomentId ?? undefined)
-    setSlideshowDeck(deck)
-    setSlideshowStep('curate')
+    setPresentationConfig(defaultPresentationConfig(manifest, scope))
+    setSlideshowStep('sections')
   }
 
-  function reorderSlide(momentId: string, direction: -1 | 1) {
-    if (!manifest || !slideshowDeck) return
-    const ids = photoMomentIdsInOrder(slideshowDeck)
-    const i = ids.indexOf(momentId)
-    const j = i + direction
-    if (i === -1 || j < 0 || j >= ids.length) return
-    ;[ids[i], ids[j]] = [ids[j], ids[i]]
-    setSlideshowDeck(rebuildDeckFromOrder(manifest, ids, manifest.event.groupPhotoMomentId ?? undefined))
+  // Updates one round's section config within the current
+  // PresentationConfig, by roundId -- the single place every per-round
+  // toggle in the Sections step writes through.
+  function updateRoundSection(roundId: string, patch: Partial<RoundSectionConfig>) {
+    setPresentationConfig(prev => prev && {
+      ...prev,
+      rounds: prev.rounds.map(r => r.roundId === roundId ? { ...r, ...patch } : r),
+    })
   }
 
-  function removeFromSlideshow(momentId: string) {
-    if (!manifest || !slideshowDeck) return
-    const ids = photoMomentIdsInOrder(slideshowDeck).filter(id => id !== momentId)
-    setSlideshowDeck(rebuildDeckFromOrder(manifest, ids, manifest.event.groupPhotoMomentId ?? undefined))
+  function toggleBestMomentSelection(momentId: string) {
+    setPresentationConfig(prev => {
+      if (!prev) return prev
+      const current = new Set(prev.selectedMomentIds ?? [])
+      if (current.has(momentId)) current.delete(momentId); else current.add(momentId)
+      return { ...prev, bestMomentsSource: 'selected', selectedMomentIds: [...current] }
+    })
   }
 
-  function addBackToSlideshow(momentId: string) {
-    if (!manifest || !slideshowDeck) return
-    const ids = [...photoMomentIdsInOrder(slideshowDeck), momentId]
-    setSlideshowDeck(rebuildDeckFromOrder(manifest, ids, manifest.event.groupPhotoMomentId ?? undefined))
+  // Review -> Play. The single call site for buildPresentationDeck in
+  // this entire page -- per the explicit "do not create a second
+  // slide-generation path" instruction.
+  function playPresentation() {
+    if (!manifest || !presentationConfig) return
+    setSlideshowDeck(buildPresentationDeck(manifest, presentationConfig))
+    setSlideshowStep('playing')
   }
 
   // V1.4 completion patch (14 Sep) -- set or clear the Group Photo.
@@ -236,13 +258,13 @@ export default function EventMemoriesPage() {
                 📷 {manifest.event.groupPhotoMomentId ? 'Group Photo ✓' : 'Group Photo'}
               </button>
               <button
-                onClick={() => setSlideshowStep('chooseSource')}
+                onClick={() => setSlideshowStep('scope')}
                 style={{
                   flex: 2, padding: '10px 0', borderRadius: 8, border: 'none',
                   background: '#1a4731', color: '#fff', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, cursor: 'pointer',
                 }}
               >
-                ▶ Produce Slideshow
+                ▶ Create Slideshow
               </button>
             </div>
           )}
@@ -389,101 +411,158 @@ export default function EventMemoriesPage() {
         </div>
       )}
 
-      {/* Step 1 -- choose content source. */}
-      {slideshowStep === 'chooseSource' && manifest && (
+      {/* Step 1 -- Choose Scope: a round, or Full Event. Dynamically
+          generated from manifest.rounds -- never hard-coded to three. */}
+      {slideshowStep === 'scope' && manifest && (
         <div onClick={() => setSlideshowStep('closed')} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 60, display: 'flex', alignItems: 'flex-end' }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: 20, width: '100%' }}>
-            <p style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#1a1a16', marginBottom: 12 }}>Produce Slideshow</p>
-            <button onClick={() => startSlideshow('favourites')} style={sourceOptionStyle}>
-              ⭐ Favourites <span style={{ color: '#9ca3af' }}>— {manifest.memories.filter(m => m.organiserFavourite).length} Memories</span>
-            </button>
-            <button onClick={() => startSlideshow('all')} style={sourceOptionStyle}>
-              All Memories <span style={{ color: '#9ca3af' }}>— {manifest.memories.length} Memories</span>
-            </button>
-            {selected.size > 0 && (
-              <button onClick={() => startSlideshow('selected', [...selected])} style={sourceOptionStyle}>
-                Selected Memories <span style={{ color: '#9ca3af' }}>— {selected.size} Memories</span>
+            <p style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#1a1a16', marginBottom: 4 }}>Create Slideshow</p>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 12 }}>What&apos;s this presentation for?</p>
+            {[...manifest.rounds].sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0)).map(r => (
+              <button key={r.id} onClick={() => chooseScope({ kind: 'round', roundId: r.id })} style={sourceOptionStyle}>
+                {r.name}
               </button>
-            )}
-            {manifest.memories.filter(m => m.organiserFavourite).length === 0 && (
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginTop: 6 }}>No Favourite Memories yet — choose All Memories, or favourite a few first.</p>
-            )}
+            ))}
+            <button onClick={() => chooseScope({ kind: 'fullEvent' })} style={{ ...sourceOptionStyle, fontWeight: 700 }}>
+              Full Event
+            </button>
             <button onClick={() => setSlideshowStep('closed')} style={{ width: '100%', padding: '10px 0', marginTop: 10, border: 'none', background: 'none', fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', cursor: 'pointer' }}>Cancel</button>
           </div>
         </div>
       )}
 
-      {/* Step 2 -- lightweight curation: reorder / remove / add back, then preview or play. */}
-      {slideshowStep === 'curate' && slideshowDeck && manifest && (
+      {/* Step 2 -- Choose Sections. Round scope: one flat set of
+          toggles. Full Event: every included round independently
+          configurable, then the Event Finale group -- the central
+          requirement this whole flow exists for. Only sections
+          getAvailableSections reports as genuinely available are ever
+          shown, per "gracefully suppress unavailable content." */}
+      {slideshowStep === 'sections' && presentationConfig && manifest && (
         <div style={{ position: 'fixed', inset: 0, background: '#fff', zIndex: 60, display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: 16, borderBottom: '1px solid #eceae3', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <button onClick={() => setSlideshowStep('closed')} style={{ border: 'none', background: 'none', fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151', cursor: 'pointer' }}>Cancel</button>
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#1a1a16' }}>{slideshowDeck.memoryCount} Memories</p>
-            <button onClick={() => setSlideshowStep('playing')} style={{ border: 'none', background: '#1a4731', color: '#fff', borderRadius: 8, padding: '7px 14px', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>▶ Play</button>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#1a1a16' }}>Choose Sections</p>
+            <button onClick={() => setSlideshowStep('review')} style={{ border: 'none', background: '#1a4731', color: '#fff', borderRadius: 8, padding: '7px 14px', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Next</button>
           </div>
-
-          <div style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #f3f4f1' }}>
-            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af' }}>Duration per photo:</span>
-            {([5, 8, 10] as const).map(d => (
-              <button key={d} onClick={() => setSlideshowDuration(d)} style={{ padding: '4px 10px', borderRadius: 14, border: slideshowDuration === d ? 'none' : '1px solid #d9c9a3', background: slideshowDuration === d ? '#1a4731' : '#fff', color: slideshowDuration === d ? '#fff' : '#374151', fontFamily: 'var(--font-body)', fontSize: 11.5, cursor: 'pointer' }}>{d}s</button>
-            ))}
-          </div>
-
-          <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
-            {photoMomentIdsInOrder(slideshowDeck).map((id, i, arr) => {
-              const m = manifest.memories.find(mm => mm.momentId === id)
-              if (!m) return null
-              return (
-                <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 8, borderRadius: 8, background: '#f8f4eb', marginBottom: 6 }}>
-                  {m.imageUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={m.imageUrl} alt="" style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover' }} />
+          <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+            {presentationConfig.scope.kind === 'round' ? (
+              <SectionToggleGroup
+                title={manifest.rounds.find(r => r.id === presentationConfig.rounds[0]?.roundId)?.name ?? 'This Round'}
+                availability={getAvailableSections(manifest, presentationConfig.scope)}
+                round={presentationConfig.rounds[0]}
+                onToggle={(key, val) => updateRoundSection(presentationConfig.rounds[0].roundId, { [key]: val })}
+              />
+            ) : (
+              <>
+                <div style={{ marginBottom: 18 }}>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, letterSpacing: 1, color: '#9ca3af', textTransform: 'uppercase', marginBottom: 8 }}>Opening</p>
+                  <ToggleRow label="Event Opening" checked={presentationConfig.eventOpening} onChange={v => setPresentationConfig(prev => prev && { ...prev, eventOpening: v })} />
+                  {manifest.event.groupPhotoMomentId ? (
+                    <ToggleRow label="Group Photo" checked={presentationConfig.groupPhoto} onChange={v => setPresentationConfig(prev => prev && { ...prev, groupPhoto: v })} />
+                  ) : (
+                    <button onClick={() => setShowGroupPhotoPicker(true)} style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#1a4731', background: 'none', border: 'none', padding: '8px 0', cursor: 'pointer', textDecoration: 'underline' }}>
+                      + Add a Group Photo
+                    </button>
                   )}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {[m.sideCompName, m.holeNumber ? `Hole ${m.holeNumber}` : null, m.playerName].filter(Boolean).join(' \u00b7 ') || 'Memory'}
-                    </p>
-                  </div>
-                  <button onClick={() => reorderSlide(id, -1)} disabled={i === 0} style={curateIconButtonStyle(i === 0)}>↑</button>
-                  <button onClick={() => reorderSlide(id, 1)} disabled={i === arr.length - 1} style={curateIconButtonStyle(i === arr.length - 1)}>↓</button>
-                  <button onClick={() => removeFromSlideshow(id)} style={curateIconButtonStyle(false)}>✕</button>
                 </div>
-              )
-            })}
-            {slideshowDeck.memoryCount === 0 && (
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', textAlign: 'center', marginTop: 20 }}>No Memories in this slideshow yet.</p>
+                {presentationConfig.rounds.map(r => {
+                  const round = manifest.rounds.find(rr => rr.id === r.roundId)
+                  if (!round) return null
+                  return (
+                    <SectionToggleGroup
+                      key={r.roundId} title={round.name}
+                      availability={getAvailableSections(manifest, { kind: 'round', roundId: r.roundId })}
+                      round={r}
+                      onToggle={(key, val) => updateRoundSection(r.roundId, { [key]: val })}
+                    />
+                  )
+                })}
+                <div>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, letterSpacing: 1, color: '#9ca3af', textTransform: 'uppercase', marginBottom: 8 }}>Event Finale</p>
+                  {getAvailableSections(manifest, { kind: 'fullEvent' }).find(a => a.type === 'EVENT_CHAMPION')?.available && (
+                    <ToggleRow label="Event Champion" checked={presentationConfig.eventChampion} onChange={v => setPresentationConfig(prev => prev && { ...prev, eventChampion: v })} />
+                  )}
+                  {getAvailableSections(manifest, { kind: 'fullEvent' }).find(a => a.type === 'FINAL_LEADERBOARD')?.available && (
+                    <ToggleRow label="Final Leaderboard" checked={presentationConfig.finalLeaderboard} onChange={v => setPresentationConfig(prev => prev && { ...prev, finalLeaderboard: v })} />
+                  )}
+                  {getAvailableSections(manifest, { kind: 'fullEvent' }).find(a => a.type === 'BLOOPERS')?.available && (
+                    <ToggleRow label="Bloopers" checked={presentationConfig.bloopers} onChange={v => setPresentationConfig(prev => prev && { ...prev, bloopers: v })} />
+                  )}
+                  <ToggleRow label="Closing Slide" checked={presentationConfig.eventFinale} onChange={v => setPresentationConfig(prev => prev && { ...prev, eventFinale: v })} />
+                </div>
+              </>
             )}
           </div>
-
-          {(() => {
-            const includedIds = new Set(photoMomentIdsInOrder(slideshowDeck))
-            const excluded = manifest.memories.filter(m => !includedIds.has(m.momentId))
-            if (excluded.length === 0) return null
-            return (
-              <div style={{ borderTop: '1px solid #eceae3', padding: 12, maxHeight: 140, overflowY: 'auto' }}>
-                <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginBottom: 6 }}>Add a Memory</p>
-                <div style={{ display: 'flex', gap: 6, overflowX: 'auto' }}>
-                  {excluded.map(m => (
-                    <button key={m.momentId} onClick={() => addBackToSlideshow(m.momentId)} style={{ flexShrink: 0, border: 'none', padding: 0, background: 'none', cursor: 'pointer' }}>
-                      {m.imageUrl && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={m.imageUrl} alt="" style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', opacity: 0.6 }} />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )
-          })()}
         </div>
       )}
 
-      {/* Step 3 -- fullscreen playback. */}
+      {/* Step 3 -- Review: resulting structure/slide count, duration,
+          and (only if any round has Best Moments on) the existing
+          add/remove Memory picker, reused rather than rebuilt. */}
+      {slideshowStep === 'review' && presentationConfig && manifest && (() => {
+        const previewDeck = buildPresentationDeck(manifest, presentationConfig)
+        const anyBestMoments = presentationConfig.rounds.some(r => r.bestMoments)
+        const sectionCounts = {
+          photo: previewDeck.slides.filter(s => s.kind === 'photo').length,
+          winner: previewDeck.slides.filter(s => s.kind === 'sideGameWinner').length,
+          mb: previewDeck.slides.filter(s => s.kind === 'makersBreakers').length,
+          rr: previewDeck.slides.filter(s => s.kind === 'roundResults').length,
+        }
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: '#fff', zIndex: 60, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: 16, borderBottom: '1px solid #eceae3', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button onClick={() => setSlideshowStep('sections')} style={{ border: 'none', background: 'none', fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151', cursor: 'pointer' }}>Back</button>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#1a1a16' }}>{previewDeck.slides.length} Slides</p>
+              <button onClick={playPresentation} style={{ border: 'none', background: '#1a4731', color: '#fff', borderRadius: 8, padding: '7px 14px', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>▶ Play</button>
+            </div>
+            <div style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #f3f4f1' }}>
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af' }}>Duration per photo:</span>
+              {([5, 8, 10] as const).map(d => (
+                <button key={d} onClick={() => setSlideshowDuration(d)} style={{ padding: '4px 10px', borderRadius: 14, border: slideshowDuration === d ? 'none' : '1px solid #d9c9a3', background: slideshowDuration === d ? '#1a4731' : '#fff', color: slideshowDuration === d ? '#fff' : '#374151', fontFamily: 'var(--font-body)', fontSize: 11.5, cursor: 'pointer' }}>{d}s</button>
+              ))}
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, letterSpacing: 1, color: '#9ca3af', textTransform: 'uppercase', marginBottom: 10 }}>What&apos;s included</p>
+              <div style={{ background: '#f8f4eb', borderRadius: 10, padding: 14, marginBottom: 18 }}>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151', marginBottom: 4 }}>{sectionCounts.photo} photo{sectionCounts.photo === 1 ? '' : 's'}</p>
+                {sectionCounts.winner > 0 && <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151', marginBottom: 4 }}>{sectionCounts.winner} Side Game winner{sectionCounts.winner === 1 ? '' : 's'}</p>}
+                {sectionCounts.mb > 0 && <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151', marginBottom: 4 }}>{sectionCounts.mb} Makers & Breakers section{sectionCounts.mb === 1 ? '' : 's'}</p>}
+                {sectionCounts.rr > 0 && <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151' }}>{sectionCounts.rr} Round Winner{sectionCounts.rr === 1 ? '' : 's'}</p>}
+              </div>
+
+              {anyBestMoments && (
+                <>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, letterSpacing: 1, color: '#9ca3af', textTransform: 'uppercase', marginBottom: 10 }}>Best Moments</p>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginBottom: 10 }}>
+                    {presentationConfig.bestMomentsSource === 'favourites' ? 'Showing Favourites. Tap to remove, or tap any below to add specific ones.' : presentationConfig.bestMomentsSource === 'all' ? 'Showing all Memories for the included rounds.' : 'Showing your specific selection.'}
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                    {manifest.memories.filter(m => m.mediaType === 'photo' && presentationConfig.rounds.some(r => r.bestMoments && r.roundId === m.roundId)).map(m => {
+                      const included = previewDeck.slides.some(s => s.kind === 'photo' && s.momentId === m.momentId)
+                      return (
+                        <button key={m.momentId} onClick={() => toggleBestMomentSelection(m.momentId)} style={{ position: 'relative', aspectRatio: '1', borderRadius: 8, overflow: 'hidden', border: included ? '3px solid #1a4731' : '1px solid #eceae3', padding: 0, cursor: 'pointer', opacity: included ? 1 : 0.5 }}>
+                          {m.imageUrl && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={m.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Step 4 -- fullscreen playback. Exactly one buildPresentationDeck
+          call site exists, in playPresentation above. */}
       {slideshowStep === 'playing' && slideshowDeck && (
         <EventHighlightsPlayer
           slides={slideshowDeck.slides}
           durationSeconds={slideshowDuration}
-          onExit={() => setSlideshowStep('curate')}
+          onExit={() => setSlideshowStep('review')}
         />
       )}
 
@@ -527,6 +606,57 @@ export default function EventMemoriesPage() {
   )
 }
 
+/**
+ * SectionToggleGroup -- one round's own section toggles within Choose
+ * Sections. Maps the four round-level section types directly from
+ * getAvailableSections' own output: a section the data genuinely
+ * can't support for this round (e.g. no published Makers & Breakers)
+ * is never shown as a toggle at all -- "gracefully suppress
+ * unavailable content" applies here, not just in the generated deck.
+ * Round Intro itself is never a toggle -- the round divider is
+ * automatic whenever the round has any other content, matching
+ * buildPresentationDeck's own "no empty round section" rule.
+ */
+function SectionToggleGroup({ title, availability, round, onToggle }: {
+  title: string
+  availability: SectionAvailability[]
+  round: RoundSectionConfig
+  onToggle: (key: keyof Omit<RoundSectionConfig, 'roundId'>, value: boolean) => void
+}) {
+  const sectionMap: { type: SectionAvailability['type']; key: keyof Omit<RoundSectionConfig, 'roundId'>; label: string }[] = [
+    { type: 'BEST_MOMENTS', key: 'bestMoments', label: 'Best Moments' },
+    { type: 'SIDE_GAME_WINNERS', key: 'sideGameWinners', label: 'Side Game Winners' },
+    { type: 'MAKERS_BREAKERS', key: 'makersBreakers', label: 'Makers & Breakers' },
+    { type: 'ROUND_RESULTS', key: 'roundResults', label: 'Round Winner' },
+  ]
+  const availableOnes = sectionMap.filter(s => availability.find(a => a.type === s.type)?.available)
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, letterSpacing: 1, color: '#9ca3af', textTransform: 'uppercase', marginBottom: 8 }}>{title}</p>
+      {availableOnes.length === 0 && (
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#c4bfae' }}>Nothing available for this round yet.</p>
+      )}
+      {availableOnes.map(s => (
+        <ToggleRow key={s.key} label={s.label} checked={round[s.key]} onChange={v => onToggle(s.key, v)} />
+      ))}
+    </div>
+  )
+}
+
+function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onChange(!checked)}
+      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '11px 4px', border: 'none', borderBottom: '1px solid #f3f4f1', background: 'none', cursor: 'pointer', textAlign: 'left' }}
+    >
+      <span style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#1a1a16' }}>{label}</span>
+      <span style={{ width: 38, height: 22, borderRadius: 11, background: checked ? '#1a4731' : '#e5e2d9', position: 'relative', transition: 'background 0.15s', flexShrink: 0 }}>
+        <span style={{ position: 'absolute', top: 2, left: checked ? 18 : 2, width: 18, height: 18, borderRadius: 9, background: '#fff', transition: 'left 0.15s' }} />
+      </span>
+    </button>
+  )
+}
+
 function tabStyle(active: boolean): React.CSSProperties {
   return {
     flexShrink: 0, padding: '7px 14px', borderRadius: 20, border: active ? 'none' : '1.5px solid #d9c9a3',
@@ -545,7 +675,4 @@ const exportMenuItemStyle: React.CSSProperties = {
 const sourceOptionStyle: React.CSSProperties = {
   display: 'flex', justifyContent: 'space-between', width: '100%', padding: '13px 14px', marginBottom: 6, borderRadius: 10,
   border: '1.5px solid #d9c9a3', background: '#fff', fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 600, color: '#1a1a16', cursor: 'pointer',
-}
-function curateIconButtonStyle(disabled: boolean): React.CSSProperties {
-  return { width: 28, height: 28, borderRadius: 6, border: 'none', background: disabled ? '#eceae3' : '#fff', color: disabled ? '#c4bfae' : '#374151', fontSize: 13, cursor: disabled ? 'default' : 'pointer' }
 }

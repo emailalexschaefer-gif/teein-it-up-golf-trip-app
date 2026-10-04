@@ -1,6 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildSlideshowDeck, rebuildDeckFromOrder, photoMomentIdsInOrder, type Slide } from './slideshowDeck'
+import {
+  buildSlideshowDeck, rebuildDeckFromOrder, photoMomentIdsInOrder, type Slide,
+  buildPresentationDeck, getAvailableSections, defaultPresentationConfig,
+  type PresentationConfig, type RoundSectionConfig,
+} from './slideshowDeck'
 import type { EventMemoryData } from './eventMemoryData'
 
 function memory(overrides: Partial<EventMemoryData['memories'][number]> & { momentId: string }): EventMemoryData['memories'][number] {
@@ -16,12 +20,12 @@ function memory(overrides: Partial<EventMemoryData['memories'][number]> & { mome
 }
 
 function round(overrides: Partial<EventMemoryData['rounds'][number]> & { id: string; ordinal: number }): EventMemoryData['rounds'][number] {
-  return { name: `Round ${overrides.ordinal}`, courseName: null, playDate: '2026-09-11', status: 'completed', holes: 18, publishedHighlights: null, ...overrides }
+  return { name: `Round ${overrides.ordinal}`, courseName: null, playDate: '2026-09-11', status: 'completed', holes: 18, publishedHighlights: null, winners: null, ...overrides }
 }
 
 function baseData(overrides: Partial<EventMemoryData> = {}): EventMemoryData {
   return {
-    event: { id: 't1', name: 'Darren\u2019s Golf Trip 2026', eventType: 'tournament', location: null, startDate: '2026-09-11', endDate: '2026-09-13', status: 'completed' },
+    event: { id: 't1', name: 'Darren\u2019s Golf Trip 2026', eventType: 'tournament', location: null, startDate: '2026-09-11', endDate: '2026-09-13', status: 'completed', groupPhotoMomentId: null },
     rounds: [], memories: [], sideGameWinners: [], playerCount: 4, results: { champion: null },
     ...overrides,
   }
@@ -579,6 +583,32 @@ test('Bloopers are chronologically ordered with a deterministic tie-break, same 
   assert.deepEqual(blooperSlides(deck.slides).map(s => s.momentId), ['earlier', 'later'])
 })
 
+test('V1.5 fix: a winning photo appears exactly once (as the dedicated winner slide), never also as an ordinary photo slide in the same round', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 })],
+    memories: [
+      memory({ momentId: 'winner-photo', roundId: 'r1', playerId: 'winner-id', sourceType: 'SIDE_GAME', sideCompId: 'sc1', imageUrl: 'https://x/winner.jpg' }),
+      memory({ momentId: 'other-photo', roundId: 'r1', playerId: 'someone-else' }),
+    ],
+    sideGameWinners: [{ sideCompId: 'sc1', roundId: 'r1', compType: 'longest_drive', label: 'Longest Drive', holeNumber: 5, winnerPlayerId: 'winner-id', winnerName: 'Alex Schaefer' }],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  // The winner photo must appear exactly once in the deck overall --
+  // not as a photo slide AND as the winner slide's own image.
+  const occurrencesOfWinnerPhoto = deck.slides.filter(s =>
+    (s.kind === 'photo' && s.momentId === 'winner-photo') ||
+    (s.kind === 'sideGameWinner' && s.winnerImageUrl === 'https://x/winner.jpg')
+  )
+  assert.equal(occurrencesOfWinnerPhoto.length, 1)
+  assert.equal(occurrencesOfWinnerPhoto[0].kind, 'sideGameWinner')
+  // The ordinary photo stream must still include the OTHER photo --
+  // the fix excludes only the specific winning photo, not every
+  // Side-Game-sourced photo in the round.
+  assert.deepEqual(photoMomentIdsInOrder(deck), ['other-photo'])
+  // Exactly one sideGameWinner slide, not two.
+  assert.equal(deck.slides.filter(s => s.kind === 'sideGameWinner').length, 1)
+})
+
 test('no duplicate Champion/leaderboard slides -- exactly one champion slide even with multiple co-champions (a tie)', () => {
   const data = baseData({
     results: {
@@ -593,4 +623,352 @@ test('no duplicate Champion/leaderboard slides -- exactly one champion slide eve
   assert.equal(championSlides(deck.slides).length, 1)
   assert.equal(championSlides(deck.slides)[0].hasTie, true)
   assert.equal(championSlides(deck.slides)[0].champions.length, 2)
+})
+
+// -- V1.5 (15 Sep): flexible section-based presentation builder ----------
+
+function roundSlides(slides: Slide[]): Extract<Slide, { kind: 'roundDivider' }>[] {
+  return slides.filter((s): s is Extract<Slide, { kind: 'roundDivider' }> => s.kind === 'roundDivider')
+}
+
+test('Round-only presentation: a single-round config produces exactly that round\'s content and nothing from Event-level sections', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 })],
+    memories: [memory({ momentId: 'a', roundId: 'r1', organiserFavourite: true })],
+    results: { champion: { champions: [{ playerId: 'p1', playerName: 'A', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'A', totalPoints: 72, position: 1 }] } },
+  })
+  const config: PresentationConfig = {
+    scope: { kind: 'round', roundId: 'r1' }, eventOpening: false, groupPhoto: false,
+    rounds: [{ roundId: 'r1', bestMoments: true, sideGameWinners: false, makersBreakers: false }],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false,
+    bestMomentsSource: 'favourites',
+  }
+  const deck = buildPresentationDeck(data, config)
+  assert.equal(roundSlides(deck.slides).length, 1)
+  assert.equal(deck.slides.filter(s => s.kind === 'opening').length, 0)
+  assert.equal(deck.slides.filter(s => s.kind === 'champion').length, 0)
+  assert.equal(deck.slides.filter(s => s.kind === 'closing').length, 0)
+  assert.deepEqual(photoMomentIdsInOrder(deck), ['a'])
+})
+
+test('Full Event presentation: multiple rounds, Champion, Leaderboard, and closing all appear when toggled on', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 }), round({ id: 'r2', ordinal: 2 })],
+    memories: [memory({ momentId: 'a', roundId: 'r1', organiserFavourite: true }), memory({ momentId: 'b', roundId: 'r2', organiserFavourite: true })],
+    results: { champion: { champions: [{ playerId: 'p1', playerName: 'A', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'A', totalPoints: 72, position: 1 }] } },
+  })
+  const config: PresentationConfig = {
+    scope: { kind: 'fullEvent' }, eventOpening: true, groupPhoto: false,
+    rounds: [
+      { roundId: 'r1', bestMoments: true, sideGameWinners: false, makersBreakers: false },
+      { roundId: 'r2', bestMoments: true, sideGameWinners: false, makersBreakers: false },
+    ],
+    eventChampion: true, finalLeaderboard: true, bloopers: false, eventFinale: true,
+    bestMomentsSource: 'favourites',
+  }
+  const deck = buildPresentationDeck(data, config)
+  assert.equal(deck.slides[0].kind, 'opening')
+  assert.equal(roundSlides(deck.slides).length, 2)
+  assert.equal(deck.slides.filter(s => s.kind === 'champion').length, 1)
+  assert.equal(deck.slides.filter(s => s.kind === 'leaderboard').length, 1)
+  assert.equal(deck.slides[deck.slides.length - 1].kind, 'closing')
+})
+
+test('Different section selections: turning a section off genuinely omits it, even when the underlying data exists', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1, publishedHighlights: [{ kind: 'maker', icon: '\u{1F525}', title: 'Hot Start', playerName: 'Alex', statLine: 'Birdied 3 in a row' }] })],
+    memories: [memory({ momentId: 'a', roundId: 'r1' })],
+    sideGameWinners: [{ sideCompId: 'sc1', roundId: 'r1', compType: 'longest_drive', label: 'Longest Drive', holeNumber: 5, winnerPlayerId: 'w1', winnerName: 'Dave' }],
+  })
+  const config: PresentationConfig = {
+    scope: { kind: 'round', roundId: 'r1' }, eventOpening: false, groupPhoto: false,
+    rounds: [{ roundId: 'r1', bestMoments: false, sideGameWinners: false, makersBreakers: true }], // only Makers & Breakers on
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false,
+    bestMomentsSource: 'all',
+  }
+  const deck = buildPresentationDeck(data, config)
+  assert.equal(photoMomentIdsInOrder(deck).length, 0) // Best Moments off -- 'a' never appears
+  assert.equal(deck.slides.filter(s => s.kind === 'sideGameWinner').length, 0) // Side Game Winners off
+  assert.equal(deck.slides.filter(s => s.kind === 'makersBreakers').length, 1) // Makers & Breakers on
+})
+
+test('Three-round and non-three-round events: defaultPresentationConfig produces the correct round count for 1 and 5 rounds, never assuming 3', () => {
+  const oneRound = baseData({ rounds: [round({ id: 'r1', ordinal: 1 })], memories: [memory({ momentId: 'a', roundId: 'r1' })] })
+  const oneConfig = defaultPresentationConfig(oneRound, { kind: 'fullEvent' })
+  assert.equal(oneConfig.rounds.length, 1)
+
+  const fiveRounds = baseData({
+    rounds: [1, 2, 3, 4, 5].map(n => round({ id: `r${n}`, ordinal: n })),
+    memories: [1, 2, 3, 4, 5].map(n => memory({ momentId: `m${n}`, roundId: `r${n}` })),
+  })
+  const fiveConfig = defaultPresentationConfig(fiveRounds, { kind: 'fullEvent' })
+  assert.equal(fiveConfig.rounds.length, 5)
+})
+
+test('Final round retained before Event Champion: the last round\'s own section still appears even when Event Champion is also included', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 }), round({ id: 'r2', ordinal: 2 })],
+    memories: [memory({ momentId: 'a', roundId: 'r2', organiserFavourite: true })],
+    results: { champion: { champions: [{ playerId: 'p1', playerName: 'A', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'A', totalPoints: 72, position: 1 }] } },
+  })
+  const config: PresentationConfig = {
+    scope: { kind: 'fullEvent' }, eventOpening: false, groupPhoto: false,
+    rounds: [{ roundId: 'r2', bestMoments: true, sideGameWinners: false, makersBreakers: false }],
+    eventChampion: true, finalLeaderboard: false, bloopers: false, eventFinale: false,
+    bestMomentsSource: 'favourites',
+  }
+  const deck = buildPresentationDeck(data, config)
+  const roundDividerIdx = deck.slides.findIndex(s => s.kind === 'roundDivider')
+  const championIdx = deck.slides.findIndex(s => s.kind === 'champion')
+  assert.ok(roundDividerIdx > -1, 'the final round section must still appear')
+  assert.ok(roundDividerIdx < championIdx, 'the round section must come before Event Champion, not be replaced by it')
+})
+
+test('Event Champion can genuinely differ from the final round\'s own Side Game winner -- never assumed to be the same player', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 })],
+    memories: [],
+    sideGameWinners: [{ sideCompId: 'sc1', roundId: 'r1', compType: 'longest_drive', label: 'Longest Drive', holeNumber: 5, winnerPlayerId: 'round-winner-id', winnerName: 'Dave' }],
+    results: { champion: { champions: [{ playerId: 'champion-id', playerName: 'Alex', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'champion-id', playerName: 'Alex', totalPoints: 72, position: 1 }] } },
+  })
+  const config: PresentationConfig = {
+    scope: { kind: 'fullEvent' }, eventOpening: false, groupPhoto: false,
+    rounds: [{ roundId: 'r1', bestMoments: false, sideGameWinners: true, makersBreakers: false }],
+    eventChampion: true, finalLeaderboard: false, bloopers: false, eventFinale: false,
+    bestMomentsSource: 'favourites',
+  }
+  const deck = buildPresentationDeck(data, config)
+  const winnerSlide = deck.slides.find((s): s is Extract<Slide, { kind: 'sideGameWinner' }> => s.kind === 'sideGameWinner')!
+  const champSlide = deck.slides.find((s): s is Extract<Slide, { kind: 'champion' }> => s.kind === 'champion')!
+  assert.equal(winnerSlide.winnerName, 'Dave')
+  assert.equal(champSlide.champions[0].playerName, 'Alex')
+})
+
+test('V1.5: no empty section dividers -- a round with every section toggled on but zero real content for any of them produces no section at all', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1 })], memories: [] })
+  const config: PresentationConfig = {
+    scope: { kind: 'round', roundId: 'r1' }, eventOpening: false, groupPhoto: false,
+    rounds: [{ roundId: 'r1', bestMoments: true, sideGameWinners: true, makersBreakers: true }],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false,
+    bestMomentsSource: 'all',
+  }
+  const deck = buildPresentationDeck(data, config)
+  assert.equal(deck.slides.length, 0)
+})
+
+test('General Moments are correctly filtered by Favourites when bestMomentsSource is favourites, and by an explicit selection when selected', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 })],
+    memories: [memory({ momentId: 'fav', roundId: 'r1', organiserFavourite: true }), memory({ momentId: 'not-fav', roundId: 'r1', organiserFavourite: false })],
+  })
+  const favConfig: PresentationConfig = {
+    scope: { kind: 'round', roundId: 'r1' }, eventOpening: false, groupPhoto: false,
+    rounds: [{ roundId: 'r1', bestMoments: true, sideGameWinners: false, makersBreakers: false }],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false,
+    bestMomentsSource: 'favourites',
+  }
+  assert.deepEqual(photoMomentIdsInOrder(buildPresentationDeck(data, favConfig)), ['fav'])
+
+  const selectedConfig: PresentationConfig = { ...favConfig, bestMomentsSource: 'selected', selectedMomentIds: ['not-fav'] }
+  assert.deepEqual(photoMomentIdsInOrder(buildPresentationDeck(data, selectedConfig)), ['not-fav'])
+})
+
+test('Group photo present/absent in the new builder: present when toggled on and genuinely selected, absent when off or unselected', () => {
+  const dataWithSelection = baseData({ event: { id: 't1', name: 'Event', eventType: null, location: null, startDate: null, endDate: null, status: 'completed', groupPhotoMomentId: 'gp' }, memories: [memory({ momentId: 'gp', imageUrl: 'https://x/gp.jpg' })] })
+  const onConfig: PresentationConfig = {
+    scope: { kind: 'fullEvent' }, eventOpening: false, groupPhoto: true, rounds: [],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'favourites',
+  }
+  const deckOn = buildPresentationDeck(dataWithSelection, onConfig)
+  assert.equal(deckOn.slides.filter(s => s.kind === 'groupPhoto').length, 1)
+
+  const offConfig: PresentationConfig = { ...onConfig, groupPhoto: false }
+  const deckOff = buildPresentationDeck(dataWithSelection, offConfig)
+  assert.equal(deckOff.slides.filter(s => s.kind === 'groupPhoto').length, 0)
+})
+
+test('Bloopers present/absent in the new builder, matching the existing toggle semantics', () => {
+  const data = baseData({ memories: [memory({ momentId: 'vid', mediaType: 'video', durationSeconds: 5, isBlooper: true })] })
+  const onConfig: PresentationConfig = {
+    scope: { kind: 'fullEvent' }, eventOpening: false, groupPhoto: false, rounds: [],
+    eventChampion: false, finalLeaderboard: false, bloopers: true, eventFinale: false, bestMomentsSource: 'favourites',
+  }
+  assert.equal(buildPresentationDeck(data, onConfig).slides.filter(s => s.kind === 'blooper').length, 1)
+  const offConfig: PresentationConfig = { ...onConfig, bloopers: false }
+  assert.equal(buildPresentationDeck(data, offConfig).slides.filter(s => s.kind === 'blooper').length, 0)
+})
+
+test('Leaderboard pagination is preserved in the new builder for a large field', () => {
+  const standings = Array.from({ length: 23 }, (_, i) => ({ playerId: `p${i}`, playerName: `Player ${i}`, totalPoints: 100 - i, position: i + 1 }))
+  const data = baseData({ results: { champion: { champions: [standings[0]], hasTie: false, standings } } })
+  const config: PresentationConfig = {
+    scope: { kind: 'fullEvent' }, eventOpening: false, groupPhoto: false, rounds: [],
+    eventChampion: false, finalLeaderboard: true, bloopers: false, eventFinale: false, bestMomentsSource: 'favourites',
+  }
+  const deck = buildPresentationDeck(data, config)
+  const pages = deck.slides.filter((s): s is Extract<Slide, { kind: 'leaderboard' }> => s.kind === 'leaderboard')
+  assert.equal(pages.length, 3)
+})
+
+test('A small field produces exactly one leaderboard slide, not an unnecessary extra page', () => {
+  const standings = [{ playerId: 'p1', playerName: 'A', totalPoints: 72, position: 1 }, { playerId: 'p2', playerName: 'B', totalPoints: 68, position: 2 }]
+  const data = baseData({ results: { champion: { champions: [standings[0]], hasTie: false, standings } } })
+  const config: PresentationConfig = {
+    scope: { kind: 'fullEvent' }, eventOpening: false, groupPhoto: false, rounds: [],
+    eventChampion: false, finalLeaderboard: true, bloopers: false, eventFinale: false, bestMomentsSource: 'favourites',
+  }
+  const deck = buildPresentationDeck(data, config)
+  assert.equal(deck.slides.filter(s => s.kind === 'leaderboard').length, 1)
+})
+
+test('getAvailableSections: a round section is marked unavailable with a reason when there is genuinely no content for it', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1 })], memories: [] })
+  const avail = getAvailableSections(data, { kind: 'round', roundId: 'r1' })
+  const bestMoments = avail.find(a => a.type === 'BEST_MOMENTS')!
+  assert.equal(bestMoments.available, false)
+  assert.ok(bestMoments.reason)
+})
+
+test('getAvailableSections: a round section is marked available once real content exists', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1 })], memories: [memory({ momentId: 'a', roundId: 'r1' })] })
+  const avail = getAvailableSections(data, { kind: 'round', roundId: 'r1' })
+  assert.equal(avail.find(a => a.type === 'BEST_MOMENTS')!.available, true)
+})
+
+test('defaultPresentationConfig for Full Event: earlier rounds default to Best Moments only, never automatically replaying their Side Game Winners/Makers & Breakers -- only the final round does', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1, publishedHighlights: [{ kind: 'maker', icon: '\u{1F525}', title: 'Hot', playerName: 'A', statLine: 'x' }] }), round({ id: 'r2', ordinal: 2, publishedHighlights: [{ kind: 'maker', icon: '\u{1F525}', title: 'Hot', playerName: 'A', statLine: 'x' }] })],
+    memories: [memory({ momentId: 'a', roundId: 'r1' }), memory({ momentId: 'b', roundId: 'r2' })],
+    sideGameWinners: [
+      { sideCompId: 'sc1', roundId: 'r1', compType: 'longest_drive', label: 'Longest Drive', holeNumber: 5, winnerPlayerId: 'w1', winnerName: 'Dave' },
+      { sideCompId: 'sc2', roundId: 'r2', compType: 'longest_drive', label: 'Longest Drive', holeNumber: 5, winnerPlayerId: 'w2', winnerName: 'Mick' },
+    ],
+  })
+  const config = defaultPresentationConfig(data, { kind: 'fullEvent' })
+  const r1 = config.rounds.find(r => r.roundId === 'r1')!
+  const r2 = config.rounds.find(r => r.roundId === 'r2')! // the final round
+  assert.equal(r1.bestMoments, true)
+  assert.equal(r1.sideGameWinners, false) // NOT replayed by default
+  assert.equal(r1.makersBreakers, false) // NOT replayed by default
+  assert.equal(r2.bestMoments, true)
+  assert.equal(r2.sideGameWinners, true) // the final round DOES get its results by default
+  assert.equal(r2.makersBreakers, true)
+})
+
+test('defaultPresentationConfig for Round scope: Round Intro/Best Moments/Side Game Winners/Makers & Breakers are each defaulted on only where data genuinely exists', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1 })], memories: [memory({ momentId: 'a', roundId: 'r1' })] }) // no winners, no M&B
+  const config = defaultPresentationConfig(data, { kind: 'round', roundId: 'r1' })
+  const r1 = config.rounds[0]
+  assert.equal(r1.bestMoments, true) // photos exist
+  assert.equal(r1.sideGameWinners, false) // no winners exist
+  assert.equal(r1.makersBreakers, false) // no M&B exist
+})
+
+test('malformed/missing round in a saved config is silently skipped, never fabricated or thrown', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1 })], memories: [memory({ momentId: 'a', roundId: 'r1' })] })
+  const config: PresentationConfig = {
+    scope: { kind: 'fullEvent' }, eventOpening: false, groupPhoto: false,
+    rounds: [{ roundId: 'does-not-exist', bestMoments: true, sideGameWinners: false, makersBreakers: false } as RoundSectionConfig],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'all',
+  }
+  assert.doesNotThrow(() => buildPresentationDeck(data, config))
+  assert.equal(buildPresentationDeck(data, config).slides.length, 0)
+})
+
+test('existing V1.4 slideshow behaviour (buildSlideshowDeck) is not regressed by the new builder\'s addition', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1 })], memories: [memory({ momentId: 'a', roundId: 'r1' })] })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.ok(deck.slides.length > 0)
+  assert.equal(deck.slides[0].kind, 'opening')
+})
+
+// -- V1.5 completion patch (15 Sep): Round Winner, derived not stored --
+
+test('Round Winner: a completed round with real winners produces a roundResults slide when toggled on', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1, winners: [{ playerId: 'p1', playerName: 'Alex', points: 38 }] })],
+    memories: [],
+  })
+  const config: PresentationConfig = {
+    scope: { kind: 'round', roundId: 'r1' }, eventOpening: false, groupPhoto: false,
+    rounds: [{ roundId: 'r1', bestMoments: false, sideGameWinners: false, makersBreakers: false, roundResults: true }],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'all',
+  }
+  const deck = buildPresentationDeck(data, config)
+  const slide = deck.slides.find((s): s is Extract<Slide, { kind: 'roundResults' }> => s.kind === 'roundResults')
+  assert.ok(slide)
+  assert.equal(slide!.winners[0].playerName, 'Alex')
+})
+
+test('Round Winner: toggled off produces no roundResults slide even though the round has real winners', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1, winners: [{ playerId: 'p1', playerName: 'Alex', points: 38 }] })], memories: [] })
+  const config: PresentationConfig = {
+    scope: { kind: 'round', roundId: 'r1' }, eventOpening: false, groupPhoto: false,
+    rounds: [{ roundId: 'r1', bestMoments: false, sideGameWinners: false, makersBreakers: false, roundResults: false }],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'all',
+  }
+  assert.equal(buildPresentationDeck(data, config).slides.filter(s => s.kind === 'roundResults').length, 0)
+})
+
+test('Round Winner: a round not yet completed (winners: null) never produces a roundResults slide, even when toggled on', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1, status: 'active', winners: null })], memories: [] })
+  const config: PresentationConfig = {
+    scope: { kind: 'round', roundId: 'r1' }, eventOpening: false, groupPhoto: false,
+    rounds: [{ roundId: 'r1', bestMoments: false, sideGameWinners: false, makersBreakers: false, roundResults: true }],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'all',
+  }
+  assert.equal(buildPresentationDeck(data, config).slides.filter(s => s.kind === 'roundResults').length, 0)
+})
+
+test('Round Winner: a tie is represented honestly -- every tied player appears, never one picked arbitrarily', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1, winners: [{ playerId: 'p1', playerName: 'Alex', points: 38 }, { playerId: 'p2', playerName: 'Dave', points: 38 }] })], memories: [] })
+  const config: PresentationConfig = {
+    scope: { kind: 'round', roundId: 'r1' }, eventOpening: false, groupPhoto: false,
+    rounds: [{ roundId: 'r1', bestMoments: false, sideGameWinners: false, makersBreakers: false, roundResults: true }],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'all',
+  }
+  const slide = buildPresentationDeck(data, config).slides.find((s): s is Extract<Slide, { kind: 'roundResults' }> => s.kind === 'roundResults')!
+  assert.equal(slide.winners.length, 2)
+})
+
+test('Round Winner never gets confused with Event Champion -- both can appear, naming different players, in the same deck', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1, winners: [{ playerId: 'round-winner', playerName: 'Dave', points: 38 }] })],
+    results: { champion: { champions: [{ playerId: 'event-champion', playerName: 'Alex', totalPoints: 150 }], hasTie: false, standings: [{ playerId: 'event-champion', playerName: 'Alex', totalPoints: 150, position: 1 }] } },
+  })
+  const config: PresentationConfig = {
+    scope: { kind: 'fullEvent' }, eventOpening: false, groupPhoto: false,
+    rounds: [{ roundId: 'r1', bestMoments: false, sideGameWinners: false, makersBreakers: false, roundResults: true }],
+    eventChampion: true, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'favourites',
+  }
+  const deck = buildPresentationDeck(data, config)
+  const roundSlide = deck.slides.find((s): s is Extract<Slide, { kind: 'roundResults' }> => s.kind === 'roundResults')!
+  const champSlide = deck.slides.find((s): s is Extract<Slide, { kind: 'champion' }> => s.kind === 'champion')!
+  assert.equal(roundSlide.winners[0].playerName, 'Dave')
+  assert.equal(champSlide.champions[0].playerName, 'Alex')
+})
+
+test('getAvailableSections: ROUND_RESULTS is unavailable with a reason for an incomplete round, available once winners exist', () => {
+  const incomplete = baseData({ rounds: [round({ id: 'r1', ordinal: 1, status: 'active', winners: null })] })
+  const avail1 = getAvailableSections(incomplete, { kind: 'round', roundId: 'r1' })
+  const rr1 = avail1.find(a => a.type === 'ROUND_RESULTS')!
+  assert.equal(rr1.available, false)
+  assert.ok(rr1.reason)
+
+  const complete = baseData({ rounds: [round({ id: 'r1', ordinal: 1, winners: [{ playerId: 'p1', playerName: 'Alex', points: 38 }] })] })
+  const avail2 = getAvailableSections(complete, { kind: 'round', roundId: 'r1' })
+  assert.equal(avail2.find(a => a.type === 'ROUND_RESULTS')!.available, true)
+})
+
+test('defaultPresentationConfig: Round Winner follows the same "only the final round replays by default" rule as Side Games/Makers & Breakers', () => {
+  const data = baseData({
+    rounds: [
+      round({ id: 'r1', ordinal: 1, winners: [{ playerId: 'p1', playerName: 'Alex', points: 38 }] }),
+      round({ id: 'r2', ordinal: 2, winners: [{ playerId: 'p2', playerName: 'Dave', points: 40 }] }),
+    ],
+    memories: [memory({ momentId: 'a', roundId: 'r1' }), memory({ momentId: 'b', roundId: 'r2' })],
+  })
+  const config = defaultPresentationConfig(data, { kind: 'fullEvent' })
+  assert.equal(config.rounds.find(r => r.roundId === 'r1')!.roundResults, false)
+  assert.equal(config.rounds.find(r => r.roundId === 'r2')!.roundResults, true)
 })

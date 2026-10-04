@@ -53,6 +53,18 @@ ALTER TABLE public.moments ADD CONSTRAINT moments_moment_type_check
 -- always exactly one or the other, never both) AND duration_seconds
 -- IS NOT NULL (every video Moment must carry its own authoritative
 -- duration -- never optional, since playback timing depends on it).
+-- BUG FIX (15 Sep, discovered during the production reconciliation
+-- audit): migration 030 named its own version of this constraint
+-- moments_type_consistency_check, not moments_well_formed_check --
+-- this statement originally only dropped the latter (a name that
+-- never actually existed, since 030 never created it), so on a
+-- database where 030 actually ran in sequence, this would have left
+-- 030's original 'photo'/'text'-only constraint active ALONGSIDE the
+-- new one below -- silently rejecting every 'video' row thereafter,
+-- since the stale constraint has no video branch at all. Fixed by
+-- dropping 030's real name explicitly, not just the new name this
+-- migration happens to introduce.
+ALTER TABLE public.moments DROP CONSTRAINT IF EXISTS moments_type_consistency_check;
 ALTER TABLE public.moments DROP CONSTRAINT IF EXISTS moments_well_formed_check;
 ALTER TABLE public.moments ADD CONSTRAINT moments_well_formed_check
   CHECK (

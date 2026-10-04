@@ -322,9 +322,22 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
         backgroundImage: 'url(/images/event-highlights-opening.jpg)',
         backgroundSize: 'cover', backgroundPosition: 'center',
       }}>
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '7% 6% 0', background: 'linear-gradient(rgba(5,15,10,0.55), rgba(5,15,10,0) 65%)' }}>
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 4vw, 38px)', fontWeight: 800, color: '#fff', marginBottom: 6, letterSpacing: 0.5, maxWidth: '70%', lineHeight: 1.15 }}>{slide.eventName}</p>
-          {slide.dateRange && <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(12px, 1.5vw, 16px)', color: '#d9c9a3', letterSpacing: 0.5 }}>{slide.dateRange}</p>}
+        {/* V1.5 (15 Sep) -- fixed a real contrast bug found in live
+            testing against the bright sunrise-sky artwork: the
+            previous overlay (55% opacity, fully transparent by 65%
+            down) wasn't dark enough, and the date text in particular
+            could land directly on bright sky with no protection at
+            all. Two independent fixes layered together rather than
+            relying on either alone: the gradient itself is both
+            darker (75% at the very top) and extends further down
+            before fading out, AND every piece of text here also
+            carries its own text-shadow -- a pixel-independent safety
+            net that keeps the text legible even directly against a
+            bright, complex part of the image the gradient alone
+            might not sufficiently darken at every point. */}
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '7% 6% 0', background: 'linear-gradient(rgba(4,12,8,0.75) 0%, rgba(4,12,8,0.35) 55%, rgba(4,12,8,0) 85%)' }}>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 4vw, 38px)', fontWeight: 800, color: '#fff', marginBottom: 6, letterSpacing: 0.5, maxWidth: '70%', lineHeight: 1.15, textShadow: '0 2px 10px rgba(0,0,0,0.75), 0 1px 3px rgba(0,0,0,0.9)' }}>{slide.eventName}</p>
+          {slide.dateRange && <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(12px, 1.5vw, 16px)', color: '#f0e6d2', letterSpacing: 0.5, textShadow: '0 1px 6px rgba(0,0,0,0.8), 0 1px 2px rgba(0,0,0,0.9)' }}>{slide.dateRange}</p>}
         </div>
       </div>
     )
@@ -418,23 +431,41 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     )
   }
   if (slide.kind === 'leaderboard') {
-    // Redesigned for V1.4 -- presentation visual system (dark green/
-    // gold), not a white webpage. Champion highlighted subtly.
+    // V1.5 (15 Sep) -- fixed a genuine presentation bug found in live
+    // testing: this previously used maxHeight + overflowY: auto,
+    // which is exactly what produced "only one large row visibly
+    // rendered, with an internal scrollbar" on a real landscape
+    // screen -- a slideshow has no way for anyone to scroll during
+    // playback, so that content was effectively just gone. Fixed
+    // structurally, not by tuning a pixel value: the row list is now
+    // a flex column that fills the available space and distributes
+    // its rows with `justify-content: space-evenly` -- every row
+    // genuinely fits inside the fixed space available, shrinking
+    // together via clamp() font sizing on a shorter canvas, rather
+    // than ever overflowing it. No overflow/scroll property appears
+    // anywhere in this slide's layout now, by design, not by
+    // accident -- confirmed directly, this is the single most
+    // important property to get right here and is called out
+    // specifically in the delivery report as the actual fix.
     return (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(160deg, #14532d, #0f2a1c)', padding: `24px 24px ${CONTROLS_SAFE_AREA_PX + 16}px` }}>
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(18px, 3vw, 26px)', fontWeight: 800, color: '#fff', letterSpacing: 1, marginBottom: 4 }}>Final Leaderboard</p>
-        {slide.totalPages > 1 && <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#d9c9a3', marginBottom: 16 }}>{(slide.page - 1) * 10 + 1}&ndash;{Math.min(slide.page * 10, (slide.page - 1) * 10 + slide.entries.length)}</p>}
-        <div style={{ width: '100%', maxWidth: 420, background: 'rgba(0,0,0,0.2)', borderRadius: 14, padding: 10, maxHeight: '100%', overflowY: 'auto' }}>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'linear-gradient(160deg, #14532d, #0f2a1c)', padding: `clamp(16px, 3vh, 28px) 24px ${CONTROLS_SAFE_AREA_PX + 12}px` }}>
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(16px, 2.6vh, 26px)', fontWeight: 800, color: '#fff', letterSpacing: 1, marginBottom: 2, flexShrink: 0 }}>Final Leaderboard</p>
+        {slide.totalPages > 1 && (
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(10px, 1.4vh, 13px)', color: '#d9c9a3', marginBottom: 'clamp(8px, 1.6vh, 16px)', flexShrink: 0 }}>
+            {(slide.page - 1) * 10 + 1}&ndash;{Math.min(slide.page * 10, (slide.page - 1) * 10 + slide.entries.length)}
+          </p>
+        )}
+        <div style={{ width: '100%', maxWidth: 480, flex: 1, minHeight: 0, background: 'rgba(0,0,0,0.2)', borderRadius: 14, padding: 'clamp(6px, 1.2vh, 12px)', display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly' }}>
           {slide.entries.map(e => (
             <div key={e.position} style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 12px', borderRadius: 8,
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 clamp(10px, 1.6vw, 16px)', borderRadius: 8,
               background: e.position === 1 ? 'rgba(251,191,36,0.16)' : 'transparent',
-              marginBottom: 2,
+              flex: '1 1 0', minHeight: 0,
             }}>
-              <span style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, color: e.position === 1 ? '#fbbf24' : '#fff', fontWeight: e.position === 1 ? 700 : 400 }}>
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(12px, 2.2vh, 17px)', color: e.position === 1 ? '#fbbf24' : '#fff', fontWeight: e.position === 1 ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {e.position}. {e.playerName}
               </span>
-              <span style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, fontWeight: 700, color: e.position === 1 ? '#fbbf24' : '#d9c9a3' }}>{e.totalPoints}</span>
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(12px, 2.2vh, 17px)', fontWeight: 700, color: e.position === 1 ? '#fbbf24' : '#d9c9a3', flexShrink: 0, marginLeft: 8 }}>{e.totalPoints}</span>
             </div>
           ))}
         </div>
