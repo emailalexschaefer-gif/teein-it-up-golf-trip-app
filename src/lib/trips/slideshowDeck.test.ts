@@ -25,7 +25,7 @@ function round(overrides: Partial<EventMemoryData['rounds'][number]> & { id: str
 
 function baseData(overrides: Partial<EventMemoryData> = {}): EventMemoryData {
   return {
-    event: { id: 't1', name: 'Darren\u2019s Golf Trip 2026', eventType: 'tournament', location: null, startDate: '2026-09-11', endDate: '2026-09-13', status: 'completed', groupPhotoMomentId: null },
+    event: { id: 't1', name: 'Darren\u2019s Golf Trip 2026', eventType: 'tournament', location: null, startDate: '2026-09-11', endDate: '2026-09-13', status: 'completed', groupPhotoMomentId: null, championPhotoMomentId: null },
     rounds: [], memories: [], sideGameWinners: [], playerCount: 4, results: { champion: null },
     ...overrides,
   }
@@ -295,8 +295,8 @@ function leaderboardSlides(slides: Slide[]): Extract<Slide, { kind: 'leaderboard
 function winnerSlides(slides: Slide[]): Extract<Slide, { kind: 'sideGameWinner' }>[] {
   return slides.filter((s): s is Extract<Slide, { kind: 'sideGameWinner' }> => s.kind === 'sideGameWinner')
 }
-function makersBreakersSlides(slides: Slide[]): Extract<Slide, { kind: 'makersBreakers' }>[] {
-  return slides.filter((s): s is Extract<Slide, { kind: 'makersBreakers' }> => s.kind === 'makersBreakers')
+function makersBreakersSlides(slides: Slide[]): Extract<Slide, { kind: 'makersBreakersCard' }>[] {
+  return slides.filter((s): s is Extract<Slide, { kind: 'makersBreakersCard' }> => s.kind === 'makersBreakersCard')
 }
 
 test('Champion present: a champion slide and at least one leaderboard slide appear when data.results.champion is set', () => {
@@ -357,17 +357,24 @@ test('Final leaderboard ordering: entries are ordered by authoritative position,
   assert.deepEqual(entries.map(e => e.position), [1, 2, 3])
 })
 
-test('Leaderboard pagination: more than 10 standings produces multiple pages, never squeezed onto one slide', () => {
+test('V1.6: Final Leaderboard shows Top 5 only, as a single slide, never the full field or multiple pages', () => {
   const standings = Array.from({ length: 23 }, (_, i) => ({ playerId: `p${i}`, playerName: `Player ${i}`, totalPoints: 100 - i, position: i + 1 }))
   const data = baseData({ results: { champion: { champions: [standings[0]], hasTie: false, standings } } })
   const deck = buildSlideshowDeck(data, 'all')
   const pages = leaderboardSlides(deck.slides)
-  assert.equal(pages.length, 3) // 23 entries / 10 per page = 3 pages
-  assert.equal(pages[0].entries.length, 10)
-  assert.equal(pages[1].entries.length, 10)
-  assert.equal(pages[2].entries.length, 3)
-  assert.deepEqual(pages.map(p => p.page), [1, 2, 3])
-  assert.ok(pages.every(p => p.totalPages === 3))
+  assert.equal(pages.length, 1)
+  assert.equal(pages[0].entries.length, 5)
+  assert.deepEqual(pages[0].entries.map(e => e.position), [1, 2, 3, 4, 5])
+  assert.equal(pages[0].totalPages, 1)
+})
+
+test('V1.6: a field smaller than 5 shows exactly however many players exist, never padded', () => {
+  const standings = [{ playerId: 'p1', playerName: 'A', totalPoints: 72, position: 1 }, { playerId: 'p2', playerName: 'B', totalPoints: 68, position: 2 }]
+  const data = baseData({ results: { champion: { champions: [standings[0]], hasTie: false, standings } } })
+  const deck = buildSlideshowDeck(data, 'all')
+  const pages = leaderboardSlides(deck.slides)
+  assert.equal(pages.length, 1)
+  assert.equal(pages[0].entries.length, 2)
 })
 
 test('Round with Memories but no Side Games: no sideGameWinner slide appears for that round', () => {
@@ -423,15 +430,44 @@ test('An official winner with no official_winner_entry_id yet (no name/playerId)
   assert.equal(winnerSlides(deck.slides).length, 0)
 })
 
-test('Makers & Breakers present: a published highlight for a round produces a makersBreakers slide with that content verbatim', () => {
+test('Makers & Breakers present: a published highlight for a round produces a divider plus one card with that content verbatim', () => {
   const data = baseData({
     rounds: [round({ id: 'r1', ordinal: 1, publishedHighlights: [{ kind: 'maker', icon: '\u{1F525}', title: 'Hot Start', playerName: 'Alex Schaefer', statLine: 'Birdied the first 3 holes' }] })],
   })
   const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(deck.slides.filter(s => s.kind === 'makersBreakersDivider').length, 1)
   const mb = makersBreakersSlides(deck.slides)
   assert.equal(mb.length, 1)
-  assert.equal(mb[0].highlights[0].title, 'Hot Start')
-  assert.equal(mb[0].highlights[0].playerName, 'Alex Schaefer')
+  assert.equal(mb[0].highlight.title, 'Hot Start')
+  assert.equal(mb[0].highlight.playerName, 'Alex Schaefer')
+})
+
+test('V1.6: multiple Makers & Breakers in one round each get their own full card, never crammed into one slide', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1, publishedHighlights: [
+      { kind: 'maker', icon: '\u{1F525}', title: 'Hot Start', playerName: 'Alex', statLine: 'x' },
+      { kind: 'breaker', icon: '\u2744\ufe0f', title: 'Ice Cold', playerName: 'Dave', statLine: 'y' },
+      { kind: 'maker', icon: '\u{1F3AF}', title: 'Dead Eye', playerName: 'Mick', statLine: 'z' },
+    ] })],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  const mb = makersBreakersSlides(deck.slides)
+  assert.equal(mb.length, 3)
+  assert.equal(deck.slides.filter(s => s.kind === 'makersBreakersDivider').length, 1)
+})
+
+test('V1.6: a Makers & Breakers card picks up a matched photo by player name where one exists, and falls back to no-photo honestly when none does', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1, publishedHighlights: [
+      { kind: 'maker', icon: '\u{1F525}', title: 'Hot Start', playerName: 'Alex Schaefer', statLine: 'x' },
+      { kind: 'breaker', icon: '\u2744\ufe0f', title: 'Ice Cold', playerName: 'Nobody With A Photo', statLine: 'y' },
+    ] })],
+    memories: [memory({ momentId: 'a', roundId: 'r1', playerName: 'Alex Schaefer', imageUrl: 'https://x/alex.jpg' })],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  const mb = makersBreakersSlides(deck.slides)
+  assert.equal(mb.find(s => s.highlight.playerName === 'Alex Schaefer')?.photoUrl, 'https://x/alex.jpg')
+  assert.equal(mb.find(s => s.highlight.playerName === 'Nobody With A Photo')?.photoUrl, null)
 })
 
 test('Makers & Breakers absent: no slide appears for a round with no published highlights, never an empty slide', () => {
@@ -518,7 +554,7 @@ test('text and video Moments never appear as regular photo slides, regardless of
   assert.deepEqual(photoMomentIdsInOrder(deck), ['photo-1'])
 })
 
-test('Bloopers: only organiser-selected (isBlooper) video Memories appear, in a dedicated chapter after a divider', () => {
+test('Bloopers: only organiser-selected (isBlooper) Memories appear, in a dedicated chapter after a divider', () => {
   const data = baseData({
     memories: [
       memory({ momentId: 'vid-selected', mediaType: 'video', durationSeconds: 9, isBlooper: true, imageUrl: 'https://x/clip.mp4' }),
@@ -529,20 +565,42 @@ test('Bloopers: only organiser-selected (isBlooper) video Memories appear, in a 
   const bloopers = blooperSlides(deck.slides)
   assert.equal(bloopers.length, 1)
   assert.equal(bloopers[0].momentId, 'vid-selected')
-  assert.equal(bloopers[0].videoUrl, 'https://x/clip.mp4')
+  assert.equal(bloopers[0].mediaType, 'video')
+  assert.equal(bloopers[0].imageUrl, 'https://x/clip.mp4')
   assert.equal(bloopers[0].durationSeconds, 9)
   assert.ok(deck.slides.some(s => s.kind === 'bloopersDivider'))
 })
 
-test('Bloopers: a photo or text Moment flagged isBlooper is still excluded -- Bloopers means video specifically', () => {
+test('V1.6: a photo Memory flagged isBlooper is now genuinely a valid Blooper, not excluded -- media type and classification are independent', () => {
+  const data = baseData({
+    memories: [memory({ momentId: 'photo-blooper', mediaType: 'photo', isBlooper: true, imageUrl: 'https://x/funny.jpg' })],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  const bloopers = blooperSlides(deck.slides)
+  assert.equal(bloopers.length, 1)
+  assert.equal(bloopers[0].mediaType, 'photo')
+  assert.equal(bloopers[0].imageUrl, 'https://x/funny.jpg')
+})
+
+test('V1.6: a text Memory flagged isBlooper is still excluded -- it has no visual content for the Bloopers chapter', () => {
+  const data = baseData({
+    memories: [memory({ momentId: 'text-blooper', mediaType: 'text', imageUrl: null, caption: 'funny story', isBlooper: true })],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(blooperSlides(deck.slides).length, 0)
+})
+
+test('Bloopers: V1.6 correction -- a flagged photo Moment is now genuinely included; a flagged text Moment is still excluded (no visual content)', () => {
   const data = baseData({
     memories: [
-      memory({ momentId: 'photo-flagged', mediaType: 'photo', isBlooper: true }),
+      memory({ momentId: 'photo-flagged', mediaType: 'photo', isBlooper: true, imageUrl: 'https://x/p.jpg' }),
       memory({ momentId: 'text-flagged', mediaType: 'text', imageUrl: null, caption: 'oops', isBlooper: true }),
     ],
   })
   const deck = buildSlideshowDeck(data, 'all')
-  assert.equal(blooperSlides(deck.slides).length, 0)
+  const bloopers = blooperSlides(deck.slides)
+  assert.equal(bloopers.length, 1)
+  assert.equal(bloopers[0].momentId, 'photo-flagged')
 })
 
 test('Bloopers: zero selected clips produces no Bloopers divider at all -- no empty chapter', () => {
@@ -689,7 +747,7 @@ test('Different section selections: turning a section off genuinely omits it, ev
   const deck = buildPresentationDeck(data, config)
   assert.equal(photoMomentIdsInOrder(deck).length, 0) // Best Moments off -- 'a' never appears
   assert.equal(deck.slides.filter(s => s.kind === 'sideGameWinner').length, 0) // Side Game Winners off
-  assert.equal(deck.slides.filter(s => s.kind === 'makersBreakers').length, 1) // Makers & Breakers on
+  assert.equal(deck.slides.filter(s => s.kind === 'makersBreakersCard').length, 1) // Makers & Breakers on
 })
 
 test('Three-round and non-three-round events: defaultPresentationConfig produces the correct round count for 1 and 5 rounds, never assuming 3', () => {
@@ -774,7 +832,7 @@ test('General Moments are correctly filtered by Favourites when bestMomentsSourc
 })
 
 test('Group photo present/absent in the new builder: present when toggled on and genuinely selected, absent when off or unselected', () => {
-  const dataWithSelection = baseData({ event: { id: 't1', name: 'Event', eventType: null, location: null, startDate: null, endDate: null, status: 'completed', groupPhotoMomentId: 'gp' }, memories: [memory({ momentId: 'gp', imageUrl: 'https://x/gp.jpg' })] })
+  const dataWithSelection = baseData({ event: { id: 't1', name: 'Event', eventType: null, location: null, startDate: null, endDate: null, status: 'completed', groupPhotoMomentId: 'gp', championPhotoMomentId: null }, memories: [memory({ momentId: 'gp', imageUrl: 'https://x/gp.jpg' })] })
   const onConfig: PresentationConfig = {
     scope: { kind: 'fullEvent' }, eventOpening: false, groupPhoto: true, rounds: [],
     eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'favourites',
@@ -798,7 +856,7 @@ test('Bloopers present/absent in the new builder, matching the existing toggle s
   assert.equal(buildPresentationDeck(data, offConfig).slides.filter(s => s.kind === 'blooper').length, 0)
 })
 
-test('Leaderboard pagination is preserved in the new builder for a large field', () => {
+test('V1.6: Top 5 only is preserved in the new builder for a large field', () => {
   const standings = Array.from({ length: 23 }, (_, i) => ({ playerId: `p${i}`, playerName: `Player ${i}`, totalPoints: 100 - i, position: i + 1 }))
   const data = baseData({ results: { champion: { champions: [standings[0]], hasTie: false, standings } } })
   const config: PresentationConfig = {
@@ -807,7 +865,8 @@ test('Leaderboard pagination is preserved in the new builder for a large field',
   }
   const deck = buildPresentationDeck(data, config)
   const pages = deck.slides.filter((s): s is Extract<Slide, { kind: 'leaderboard' }> => s.kind === 'leaderboard')
-  assert.equal(pages.length, 3)
+  assert.equal(pages.length, 1)
+  assert.equal(pages[0].entries.length, 5)
 })
 
 test('A small field produces exactly one leaderboard slide, not an unnecessary extra page', () => {
@@ -971,4 +1030,79 @@ test('defaultPresentationConfig: Round Winner follows the same "only the final r
   const config = defaultPresentationConfig(data, { kind: 'fullEvent' })
   assert.equal(config.rounds.find(r => r.roundId === 'r1')!.roundResults, false)
   assert.equal(config.rounds.find(r => r.roundId === 'r2')!.roundResults, true)
+})
+
+// -- V1.6 (5 Oct): Champion Photo fallback chain --------------------------
+
+function championSlide(slides: Slide[]) {
+  return slides.find((s): s is Extract<Slide, { kind: 'champion' }> => s.kind === 'champion')
+}
+
+test('Champion Photo: an explicit selection always wins, even when a Favourite and a Group Photo both also exist', () => {
+  const data = baseData({
+    event: { id: 't1', name: 'Event', eventType: null, location: null, startDate: null, endDate: null, status: 'completed', groupPhotoMomentId: 'gp', championPhotoMomentId: 'cp' },
+    memories: [
+      memory({ momentId: 'cp', mediaType: 'photo', imageUrl: 'https://x/explicit.jpg' }),
+      memory({ momentId: 'gp', mediaType: 'photo', imageUrl: 'https://x/group.jpg' }),
+      memory({ momentId: 'fav', mediaType: 'photo', imageUrl: 'https://x/fav.jpg', organiserFavourite: true, playerId: 'p1' }),
+    ],
+    results: { champion: { champions: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72, position: 1 }] } },
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(championSlide(deck.slides)?.photoUrl, 'https://x/explicit.jpg')
+})
+
+test('Champion Photo: with no explicit selection, falls back to a Favourite photo of the champion', () => {
+  const data = baseData({
+    event: { id: 't1', name: 'Event', eventType: null, location: null, startDate: null, endDate: null, status: 'completed', groupPhotoMomentId: 'gp', championPhotoMomentId: null },
+    memories: [
+      memory({ momentId: 'gp', mediaType: 'photo', imageUrl: 'https://x/group.jpg' }),
+      memory({ momentId: 'fav', mediaType: 'photo', imageUrl: 'https://x/fav.jpg', organiserFavourite: true, playerId: 'p1' }),
+    ],
+    results: { champion: { champions: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72, position: 1 }] } },
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(championSlide(deck.slides)?.photoUrl, 'https://x/fav.jpg')
+})
+
+test('Champion Photo: with no explicit selection and no Favourite of the champion, falls back to the Group Photo', () => {
+  const data = baseData({
+    event: { id: 't1', name: 'Event', eventType: null, location: null, startDate: null, endDate: null, status: 'completed', groupPhotoMomentId: 'gp', championPhotoMomentId: null },
+    memories: [memory({ momentId: 'gp', mediaType: 'photo', imageUrl: 'https://x/group.jpg' })],
+    results: { champion: { champions: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72, position: 1 }] } },
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(championSlide(deck.slides)?.photoUrl, 'https://x/group.jpg')
+})
+
+test('Champion Photo: with nothing suitable available at all, the champion card has no photo -- never fabricated', () => {
+  const data = baseData({
+    results: { champion: { champions: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72, position: 1 }] } },
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(championSlide(deck.slides)?.photoUrl, null)
+})
+
+test('Champion Photo: an explicit selection pointing at a non-photo Moment is rejected, falling through the chain honestly', () => {
+  const data = baseData({
+    event: { id: 't1', name: 'Event', eventType: null, location: null, startDate: null, endDate: null, status: 'completed', groupPhotoMomentId: null, championPhotoMomentId: 'vid' },
+    memories: [memory({ momentId: 'vid', mediaType: 'video', durationSeconds: 5, imageUrl: 'https://x/clip.mp4' })],
+    results: { champion: { champions: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72, position: 1 }] } },
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(championSlide(deck.slides)?.photoUrl, null)
+})
+
+test('Champion Photo fallback chain also works correctly in the new buildPresentationDeck builder', () => {
+  const data = baseData({
+    event: { id: 't1', name: 'Event', eventType: null, location: null, startDate: null, endDate: null, status: 'completed', groupPhotoMomentId: 'gp', championPhotoMomentId: null },
+    memories: [memory({ momentId: 'gp', mediaType: 'photo', imageUrl: 'https://x/group.jpg' })],
+    results: { champion: { champions: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72, position: 1 }] } },
+  })
+  const config: PresentationConfig = {
+    scope: { kind: 'fullEvent' }, eventOpening: false, groupPhoto: false, rounds: [],
+    eventChampion: true, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'favourites',
+  }
+  const deck = buildPresentationDeck(data, config)
+  assert.equal(championSlide(deck.slides)?.photoUrl, 'https://x/group.jpg')
 })

@@ -69,6 +69,9 @@ export default function EventMemoriesPage() {
   // UI able to populate it until this patch.
   const [showGroupPhotoPicker, setShowGroupPhotoPicker] = useState(false)
   const [settingGroupPhoto, setSettingGroupPhoto] = useState(false)
+  // V1.6 (5 Oct) -- Champion Photo picker, mirroring Group Photo exactly.
+  const [showChampionPhotoPicker, setShowChampionPhotoPicker] = useState(false)
+  const [settingChampionPhoto, setSettingChampionPhoto] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -205,6 +208,27 @@ export default function EventMemoriesPage() {
     } finally {
       setSettingGroupPhoto(false)
       setShowGroupPhotoPicker(false)
+    }
+  }
+
+  // V1.6 (5 Oct) -- set or clear the Champion Photo. Mirrors
+  // setGroupPhoto exactly: optimistic update, non-destructive on
+  // failure (a manual refresh reconciles).
+  async function setChampionPhoto(momentId: string | null) {
+    if (!manifest) return
+    setSettingChampionPhoto(true)
+    const previous = manifest.event.championPhotoMomentId
+    setManifest({ ...manifest, event: { ...manifest.event, championPhotoMomentId: momentId } })
+    try {
+      const res = await fetch(`/api/trips/${params.tripId}/champion-photo`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ momentId }),
+      })
+      if (!res.ok) setManifest(m => m ? { ...m, event: { ...m.event, championPhotoMomentId: previous } } : m)
+    } catch {
+      setManifest(m => m ? { ...m, event: { ...m.event, championPhotoMomentId: previous } } : m)
+    } finally {
+      setSettingChampionPhoto(false)
+      setShowChampionPhotoPicker(false)
     }
   }
 
@@ -480,7 +504,16 @@ export default function EventMemoriesPage() {
                 <div>
                   <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, letterSpacing: 1, color: '#9ca3af', textTransform: 'uppercase', marginBottom: 8 }}>Event Finale</p>
                   {getAvailableSections(manifest, { kind: 'fullEvent' }).find(a => a.type === 'EVENT_CHAMPION')?.available && (
-                    <ToggleRow label="Event Champion" checked={presentationConfig.eventChampion} onChange={v => setPresentationConfig(prev => prev && { ...prev, eventChampion: v })} />
+                    <>
+                      <ToggleRow label="Event Champion" checked={presentationConfig.eventChampion} onChange={v => setPresentationConfig(prev => prev && { ...prev, eventChampion: v })} />
+                      {/* V1.6 (5 Oct) -- optional, explicit override; falls back to a
+                          Favourite photo of the champion, then the Group Photo, if left unset. */}
+                      {presentationConfig.eventChampion && (
+                        <button onClick={() => setShowChampionPhotoPicker(true)} style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#1a4731', background: 'none', border: 'none', padding: '2px 0 10px', cursor: 'pointer', textDecoration: 'underline' }}>
+                          {manifest.event.championPhotoMomentId ? 'Change Champion Photo' : '+ Choose a Champion Photo (optional)'}
+                        </button>
+                      )}
+                    </>
                   )}
                   {getAvailableSections(manifest, { kind: 'fullEvent' }).find(a => a.type === 'FINAL_LEADERBOARD')?.available && (
                     <ToggleRow label="Final Leaderboard" checked={presentationConfig.finalLeaderboard} onChange={v => setPresentationConfig(prev => prev && { ...prev, finalLeaderboard: v })} />
@@ -488,7 +521,7 @@ export default function EventMemoriesPage() {
                   {getAvailableSections(manifest, { kind: 'fullEvent' }).find(a => a.type === 'BLOOPERS')?.available && (
                     <ToggleRow label="Bloopers" checked={presentationConfig.bloopers} onChange={v => setPresentationConfig(prev => prev && { ...prev, bloopers: v })} />
                   )}
-                  <ToggleRow label="Closing Slide" checked={presentationConfig.eventFinale} onChange={v => setPresentationConfig(prev => prev && { ...prev, eventFinale: v })} />
+                  <ToggleRow label="Closing / Thanks" checked={presentationConfig.eventFinale} onChange={v => setPresentationConfig(prev => prev && { ...prev, eventFinale: v })} />
                 </div>
               </>
             )}
@@ -591,6 +624,43 @@ export default function EventMemoriesPage() {
                     <img src={m.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   )}
                   {m.momentId === manifest.event.groupPhotoMomentId && (
+                    <span style={{ position: 'absolute', top: 4, right: 4, fontSize: 14 }}>✓</span>
+                  )}
+                </button>
+              ))}
+            </div>
+            {manifest.memories.filter(m => m.mediaType === 'photo').length === 0 && (
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', textAlign: 'center', padding: '20px 0' }}>No photos available yet.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Champion Photo picker -- V1.6 (5 Oct). Mirrors the Group
+          Photo picker exactly. Explicit priority over the automatic
+          Favourite-photo-of-the-champion match and the Group Photo
+          fallback, both handled server-side in slideshowDeck.ts. */}
+      {showChampionPhotoPicker && (
+        <div onClick={() => setShowChampionPhotoPicker(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 70, display: 'flex', alignItems: 'flex-end' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: 20, width: '100%', maxHeight: '75vh', display: 'flex', flexDirection: 'column' }}>
+            <p style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#1a1a16', marginBottom: 4 }}>Select Champion Photo</p>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 12 }}>Optional. Without one, a Favourite photo of the champion is used, then the Group Photo.</p>
+            {manifest.event.championPhotoMomentId && (
+              <button onClick={() => setChampionPhoto(null)} disabled={settingChampionPhoto} style={{ marginBottom: 10, padding: '8px 0', borderRadius: 8, border: '1px solid #d9c9a3', background: '#fff', fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260', cursor: 'pointer' }}>
+                Remove Champion Photo
+              </button>
+            )}
+            <div style={{ overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+              {manifest.memories.filter(m => m.mediaType === 'photo').map(m => (
+                <button
+                  key={m.momentId} onClick={() => setChampionPhoto(m.momentId)} disabled={settingChampionPhoto}
+                  style={{ position: 'relative', aspectRatio: '1', borderRadius: 8, overflow: 'hidden', border: m.momentId === manifest.event.championPhotoMomentId ? '3px solid #1a4731' : 'none', padding: 0, cursor: 'pointer', background: '#f3f4f6' }}
+                >
+                  {m.imageUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  )}
+                  {m.momentId === manifest.event.championPhotoMomentId && (
                     <span style={{ position: 'absolute', top: 4, right: 4, fontSize: 14 }}>✓</span>
                   )}
                 </button>

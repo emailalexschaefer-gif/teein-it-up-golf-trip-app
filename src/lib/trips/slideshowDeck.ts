@@ -74,7 +74,17 @@ export type Slide =
   | { kind: 'sideGameWinner'; sideCompId: string; label: string; holeNumber: number | null; winnerName: string; winnerImageUrl: string | null }
   // Published Makers & Breakers -- read verbatim from
   // published_round_highlights, never regenerated or recalculated here.
-  | { kind: 'makersBreakers'; roundId: string; roundName: string; highlights: HighlightLike[] }
+  // V1.6 (5 Oct) -- fixed a real bug: all of a round's Makers &
+  // Breakers used to be crammed into one grid slide with
+  // overflowY:'auto' -- the same "content gets visually clipped on a
+  // fixed presentation screen" bug class already fixed for the
+  // Leaderboard, here causing the reported "title shows, nothing
+  // meaningful follows." Split into a lightweight title divider plus
+  // one full slide per highlight -- structurally impossible to
+  // overflow (a single card always fits), and each card can now carry
+  // its own matched photo where one genuinely exists.
+  | { kind: 'makersBreakersDivider'; roundId: string; roundName: string }
+  | { kind: 'makersBreakersCard'; highlight: HighlightLike; photoUrl: string | null }
   // Event Champion -- from the authoritative standings (position 1),
   // never inferred from which player has the most photos or
   // Favourites. Absent entirely (no slide at all) when no authoritative
@@ -100,7 +110,11 @@ export type Slide =
   // only ever a mediaType === 'video' Memory -- a text or photo
   // Moment can never appear here even if somehow flagged, matching
   // "the organiser selects them," not an automatic classification.
-  | { kind: 'blooper'; momentId: string; videoUrl: string | null; durationSeconds: number | null; playerName: string | null; caption: string | null }
+  // V1.6 (5 Oct) -- media type and storytelling classification are
+  // independent (migration 090): a Blooper can now be a photo as
+  // honestly as a video. mediaType tells the player which way to
+  // render it; durationSeconds is only ever meaningful for video.
+  | { kind: 'blooper'; momentId: string; mediaType: 'photo' | 'video'; imageUrl: string | null; durationSeconds: number | null; playerName: string | null; caption: string | null }
   // Round Winner -- V1.5 (15 Sep). Derived from existing round-scoped
   // scoring (eventMemoryData.ts's own round.winners, itself from
   // determineRoundWinners -- never fabricated, never conflated with
@@ -303,28 +317,51 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], gro
     }
 
     if (roundHighlights.length > 0) {
-      slides.push({ kind: 'makersBreakers', roundId: round.id, roundName: round.name, highlights: roundHighlights })
+      slides.push({ kind: 'makersBreakersDivider', roundId: round.id, roundName: round.name })
+      for (const h of roundHighlights) {
+        // Best-effort photo match by player name -- the only identity
+        // published_round_highlights carries for a player (it stores a
+        // display name, not a stable playerId, at publish time), so
+        // this is an honest approximation, not a guaranteed match;
+        // "where available" from the brief covers exactly this case.
+        const matchedPhoto = roundMemories.find(m => m.playerName === h.playerName)
+        slides.push({ kind: 'makersBreakersCard', highlight: h, photoUrl: matchedPhoto?.imageUrl ?? null })
+      }
     }
   }
 
   if (data.results.champion) {
     const champ = data.results.champion
     // Champion photo: the earliest Favourite (chronologically) whose
-    // playerId matches a champion -- deterministic, never AI/guessed;
-    // null (an elegant card with no photo) when no such Favourite
-    // exists, per the brief's own explicit rule.
+    // V1.6 (5 Oct) -- full priority chain, per the brief: (1) an
+    // explicit organiser-selected Champion Photo always wins; (2)
+    // otherwise a Favourite photo of the champion player, matched by
+    // playerId -- deterministic, never AI/guessed; (3) otherwise the
+    // event's own Group Photo, since the presentation may be
+    // generated immediately after the event with no time for the
+    // organiser to pick a dedicated Champion Photo; (4) only if none
+    // of those exist does the card render with no photo at all.
     const championIds = new Set(champ.champions.map(c => c.playerId))
-    const championPhoto = chronological.find(m => m.organiserFavourite && championIds.has(m.playerId))
-    slides.push({ kind: 'champion', champions: champ.champions, hasTie: champ.hasTie, photoUrl: championPhoto?.imageUrl ?? null })
+    const explicitChampionPhoto = data.event.championPhotoMomentId
+      ? data.memories.find(m => m.momentId === data.event.championPhotoMomentId && m.mediaType === 'photo')
+      : undefined
+    const favouriteChampionPhoto = chronological.find(m => m.organiserFavourite && championIds.has(m.playerId))
+    const groupPhotoFallback = data.event.groupPhotoMomentId
+      ? data.memories.find(m => m.momentId === data.event.groupPhotoMomentId && m.mediaType === 'photo')
+      : undefined
+    const championPhotoUrl = explicitChampionPhoto?.imageUrl ?? favouriteChampionPhoto?.imageUrl ?? groupPhotoFallback?.imageUrl ?? null
+    slides.push({ kind: 'champion', champions: champ.champions, hasTie: champ.hasTie, photoUrl: championPhotoUrl })
 
-    const pageSize = 10
+    // V1.6 (5 Oct) -- redesigned from paginated Top 10 to a single
+    // Top-5 celebration slide, per the brief: players have already
+    // followed the live leaderboard throughout the event, so this
+    // slide's job is to celebrate the leading finishers, not
+    // reproduce the full field. Always exactly one slide now -- never
+    // multiple pages. Fewer than 5 players simply shows however many
+    // exist (slice never pads with fabricated entries).
     const sorted = [...champ.standings].sort((a, b) => a.position - b.position)
-    const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
-    for (let page = 1; page <= totalPages; page++) {
-      const entries = sorted.slice((page - 1) * pageSize, page * pageSize)
-        .map(s => ({ position: s.position, playerName: s.playerName, totalPoints: s.totalPoints }))
-      slides.push({ kind: 'leaderboard', entries, page, totalPages })
-    }
+    const entries = sorted.slice(0, 5).map(s => ({ position: s.position, playerName: s.playerName, totalPoints: s.totalPoints }))
+    slides.push({ kind: 'leaderboard', entries, page: 1, totalPages: 1 })
   }
 
   // Bloopers/Outtakes (V1.4, 14 Sep) -- always derived from the
@@ -333,21 +370,22 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], gro
   // chosen slideshow source (favourites/all/selected) -- Bloopers are
   // their own separate curation layer, exactly like Side Game
   // winners and Makers & Breakers are automatic results rather than
-  // tied to photo curation. Only a genuine video Moment can ever
-  // appear here -- a photo or text Moment flagged is_blooper (which
-  // the database schema does not prevent, by design -- see migration
-  // 086) is still excluded here, since the organiser's intent for
-  // Bloopers is specifically short video clips, and this is the
-  // layer that actually enforces that. No chapter divider or section
-  // is added at all when there are zero selected Bloopers -- no
-  // empty chapter, matching every other section's own rule.
+  // tied to photo curation. V1.6 (5 Oct), migration 090 -- a photo or
+  // video Moment flagged is_blooper can now both appear here; media
+  // type and storytelling classification are independent, per the
+  // explicit product correction. A text Moment flagged is_blooper
+  // (which the database schema does not prevent, by design) is still
+  // excluded -- it has no visual content to show in this chapter at
+  // all. No chapter divider or section is added at all when there are
+  // zero selected Bloopers -- no empty chapter, matching every other
+  // section's own rule.
   const bloopers = data.memories
-    .filter(m => m.isBlooper && m.mediaType === 'video')
+    .filter(m => m.isBlooper && (m.mediaType === 'video' || m.mediaType === 'photo'))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.momentId.localeCompare(b.momentId))
   if (bloopers.length > 0) slides.push({ kind: 'bloopersDivider' })
   for (const b of bloopers) {
     slides.push({
-      kind: 'blooper', momentId: b.momentId, videoUrl: b.imageUrl,
+      kind: 'blooper', momentId: b.momentId, mediaType: b.mediaType as 'photo' | 'video', imageUrl: b.imageUrl,
       durationSeconds: b.durationSeconds, playerName: b.playerName, caption: b.caption,
     })
   }
@@ -686,33 +724,52 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     for (const { winner, photo } of winnerMatches) {
       slides.push({ kind: 'sideGameWinner', sideCompId: winner.sideCompId, label: winner.label, holeNumber: winner.holeNumber, winnerName: winner.winnerName as string, winnerImageUrl: photo?.imageUrl ?? null })
     }
-    if (roundHighlights.length > 0) slides.push({ kind: 'makersBreakers', roundId: round.id, roundName: round.name, highlights: roundHighlights })
+    if (roundHighlights.length > 0) {
+      slides.push({ kind: 'makersBreakersDivider', roundId: round.id, roundName: round.name })
+      // Best-effort photo match by player name against every photo in
+      // this round (not just the curated Best Moments subset the
+      // organiser selected) -- a Makers & Breakers card can draw on
+      // any available photo of that player, "where available."
+      const allRoundPhotos = data.memories.filter(m => m.roundId === round.id && m.mediaType === 'photo')
+      for (const h of roundHighlights) {
+        const matchedPhoto = allRoundPhotos.find(m => m.playerName === h.playerName)
+        slides.push({ kind: 'makersBreakersCard', highlight: h, photoUrl: matchedPhoto?.imageUrl ?? null })
+      }
+    }
     if (roundWinnerResult.length > 0) slides.push({ kind: 'roundResults', roundId: round.id, roundName: round.name, winners: roundWinnerResult })
   }
 
   if (config.eventChampion && data.results.champion) {
     const champ = data.results.champion
+    // V1.6 (5 Oct) -- same priority chain as buildCoreSlides above:
+    // explicit Champion Photo, then a Favourite photo of the
+    // champion, then the Group Photo as a safety net for a
+    // presentation generated right after the event.
     const championIds = new Set(champ.champions.map(c => c.playerId))
-    const championPhoto = sortMemoriesChronologically(data.memories.filter(m => m.mediaType === 'photo' && m.organiserFavourite && championIds.has(m.playerId)))[0]
-    slides.push({ kind: 'champion', champions: champ.champions, hasTie: champ.hasTie, photoUrl: championPhoto?.imageUrl ?? null })
+    const explicitChampionPhoto = data.event.championPhotoMomentId
+      ? data.memories.find(m => m.momentId === data.event.championPhotoMomentId && m.mediaType === 'photo')
+      : undefined
+    const favouriteChampionPhoto = sortMemoriesChronologically(data.memories.filter(m => m.mediaType === 'photo' && m.organiserFavourite && championIds.has(m.playerId)))[0]
+    const groupPhotoFallback = data.event.groupPhotoMomentId
+      ? data.memories.find(m => m.momentId === data.event.groupPhotoMomentId && m.mediaType === 'photo')
+      : undefined
+    const championPhotoUrl = explicitChampionPhoto?.imageUrl ?? favouriteChampionPhoto?.imageUrl ?? groupPhotoFallback?.imageUrl ?? null
+    slides.push({ kind: 'champion', champions: champ.champions, hasTie: champ.hasTie, photoUrl: championPhotoUrl })
   }
 
   if (config.finalLeaderboard && data.results.champion) {
-    const pageSize = 10
+    // V1.6 (5 Oct) -- Top 5 only, a single slide, matching buildCoreSlides above.
     const sorted = [...data.results.champion.standings].sort((a, b) => a.position - b.position)
-    const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
-    for (let page = 1; page <= totalPages; page++) {
-      const entries = sorted.slice((page - 1) * pageSize, page * pageSize).map(s => ({ position: s.position, playerName: s.playerName, totalPoints: s.totalPoints }))
-      slides.push({ kind: 'leaderboard', entries, page, totalPages })
-    }
+    const entries = sorted.slice(0, 5).map(s => ({ position: s.position, playerName: s.playerName, totalPoints: s.totalPoints }))
+    slides.push({ kind: 'leaderboard', entries, page: 1, totalPages: 1 })
   }
 
   if (config.bloopers) {
-    const bloopers = data.memories.filter(m => m.isBlooper && m.mediaType === 'video')
+    const bloopers = data.memories.filter(m => m.isBlooper && (m.mediaType === 'video' || m.mediaType === 'photo'))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.momentId.localeCompare(b.momentId))
     if (bloopers.length > 0) {
       slides.push({ kind: 'bloopersDivider' })
-      for (const b of bloopers) slides.push({ kind: 'blooper', momentId: b.momentId, videoUrl: b.imageUrl, durationSeconds: b.durationSeconds, playerName: b.playerName, caption: b.caption })
+      for (const b of bloopers) slides.push({ kind: 'blooper', momentId: b.momentId, mediaType: b.mediaType as 'photo' | 'video', imageUrl: b.imageUrl, durationSeconds: b.durationSeconds, playerName: b.playerName, caption: b.caption })
     }
   }
 

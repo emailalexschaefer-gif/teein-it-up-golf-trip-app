@@ -45,7 +45,7 @@ export interface EventFinalResults {
 }
 
 export interface EventMemoryData {
-  event: { id: string; name: string; eventType: string | null; location: string | null; startDate: string | null; endDate: string | null; status: string; groupPhotoMomentId: string | null }
+  event: { id: string; name: string; eventType: string | null; location: string | null; startDate: string | null; endDate: string | null; status: string; groupPhotoMomentId: string | null; championPhotoMomentId: string | null }
   rounds: {
     id: string; ordinal: number | null; name: string; courseName: string | null; playDate: string; status: string; holes: number; publishedHighlights: unknown
     // V1.5 completion patch (15 Sep) -- null for a round not yet
@@ -84,7 +84,7 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin: any = createAdminClient()
 
-  const tripRes = await admin.from('trips').select('id, name, event_type, location, start_date, end_date, status, organiser_id, group_photo_moment_id').eq('id', tripId).maybeSingle()
+  const tripRes = await admin.from('trips').select('id, name, event_type, location, start_date, end_date, status, organiser_id, group_photo_moment_id, champion_photo_moment_id').eq('id', tripId).maybeSingle()
   if (!tripRes.data) return null
 
   const roundsRes = await admin.from('rounds')
@@ -234,6 +234,7 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
       id: tripRes.data.id, name: tripRes.data.name, eventType: tripRes.data.event_type,
       location: tripRes.data.location, startDate: tripRes.data.start_date, endDate: tripRes.data.end_date,
       status: tripRes.data.status, groupPhotoMomentId: tripRes.data.group_photo_moment_id,
+      championPhotoMomentId: tripRes.data.champion_photo_moment_id,
     },
     rounds: rounds.map((r: { id: string; name: string; course_name: string | null; play_date: string; status: string; holes: number }) => ({
       id: r.id, ordinal: roundOrdinalById.get(r.id) ?? null, name: r.name, courseName: r.course_name, playDate: r.play_date, status: r.status, holes: r.holes,

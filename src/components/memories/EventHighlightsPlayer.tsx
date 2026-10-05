@@ -81,7 +81,16 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit 
   const [playing, setPlaying] = useState(true)
   const [controlsVisible, setControlsVisible] = useState(true)
   const [failedUrls, setFailedUrls] = useState<Set<string>>(new Set())
-  const [videoMuted, setVideoMuted] = useState(true)
+  // V1.6 (5 Oct) -- fixed a real UI/reality mismatch: video playback
+  // (including audio) was already working correctly, but the mute
+  // icon always showed muted regardless, since this started true and
+  // the playback effect never attempted unmuted autoplay at all.
+  // Starts false (sound on) now -- the effect below attempts unmuted
+  // playback first and only falls back to muted, updating this state
+  // to match, if the browser's own autoplay policy genuinely blocks
+  // unmuted autoplay. The icon is never allowed to diverge from what
+  // is actually happening.
+  const [videoMuted, setVideoMuted] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null)
@@ -91,15 +100,21 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit 
   const current = slides[index]
   const isPhoto = (s: Slide | undefined): s is Extract<Slide, { kind: 'photo' }> => s?.kind === 'photo'
   const isBlooper = (s: Slide | undefined): s is Extract<Slide, { kind: 'blooper' }> => s?.kind === 'blooper'
+  // V1.6 (5 Oct) -- a Blooper can now be a photo as well as a video
+  // (migration 090); only a VIDEO Blooper needs the video-specific
+  // fallback timer described below. A photo Blooper behaves exactly
+  // like an ordinary photo slide for timing purposes.
+  const isVideoBlooper = (s: Slide | undefined): s is Extract<Slide, { kind: 'blooper' }> => isBlooper(s) && s.mediaType === 'video'
 
   // Per-slide duration: photo slides use the chosen duration; title/
-  // divider/closing slides stay visible a little longer. A Blooper
-  // slide's own timer is a FALLBACK only -- its real duration comes
-  // from the video's own `ended` event (see the effect below); this
-  // value is used if that event never fires (a failed/stalled clip).
-  const slideDurationMs = isBlooper(current)
+  // divider/closing slides stay visible a little longer. A video
+  // Blooper slide's own timer is a FALLBACK only -- its real duration
+  // comes from the video's own `ended` event (see the effect below);
+  // this value is used if that event never fires (a failed/stalled
+  // clip).
+  const slideDurationMs = isVideoBlooper(current)
     ? ((current.durationSeconds ?? durationSeconds) + 3) * 1000
-    : (current?.kind === 'photo' ? durationSeconds : durationSeconds + 2) * 1000
+    : (current?.kind === 'photo' || (isBlooper(current) && current.mediaType === 'photo') ? durationSeconds : durationSeconds + 2) * 1000
 
   const goTo = useCallback((next: number) => {
     setIndex(Math.max(0, Math.min(slides.length - 1, next)))
@@ -124,12 +139,22 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit 
   // position so returning to it later starts from the beginning.
   useEffect(() => {
     const video = videoRef.current
-    if (!isBlooper(current) || !video) return
+    if (!isVideoBlooper(current) || !video) return
     if (playing) {
-      // Browsers reliably allow autoplay only when muted -- attempting
-      // unmuted autoplay and catching the rejection, rather than
-      // claiming audio-on autoplay works where it doesn't.
-      video.play().catch(() => { /* autoplay blocked -- the tap-to-unmute/play control remains available */ })
+      // V1.6 (5 Oct) -- attempt unmuted playback first (sound on by
+      // default, per the brief). Browsers that block unmuted autoplay
+      // reject this promise; only then do we fall back to muted, and
+      // critically, update React state to match -- the visible icon
+      // must never claim a sound state that isn't what's actually
+      // playing, in either direction.
+      video.muted = videoMuted
+      video.play().catch(() => {
+        if (!video.muted) {
+          video.muted = true
+          setVideoMuted(true)
+          video.play().catch(() => { /* still blocked -- manual tap-to-play remains available */ })
+        }
+      })
     } else {
       video.pause()
     }
@@ -140,7 +165,7 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit 
       video.pause()
       video.currentTime = 0
     }
-  }, [current, playing, advance])
+  }, [current, playing, advance, videoMuted])
 
   // Fullscreen + Wake Lock on mount; released on unmount. Both are
   // feature-checked and wrapped in try/catch -- failure here never
@@ -266,7 +291,7 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit 
         )}
 
         {/* Mute/unmute, Blooper slides only. */}
-        {isBlooper(current) && (
+        {isVideoBlooper(current) && (
           <button
             onClick={(e) => { e.stopPropagation(); setVideoMuted(m => !m) }}
             style={{ position: 'absolute', bottom: CONTROLS_SAFE_AREA_PX + 12, right: 16, width: 36, height: 36, borderRadius: 18, border: 'none', background: 'rgba(0,0,0,0.5)', color: '#fff', fontSize: 15, cursor: 'pointer' }}
@@ -394,23 +419,40 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
       </div>
     )
   }
-  if (slide.kind === 'makersBreakers') {
+  if (slide.kind === 'makersBreakersDivider') {
     return (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#1a1a16', padding: '24px 24px 24px' }}>
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, letterSpacing: 2, color: '#d9c9a3', textTransform: 'uppercase', marginBottom: 18 }}>{slide.roundName} &middot; Makers &amp; Breakers</p>
-        <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 14, maxWidth: 680, width: '100%', justifyContent: 'center', maxHeight: `calc(100% - ${CONTROLS_SAFE_AREA_PX + 100}px)`, overflowY: 'auto' }}>
-          {slide.highlights.map((h, i) => (
-            <div key={i} style={{
-              background: h.kind === 'maker' ? 'linear-gradient(160deg, rgba(234,179,8,0.22), rgba(234,179,8,0.08))' : 'linear-gradient(160deg, rgba(239,68,68,0.22), rgba(239,68,68,0.08))',
-              border: `1px solid ${h.kind === 'maker' ? 'rgba(234,179,8,0.4)' : 'rgba(239,68,68,0.4)'}`,
-              borderRadius: 14, padding: 16, textAlign: 'center', width: 220,
-            }}>
-              <p style={{ fontSize: 28, marginBottom: 6 }}>{h.icon}</p>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{h.title}</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#fff', marginBottom: 2 }}>{h.playerName}</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#d1d5db' }}>{h.statLine}</p>
-            </div>
-          ))}
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#1a1a16' }}>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, letterSpacing: 2, color: '#d9c9a3', textTransform: 'uppercase', marginBottom: 10 }}>{slide.roundName}</p>
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 3.6vw, 32px)', fontWeight: 800, color: '#fff', letterSpacing: 1 }}>Makers &amp; Breakers</p>
+      </div>
+    )
+  }
+  if (slide.kind === 'makersBreakersCard') {
+    // V1.6 (5 Oct) -- each highlight is now its own full slide, with
+    // its matched photo as a background where one genuinely exists
+    // (never fabricated) -- fixes the reported overflow/visibility
+    // bug structurally, since a single card can never overflow its
+    // own slide the way a grid of several could.
+    const { highlight: h, photoUrl } = slide
+    const accentColor = h.kind === 'maker' ? '#eab308' : '#ef4444'
+    return photoUrl ? (
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: `linear-gradient(rgba(20,20,22,0.3), rgba(20,20,22,0.88)), url(${photoUrl}) center/cover` }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+          <p style={{ fontSize: 34, marginBottom: 10 }}>{h.icon}</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2, color: accentColor, textTransform: 'uppercase', marginBottom: 8 }}>{h.kind === 'maker' ? 'Maker' : 'Breaker'}</p>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 3.6vw, 32px)', fontWeight: 800, color: '#fff', marginBottom: 10 }}>{h.title}</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, color: '#fff', marginBottom: 4 }}>{h.playerName}</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#e5e7eb' }}>{h.statLine}</p>
+        </div>
+      </div>
+    ) : (
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1a1a16', padding: 24 }}>
+        <div style={{ border: `1.5px solid ${accentColor}66`, borderRadius: 18, padding: '36px 44px', textAlign: 'center', background: `linear-gradient(160deg, ${accentColor}22, ${accentColor}08)`, maxWidth: 420 }}>
+          <p style={{ fontSize: 34, marginBottom: 10 }}>{h.icon}</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2, color: accentColor, textTransform: 'uppercase', marginBottom: 8 }}>{h.kind === 'maker' ? 'Maker' : 'Breaker'}</p>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(20px, 3.4vw, 28px)', fontWeight: 800, color: '#fff', marginBottom: 10 }}>{h.title}</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, color: '#fff', marginBottom: 4 }}>{h.playerName}</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#d1d5db' }}>{h.statLine}</p>
         </div>
       </div>
     )
@@ -447,28 +489,65 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     // accident -- confirmed directly, this is the single most
     // important property to get right here and is called out
     // specifically in the delivery report as the actual fix.
+    // V1.6 (5 Oct) -- redesigned from a flat Top-10 list to a genuine
+    // podium: 1st place is the hero row (largest, gold, trophy), 2nd/
+    // 3rd get their own medal treatment, 4th/5th stay restrained --
+    // per the brief's own explicit hierarchy. The non-scrolling,
+    // clamp()-sized flex-column foundation from the V1.5 fix is
+    // preserved unchanged -- only the row treatment itself changed.
+    const medalFor = (position: number) => position === 1 ? '\u{1F3C6}' : position === 2 ? '\u{1F948}' : position === 3 ? '\u{1F949}' : null
     return (
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'linear-gradient(160deg, #14532d, #0f2a1c)', padding: `clamp(16px, 3vh, 28px) 24px ${CONTROLS_SAFE_AREA_PX + 12}px` }}>
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(16px, 2.6vh, 26px)', fontWeight: 800, color: '#fff', letterSpacing: 1, marginBottom: 2, flexShrink: 0 }}>Final Leaderboard</p>
-        {slide.totalPages > 1 && (
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(10px, 1.4vh, 13px)', color: '#d9c9a3', marginBottom: 'clamp(8px, 1.6vh, 16px)', flexShrink: 0 }}>
-            {(slide.page - 1) * 10 + 1}&ndash;{Math.min(slide.page * 10, (slide.page - 1) * 10 + slide.entries.length)}
-          </p>
-        )}
-        <div style={{ width: '100%', maxWidth: 480, flex: 1, minHeight: 0, background: 'rgba(0,0,0,0.2)', borderRadius: 14, padding: 'clamp(6px, 1.2vh, 12px)', display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly' }}>
-          {slide.entries.map(e => (
-            <div key={e.position} style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 clamp(10px, 1.6vw, 16px)', borderRadius: 8,
-              background: e.position === 1 ? 'rgba(251,191,36,0.16)' : 'transparent',
-              flex: '1 1 0', minHeight: 0,
-            }}>
-              <span style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(12px, 2.2vh, 17px)', color: e.position === 1 ? '#fbbf24' : '#fff', fontWeight: e.position === 1 ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {e.position}. {e.playerName}
-              </span>
-              <span style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(12px, 2.2vh, 17px)', fontWeight: 700, color: e.position === 1 ? '#fbbf24' : '#d9c9a3', flexShrink: 0, marginLeft: 8 }}>{e.totalPoints}</span>
-            </div>
-          ))}
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(16px, 2.6vh, 24px)', fontWeight: 800, color: '#fff', letterSpacing: 1, marginBottom: 'clamp(10px, 2vh, 20px)', flexShrink: 0 }}>Final Leaderboard</p>
+        <div style={{ width: '100%', maxWidth: 480, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly', gap: 'clamp(4px, 1vh, 8px)' }}>
+          {slide.entries.map(e => {
+            const isHero = e.position === 1
+            const isMedal = e.position === 2 || e.position === 3
+            return (
+              <div key={e.position} style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: isHero ? 'clamp(10px, 2vh, 18px) clamp(14px, 2.4vw, 22px)' : isMedal ? 'clamp(7px, 1.4vh, 12px) clamp(12px, 2vw, 18px)' : 'clamp(5px, 1vh, 9px) clamp(10px, 1.6vw, 16px)',
+                borderRadius: isHero ? 16 : 10,
+                background: isHero ? 'linear-gradient(135deg, rgba(251,191,36,0.28), rgba(251,191,36,0.1))' : isMedal ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
+                border: isHero ? '1.5px solid rgba(251,191,36,0.5)' : 'none',
+                flex: isHero ? '1.8 1 0' : isMedal ? '1.2 1 0' : '0.85 1 0', minHeight: 0,
+              }}>
+                <span style={{ fontSize: isHero ? 'clamp(22px, 4vh, 34px)' : isMedal ? 'clamp(16px, 2.8vh, 24px)' : 'clamp(13px, 2vh, 17px)', flexShrink: 0, width: isHero ? 44 : 32, textAlign: 'center' }}>
+                  {medalFor(e.position) ?? e.position}
+                </span>
+                <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: isHero ? 'clamp(16px, 2.8vh, 24px)' : isMedal ? 'clamp(13px, 2.2vh, 18px)' : 'clamp(11px, 1.8vh, 14px)', fontWeight: isHero ? 800 : isMedal ? 600 : 400, color: isHero ? '#fff' : isMedal ? '#fff' : '#d1d5db', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {e.playerName}
+                </span>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: isHero ? 'clamp(16px, 2.8vh, 24px)' : isMedal ? 'clamp(13px, 2.2vh, 18px)' : 'clamp(11px, 1.8vh, 14px)', fontWeight: 700, color: isHero ? '#fbbf24' : isMedal ? '#d9c9a3' : '#9ca3af', flexShrink: 0 }}>
+                  {e.totalPoints}
+                </span>
+              </div>
+            )
+          })}
         </div>
+      </div>
+    )
+  }
+  if (slide.kind === 'roundResults') {
+    // V1.6 (5 Oct) -- fixed a real, serious bug found during this
+    // session's own audit: this slide kind existed in the Slide union
+    // (added when Round Winner shipped) but had no renderer at all
+    // here -- every roundResults slide was silently falling through
+    // to the generic closing-slide fallback at the end of this
+    // function, which is exactly what the brief described as "random
+    // Teein' It Up filler slides appearing unexpectedly within the
+    // presentation." Never reproduced the same class of bug while
+    // fixing it: every slide kind added or changed in this same
+    // session was cross-checked against this function's own coverage
+    // before considering the work done (see the delivery report).
+    const isTie = slide.winners.length > 1
+    const names = slide.winners.map(w => w.playerName).join(' & ')
+    return (
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(160deg, #14532d, #0f2a1c)', padding: 24 }}>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2.5, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 10 }}>{slide.roundName} Winner{isTie ? 's' : ''}</p>
+        <div style={{ width: 40, height: 1.5, background: '#fbbf24', marginBottom: 16 }} />
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(24px, 4vw, 38px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 10, textAlign: 'center' }}>{names}</p>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, color: '#d9c9a3' }}>{slide.winners[0]?.points} points</p>
       </div>
     )
   }
@@ -481,19 +560,37 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     )
   }
   if (slide.kind === 'blooper') {
+    // V1.6 (5 Oct) -- fixed a real bug found continuing this session:
+    // this still referenced slide.videoUrl, a field name that no
+    // longer exists on the Slide type (renamed to imageUrl when
+    // Bloopers were widened to include photos) -- would have rendered
+    // "Video unavailable" for every single Blooper, photo and video
+    // alike, since the field was always undefined. Branches on
+    // mediaType now: a video Blooper plays as before; a photo Blooper
+    // renders as a plain image, exactly like an ordinary photo slide,
+    // just within the Bloopers chapter.
     return (
       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
-        {slide.videoUrl ? (
-          <video
-            ref={videoRef}
-            src={slide.videoUrl}
-            muted={videoMuted}
-            playsInline
-            style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-            onError={onVideoFailed}
-          />
+        {slide.mediaType === 'video' ? (
+          slide.imageUrl ? (
+            <video
+              ref={videoRef}
+              src={slide.imageUrl}
+              muted={videoMuted}
+              playsInline
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+              onError={onVideoFailed}
+            />
+          ) : (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#9ca3af' }}>Video unavailable</p>
+          )
         ) : (
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#9ca3af' }}>Video unavailable</p>
+          slide.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={slide.imageUrl} alt={slide.caption ?? 'Blooper'} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+          ) : (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#9ca3af' }}>Photo unavailable</p>
+          )
         )}
         {(slide.playerName || slide.caption) && (
           <div style={{ position: 'absolute', left: 0, right: 0, bottom: CONTROLS_SAFE_AREA_PX, padding: '24px 20px 16px', background: 'linear-gradient(transparent, rgba(0,0,0,0.7))' }}>
@@ -505,11 +602,26 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     )
   }
   // closing
+  // V1.6 (5 Oct) -- the new premium closing slide (brief item 8),
+  // replacing the plain green filler card entirely. Uses the supplied
+  // 16:9 artwork (public/images/event-highlights-closing.jpg) the
+  // same way the opening slide uses its own -- as a cover-sized
+  // background image, so it scales responsively to any device/canvas
+  // size without the raster image itself being hard-coded as the only
+  // possible layout, per the brief's own explicit instruction. Its
+  // composition (headline, subline, "Run your next golf event like a
+  // pro.", Powered by Teein' It Up) is already fully baked into the
+  // artwork itself and is deliberately generic -- no event-specific
+  // text is overlaid here, matching the brief's own "do not insert
+  // event-specific information" rule for this slide specifically
+  // (the opposite of the opening slide, which does overlay the real
+  // event name/dates on top of its own artwork).
   return (
-    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(160deg, #14532d, #0f2a1c)' }}>
-      <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(20px, 3.4vw, 28px)', fontWeight: 800, color: '#fff', letterSpacing: 1, marginBottom: 10 }}>TEEIN&apos; IT UP</p>
-      <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#d9c9a3', letterSpacing: 0.5 }}>Run your next golf event like a pro.</p>
-    </div>
+    <div style={{
+      position: 'absolute', inset: 0,
+      backgroundImage: 'url(/images/event-highlights-closing.jpg)',
+      backgroundSize: 'cover', backgroundPosition: 'center',
+    }} />
   )
 }
 
