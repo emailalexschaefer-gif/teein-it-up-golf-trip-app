@@ -84,7 +84,15 @@ export type Slide =
   // overflow (a single card always fits), and each card can now carry
   // its own matched photo where one genuinely exists.
   | { kind: 'makersBreakersDivider'; roundId: string; roundName: string }
-  | { kind: 'makersBreakersCard'; highlight: HighlightLike; photoUrl: string | null }
+  // V1.7 (6 Oct) -- photoUrl removed entirely, per an explicit product
+  // correction from live testing: the display-name photo matching
+  // (never a stable identity, since published_round_highlights only
+  // ever stores a display name) produced genuinely wrong results in
+  // practice -- a generic group photo was shown as "The Mailman"'s
+  // own photo. Makers & Breakers is the generated story, not an
+  // approximate-photo lookup; every card now always uses the standard
+  // premium background treatment, with no photo, ever.
+  | { kind: 'makersBreakersCard'; highlight: HighlightLike }
   // Event Champion -- from the authoritative standings (position 1),
   // never inferred from which player has the most photos or
   // Favourites. Absent entirely (no slide at all) when no authoritative
@@ -101,6 +109,14 @@ export type Slide =
   // selection was made or the selected id doesn't match a real
   // Memory in this deck's own data.
   | { kind: 'groupPhoto'; momentId: string; imageUrl: string | null; caption: string | null }
+  // Event-at-a-Glance -- V1.7 (6 Oct). Dynamic, never baked into an
+  // artwork; every number and name comes from real event data.
+  // courseNames is in chronological round order (one entry per round
+  // that genuinely has a course name set -- a round without one is
+  // simply omitted from the list, never shown as a blank line).
+  // sideGameCount reflects every Side Game configured for the event,
+  // not just finalized winners.
+  | { kind: 'eventAtAGlance'; roundCount: number; courseNames: string[]; totalHoles: number; sideGameCount: number }
   // Bloopers chapter divider -- only emitted when at least one
   // blooper clip genuinely exists, matching every other divider's
   // "no empty chapter" rule.
@@ -121,7 +137,11 @@ export type Slide =
   // the overall Event Champion, which can genuinely be a different
   // player). Only ever produced for a round whose own status is
   // 'completed' -- never a mid-round snapshot.
-  | { kind: 'roundResults'; roundId: string; roundName: string; winners: { playerId: string; playerName: string; points: number }[] }
+  // V1.7 (6 Oct) -- photoUrl added: a Round Winner photo, matched by
+  // playerId against that round's own photos (the winner's own
+  // Favourite photo in that round, if one exists) -- never guessed,
+  // null when none exists.
+  | { kind: 'roundResults'; roundId: string; roundName: string; winners: { playerId: string; playerName: string; points: number }[]; photoUrl: string | null }
 
 export interface SlideshowDeck {
   slides: Slide[]
@@ -318,15 +338,10 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], gro
 
     if (roundHighlights.length > 0) {
       slides.push({ kind: 'makersBreakersDivider', roundId: round.id, roundName: round.name })
-      for (const h of roundHighlights) {
-        // Best-effort photo match by player name -- the only identity
-        // published_round_highlights carries for a player (it stores a
-        // display name, not a stable playerId, at publish time), so
-        // this is an honest approximation, not a guaranteed match;
-        // "where available" from the brief covers exactly this case.
-        const matchedPhoto = roundMemories.find(m => m.playerName === h.playerName)
-        slides.push({ kind: 'makersBreakersCard', highlight: h, photoUrl: matchedPhoto?.imageUrl ?? null })
-      }
+      // V1.7 (6 Oct) -- photo matching removed entirely (see the
+      // Slide type's own comment for the full reasoning). Every card
+      // uses the standard premium background treatment now.
+      for (const h of roundHighlights) slides.push({ kind: 'makersBreakersCard', highlight: h })
     }
   }
 
@@ -466,7 +481,7 @@ export function rebuildDeckFromOrder(data: EventMemoryData, orderedMomentIds: st
 // Slide union already defined above; no second slide-type system.
 
 export type SectionType =
-  | 'EVENT_OPENING' | 'GROUP_PHOTO'
+  | 'EVENT_OPENING' | 'EVENT_AT_A_GLANCE' | 'GROUP_PHOTO'
   | 'ROUND_INTRO' | 'BEST_MOMENTS' | 'SIDE_GAME_WINNERS' | 'MAKERS_BREAKERS' | 'ROUND_RESULTS'
   | 'EVENT_CHAMPION' | 'FINAL_LEADERBOARD' | 'BLOOPERS' | 'EVENT_FINALE'
 
@@ -494,6 +509,10 @@ export interface RoundSectionConfig {
 export interface PresentationConfig {
   scope: PresentationScope
   eventOpening: boolean
+  // V1.7 (6 Oct) -- Event-at-a-Glance. Full Event only (never
+  // meaningful for a single-round presentation, which already knows
+  // its own scope); sits between Event Opening and Group Photo.
+  eventAtAGlance: boolean
   groupPhoto: boolean
   /** Ordered list of included rounds with their own section toggles
    * -- for scope.kind === 'round', this must contain exactly that one
@@ -565,6 +584,7 @@ export function getAvailableSections(data: EventMemoryData, scope: PresentationS
 
   return [
     { type: 'EVENT_OPENING', label: 'Event Opening', available: true },
+    { type: 'EVENT_AT_A_GLANCE', label: 'Event-at-a-Glance', available: data.rounds.length > 0, reason: data.rounds.length > 0 ? undefined : 'No rounds yet.' },
     { type: 'GROUP_PHOTO', label: 'Group Photo', available: hasGroupPhoto, reason: hasGroupPhoto ? undefined : 'No Group Photo selected yet.' },
     { type: 'BEST_MOMENTS', label: 'Round Highlights', available: hasAnyPhoto, reason: hasAnyPhoto ? undefined : 'No photos yet.' },
     { type: 'SIDE_GAME_WINNERS', label: 'Side Game Winners', available: data.sideGameWinners.some(w => w.winnerPlayerId !== null) },
@@ -609,7 +629,7 @@ export function defaultPresentationConfig(data: EventMemoryData, scope: Presenta
 
   if (scope.kind === 'round') {
     return {
-      scope, eventOpening: false, groupPhoto: false,
+      scope, eventOpening: false, eventAtAGlance: false, groupPhoto: false,
       rounds: [{ roundId: scope.roundId, bestMoments: isAvail('BEST_MOMENTS'), sideGameWinners: isAvail('SIDE_GAME_WINNERS'), makersBreakers: isAvail('MAKERS_BREAKERS'), roundResults: isAvail('ROUND_RESULTS') }],
       eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false,
       bestMomentsSource: 'favourites',
@@ -617,28 +637,33 @@ export function defaultPresentationConfig(data: EventMemoryData, scope: Presenta
   }
 
   const roundIdsInOrder = [...data.rounds].sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0)).map(r => r.id)
-  const lastRoundId = roundIdsInOrder[roundIdsInOrder.length - 1]
   const rounds: RoundSectionConfig[] = roundIdsInOrder.map(roundId => {
     const roundHasPhotos = data.memories.some(m => m.roundId === roundId && m.mediaType === 'photo')
-    const isLastRound = roundId === lastRoundId
     const roundHasWinners = (data.rounds.find(rr => rr.id === roundId)?.winners?.length ?? 0) > 0
     return {
       roundId,
       bestMoments: roundHasPhotos,
-      // Only the final round gets its results replayed by default --
-      // earlier rounds' Side Games/Makers & Breakers were very likely
-      // already shown on their own night, per the brief's own example.
-      sideGameWinners: isLastRound && data.sideGameWinners.some(w => w.roundId === roundId && w.winnerPlayerId !== null),
-      makersBreakers: isLastRound && (() => { const r = data.rounds.find(rr => rr.id === roundId); return parsePublishedHighlights(r?.publishedHighlights ?? null).length > 0 })(),
-      // Round Winner follows the same "only the final round replays
-      // by default" rule -- an earlier round's own winner was very
-      // likely already recognised on its own night too.
-      roundResults: isLastRound && roundHasWinners,
+      // V1.7 (6 Oct) -- regression fix, per direct live-testing
+      // correction: every round's Side Game Winners/Makers &
+      // Breakers/Round Winner now defaults ON whenever that round
+      // genuinely has the content available, derived independently
+      // per round via the same getAvailableSections-style checks used
+      // everywhere else -- no round is treated differently from any
+      // other. This replaces the prior "only the final round replays
+      // by default" rule, which a real device test showed left Round
+      // 1's own genuinely-available Side Game Winners defaulting off
+      // -- confirmed as the wrong default, not a data gap, since the
+      // availability check itself (which correctly offered the
+      // toggle) and the default (which left it off) had quietly
+      // diverged into two different rules for the same question.
+      sideGameWinners: data.sideGameWinners.some(w => w.roundId === roundId && w.winnerPlayerId !== null),
+      makersBreakers: (() => { const r = data.rounds.find(rr => rr.id === roundId); return parsePublishedHighlights(r?.publishedHighlights ?? null).length > 0 })(),
+      roundResults: roundHasWinners,
     }
   })
 
   return {
-    scope, eventOpening: true, groupPhoto: isAvail('GROUP_PHOTO'),
+    scope, eventOpening: true, eventAtAGlance: isAvail('EVENT_AT_A_GLANCE'), groupPhoto: isAvail('GROUP_PHOTO'),
     rounds,
     eventChampion: isAvail('EVENT_CHAMPION'), finalLeaderboard: isAvail('FINAL_LEADERBOARD'),
     bloopers: isAvail('BLOOPERS'), eventFinale: true,
@@ -693,6 +718,16 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     })
   }
 
+  if (config.eventAtAGlance && data.rounds.length > 0) {
+    const roundsInOrder = [...data.rounds].sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0))
+    const courseNames = roundsInOrder.map(r => r.courseName).filter((n): n is string => n !== null && n.length > 0)
+    const totalHoles = roundsInOrder.reduce((sum, r) => sum + r.holes, 0)
+    slides.push({
+      kind: 'eventAtAGlance', roundCount: roundsInOrder.length, courseNames,
+      totalHoles, sideGameCount: data.sideGameCount,
+    })
+  }
+
   if (config.groupPhoto && data.event.groupPhotoMomentId) {
     const groupPhoto = data.memories.find(m => m.momentId === data.event.groupPhotoMomentId && m.mediaType === 'photo')
     if (groupPhoto) slides.push({ kind: 'groupPhoto', momentId: groupPhoto.momentId, imageUrl: groupPhoto.imageUrl, caption: groupPhoto.caption })
@@ -726,17 +761,19 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     }
     if (roundHighlights.length > 0) {
       slides.push({ kind: 'makersBreakersDivider', roundId: round.id, roundName: round.name })
-      // Best-effort photo match by player name against every photo in
-      // this round (not just the curated Best Moments subset the
-      // organiser selected) -- a Makers & Breakers card can draw on
-      // any available photo of that player, "where available."
-      const allRoundPhotos = data.memories.filter(m => m.roundId === round.id && m.mediaType === 'photo')
-      for (const h of roundHighlights) {
-        const matchedPhoto = allRoundPhotos.find(m => m.playerName === h.playerName)
-        slides.push({ kind: 'makersBreakersCard', highlight: h, photoUrl: matchedPhoto?.imageUrl ?? null })
-      }
+      // V1.7 (6 Oct) -- photo matching removed entirely, per the
+      // explicit product correction (see the Slide type's own
+      // comment). Every card uses the standard premium background now.
+      for (const h of roundHighlights) slides.push({ kind: 'makersBreakersCard', highlight: h })
     }
-    if (roundWinnerResult.length > 0) slides.push({ kind: 'roundResults', roundId: round.id, roundName: round.name, winners: roundWinnerResult })
+    if (roundWinnerResult.length > 0) {
+      // Best-effort photo: a Favourite photo of one of the round's
+      // winners, in this round, matched by playerId -- deterministic,
+      // never guessed. null (a clean no-photo treatment) when none exists.
+      const winnerIds = new Set(roundWinnerResult.map(w => w.playerId))
+      const roundWinnerPhoto = data.memories.find(m => m.roundId === round.id && m.mediaType === 'photo' && m.organiserFavourite && winnerIds.has(m.playerId))
+      slides.push({ kind: 'roundResults', roundId: round.id, roundName: round.name, winners: roundWinnerResult, photoUrl: roundWinnerPhoto?.imageUrl ?? null })
+    }
   }
 
   if (config.eventChampion && data.results.champion) {

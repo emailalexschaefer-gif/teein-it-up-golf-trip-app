@@ -318,6 +318,46 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit 
   )
 }
 
+/**
+ * PresentationPhoto -- V1.7 (6 Oct) regression fix. One shared,
+ * 16:9-safe photo treatment, reused by Side Game Winner, Round
+ * Winner, and Event Champion -- previously each of those three slides
+ * used a plain `background: url(...) center/cover`, which crops/zooms
+ * a portrait or odd-aspect photo to fill the frame, cutting off
+ * subjects (confirmed directly as the root cause from a real device
+ * test -- the Event Champion's head being cropped out of frame was
+ * the most visible symptom). This reuses the exact same blurred-
+ * backdrop-plus-contained-foreground pattern the ordinary photo slide
+ * (renderPhoto, above) already gets right: the full, uncropped image
+ * always stays visible in the foreground; a blurred, darkened copy of
+ * the same image fills the frame behind it, replacing flat bars
+ * without ever cropping the actual subject. A landscape photo that
+ * already fills a 16:9 frame naturally shows little to no visible
+ * backdrop, exactly as intended -- this is one treatment that adapts
+ * to any source aspect ratio, not a special case for portrait photos.
+ * Building this once and reusing it in three places means a future
+ * fix to this treatment only has to happen once, not be chased down
+ * separately in three renderers again.
+ */
+function PresentationPhoto({ imageUrl, overlay, children }: { imageUrl: string | null; overlay?: 'dark'; children: React.ReactNode }) {
+  return (
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: '#000', overflow: 'hidden' }}>
+      {imageUrl && (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={imageUrl} alt="" aria-hidden style={{ position: 'absolute', inset: -20, width: 'calc(100% + 40px)', height: 'calc(100% + 40px)', objectFit: 'cover', filter: 'blur(28px) brightness(0.45)', transform: 'scale(1.1)' }} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={imageUrl} alt="" style={{ position: 'absolute', inset: 0, margin: 'auto', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+        </>
+      )}
+      {overlay === 'dark' && (
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(rgba(10,10,10,0.1) 0%, rgba(10,10,10,0.75) 72%, rgba(10,10,10,0.92) 100%)' }} />
+      )}
+      <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column' }}>{children}</div>
+    </div>
+  )
+}
+
 function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
   slide: Slide
   videoRef: React.RefObject<HTMLVideoElement | null>
@@ -367,6 +407,73 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
       </div>
     )
   }
+  if (slide.kind === 'eventAtAGlance') {
+    // V1.8 (6 Oct) -- final approved artwork treatment, replacing the
+    // prior session's temporary gradient. The approved reference image
+    // has the example statistics (3 Rounds, 54 Holes, 8 Side Games, 1
+    // Event Champion, sample course names) rasterized directly into
+    // it -- using it as-is would show that fake data sitting behind
+    // this event's real numbers. No image-generation/inpainting tool
+    // is available in this environment to cleanly remove just the
+    // baked-in text while preserving the photo and logo underneath it,
+    // so the background below (event-at-a-glance-bg.jpg) is the
+    // reference image with a strong Gaussian blur and darkening pass
+    // applied -- verified by eye that this makes the original numbers
+    // and course names genuinely illegible (soft glows, not readable
+    // digits), while preserving the reference's colour palette, sunset-
+    // golf-course mood, and rough light/dark composition. The logo
+    // mark (event-at-a-glance-logo.png) is a separate, tightly cropped,
+    // feather-edged extraction from the same reference image, composited
+    // back on top at its original position. Every number, label, and
+    // course name below is a live value from `slide`'s own fields,
+    // computed from real event data -- nothing here is rasterized.
+    return (
+      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/event-at-a-glance-bg.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', display: 'flex', flexDirection: 'column' }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/images/event-at-a-glance-logo.png" alt="Teein' It Up" style={{ width: 'clamp(90px, 13vw, 150px)', margin: 'clamp(10px, 2vh, 20px) auto 0', flexShrink: 0 }} />
+
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 clamp(10px, 2.5vw, 28px)', minHeight: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: 'clamp(6px, 1.6vw, 20px)', width: '100%', maxWidth: 980 }}>
+            {/* Column 1 -- Rounds */}
+            <div style={{ flex: '1.3 1 0', textAlign: 'center', minWidth: 0, borderRight: '1px solid rgba(217,197,163,0.4)', paddingRight: 'clamp(6px, 1.6vw, 20px)' }}>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(30px, 5.4vw, 54px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.roundCount}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(10px, 1.5vw, 15px)', letterSpacing: 1.5, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Round{slide.roundCount === 1 ? '' : 's'}</p>
+              {slide.courseNames.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  {slide.courseNames.map((name, i) => (
+                    <p key={i} style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(8.5px, 1.05vw, 12px)', color: '#e5e7eb', lineHeight: 1.5, overflowWrap: 'break-word' }}>{name}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+            {/* Column 2 -- Holes */}
+            <div style={{ flex: '1 1 0', textAlign: 'center', minWidth: 0, borderRight: '1px solid rgba(217,197,163,0.4)', paddingRight: 'clamp(6px, 1.6vw, 20px)' }}>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(30px, 5.4vw, 54px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.totalHoles}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(10px, 1.5vw, 15px)', letterSpacing: 1.5, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Hole{slide.totalHoles === 1 ? '' : 's'}</p>
+              <p style={{ fontSize: 'clamp(14px, 2vw, 22px)', marginTop: 8 }}>&#9971;</p>
+            </div>
+            {/* Column 3 -- Side Games */}
+            <div style={{ flex: '1 1 0', textAlign: 'center', minWidth: 0, borderRight: '1px solid rgba(217,197,163,0.4)', paddingRight: 'clamp(6px, 1.6vw, 20px)' }}>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(30px, 5.4vw, 54px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.sideGameCount}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(10px, 1.5vw, 15px)', letterSpacing: 1.5, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Side Game{slide.sideGameCount === 1 ? '' : 's'}</p>
+              <p style={{ fontSize: 'clamp(14px, 2vw, 22px)', marginTop: 8 }}>&#127948;</p>
+            </div>
+            {/* Column 4 -- Event Champion. Always "1" -- deliberate
+                foreshadowing; the name is never revealed on this slide. */}
+            <div style={{ flex: '1.2 1 0', textAlign: 'center', minWidth: 0 }}>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(30px, 5.4vw, 54px)', fontWeight: 800, color: '#fbbf24', lineHeight: 1 }}>1</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(10px, 1.5vw, 15px)', letterSpacing: 1.5, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4, lineHeight: 1.3 }}>Event<br />Champion</p>
+              <p style={{ fontSize: 'clamp(14px, 2vw, 22px)', marginTop: 8 }}>&#128081;</p>
+            </div>
+          </div>
+        </div>
+
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(13px, 2vw, 20px)', color: '#fff', fontStyle: 'italic', textAlign: 'center', margin: '0 auto clamp(14px, 3vh, 28px)', flexShrink: 0 }}>
+          This is how it unfolded.
+        </p>
+      </div>
+    )
+  }
   if (slide.kind === 'groupPhoto') {
     return (
       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
@@ -400,13 +507,13 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     // improved for V1.4: a proper gold-accented winner card with real
     // visual hierarchy, rather than plain centred text on flat green.
     return slide.winnerImageUrl ? (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: `linear-gradient(rgba(20,83,45,0.25), rgba(20,83,45,0.88)), url(${slide.winnerImageUrl}) center/cover` }}>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+      <PresentationPhoto imageUrl={slide.winnerImageUrl} overlay="dark">
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', padding: '24px 24px 48px', textAlign: 'center' }}>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, letterSpacing: 2, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 10 }}>{slide.label}{slide.holeNumber ? ` \u00b7 Hole ${slide.holeNumber}` : ''}</p>
           <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 3.6vw, 32px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 8 }}>{slide.winnerName}</p>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#e5e7eb', letterSpacing: 1, textTransform: 'uppercase' }}>Winner</p>
         </div>
-      </div>
+      </PresentationPhoto>
     ) : (
       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(160deg, #0f2a1c, #1a4731)', padding: 24 }}>
         <div style={{ border: '1.5px solid rgba(251,191,36,0.5)', borderRadius: 18, padding: '36px 44px', textAlign: 'center', background: 'rgba(0,0,0,0.15)' }}>
@@ -428,24 +535,17 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     )
   }
   if (slide.kind === 'makersBreakersCard') {
-    // V1.6 (5 Oct) -- each highlight is now its own full slide, with
-    // its matched photo as a background where one genuinely exists
-    // (never fabricated) -- fixes the reported overflow/visibility
-    // bug structurally, since a single card can never overflow its
-    // own slide the way a grid of several could.
-    const { highlight: h, photoUrl } = slide
+    // V1.7 (6 Oct) -- photo matching removed entirely, per an explicit
+    // product correction from live testing: a generic group photo
+    // being shown as "The Mailman"'s own photo demonstrated that the
+    // approximate, display-name-only matching actively weakened the
+    // story rather than helping it. This is the generated story, not
+    // a photo lookup -- every card now always uses the standard
+    // premium background treatment, with strong typography, never a
+    // photo.
+    const { highlight: h } = slide
     const accentColor = h.kind === 'maker' ? '#eab308' : '#ef4444'
-    return photoUrl ? (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: `linear-gradient(rgba(20,20,22,0.3), rgba(20,20,22,0.88)), url(${photoUrl}) center/cover` }}>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
-          <p style={{ fontSize: 34, marginBottom: 10 }}>{h.icon}</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2, color: accentColor, textTransform: 'uppercase', marginBottom: 8 }}>{h.kind === 'maker' ? 'Maker' : 'Breaker'}</p>
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 3.6vw, 32px)', fontWeight: 800, color: '#fff', marginBottom: 10 }}>{h.title}</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, color: '#fff', marginBottom: 4 }}>{h.playerName}</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#e5e7eb' }}>{h.statLine}</p>
-        </div>
-      </div>
-    ) : (
+    return (
       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1a1a16', padding: 24 }}>
         <div style={{ border: `1.5px solid ${accentColor}66`, borderRadius: 18, padding: '36px 44px', textAlign: 'center', background: `linear-gradient(160deg, ${accentColor}22, ${accentColor}08)`, maxWidth: 420 }}>
           <p style={{ fontSize: 34, marginBottom: 10 }}>{h.icon}</p>
@@ -458,18 +558,29 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     )
   }
   if (slide.kind === 'champion') {
-    // Elevated for V1.4 -- the biggest visual moment in the deck.
+    // V1.7 (6 Oct) -- fixed a serious, reported bug: this was the
+    // same plain `background: url(...) center/cover` treatment as
+    // Side Game Winner, which on a real device cropped the champion's
+    // Favourite photo so heavily their head was entirely out of
+    // frame -- on the single biggest reveal in the whole
+    // presentation. Now uses the same shared PresentationPhoto
+    // treatment as Side Game Winner and Round Winner: the full photo
+    // always stays visible, contained, never cropped.
     const names = slide.champions.map(c => c.playerName).join(slide.hasTie ? ' & ' : '')
     return (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: slide.photoUrl ? `linear-gradient(rgba(10,30,20,0.25), rgba(10,30,20,0.92)), url(${slide.photoUrl}) center/cover` : 'linear-gradient(160deg, #0a1f14 0%, #14532d 55%, #1a4731 100%)' }}>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+      <PresentationPhoto imageUrl={slide.photoUrl} overlay={slide.photoUrl ? 'dark' : undefined}>
+        <div style={{
+          flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '24px 24px 48px', textAlign: 'center',
+          justifyContent: slide.photoUrl ? 'flex-end' : 'center',
+          background: slide.photoUrl ? undefined : 'linear-gradient(160deg, #0a1f14 0%, #14532d 55%, #1a4731 100%)',
+        }}>
           <p style={{ fontSize: 'clamp(36px, 6vw, 56px)', marginBottom: 6 }}>🏆</p>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(12px, 1.6vw, 15px)', letterSpacing: 3, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 14 }}>Event {slide.hasTie ? 'Co-Champions' : 'Champion'}</p>
           <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(28px, 5.2vw, 48px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 12, lineHeight: 1.1 }}>{names}</p>
           <div style={{ width: 56, height: 2, background: '#fbbf24', marginBottom: 12 }} />
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(15px, 2.2vw, 19px)', color: '#fff', fontWeight: 600 }}>{slide.champions[0]?.totalPoints} points</p>
         </div>
-      </div>
+      </PresentationPhoto>
     )
   }
   if (slide.kind === 'leaderboard') {
@@ -542,7 +653,20 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     // before considering the work done (see the delivery report).
     const isTie = slide.winners.length > 1
     const names = slide.winners.map(w => w.playerName).join(' & ')
-    return (
+    // V1.7 (6 Oct) -- now uses the shared PresentationPhoto treatment
+    // when a matched photo exists (fixes the reported "portrait image
+    // sitting awkwardly" bug the same way as Side Game Winner/
+    // Champion), with the same clean, no-photo card as before when
+    // none does.
+    return slide.photoUrl ? (
+      <PresentationPhoto imageUrl={slide.photoUrl} overlay="dark">
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', padding: '24px 24px 48px', textAlign: 'center' }}>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2.5, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 10 }}>{slide.roundName} Winner{isTie ? 's' : ''}</p>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(24px, 4vw, 38px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 10, textAlign: 'center' }}>{names}</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, color: '#f0e6d2' }}>{slide.winners[0]?.points} points</p>
+        </div>
+      </PresentationPhoto>
+    ) : (
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(160deg, #14532d, #0f2a1c)', padding: 24 }}>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2.5, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 10 }}>{slide.roundName} Winner{isTie ? 's' : ''}</p>
         <div style={{ width: 40, height: 1.5, background: '#fbbf24', marginBottom: 16 }} />

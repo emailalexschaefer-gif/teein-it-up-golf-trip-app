@@ -71,6 +71,12 @@ export default function EventMemoriesPage() {
   const [settingGroupPhoto, setSettingGroupPhoto] = useState(false)
   // V1.6 (5 Oct) -- Champion Photo picker, mirroring Group Photo exactly.
   const [showChampionPhotoPicker, setShowChampionPhotoPicker] = useState(false)
+  // V1.7 (6 Oct) regression fix -- the picker previously saved on tap
+  // with no confirm step at all, and no visible Save action. Now
+  // tracks a pending selection locally (null = "use the undo-to-
+  // automatic option", undefined = "no change made yet") and only
+  // calls setChampionPhoto when the organiser explicitly taps Save.
+  const [pendingChampionPhoto, setPendingChampionPhoto] = useState<string | null | undefined>(undefined)
   const [settingChampionPhoto, setSettingChampionPhoto] = useState(false)
 
   useEffect(() => {
@@ -170,10 +176,35 @@ export default function EventMemoriesPage() {
     })
   }
 
+  // V1.7 (6 Oct) regression fix. A real device test showed that
+  // tapping to remove just one photo from "Showing Favourites"
+  // appeared to wipe out the rest of the selection instead. Root
+  // cause: this previously seeded the new 'selected' set from
+  // prev.selectedMomentIds, which is empty/undefined the first time
+  // the organiser taps anything while still in 'favourites' or 'all'
+  // mode -- so the very first tap switched to 'selected' mode
+  // containing ONLY the tapped photo, silently discarding every other
+  // photo that had been included a moment before. Fixed by seeding
+  // the initial set from whatever was ACTUALLY included under the
+  // previous source (every current Favourite, or every photo, as
+  // appropriate) before applying the single tap's own add/remove --
+  // so "tap to remove one" now genuinely removes only that one.
   function toggleBestMomentSelection(momentId: string) {
+    if (!manifest) return
     setPresentationConfig(prev => {
       if (!prev) return prev
-      const current = new Set(prev.selectedMomentIds ?? [])
+      let current: Set<string>
+      if (prev.bestMomentsSource === 'selected') {
+        current = new Set(prev.selectedMomentIds ?? [])
+      } else {
+        const eligibleRoundIds = new Set(prev.rounds.filter(r => r.bestMoments).map(r => r.roundId))
+        current = new Set(
+          manifest.memories
+            .filter(m => m.mediaType === 'photo' && eligibleRoundIds.has(m.roundId)
+              && (prev.bestMomentsSource === 'all' || m.organiserFavourite))
+            .map(m => m.momentId)
+        )
+      }
       if (current.has(momentId)) current.delete(momentId); else current.add(momentId)
       return { ...prev, bestMomentsSource: 'selected', selectedMomentIds: [...current] }
     })
@@ -481,6 +512,9 @@ export default function EventMemoriesPage() {
                 <div style={{ marginBottom: 18 }}>
                   <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, letterSpacing: 1, color: '#9ca3af', textTransform: 'uppercase', marginBottom: 8 }}>Opening</p>
                   <ToggleRow label="Event Opening" checked={presentationConfig.eventOpening} onChange={v => setPresentationConfig(prev => prev && { ...prev, eventOpening: v })} />
+                  {getAvailableSections(manifest, { kind: 'fullEvent' }).find(a => a.type === 'EVENT_AT_A_GLANCE')?.available && (
+                    <ToggleRow label="Event-at-a-Glance" checked={presentationConfig.eventAtAGlance} onChange={v => setPresentationConfig(prev => prev && { ...prev, eventAtAGlance: v })} />
+                  )}
                   {manifest.event.groupPhotoMomentId ? (
                     <ToggleRow label="Group Photo" checked={presentationConfig.groupPhoto} onChange={v => setPresentationConfig(prev => prev && { ...prev, groupPhoto: v })} />
                   ) : (
@@ -509,7 +543,7 @@ export default function EventMemoriesPage() {
                       {/* V1.6 (5 Oct) -- optional, explicit override; falls back to a
                           Favourite photo of the champion, then the Group Photo, if left unset. */}
                       {presentationConfig.eventChampion && (
-                        <button onClick={() => setShowChampionPhotoPicker(true)} style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#1a4731', background: 'none', border: 'none', padding: '2px 0 10px', cursor: 'pointer', textDecoration: 'underline' }}>
+                        <button onClick={() => { setPendingChampionPhoto(undefined); setShowChampionPhotoPicker(true) }} style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#1a4731', background: 'none', border: 'none', padding: '2px 0 10px', cursor: 'pointer', textDecoration: 'underline' }}>
                           {manifest.event.championPhotoMomentId ? 'Change Champion Photo' : '+ Choose a Champion Photo (optional)'}
                         </button>
                       )}
@@ -640,38 +674,76 @@ export default function EventMemoriesPage() {
           Photo picker exactly. Explicit priority over the automatic
           Favourite-photo-of-the-champion match and the Group Photo
           fallback, both handled server-side in slideshowDeck.ts. */}
-      {showChampionPhotoPicker && (
-        <div onClick={() => setShowChampionPhotoPicker(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 70, display: 'flex', alignItems: 'flex-end' }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: 20, width: '100%', maxHeight: '75vh', display: 'flex', flexDirection: 'column' }}>
-            <p style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#1a1a16', marginBottom: 4 }}>Select Champion Photo</p>
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 12 }}>Optional. Without one, a Favourite photo of the champion is used, then the Group Photo.</p>
-            {manifest.event.championPhotoMomentId && (
-              <button onClick={() => setChampionPhoto(null)} disabled={settingChampionPhoto} style={{ marginBottom: 10, padding: '8px 0', borderRadius: 8, border: '1px solid #d9c9a3', background: '#fff', fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260', cursor: 'pointer' }}>
-                Remove Champion Photo
-              </button>
-            )}
-            <div style={{ overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
-              {manifest.memories.filter(m => m.mediaType === 'photo').map(m => (
-                <button
-                  key={m.momentId} onClick={() => setChampionPhoto(m.momentId)} disabled={settingChampionPhoto}
-                  style={{ position: 'relative', aspectRatio: '1', borderRadius: 8, overflow: 'hidden', border: m.momentId === manifest.event.championPhotoMomentId ? '3px solid #1a4731' : 'none', padding: 0, cursor: 'pointer', background: '#f3f4f6' }}
-                >
-                  {m.imageUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={m.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  )}
-                  {m.momentId === manifest.event.championPhotoMomentId && (
-                    <span style={{ position: 'absolute', top: 4, right: 4, fontSize: 14 }}>✓</span>
-                  )}
+      {showChampionPhotoPicker && (() => {
+        // V1.7 (6 Oct) regression fix. A real mobile test showed the
+        // bottom actions sitting below the viewport with no usable
+        // Save button at all -- root cause: the scrollable photo grid
+        // had no minHeight: 0 inside its flex-column parent, so it
+        // could grow past the modal's own maxHeight (a classic
+        // flexbox overflow bug), and there was never an explicit
+        // Save/Cancel action in the first place -- tapping a photo
+        // saved immediately with no confirm step. Fixed both: the
+        // modal is now a fixed-height flex column
+        // (minHeight/maxHeight: min(560px, 85dvh), using dvh so a
+        // mobile browser's own chrome doesn't throw the sizing off)
+        // with exactly one scrollable region (the grid itself,
+        // flex: 1 + minHeight: 0 + overflowY: auto) and a
+        // non-scrolling, always-visible Cancel/Save bar pinned to the
+        // bottom of that fixed-height column -- never pushed off
+        // screen by grid content, and never obscured by the app's own
+        // navigation bar, since the whole modal is capped well under
+        // full viewport height.
+        const effectiveSelection = pendingChampionPhoto !== undefined ? pendingChampionPhoto : manifest.event.championPhotoMomentId
+        const hasChanges = pendingChampionPhoto !== undefined && pendingChampionPhoto !== manifest.event.championPhotoMomentId
+        return (
+          <div onClick={() => setShowChampionPhotoPicker(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 70, display: 'flex', alignItems: 'flex-end' }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '16px 16px 0 0', width: '100%', maxHeight: 'min(560px, 85dvh)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ padding: '20px 20px 12px', flexShrink: 0 }}>
+                <p style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#1a1a16', marginBottom: 4 }}>Select Champion Photo</p>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af' }}>Optional. Without one, a Favourite photo of the champion is used, then the Group Photo.</p>
+              </div>
+              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 20px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, paddingBottom: 12 }}>
+                  {manifest.memories.filter(m => m.mediaType === 'photo').map(m => (
+                    <button
+                      key={m.momentId} onClick={() => setPendingChampionPhoto(m.momentId)}
+                      style={{ position: 'relative', aspectRatio: '1', borderRadius: 8, overflow: 'hidden', border: m.momentId === effectiveSelection ? '3px solid #1a4731' : 'none', padding: 0, cursor: 'pointer', background: '#f3f4f6' }}
+                    >
+                      {m.imageUrl && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={m.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      )}
+                      {m.momentId === effectiveSelection && (
+                        <span style={{ position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: 10, background: '#1a4731', color: '#fff', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✓</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                {manifest.memories.filter(m => m.mediaType === 'photo').length === 0 && (
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', textAlign: 'center', padding: '20px 0' }}>No photos available yet.</p>
+                )}
+              </div>
+              <div style={{ flexShrink: 0, display: 'flex', gap: 8, padding: '12px 20px', borderTop: '1px solid #f0efe9' }}>
+                {effectiveSelection && (
+                  <button onClick={() => setPendingChampionPhoto(null)} style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #d9c9a3', background: '#fff', fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#7a7260', cursor: 'pointer' }}>
+                    Remove
+                  </button>
+                )}
+                <button onClick={() => setShowChampionPhotoPicker(false)} style={{ flex: 1, padding: '10px 0', borderRadius: 8, border: '1px solid #e5e2d9', background: '#fff', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>
+                  Cancel
                 </button>
-              ))}
+                <button
+                  onClick={() => setChampionPhoto(pendingChampionPhoto !== undefined ? pendingChampionPhoto : manifest.event.championPhotoMomentId)}
+                  disabled={settingChampionPhoto || !hasChanges}
+                  style={{ flex: 1, padding: '10px 0', borderRadius: 8, border: 'none', background: hasChanges ? '#1a4731' : '#c7d6cc', color: '#fff', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, cursor: hasChanges ? 'pointer' : 'default' }}
+                >
+                  Save
+                </button>
+              </div>
             </div>
-            {manifest.memories.filter(m => m.mediaType === 'photo').length === 0 && (
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', textAlign: 'center', padding: '20px 0' }}>No photos available yet.</p>
-            )}
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

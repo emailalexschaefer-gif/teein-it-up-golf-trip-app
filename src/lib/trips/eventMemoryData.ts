@@ -71,6 +71,11 @@ export interface EventMemoryData {
     mediaType: 'photo' | 'text' | 'video'; durationSeconds: number | null; isBlooper: boolean
   }[]
   sideGameWinners: { sideCompId: string; roundId: string; compType: string; label: string; holeNumber: number | null; winnerPlayerId: string | null; winnerName: string | null }[]
+  // V1.7 (6 Oct) -- for Event-at-a-Glance's "X Side Games": every
+  // Side Game configured for the event, regardless of whether a
+  // winner has been declared yet -- deliberately broader than
+  // sideGameWinners.length, which only counts finalized ones.
+  sideGameCount: number
   playerCount: number
   results: { champion: EventFinalResults | null }
 }
@@ -265,6 +270,7 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
       }
     }),
     sideGameWinners,
+    sideGameCount: sideComps.length,
     playerCount,
     results: { champion },
   }

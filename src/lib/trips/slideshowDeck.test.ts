@@ -26,7 +26,7 @@ function round(overrides: Partial<EventMemoryData['rounds'][number]> & { id: str
 function baseData(overrides: Partial<EventMemoryData> = {}): EventMemoryData {
   return {
     event: { id: 't1', name: 'Darren\u2019s Golf Trip 2026', eventType: 'tournament', location: null, startDate: '2026-09-11', endDate: '2026-09-13', status: 'completed', groupPhotoMomentId: null, championPhotoMomentId: null },
-    rounds: [], memories: [], sideGameWinners: [], playerCount: 4, results: { champion: null },
+    rounds: [], memories: [], sideGameWinners: [], sideGameCount: 0, playerCount: 4, results: { champion: null },
     ...overrides,
   }
 }
@@ -456,18 +456,18 @@ test('V1.6: multiple Makers & Breakers in one round each get their own full card
   assert.equal(deck.slides.filter(s => s.kind === 'makersBreakersDivider').length, 1)
 })
 
-test('V1.6: a Makers & Breakers card picks up a matched photo by player name where one exists, and falls back to no-photo honestly when none does', () => {
+test('V1.7 regression fix: Makers & Breakers never carries a photo, even when a matching photo genuinely exists -- photo matching was removed entirely per an explicit product correction', () => {
   const data = baseData({
     rounds: [round({ id: 'r1', ordinal: 1, publishedHighlights: [
       { kind: 'maker', icon: '\u{1F525}', title: 'Hot Start', playerName: 'Alex Schaefer', statLine: 'x' },
-      { kind: 'breaker', icon: '\u2744\ufe0f', title: 'Ice Cold', playerName: 'Nobody With A Photo', statLine: 'y' },
     ] })],
     memories: [memory({ momentId: 'a', roundId: 'r1', playerName: 'Alex Schaefer', imageUrl: 'https://x/alex.jpg' })],
   })
   const deck = buildSlideshowDeck(data, 'all')
   const mb = makersBreakersSlides(deck.slides)
-  assert.equal(mb.find(s => s.highlight.playerName === 'Alex Schaefer')?.photoUrl, 'https://x/alex.jpg')
-  assert.equal(mb.find(s => s.highlight.playerName === 'Nobody With A Photo')?.photoUrl, null)
+  assert.equal(mb.length, 1)
+  // No photoUrl field should exist on the card at all.
+  assert.ok(!('photoUrl' in mb[0]))
 })
 
 test('Makers & Breakers absent: no slide appears for a round with no published highlights, never an empty slide', () => {
@@ -894,7 +894,7 @@ test('getAvailableSections: a round section is marked available once real conten
   assert.equal(avail.find(a => a.type === 'BEST_MOMENTS')!.available, true)
 })
 
-test('defaultPresentationConfig for Full Event: earlier rounds default to Best Moments only, never automatically replaying their Side Game Winners/Makers & Breakers -- only the final round does', () => {
+test('V1.7 regression fix: defaultPresentationConfig for Full Event -- every round with genuine Side Game Winners/Makers & Breakers defaults ON for that round specifically, including rounds before the final one', () => {
   const data = baseData({
     rounds: [round({ id: 'r1', ordinal: 1, publishedHighlights: [{ kind: 'maker', icon: '\u{1F525}', title: 'Hot', playerName: 'A', statLine: 'x' }] }), round({ id: 'r2', ordinal: 2, publishedHighlights: [{ kind: 'maker', icon: '\u{1F525}', title: 'Hot', playerName: 'A', statLine: 'x' }] })],
     memories: [memory({ momentId: 'a', roundId: 'r1' }), memory({ momentId: 'b', roundId: 'r2' })],
@@ -905,12 +905,12 @@ test('defaultPresentationConfig for Full Event: earlier rounds default to Best M
   })
   const config = defaultPresentationConfig(data, { kind: 'fullEvent' })
   const r1 = config.rounds.find(r => r.roundId === 'r1')!
-  const r2 = config.rounds.find(r => r.roundId === 'r2')! // the final round
+  const r2 = config.rounds.find(r => r.roundId === 'r2')!
   assert.equal(r1.bestMoments, true)
-  assert.equal(r1.sideGameWinners, false) // NOT replayed by default
-  assert.equal(r1.makersBreakers, false) // NOT replayed by default
+  assert.equal(r1.sideGameWinners, true) // now defaults ON -- Round 1 genuinely has a winner
+  assert.equal(r1.makersBreakers, true) // now defaults ON -- Round 1 genuinely has published highlights
   assert.equal(r2.bestMoments, true)
-  assert.equal(r2.sideGameWinners, true) // the final round DOES get its results by default
+  assert.equal(r2.sideGameWinners, true)
   assert.equal(r2.makersBreakers, true)
 })
 
@@ -1019,17 +1019,32 @@ test('getAvailableSections: ROUND_RESULTS is unavailable with a reason for an in
   assert.equal(avail2.find(a => a.type === 'ROUND_RESULTS')!.available, true)
 })
 
-test('defaultPresentationConfig: Round Winner follows the same "only the final round replays by default" rule as Side Games/Makers & Breakers', () => {
+test('V1.7 regression fix: defaultPresentationConfig -- every round\'s Round Winner/Side Games/Makers & Breakers defaults ON independently whenever genuinely available, not just the final round', () => {
   const data = baseData({
     rounds: [
-      round({ id: 'r1', ordinal: 1, winners: [{ playerId: 'p1', playerName: 'Alex', points: 38 }] }),
+      round({ id: 'r1', ordinal: 1, winners: [{ playerId: 'p1', playerName: 'Alex', points: 38 }], publishedHighlights: [{ kind: 'maker', icon: '\u{1F525}', title: 'Hot', playerName: 'Alex', statLine: 'x' }] }),
       round({ id: 'r2', ordinal: 2, winners: [{ playerId: 'p2', playerName: 'Dave', points: 40 }] }),
     ],
     memories: [memory({ momentId: 'a', roundId: 'r1' }), memory({ momentId: 'b', roundId: 'r2' })],
+    sideGameWinners: [
+      { sideCompId: 'sc1', roundId: 'r1', compType: 'longest_drive', label: 'Longest Drive', holeNumber: 5, winnerPlayerId: 'w1', winnerName: 'Mick' },
+    ],
   })
   const config = defaultPresentationConfig(data, { kind: 'fullEvent' })
-  assert.equal(config.rounds.find(r => r.roundId === 'r1')!.roundResults, false)
-  assert.equal(config.rounds.find(r => r.roundId === 'r2')!.roundResults, true)
+  const r1 = config.rounds.find(r => r.roundId === 'r1')!
+  const r2 = config.rounds.find(r => r.roundId === 'r2')!
+  // Round 1 (NOT the final round) genuinely has winners, a Side Game
+  // winner, and published highlights -- all three must now default
+  // ON, exactly matching the live-tested regression this fix addresses.
+  assert.equal(r1.roundResults, true)
+  assert.equal(r1.sideGameWinners, true)
+  assert.equal(r1.makersBreakers, true)
+  // Round 2 (the final round) has a Round Winner but no Side Game
+  // winner and no published highlights for it specifically -- each
+  // toggle is independently correct for what that round actually has.
+  assert.equal(r2.roundResults, true)
+  assert.equal(r2.sideGameWinners, false)
+  assert.equal(r2.makersBreakers, false)
 })
 
 // -- V1.6 (5 Oct): Champion Photo fallback chain --------------------------
@@ -1105,4 +1120,89 @@ test('Champion Photo fallback chain also works correctly in the new buildPresent
   }
   const deck = buildPresentationDeck(data, config)
   assert.equal(championSlide(deck.slides)?.photoUrl, 'https://x/group.jpg')
+})
+
+// -- V1.7 (6 Oct): Event-at-a-Glance ---------------------------------------
+
+function glanceSlide(slides: Slide[]) {
+  return slides.find((s): s is Extract<Slide, { kind: 'eventAtAGlance' }> => s.kind === 'eventAtAGlance')
+}
+
+function fullEventConfig(overrides: Partial<PresentationConfig> = {}): PresentationConfig {
+  return {
+    scope: { kind: 'fullEvent' }, eventOpening: false, eventAtAGlance: true, groupPhoto: false, rounds: [],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'favourites',
+    ...overrides,
+  }
+}
+
+test('Event-at-a-Glance: a single round shows 1 Round, its own course name, its own hole count', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1, holes: 18, courseName: 'Pine Valley' })] })
+  const deck = buildPresentationDeck(data, fullEventConfig())
+  const slide = glanceSlide(deck.slides)!
+  assert.equal(slide.roundCount, 1)
+  assert.deepEqual(slide.courseNames, ['Pine Valley'])
+  assert.equal(slide.totalHoles, 18)
+})
+
+test('Event-at-a-Glance: three rounds sums holes correctly and lists course names in chronological round order, not insertion order', () => {
+  const data = baseData({
+    rounds: [
+      round({ id: 'r3', ordinal: 3, holes: 18, courseName: 'Third Course' }),
+      round({ id: 'r1', ordinal: 1, holes: 18, courseName: 'First Course' }),
+      round({ id: 'r2', ordinal: 2, holes: 9, courseName: 'Second Course' }),
+    ],
+  })
+  const deck = buildPresentationDeck(data, fullEventConfig())
+  const slide = glanceSlide(deck.slides)!
+  assert.equal(slide.roundCount, 3)
+  assert.equal(slide.totalHoles, 45)
+  assert.deepEqual(slide.courseNames, ['First Course', 'Second Course', 'Third Course'])
+})
+
+test('Event-at-a-Glance: a round with no course name set is simply omitted from the list, never shown as a blank entry', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1, holes: 18, courseName: 'Real Course' }), round({ id: 'r2', ordinal: 2, holes: 18, courseName: null })],
+  })
+  const deck = buildPresentationDeck(data, fullEventConfig())
+  const slide = glanceSlide(deck.slides)!
+  assert.deepEqual(slide.courseNames, ['Real Course'])
+})
+
+test('Event-at-a-Glance: sideGameCount reflects every Side Game configured, not just those with a declared winner', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1 })], sideGameCount: 3, sideGameWinners: [{ sideCompId: 'sc1', roundId: 'r1', compType: 'longest_drive', label: 'Longest Drive', holeNumber: 5, winnerPlayerId: 'p1', winnerName: 'Alex' }] })
+  const deck = buildPresentationDeck(data, fullEventConfig())
+  assert.equal(glanceSlide(deck.slides)!.sideGameCount, 3)
+})
+
+test('Event-at-a-Glance: zero Side Games is represented honestly as 0, never omitted or fabricated', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1 })], sideGameCount: 0 })
+  const deck = buildPresentationDeck(data, fullEventConfig())
+  assert.equal(glanceSlide(deck.slides)!.sideGameCount, 0)
+})
+
+test('Event-at-a-Glance: toggled off produces no slide at all, even with rounds present', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1 })] })
+  const deck = buildPresentationDeck(data, fullEventConfig({ eventAtAGlance: false }))
+  assert.equal(glanceSlide(deck.slides), undefined)
+})
+
+test('Event-at-a-Glance: no rounds at all produces no slide, never a zero-rounds card', () => {
+  const data = baseData({ rounds: [] })
+  const deck = buildPresentationDeck(data, fullEventConfig())
+  assert.equal(glanceSlide(deck.slides), undefined)
+})
+
+test('defaultPresentationConfig: Event-at-a-Glance defaults ON for Full Event whenever rounds exist', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1 })] })
+  const config = defaultPresentationConfig(data, { kind: 'fullEvent' })
+  assert.equal(config.eventAtAGlance, true)
+})
+
+test('getAvailableSections: EVENT_AT_A_GLANCE is unavailable with a reason when there are no rounds yet', () => {
+  const data = baseData({ rounds: [] })
+  const avail = getAvailableSections(data, { kind: 'fullEvent' })
+  const entry = avail.find(a => a.type === 'EVENT_AT_A_GLANCE')!
+  assert.equal(entry.available, false)
+  assert.ok(entry.reason)
 })
