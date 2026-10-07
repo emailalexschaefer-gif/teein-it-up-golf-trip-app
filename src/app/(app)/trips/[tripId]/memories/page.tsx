@@ -6,7 +6,7 @@ import Link from 'next/link'
 import type { EventMemoryData } from '@/lib/trips/eventMemoryData'
 import {
   type SlideshowDeck,
-  buildPresentationDeck, getAvailableSections, defaultPresentationConfig,
+  buildPresentationDeck, getAvailableSections, defaultPresentationConfig, resolveSelectedMomentIds,
   type PresentationConfig, type PresentationScope, type RoundSectionConfig, type SectionAvailability,
 } from '@/lib/trips/slideshowDeck'
 import EventHighlightsPlayer from '@/components/memories/EventHighlightsPlayer'
@@ -58,7 +58,12 @@ export default function EventMemoriesPage() {
   // into the organiser UI, per the explicit "do not create a second
   // slide-generation path" instruction -- there is exactly one call
   // to buildPresentationDeck, in the Play step below.
-  const [slideshowStep, setSlideshowStep] = useState<'closed' | 'scope' | 'sections' | 'review' | 'playing'>('closed')
+  // V1.9 (6 Oct) -- 'memories' step added between scope and sections,
+  // per the explicit "restore a clear photo-source step" fix: the
+  // organiser now always sees and confirms Favourites/All Memories/
+  // Choose Memories before Sections, rather than it being an implicit
+  // default the Review screen's subtitle text was the only hint of.
+  const [slideshowStep, setSlideshowStep] = useState<'closed' | 'scope' | 'memories' | 'chooseMemories' | 'sections' | 'review' | 'playing'>('closed')
   const [presentationConfig, setPresentationConfig] = useState<PresentationConfig | null>(null)
   const [slideshowDeck, setSlideshowDeck] = useState<SlideshowDeck | null>(null)
   const [slideshowDuration, setSlideshowDuration] = useState<5 | 8 | 10>(8)
@@ -163,7 +168,27 @@ export default function EventMemoriesPage() {
   function chooseScope(scope: PresentationScope) {
     if (!manifest) return
     setPresentationConfig(defaultPresentationConfig(manifest, scope))
+    setSlideshowStep('memories')
+  }
+
+  // V1.9 (6 Oct) -- the explicit Favourites/All Memories/Choose
+  // Memories step. Setting bestMomentsSource here is the ONLY place
+  // it's set outside of toggleBestMomentSelection's own explicit
+  // switch to 'selected' -- never silently inferred elsewhere.
+  function chooseBestMomentsSource(source: 'favourites' | 'all') {
+    setPresentationConfig(prev => prev && { ...prev, bestMomentsSource: source, selectedMomentIds: undefined })
     setSlideshowStep('sections')
+  }
+
+  // "Choose Memories" -- seeds the starting point from the current
+  // Favourites (a reasonable, explicit starting selection, not an
+  // empty grid), then the organiser adjusts individually from there
+  // via toggleBestMomentSelection on the next screen.
+  function startChooseMemories() {
+    if (!manifest || !presentationConfig) return
+    const seeded = resolveSelectedMomentIds(manifest, { ...presentationConfig, bestMomentsSource: 'favourites' })
+    setPresentationConfig(prev => prev && { ...prev, bestMomentsSource: 'selected', selectedMomentIds: [...seeded] })
+    setSlideshowStep('chooseMemories')
   }
 
   // Updates one round's section config within the current
@@ -176,35 +201,19 @@ export default function EventMemoriesPage() {
     })
   }
 
-  // V1.7 (6 Oct) regression fix. A real device test showed that
-  // tapping to remove just one photo from "Showing Favourites"
-  // appeared to wipe out the rest of the selection instead. Root
-  // cause: this previously seeded the new 'selected' set from
-  // prev.selectedMomentIds, which is empty/undefined the first time
-  // the organiser taps anything while still in 'favourites' or 'all'
-  // mode -- so the very first tap switched to 'selected' mode
-  // containing ONLY the tapped photo, silently discarding every other
-  // photo that had been included a moment before. Fixed by seeding
-  // the initial set from whatever was ACTUALLY included under the
-  // previous source (every current Favourite, or every photo, as
-  // appropriate) before applying the single tap's own add/remove --
-  // so "tap to remove one" now genuinely removes only that one.
+  // V1.9 (6 Oct) -- simplified to use the canonical
+  // resolveSelectedMomentIds, the same function the Review screen's
+  // thumbnail grid and buildPresentationDeck both now call. The prior
+  // version duplicated this seeding logic inline here, which is
+  // exactly the kind of divergence this session's audit found: this
+  // function, the grid, and the deck builder had three separate,
+  // independently-written ideas of "what's currently included,"
+  // with nothing keeping them in agreement. Now there is one.
   function toggleBestMomentSelection(momentId: string) {
     if (!manifest) return
     setPresentationConfig(prev => {
       if (!prev) return prev
-      let current: Set<string>
-      if (prev.bestMomentsSource === 'selected') {
-        current = new Set(prev.selectedMomentIds ?? [])
-      } else {
-        const eligibleRoundIds = new Set(prev.rounds.filter(r => r.bestMoments).map(r => r.roundId))
-        current = new Set(
-          manifest.memories
-            .filter(m => m.mediaType === 'photo' && eligibleRoundIds.has(m.roundId)
-              && (prev.bestMomentsSource === 'all' || m.organiserFavourite))
-            .map(m => m.momentId)
-        )
-      }
+      const current = new Set(resolveSelectedMomentIds(manifest, prev))
       if (current.has(momentId)) current.delete(momentId); else current.add(momentId)
       return { ...prev, bestMomentsSource: 'selected', selectedMomentIds: [...current] }
     })
@@ -486,7 +495,65 @@ export default function EventMemoriesPage() {
         </div>
       )}
 
-      {/* Step 2 -- Choose Sections. Round scope: one flat set of
+      {/* Step 2 -- Choose Memories. The explicit source-of-truth step
+          this whole priority pass exists to add: the organiser always
+          sees and confirms this, rather than it being an implicit
+          default only visible as a subtitle on a later screen. */}
+      {slideshowStep === 'memories' && presentationConfig && manifest && (
+        <div onClick={() => setSlideshowStep('scope')} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 60, display: 'flex', alignItems: 'flex-end' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: 20, width: '100%' }}>
+            <button onClick={() => setSlideshowStep('scope')} style={{ border: 'none', background: 'none', fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151', cursor: 'pointer', marginBottom: 8, padding: 0 }}>Back</button>
+            <p style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#1a1a16', marginBottom: 4 }}>Which Memories should we include?</p>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 14 }}>You can fine-tune this later.</p>
+            <button onClick={() => chooseBestMomentsSource('favourites')} style={{ ...sourceOptionStyle, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+              <span style={{ fontWeight: 700 }}>⭐ Favourites</span>
+              <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 400 }}>Use your best memories</span>
+            </button>
+            <button onClick={() => chooseBestMomentsSource('all')} style={{ ...sourceOptionStyle, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+              <span style={{ fontWeight: 700 }}>📸 All Memories</span>
+              <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 400 }}>Use every eligible photo/video</span>
+            </button>
+            <button onClick={startChooseMemories} style={{ ...sourceOptionStyle, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+              <span style={{ fontWeight: 700 }}>✓ Choose Memories</span>
+              <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 400 }}>Select individual photos/videos</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2b -- Choose Memories thumbnail picker. Only reached via
+          the explicit "Choose Memories" option above -- never entered
+          implicitly by interacting with a preview elsewhere. */}
+      {slideshowStep === 'chooseMemories' && presentationConfig && manifest && (
+        <div style={{ position: 'fixed', inset: 0, background: '#fff', zIndex: 65, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: 16, borderBottom: '1px solid #eceae3', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <button onClick={() => setSlideshowStep('memories')} style={{ border: 'none', background: 'none', fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151', cursor: 'pointer' }}>Back</button>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#1a1a16' }}>{(presentationConfig.selectedMomentIds ?? []).length} selected</p>
+            <button onClick={() => setSlideshowStep('sections')} style={{ border: 'none', background: '#1a4731', color: '#fff', borderRadius: 8, padding: '7px 14px', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Done</button>
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+              {manifest.memories.filter(m => m.mediaType === 'photo' && presentationConfig.rounds.some(r => r.bestMoments && r.roundId === m.roundId)).map(m => {
+                const included = (presentationConfig.selectedMomentIds ?? []).includes(m.momentId)
+                return (
+                  <button key={m.momentId} onClick={() => toggleBestMomentSelection(m.momentId)} style={{ position: 'relative', aspectRatio: '1', borderRadius: 8, overflow: 'hidden', border: included ? '3px solid #1a4731' : '1px solid #eceae3', padding: 0, cursor: 'pointer', opacity: included ? 1 : 0.5 }}>
+                    {m.imageUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={m.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    )}
+                    {included && <span style={{ position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: 10, background: '#1a4731', color: '#fff', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✓</span>}
+                  </button>
+                )
+              })}
+            </div>
+            {manifest.memories.filter(m => m.mediaType === 'photo' && presentationConfig.rounds.some(r => r.bestMoments && r.roundId === m.roundId)).length === 0 && (
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', textAlign: 'center', padding: '20px 0' }}>No photos available yet.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Step 3 -- Choose Sections. Round scope: one flat set of
           toggles. Full Event: every included round independently
           configurable, then the Event Finale group -- the central
           requirement this whole flow exists for. Only sections
@@ -599,20 +666,30 @@ export default function EventMemoriesPage() {
 
               {anyBestMoments && (
                 <>
-                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, letterSpacing: 1, color: '#9ca3af', textTransform: 'uppercase', marginBottom: 10 }}>Best Moments</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, letterSpacing: 1, color: '#9ca3af', textTransform: 'uppercase' }}>Best Moments</p>
+                    {/* V1.9 (6 Oct) -- explicit "Edit Memories" only.
+                        This preview is read-only: tapping a thumbnail
+                        here no longer silently switches the source
+                        mode to 'selected' -- that only ever happens
+                        via the dedicated Choose Memories step, a
+                        deliberate action, never a side-effect of
+                        looking at the review screen. */}
+                    <button onClick={() => setSlideshowStep('memories')} style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#1a4731', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Edit Memories</button>
+                  </div>
                   <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginBottom: 10 }}>
-                    {presentationConfig.bestMomentsSource === 'favourites' ? 'Showing Favourites. Tap to remove, or tap any below to add specific ones.' : presentationConfig.bestMomentsSource === 'all' ? 'Showing all Memories for the included rounds.' : 'Showing your specific selection.'}
+                    {presentationConfig.bestMomentsSource === 'favourites' ? 'Showing Favourites.' : presentationConfig.bestMomentsSource === 'all' ? 'Showing all Memories for the included rounds.' : 'Showing your specific selection.'}
                   </p>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
                     {manifest.memories.filter(m => m.mediaType === 'photo' && presentationConfig.rounds.some(r => r.bestMoments && r.roundId === m.roundId)).map(m => {
                       const included = previewDeck.slides.some(s => s.kind === 'photo' && s.momentId === m.momentId)
                       return (
-                        <button key={m.momentId} onClick={() => toggleBestMomentSelection(m.momentId)} style={{ position: 'relative', aspectRatio: '1', borderRadius: 8, overflow: 'hidden', border: included ? '3px solid #1a4731' : '1px solid #eceae3', padding: 0, cursor: 'pointer', opacity: included ? 1 : 0.5 }}>
+                        <div key={m.momentId} style={{ position: 'relative', aspectRatio: '1', borderRadius: 8, overflow: 'hidden', border: included ? '3px solid #1a4731' : '1px solid #eceae3', opacity: included ? 1 : 0.4 }}>
                           {m.imageUrl && (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img src={m.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                           )}
-                        </button>
+                        </div>
                       )
                     })}
                   </div>

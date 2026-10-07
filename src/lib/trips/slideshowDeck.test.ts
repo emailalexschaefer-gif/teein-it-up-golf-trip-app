@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildSlideshowDeck, rebuildDeckFromOrder, photoMomentIdsInOrder, type Slide,
-  buildPresentationDeck, getAvailableSections, defaultPresentationConfig,
+  buildPresentationDeck, getAvailableSections, defaultPresentationConfig, resolveSelectedMomentIds,
   type PresentationConfig, type RoundSectionConfig,
 } from './slideshowDeck'
 import type { EventMemoryData } from './eventMemoryData'
@@ -1205,4 +1205,99 @@ test('getAvailableSections: EVENT_AT_A_GLANCE is unavailable with a reason when 
   const entry = avail.find(a => a.type === 'EVENT_AT_A_GLANCE')!
   assert.equal(entry.available, false)
   assert.ok(entry.reason)
+})
+
+// -- V1.9 (6 Oct): selection architecture audit -----------------------
+
+test('V1.9 bug fix: a Side Game winner with a genuine winnerPlayerId but a null winnerName (a failed display-name lookup) still counts as a real winner, everywhere this is checked', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 })],
+    sideGameWinners: [{ sideCompId: 'sc1', roundId: 'r1', compType: 'longest_drive', label: 'Longest Drive', holeNumber: 5, winnerPlayerId: 'p1', winnerName: null }],
+  })
+  // Availability.
+  const avail = getAvailableSections(data, { kind: 'round', roundId: 'r1' })
+  assert.equal(avail.find(a => a.type === 'SIDE_GAME_WINNERS')!.available, true)
+  // Actual slide generation, both builders.
+  const config: PresentationConfig = {
+    scope: { kind: 'round', roundId: 'r1' }, eventOpening: false, eventAtAGlance: false, groupPhoto: false,
+    rounds: [{ roundId: 'r1', bestMoments: false, sideGameWinners: true, makersBreakers: false, roundResults: false }],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'all',
+  }
+  assert.equal(buildPresentationDeck(data, config).slides.filter(s => s.kind === 'sideGameWinner').length, 1)
+  assert.equal(buildSlideshowDeck(data, 'all').slides.filter(s => s.kind === 'sideGameWinner').length, 1)
+})
+
+// -- resolveSelectedMomentIds: the single canonical resolver ----------
+
+test('resolveSelectedMomentIds: favourites mode returns exactly every eligible Favourite across ALL included rounds, not just one', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 }), round({ id: 'r2', ordinal: 2 })],
+    memories: [
+      memory({ momentId: 'r1-fav', roundId: 'r1', organiserFavourite: true }),
+      memory({ momentId: 'r1-not-fav', roundId: 'r1', organiserFavourite: false }),
+      memory({ momentId: 'r2-fav', roundId: 'r2', organiserFavourite: true }),
+    ],
+  })
+  const config: PresentationConfig = {
+    scope: { kind: 'fullEvent' }, eventOpening: false, eventAtAGlance: false, groupPhoto: false,
+    rounds: [{ roundId: 'r1', bestMoments: true, sideGameWinners: false, makersBreakers: false, roundResults: false }, { roundId: 'r2', bestMoments: true, sideGameWinners: false, makersBreakers: false, roundResults: false }],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'favourites',
+  }
+  const resolved = resolveSelectedMomentIds(data, config)
+  assert.deepEqual([...resolved].sort(), ['r1-fav', 'r2-fav'])
+})
+
+test('resolveSelectedMomentIds: all mode is never shrunk by a stale selectedMomentIds list', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1 })], memories: [memory({ momentId: 'a', roundId: 'r1' }), memory({ momentId: 'b', roundId: 'r1' })] })
+  const config: PresentationConfig = {
+    scope: { kind: 'round', roundId: 'r1' }, eventOpening: false, eventAtAGlance: false, groupPhoto: false,
+    rounds: [{ roundId: 'r1', bestMoments: true, sideGameWinners: false, makersBreakers: false, roundResults: false }],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'all',
+    selectedMomentIds: ['a'], // stale, from a prior 'selected' session -- must be ignored entirely in 'all' mode
+  }
+  const resolved = resolveSelectedMomentIds(data, config)
+  assert.deepEqual([...resolved].sort(), ['a', 'b'])
+})
+
+test('resolveSelectedMomentIds: selected mode excludes an id for a round that is no longer included', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 }), round({ id: 'r2', ordinal: 2 })],
+    memories: [memory({ momentId: 'r1-photo', roundId: 'r1' }), memory({ momentId: 'r2-photo', roundId: 'r2' })],
+  })
+  const config: PresentationConfig = {
+    scope: { kind: 'fullEvent' }, eventOpening: false, eventAtAGlance: false, groupPhoto: false,
+    // Only r1 is included for Best Moments now, even though r2-photo is still in selectedMomentIds.
+    rounds: [{ roundId: 'r1', bestMoments: true, sideGameWinners: false, makersBreakers: false, roundResults: false }, { roundId: 'r2', bestMoments: false, sideGameWinners: false, makersBreakers: false, roundResults: false }],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'selected',
+    selectedMomentIds: ['r1-photo', 'r2-photo'],
+  }
+  const resolved = resolveSelectedMomentIds(data, config)
+  assert.deepEqual([...resolved], ['r1-photo'])
+})
+
+test('resolveSelectedMomentIds: zero Favourites in scope resolves to a genuinely empty set, not an error, and matches what buildPresentationDeck actually produces', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1 })], memories: [memory({ momentId: 'a', roundId: 'r1', organiserFavourite: false })] })
+  const config: PresentationConfig = {
+    scope: { kind: 'round', roundId: 'r1' }, eventOpening: false, eventAtAGlance: false, groupPhoto: false,
+    rounds: [{ roundId: 'r1', bestMoments: true, sideGameWinners: false, makersBreakers: false, roundResults: false }],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'favourites',
+  }
+  assert.equal(resolveSelectedMomentIds(data, config).size, 0)
+  assert.equal(photoMomentIdsInOrder(buildPresentationDeck(data, config)).length, 0)
+})
+
+test('resolveSelectedMomentIds: the count it implies matches buildPresentationDeck\'s own generated photo slides exactly -- the invariant this whole fix exists to guarantee', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 })],
+    memories: [memory({ momentId: 'a', roundId: 'r1', organiserFavourite: true }), memory({ momentId: 'b', roundId: 'r1', organiserFavourite: true }), memory({ momentId: 'c', roundId: 'r1', organiserFavourite: false })],
+  })
+  const config: PresentationConfig = {
+    scope: { kind: 'round', roundId: 'r1' }, eventOpening: false, eventAtAGlance: false, groupPhoto: false,
+    rounds: [{ roundId: 'r1', bestMoments: true, sideGameWinners: false, makersBreakers: false, roundResults: false }],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'favourites',
+  }
+  const resolvedCount = resolveSelectedMomentIds(data, config).size
+  const actualSlideCount = photoMomentIdsInOrder(buildPresentationDeck(data, config)).length
+  assert.equal(resolvedCount, 2)
+  assert.equal(resolvedCount, actualSlideCount)
 })

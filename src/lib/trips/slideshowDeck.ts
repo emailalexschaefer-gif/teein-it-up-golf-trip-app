@@ -294,7 +294,8 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], gro
   for (const roundId of roundIdsInOrdinalOrder) {
     const round = roundsById.get(roundId)
     if (!round) continue
-    const roundWinners = (winnersByRoundId.get(roundId) ?? []).filter(w => w.winnerPlayerId !== null && w.winnerName !== null)
+    // V1.9 (6 Oct) -- winnerPlayerId alone, matching the fix above.
+    const roundWinners = (winnersByRoundId.get(roundId) ?? []).filter(w => w.winnerPlayerId !== null)
 
     // V1.5 (15 Sep) -- Side Game duplication fix. Live testing showed
     // a winning photo appearing twice: once as an ordinary photo slide
@@ -561,7 +562,14 @@ export function getAvailableSections(data: EventMemoryData, scope: PresentationS
     const round = data.rounds.find(r => r.id === roundId)
     return {
       bestMoments: data.memories.some(m => m.roundId === roundId && m.mediaType === 'photo'),
-      sideGameWinners: data.sideGameWinners.some(w => w.roundId === roundId && w.winnerPlayerId !== null && w.winnerName !== null),
+      // V1.9 (6 Oct) -- winnerPlayerId alone is the authoritative
+      // winner determination (official_winner_entry_id -> player);
+      // winnerName is now guaranteed non-null whenever winnerPlayerId
+      // is (see eventMemoryData.ts's own fix), so checking both here
+      // was redundant and had quietly drifted from
+      // defaultPresentationConfig's own simpler check below -- fixed
+      // to the same single condition everywhere this is checked.
+      sideGameWinners: data.sideGameWinners.some(w => w.roundId === roundId && w.winnerPlayerId !== null),
       makersBreakers: parsePublishedHighlights(round?.publishedHighlights ?? null).length > 0,
       // Round Winner -- available only once the round itself is marked
       // completed AND genuinely has at least one winner computed
@@ -671,14 +679,46 @@ export function defaultPresentationConfig(data: EventMemoryData, scope: Presenta
   }
 }
 
-function resolveBestMoments(data: EventMemoryData, roundId: string | null, config: PresentationConfig): MemoryLike[] {
-  const inRound = data.memories.filter(m => m.mediaType === 'photo' && m.roundId === roundId)
-  if (config.bestMomentsSource === 'favourites') return inRound.filter(m => m.organiserFavourite)
+/**
+ * resolveSelectedMomentIds -- V1.9 (6 Oct), the single canonical
+ * resolver for "which photo Moments does Best Moments actually
+ * include," across every round the config has toggled on. Built
+ * specifically because a real-device audit traced the "0 photos, but
+ * thumbnails visible" symptom to there being no single source of
+ * truth: the Review screen's thumbnail grid independently computed
+ * "every eligible photo in the included rounds" (regardless of
+ * Favourite status or source mode), while the deck builder separately
+ * resolved the actual included set per round via its own filtering --
+ * the two could show a different count than what the grid implied was
+ * available, with nothing forcing them to agree. This function is now
+ * the one place that logic lives; both buildPresentationDeck (via
+ * resolveBestMoments below, which now only adds the per-round split)
+ * and the UI's own preview/thumbnail grid call this directly.
+ *
+ * Required invariant, confirmed by this function's own contract:
+ *   'favourites' -> exactly every eligible Favourite photo in the
+ *     included rounds, nothing added or removed by any other state.
+ *   'all'        -> exactly every eligible photo in the included
+ *     rounds -- selectedMomentIds is never consulted and can never
+ *     shrink this set.
+ *   'selected'   -> exactly the explicitly selected ids that are
+ *     still eligible (a stale id for a since-removed round or Moment
+ *     is silently excluded, never kept).
+ */
+export function resolveSelectedMomentIds(data: EventMemoryData, config: PresentationConfig): Set<string> {
+  const eligibleRoundIds = new Set(config.rounds.filter(r => r.bestMoments).map(r => r.roundId))
+  const eligible = data.memories.filter(m => m.mediaType === 'photo' && eligibleRoundIds.has(m.roundId ?? ''))
+  if (config.bestMomentsSource === 'favourites') return new Set(eligible.filter(m => m.organiserFavourite).map(m => m.momentId))
   if (config.bestMomentsSource === 'selected') {
-    const idSet = new Set(config.selectedMomentIds ?? [])
-    return inRound.filter(m => idSet.has(m.momentId))
+    const requested = new Set(config.selectedMomentIds ?? [])
+    return new Set(eligible.filter(m => requested.has(m.momentId)).map(m => m.momentId))
   }
-  return inRound
+  return new Set(eligible.map(m => m.momentId))
+}
+
+function resolveBestMoments(data: EventMemoryData, roundId: string | null, config: PresentationConfig): MemoryLike[] {
+  const includedIds = resolveSelectedMomentIds(data, config)
+  return data.memories.filter(m => m.mediaType === 'photo' && m.roundId === roundId && includedIds.has(m.momentId))
 }
 
 /**
@@ -738,7 +778,8 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     if (!round) continue // a stale/removed round id in a saved config is silently skipped, never fabricated
 
     const bestMoments = roundConfig.bestMoments ? sortMemoriesChronologically(resolveBestMoments(data, round.id, config)) : []
-    const roundWinnersAll = roundConfig.sideGameWinners ? (winnersByRoundId.get(round.id) ?? []).filter(w => w.winnerPlayerId !== null && w.winnerName !== null) : []
+    // V1.9 (6 Oct) -- winnerPlayerId alone, matching the fix above.
+    const roundWinnersAll = roundConfig.sideGameWinners ? (winnersByRoundId.get(round.id) ?? []).filter(w => w.winnerPlayerId !== null) : []
     const roundHighlights = roundConfig.makersBreakers ? parsePublishedHighlights(round.publishedHighlights) : []
     const roundWinnerResult = roundConfig.roundResults ? (round.winners ?? []) : []
 

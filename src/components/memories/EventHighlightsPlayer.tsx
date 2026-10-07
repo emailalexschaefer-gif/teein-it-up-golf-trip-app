@@ -91,6 +91,10 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit 
   // unmuted autoplay. The icon is never allowed to diverge from what
   // is actually happening.
   const [videoMuted, setVideoMuted] = useState(false)
+  // V1.10 (6 Oct) -- Priority 6: true only if, after fullscreen and
+  // orientation-lock were both attempted, the device is still
+  // genuinely detectable as portrait. Dismissible; never blocks playback.
+  const [showRotateHint, setShowRotateHint] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null)
@@ -167,14 +171,49 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit 
     }
   }, [current, playing, advance, videoMuted])
 
-  // Fullscreen + Wake Lock on mount; released on unmount. Both are
-  // feature-checked and wrapped in try/catch -- failure here never
-  // blocks playback.
+  // V1.10 (6 Oct) -- Priority 6: landscape-first presentation.
+  // Fullscreen + Wake Lock + orientation lock on mount; all released/
+  // unlocked on unmount. Every API here is feature-checked and
+  // wrapped in try/catch -- a rejection or missing API on any one of
+  // them never blocks or breaks playback, and never retries in a loop
+  // (each is attempted exactly once, on mount).
+  //
+  // Orientation locking is attempted AFTER fullscreen, not instead of
+  // it -- most mobile browsers that support screen.orientation.lock()
+  // at all only permit it while the document is actually in
+  // fullscreen; requesting it first would just fail everywhere.
+  // showRotateHint is the honest fallback the brief asks for: shown
+  // only if, after both attempts, the device can still be detected as
+  // portrait (matchMedia, itself widely supported and not dependent on
+  // either API above) -- dismissible, and automatically cleared the
+  // moment the device is actually rotated (the resize listener below),
+  // never a blocking overlay that could strand playback.
   useEffect(() => {
     const el = containerRef.current
-    if (el && document.fullscreenEnabled && el.requestFullscreen) {
-      el.requestFullscreen().catch(() => { /* fullscreen refused -- the player still works as a full-viewport overlay */ })
+    let cancelled = false
+
+    async function enterPresentationMode() {
+      if (el && document.fullscreenEnabled && el.requestFullscreen) {
+        try { await el.requestFullscreen() } catch { /* fullscreen refused -- still works as a full-viewport overlay */ }
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const orientation = (screen as any).orientation
+      if (orientation && typeof orientation.lock === 'function') {
+        try { await orientation.lock('landscape') } catch { /* locking unsupported/rejected -- fall through to the portrait check below */ }
+      }
+      if (cancelled) return
+      const stillPortrait = typeof window.matchMedia === 'function' && window.matchMedia('(orientation: portrait)').matches
+      setShowRotateHint(stillPortrait)
     }
+    enterPresentationMode()
+
+    // If the hint is showing, clear it the moment the device is
+    // actually rotated -- never left stale after the user acts on it.
+    function onResize() {
+      if (typeof window.matchMedia === 'function' && window.matchMedia('(orientation: landscape)').matches) setShowRotateHint(false)
+    }
+    window.addEventListener('resize', onResize)
+
     if ('wakeLock' in navigator) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (navigator as any).wakeLock.request('screen')
@@ -182,6 +221,13 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit 
         .catch(() => { /* wake lock unavailable/denied -- not a dependency */ })
     }
     return () => {
+      cancelled = true
+      window.removeEventListener('resize', onResize)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const orientation = (screen as any).orientation
+      if (orientation && typeof orientation.unlock === 'function') {
+        try { orientation.unlock() } catch { /* nothing to unlock, or already unlocked -- harmless either way */ }
+      }
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
       wakeLockRef.current?.release().catch(() => {})
     }
@@ -298,6 +344,20 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit 
           >
             {videoMuted ? '\u{1F507}' : '\u{1F50A}'}
           </button>
+        )}
+
+        {/* V1.10 (6 Oct) -- Priority 6's explicit fallback: shown only
+            when the device is still genuinely portrait after both
+            fullscreen and orientation-lock were attempted and either
+            failed or aren't supported. Dismissible (never blocks
+            playback), and auto-clears the moment the device is
+            actually rotated (see the resize listener in the effect
+            above). Sits above the controls safe area, never inside it. */}
+        {showRotateHint && (
+          <div style={{ position: 'absolute', top: 12, left: 12, right: 60, zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, background: 'rgba(0,0,0,0.72)', borderRadius: 10, padding: '10px 14px' }}>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#fff', margin: 0 }}>Rotate your phone to landscape for the best presentation.</p>
+            <button onClick={(e) => { e.stopPropagation(); setShowRotateHint(false) }} style={{ flexShrink: 0, border: 'none', background: 'rgba(255,255,255,0.2)', color: '#fff', borderRadius: 6, width: 22, height: 22, fontSize: 12, cursor: 'pointer' }}>✕</button>
+          </div>
         )}
 
         {/* Controls -- fade during playback, reappear on interaction.
@@ -427,48 +487,72 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     // back on top at its original position. Every number, label, and
     // course name below is a live value from `slide`'s own fields,
     // computed from real event data -- nothing here is rasterized.
+    // V1.10 (6 Oct) -- real-device layout fixes, per the brief's own
+    // observed issues: the logo now sits in its own protected,
+    // flexShrink:0 zone with an explicit minHeight reserving real
+    // space for it -- the statistics row is a SEPARATE flex section
+    // below it, never sharing the same centered flex box the logo
+    // used to share, so it structurally cannot creep upward into the
+    // logo's own area on a short viewport, the way "27 Holes and Side
+    // Games encroach into the logo area" described. The statistics
+    // row's own justifyContent is 'flex-start' with an explicit top
+    // gap (not 'center'), so it is pushed down from the logo zone
+    // rather than floating up toward it when there's spare vertical
+    // room. Column widths now follow the brief's own suggested
+    // distribution (roughly Rounds 34% / Holes 22% / Side Games 22% /
+    // Champion 22%) via unequal flex-basis values, giving the Rounds
+    // column -- the one that has to fit course names -- meaningfully
+    // more room than before, not just a small nudge.
     return (
       <div style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/event-at-a-glance-bg.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', display: 'flex', flexDirection: 'column' }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/images/event-at-a-glance-logo.png" alt="Teein' It Up" style={{ width: 'clamp(90px, 13vw, 150px)', margin: 'clamp(10px, 2vh, 20px) auto 0', flexShrink: 0 }} />
+        {/* Protected logo zone -- a fixed minimum height reserved for
+            the logo alone; nothing else is ever laid out inside it. */}
+        <div style={{ flexShrink: 0, minHeight: 'clamp(70px, 11vh, 110px)', display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 'clamp(8px, 1.6vh, 16px)' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/images/event-at-a-glance-logo.png" alt="Teein' It Up" style={{ width: 'clamp(78px, 11vw, 130px)' }} />
+        </div>
 
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 clamp(10px, 2.5vw, 28px)', minHeight: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: 'clamp(6px, 1.6vw, 20px)', width: '100%', maxWidth: 980 }}>
-            {/* Column 1 -- Rounds */}
-            <div style={{ flex: '1.3 1 0', textAlign: 'center', minWidth: 0, borderRight: '1px solid rgba(217,197,163,0.4)', paddingRight: 'clamp(6px, 1.6vw, 20px)' }}>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(30px, 5.4vw, 54px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.roundCount}</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(10px, 1.5vw, 15px)', letterSpacing: 1.5, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Round{slide.roundCount === 1 ? '' : 's'}</p>
+        {/* Statistics row -- a separate section below the protected
+            logo zone, pushed down with its own top padding rather
+            than vertically centered across the remaining space, so
+            it never drifts upward toward the logo on a short canvas. */}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '0 clamp(8px, 2.2vw, 24px)', paddingTop: 'clamp(6px, 1.4vh, 16px)', minHeight: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: 'clamp(4px, 1.3vw, 16px)', width: '100%', maxWidth: 980 }}>
+            {/* Column 1 -- Rounds. ~34% via flex-basis, since it alone carries course names. */}
+            <div style={{ flex: '1.7 1 0%', textAlign: 'center', minWidth: 0, borderRight: '1px solid rgba(217,197,163,0.4)', paddingRight: 'clamp(5px, 1.3vw, 16px)' }}>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(26px, 4.8vw, 48px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.roundCount}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Round{slide.roundCount === 1 ? '' : 's'}</p>
               {slide.courseNames.length > 0 && (
-                <div style={{ marginTop: 8 }}>
+                <div style={{ marginTop: 6 }}>
                   {slide.courseNames.map((name, i) => (
-                    <p key={i} style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(8.5px, 1.05vw, 12px)', color: '#e5e7eb', lineHeight: 1.5, overflowWrap: 'break-word' }}>{name}</p>
+                    <p key={i} style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(7.5px, 0.95vw, 11px)', color: '#e5e7eb', lineHeight: 1.35, overflowWrap: 'break-word', marginTop: i === 0 ? 0 : 2 }}>{name}</p>
                   ))}
                 </div>
               )}
             </div>
-            {/* Column 2 -- Holes */}
-            <div style={{ flex: '1 1 0', textAlign: 'center', minWidth: 0, borderRight: '1px solid rgba(217,197,163,0.4)', paddingRight: 'clamp(6px, 1.6vw, 20px)' }}>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(30px, 5.4vw, 54px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.totalHoles}</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(10px, 1.5vw, 15px)', letterSpacing: 1.5, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Hole{slide.totalHoles === 1 ? '' : 's'}</p>
-              <p style={{ fontSize: 'clamp(14px, 2vw, 22px)', marginTop: 8 }}>&#9971;</p>
+            {/* Column 2 -- Holes, ~22% */}
+            <div style={{ flex: '1.1 1 0%', textAlign: 'center', minWidth: 0, borderRight: '1px solid rgba(217,197,163,0.4)', paddingRight: 'clamp(5px, 1.3vw, 16px)' }}>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(26px, 4.8vw, 48px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.totalHoles}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Hole{slide.totalHoles === 1 ? '' : 's'}</p>
+              <p style={{ fontSize: 'clamp(12px, 1.8vw, 20px)', marginTop: 7 }}>&#9971;</p>
             </div>
-            {/* Column 3 -- Side Games */}
-            <div style={{ flex: '1 1 0', textAlign: 'center', minWidth: 0, borderRight: '1px solid rgba(217,197,163,0.4)', paddingRight: 'clamp(6px, 1.6vw, 20px)' }}>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(30px, 5.4vw, 54px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.sideGameCount}</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(10px, 1.5vw, 15px)', letterSpacing: 1.5, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Side Game{slide.sideGameCount === 1 ? '' : 's'}</p>
-              <p style={{ fontSize: 'clamp(14px, 2vw, 22px)', marginTop: 8 }}>&#127948;</p>
+            {/* Column 3 -- Side Games, ~22% */}
+            <div style={{ flex: '1.1 1 0%', textAlign: 'center', minWidth: 0, borderRight: '1px solid rgba(217,197,163,0.4)', paddingRight: 'clamp(5px, 1.3vw, 16px)' }}>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(26px, 4.8vw, 48px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.sideGameCount}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Side Game{slide.sideGameCount === 1 ? '' : 's'}</p>
+              <p style={{ fontSize: 'clamp(12px, 1.8vw, 20px)', marginTop: 7 }}>&#127948;</p>
             </div>
-            {/* Column 4 -- Event Champion. Always "1" -- deliberate
-                foreshadowing; the name is never revealed on this slide. */}
-            <div style={{ flex: '1.2 1 0', textAlign: 'center', minWidth: 0 }}>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(30px, 5.4vw, 54px)', fontWeight: 800, color: '#fbbf24', lineHeight: 1 }}>1</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(10px, 1.5vw, 15px)', letterSpacing: 1.5, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4, lineHeight: 1.3 }}>Event<br />Champion</p>
-              <p style={{ fontSize: 'clamp(14px, 2vw, 22px)', marginTop: 8 }}>&#128081;</p>
+            {/* Column 4 -- Event Champion, ~22%. Always "1" --
+                deliberate foreshadowing; the name is never revealed here. */}
+            <div style={{ flex: '1.1 1 0%', textAlign: 'center', minWidth: 0 }}>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(26px, 4.8vw, 48px)', fontWeight: 800, color: '#fbbf24', lineHeight: 1 }}>1</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4, lineHeight: 1.25 }}>Event<br />Champion</p>
+              <p style={{ fontSize: 'clamp(12px, 1.8vw, 20px)', marginTop: 7 }}>&#128081;</p>
             </div>
           </div>
         </div>
 
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(13px, 2vw, 20px)', color: '#fff', fontStyle: 'italic', textAlign: 'center', margin: '0 auto clamp(14px, 3vh, 28px)', flexShrink: 0 }}>
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(12px, 1.8vw, 19px)', color: '#fff', fontStyle: 'italic', textAlign: 'center', margin: '0 auto clamp(12px, 2.6vh, 24px)', flexShrink: 0 }}>
           This is how it unfolded.
         </p>
       </div>
@@ -608,9 +692,11 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     // preserved unchanged -- only the row treatment itself changed.
     const medalFor = (position: number) => position === 1 ? '\u{1F3C6}' : position === 2 ? '\u{1F948}' : position === 3 ? '\u{1F949}' : null
     return (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'linear-gradient(160deg, #14532d, #0f2a1c)', padding: `clamp(16px, 3vh, 28px) 24px ${CONTROLS_SAFE_AREA_PX + 12}px` }}>
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(16px, 2.6vh, 24px)', fontWeight: 800, color: '#fff', letterSpacing: 1, marginBottom: 'clamp(10px, 2vh, 20px)', flexShrink: 0 }}>Final Leaderboard</p>
-        <div style={{ width: '100%', maxWidth: 480, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly', gap: 'clamp(4px, 1vh, 8px)' }}>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundImage: 'url(/images/event-at-a-glance-bg.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', padding: `clamp(14px, 2.6vh, 24px) 24px ${CONTROLS_SAFE_AREA_PX + 10}px` }}>
+        <p style={{ fontSize: 'clamp(20px, 3.4vh, 32px)', marginBottom: 2, flexShrink: 0 }}>&#127942;</p>
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(15px, 2.4vh, 22px)', fontWeight: 800, color: '#fff', letterSpacing: 1.5, textTransform: 'uppercase', flexShrink: 0 }}>Final Leaderboard</p>
+        <div style={{ width: 44, height: 1.5, background: '#fbbf24', margin: 'clamp(8px, 1.6vh, 14px) 0', flexShrink: 0 }} />
+        <div style={{ width: '100%', maxWidth: 500, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly', gap: 'clamp(4px, 1vh, 8px)' }}>
           {slide.entries.map(e => {
             const isHero = e.position === 1
             const isMedal = e.position === 2 || e.position === 3
@@ -619,8 +705,9 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
                 display: 'flex', alignItems: 'center', gap: 12,
                 padding: isHero ? 'clamp(10px, 2vh, 18px) clamp(14px, 2.4vw, 22px)' : isMedal ? 'clamp(7px, 1.4vh, 12px) clamp(12px, 2vw, 18px)' : 'clamp(5px, 1vh, 9px) clamp(10px, 1.6vw, 16px)',
                 borderRadius: isHero ? 16 : 10,
-                background: isHero ? 'linear-gradient(135deg, rgba(251,191,36,0.28), rgba(251,191,36,0.1))' : isMedal ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
-                border: isHero ? '1.5px solid rgba(251,191,36,0.5)' : 'none',
+                background: isHero ? 'linear-gradient(135deg, rgba(251,191,36,0.32), rgba(251,191,36,0.1))' : isMedal ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.04)',
+                border: isHero ? '1.5px solid rgba(251,191,36,0.6)' : isMedal ? '1px solid rgba(255,255,255,0.15)' : 'none',
+                boxShadow: isHero ? '0 4px 18px rgba(0,0,0,0.35)' : undefined,
                 flex: isHero ? '1.8 1 0' : isMedal ? '1.2 1 0' : '0.85 1 0', minHeight: 0,
               }}>
                 <span style={{ fontSize: isHero ? 'clamp(22px, 4vh, 34px)' : isMedal ? 'clamp(16px, 2.8vh, 24px)' : 'clamp(13px, 2vh, 17px)', flexShrink: 0, width: isHero ? 44 : 32, textAlign: 'center' }}>

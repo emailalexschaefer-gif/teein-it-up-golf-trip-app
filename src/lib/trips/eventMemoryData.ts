@@ -192,7 +192,25 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
         compType: sc.comp_type, label: sc.name || SIDE_COMP_LABEL[sc.comp_type] || sc.comp_type,
         holeNumber: sc.hole_number,
         winnerPlayerId: playerId,
-        winnerName: playerId ? nameByPlayerId.get(playerId) ?? null : null,
+        // V1.9 (6 Oct) -- fixed a real bug, confirmed during this
+        // session's audit: a Side Game genuinely has a declared
+        // winner the moment official_winner_entry_id is set
+        // (winnerPlayerId above) -- winnerName is a separate display-
+        // name lookup that can independently fail (a profile with no
+        // full_name set, or a lookup miss), and previously fell back
+        // to null in that case. Every downstream check (getAvailableSections,
+        // the two deck builders' own winner filtering) treats
+        // "winnerName !== null" as part of "a genuine winner exists,"
+        // so a null winnerName here silently hid a real, declared
+        // winner -- exactly explaining a round's Side Game Winners
+        // section failing to appear despite a genuine
+        // official_winner_entry_id existing. Falls back to 'Player'
+        // (matching the same fallback already used for photo
+        // uploaders elsewhere in this file) so winnerPlayerId non-null
+        // now always implies winnerName non-null -- the two checks
+        // scattered across this feature are consistent by
+        // construction, not by coincidence.
+        winnerName: playerId ? (nameByPlayerId.get(playerId) ?? 'Player') : null,
       }
     })
 
