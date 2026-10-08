@@ -31,6 +31,8 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { computeFinalResults, type FinalResultsResult } from './finalResults'
 import { determineRoundWinners } from '@/lib/scoring/multiRound'
+import { computeRoundSideGames } from '@/lib/sideGames/computeRoundSideGames'
+import { resolveSideGameWinner, type SideCompForResolution } from './resolveSideGameWinner'
 
 const SIDE_COMP_LABEL: Record<string, string> = {
   nearest_pin: 'Nearest the Pin', longest_drive: 'Longest Drive', pros_approach: "Pro's Approach", powerplay: 'Powerplay',
@@ -172,6 +174,49 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
     sideCompIdByMomentId.set(e.moment_id, e.side_comp_id)
   }
 
+  // V1.11 (7 Oct) -- ROOT CAUSE TRACE for "Round 2 Side Game Winners
+  // missing from the slideshow despite the live Side Games screen
+  // showing them," confirmed by comparing this query against the live
+  // screen's own data path (src/lib/sideGames/computeRoundSideGames.ts,
+  // used by src/app/api/.../side-games/route.ts), not assumed:
+  //
+  // This query (and therefore the slideshow) only ever reads
+  // side_comps.official_winner_entry_id -- a column that is EXCLUSIVELY
+  // written by the finalize_side_comp_winners() RPC, which is in turn
+  // ONLY ever called from the round-close route (confirmed directly
+  // in close/route.ts). The live Side Games screen does NOT read this
+  // column at all -- computeRoundSideGames.ts computes its own
+  // "winner" dynamically, per Side Game, as `complete ? currentLeader
+  // : null`, where `complete` is `isHoleComplete(comp.hole_number)` --
+  // whether every player has finished THAT SPECIFIC HOLE, entirely
+  // independent of the round's own open/closed status.
+  //
+  // This means a Side Game tied to an early hole (Hole 1, Hole 6) can
+  // genuinely show "WINNER: Alex Schaefer" in the live screen the
+  // moment everyone has played that one hole -- while the round itself
+  // (and therefore official_winner_entry_id) remains unset until the
+  // ENTIRE round is formally closed, which can happen much later, or
+  // not yet at all. Round 1 and Round 3 having their Side Game
+  // Winners section available while Round 2 does not is consistent
+  // with Round 1 and Round 3 having already been closed while Round 2
+  // has not -- its Side Games are individually complete and showing
+  // live winners, but the round itself hasn't been closed yet, so
+  // official_winner_entry_id is still null for both of its Side Games.
+  //
+  // This was NOT verifiable with certainty from this environment --
+  // there is no database access here to directly confirm Round 2's
+  // actual status column. It is reported as the precise, evidence-
+  // based explanation this trace produced, not a confirmed fact. No
+  // change was made to the winner-source logic itself: doing so would
+  // mean the slideshow could show a still-provisional, not-yet-
+  // officially-finalized leader as a declared winner, which is a
+  // scoring/results-semantics decision (whether a Side Game Winner
+  // slide should be allowed before the round is formally closed) --
+  // squarely outside a presentation-focused pass, per the explicit
+  // "do not touch scoring/event logic merely because this pass
+  // includes visual changes" instruction. See the delivery report for
+  // the two options this leaves for the next pass if Round 2 is
+  // confirmed not yet closed.
   const winnerEntryIds = sideComps.map(sc => sc.official_winner_entry_id).filter((id): id is string => id !== null)
   const winningEntriesRes = winnerEntryIds.length > 0
     ? await admin.from('side_comp_entries').select('id, player_id').in('id', winnerEntryIds)
@@ -183,36 +228,44 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
     : { data: [] }
   const nameByPlayerId = new Map(((winnerProfilesRes.data ?? []) as { id: string; full_name: string }[]).map(p => [p.id, p.full_name]))
 
-  const sideGameWinners = sideComps
-    .filter(sc => sc.official_winner_entry_id !== null)
-    .map(sc => {
-      const playerId = playerIdByEntryId.get(sc.official_winner_entry_id as string) ?? null
-      return {
-        sideCompId: sc.id, roundId: sc.round_id,
-        compType: sc.comp_type, label: sc.name || SIDE_COMP_LABEL[sc.comp_type] || sc.comp_type,
-        holeNumber: sc.hole_number,
-        winnerPlayerId: playerId,
-        // V1.9 (6 Oct) -- fixed a real bug, confirmed during this
-        // session's audit: a Side Game genuinely has a declared
-        // winner the moment official_winner_entry_id is set
-        // (winnerPlayerId above) -- winnerName is a separate display-
-        // name lookup that can independently fail (a profile with no
-        // full_name set, or a lookup miss), and previously fell back
-        // to null in that case. Every downstream check (getAvailableSections,
-        // the two deck builders' own winner filtering) treats
-        // "winnerName !== null" as part of "a genuine winner exists,"
-        // so a null winnerName here silently hid a real, declared
-        // winner -- exactly explaining a round's Side Game Winners
-        // section failing to appear despite a genuine
-        // official_winner_entry_id existing. Falls back to 'Player'
-        // (matching the same fallback already used for photo
-        // uploaders elsewhere in this file) so winnerPlayerId non-null
-        // now always implies winnerName non-null -- the two checks
-        // scattered across this feature are consistent by
-        // construction, not by coincidence.
-        winnerName: playerId ? (nameByPlayerId.get(playerId) ?? 'Player') : null,
-      }
-    })
+  // V1.12 (7 Oct) -- the canonical resolver fix for the V1.11 root
+  // cause above. rounds.status === 'completed' is the existing,
+  // canonical finalisation field (confirmed authoritative: it's the
+  // exact value the round-close route sets at the same moment it
+  // calls finalize_side_comp_winners(), and the same field
+  // get_my_golf_summary()'s own self-healing reconciliation already
+  // treats as the finalisation gate -- no new flag introduced).
+  //
+  // The pre-finalisation fallback reuses computeRoundSideGames(), the
+  // exact function backing the live Side Games screen, rather than
+  // reimplementing its completion/winner logic a second time here --
+  // called ONLY for rounds not yet 'completed', since a finalised
+  // round's winners are already fully resolved by the official path
+  // and never need the fallback, keeping the added query cost scoped
+  // to exactly the rounds that need it.
+  const roundStatusById = new Map(rounds.map((r: { id: string; status: string }) => [r.id, r.status]))
+  const unfinalisedRoundIds = [...new Set(sideComps.map(sc => sc.round_id))].filter(rid => roundStatusById.get(rid) !== 'completed')
+  const fallbackByRoundId = new Map<string, Awaited<ReturnType<typeof computeRoundSideGames>>>()
+  for (const rid of unfinalisedRoundIds) {
+    fallbackByRoundId.set(rid, await computeRoundSideGames(admin, rid))
+  }
+
+  const sideGameWinners = sideComps.map(sc => {
+    const roundIsFinalised = roundStatusById.get(sc.round_id) === 'completed'
+    const officialPlayerId = sc.official_winner_entry_id ? (playerIdByEntryId.get(sc.official_winner_entry_id) ?? null) : null
+    const comp: SideCompForResolution = {
+      id: sc.id, roundId: sc.round_id, compType: sc.comp_type,
+      label: sc.name || SIDE_COMP_LABEL[sc.comp_type] || sc.comp_type, holeNumber: sc.hole_number,
+      officialWinnerPlayerId: officialPlayerId,
+      // Same 'Player' fallback as before (a profile with no full_name
+      // set, or a lookup miss) -- officialWinnerPlayerId non-null
+      // always implies a non-null display name here too.
+      officialWinnerName: officialPlayerId ? (nameByPlayerId.get(officialPlayerId) ?? 'Player') : null,
+    }
+    const fallbackEntry = fallbackByRoundId.get(sc.round_id)?.find(c => c.id === sc.id)
+    const fallbackWinner = fallbackEntry?.winner ? { playerId: fallbackEntry.winner.playerId, playerName: fallbackEntry.winner.playerName } : null
+    return resolveSideGameWinner(comp, roundIsFinalised, fallbackWinner)
+  }).filter(w => w.winnerPlayerId !== null)
 
   const highlightsRes = roundIds.length > 0
     ? await admin.from('published_round_highlights').select('round_id, highlights, published_at').in('round_id', roundIds)

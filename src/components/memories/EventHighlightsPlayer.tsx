@@ -399,6 +399,35 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit 
  * fix to this treatment only has to happen once, not be chased down
  * separately in three renderers again.
  */
+/**
+ * GenericTemplateSlide -- V1.11 (7 Oct). The approved universal
+ * background for generic slides (public/images/generic-slide-
+ * template.jpg), used exactly as supplied: no dynamically-added
+ * logo, border, golf ball, or watermark, since the artwork already
+ * contains all of that. Content is laid out only inside the
+ * deliberately clear central area the artwork leaves open -- this
+ * component reserves generous top/bottom/side padding specifically
+ * to keep dynamic text away from the artwork's own border and bottom-
+ * right branding, never overlapping either. One shared component so
+ * every generic slide (Makers & Breakers, round dividers, the Bloopers
+ * divider, and the no-photo fallback for Side Game Winner/Round
+ * Winner) automatically inherits the same visual language and the
+ * same safe-area guarantees, rather than this being reimplemented per
+ * slide kind.
+ */
+function GenericTemplateSlide({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      position: 'absolute', inset: 0,
+      backgroundImage: 'url(/images/generic-slide-template.jpg)', backgroundSize: 'cover', backgroundPosition: 'center',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      padding: 'clamp(28px, 6vh, 64px) clamp(60px, 9vw, 130px)',
+    }}>
+      {children}
+    </div>
+  )
+}
+
 function PresentationPhoto({ imageUrl, overlay, children }: { imageUrl: string | null; overlay?: 'dark'; children: React.ReactNode }) {
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: '#000', overflow: 'hidden' }}>
@@ -570,18 +599,18 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
   }
   if (slide.kind === 'eventDivider') {
     return (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1a4731' }}>
+      <GenericTemplateSlide>
         <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(18px, 3vw, 26px)', fontWeight: 800, color: '#fff', letterSpacing: 2 }}>EVENT MEMORIES</p>
-      </div>
+      </GenericTemplateSlide>
     )
   }
   if (slide.kind === 'roundDivider') {
     return (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(160deg, #14532d, #1a4731)', padding: 24 }}>
+      <GenericTemplateSlide>
         <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(20px, 3.4vw, 30px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 10 }}>{slide.roundName}</p>
         {slide.courseName && <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: '#e5e7eb' }}>{slide.courseName}</p>}
         {slide.playDate && <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#d1d5db' }}>{new Date(slide.playDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>}
-      </div>
+      </GenericTemplateSlide>
     )
   }
   if (slide.kind === 'sideGameWinner') {
@@ -599,7 +628,7 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
         </div>
       </PresentationPhoto>
     ) : (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(160deg, #0f2a1c, #1a4731)', padding: 24 }}>
+      <GenericTemplateSlide>
         <div style={{ border: '1.5px solid rgba(251,191,36,0.5)', borderRadius: 18, padding: '36px 44px', textAlign: 'center', background: 'rgba(0,0,0,0.15)' }}>
           <p style={{ fontSize: 30, marginBottom: 12 }}>🏆</p>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2.5, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 12 }}>{slide.label}{slide.holeNumber ? ` \u00b7 Hole ${slide.holeNumber}` : ''}</p>
@@ -607,15 +636,15 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
           <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 3.6vw, 32px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 10 }}>{slide.winnerName}</p>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#d9c9a3', letterSpacing: 1.5, textTransform: 'uppercase' }}>Winner</p>
         </div>
-      </div>
+      </GenericTemplateSlide>
     )
   }
   if (slide.kind === 'makersBreakersDivider') {
     return (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#1a1a16' }}>
+      <GenericTemplateSlide>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, letterSpacing: 2, color: '#d9c9a3', textTransform: 'uppercase', marginBottom: 10 }}>{slide.roundName}</p>
         <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 3.6vw, 32px)', fontWeight: 800, color: '#fff', letterSpacing: 1 }}>Makers &amp; Breakers</p>
-      </div>
+      </GenericTemplateSlide>
     )
   }
   if (slide.kind === 'makersBreakersCard') {
@@ -630,7 +659,7 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     const { highlight: h } = slide
     const accentColor = h.kind === 'maker' ? '#eab308' : '#ef4444'
     return (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1a1a16', padding: 24 }}>
+      <GenericTemplateSlide>
         <div style={{ border: `1.5px solid ${accentColor}66`, borderRadius: 18, padding: '36px 44px', textAlign: 'center', background: `linear-gradient(160deg, ${accentColor}22, ${accentColor}08)`, maxWidth: 420 }}>
           <p style={{ fontSize: 34, marginBottom: 10 }}>{h.icon}</p>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2, color: accentColor, textTransform: 'uppercase', marginBottom: 8 }}>{h.kind === 'maker' ? 'Maker' : 'Breaker'}</p>
@@ -638,7 +667,7 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, color: '#fff', marginBottom: 4 }}>{h.playerName}</p>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#d1d5db' }}>{h.statLine}</p>
         </div>
-      </div>
+      </GenericTemplateSlide>
     )
   }
   if (slide.kind === 'champion') {
@@ -691,12 +720,23 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     // clamp()-sized flex-column foundation from the V1.5 fix is
     // preserved unchanged -- only the row treatment itself changed.
     const medalFor = (position: number) => position === 1 ? '\u{1F3C6}' : position === 2 ? '\u{1F948}' : position === 3 ? '\u{1F949}' : null
+    // V1.11 (7 Oct) -- switched to the dedicated, approved Final
+    // Leaderboard artwork (public/images/final-leaderboard-
+    // template.jpg). That artwork already contains the trophy, the
+    // "FINAL LEADERBOARD" title, its own decorative underline, the
+    // gold border, and the Teein' It Up branding -- all of that was
+    // previously being rendered a second time here in HTML/CSS,
+    // directly on top of where the artwork itself would eventually
+    // carry it. Removed entirely, per the explicit "there must be ONE
+    // Final Leaderboard title only" instruction. The results area
+    // below now starts with generous top padding specifically sized
+    // to clear the artwork's own baked-in header (confirmed by eye
+    // against the supplied reference image -- the title/trophy
+    // occupies roughly the top quarter of the 16:9 frame), so dynamic
+    // results can never collide with it.
     return (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundImage: 'url(/images/event-at-a-glance-bg.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', padding: `clamp(14px, 2.6vh, 24px) 24px ${CONTROLS_SAFE_AREA_PX + 10}px` }}>
-        <p style={{ fontSize: 'clamp(20px, 3.4vh, 32px)', marginBottom: 2, flexShrink: 0 }}>&#127942;</p>
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(15px, 2.4vh, 22px)', fontWeight: 800, color: '#fff', letterSpacing: 1.5, textTransform: 'uppercase', flexShrink: 0 }}>Final Leaderboard</p>
-        <div style={{ width: 44, height: 1.5, background: '#fbbf24', margin: 'clamp(8px, 1.6vh, 14px) 0', flexShrink: 0 }} />
-        <div style={{ width: '100%', maxWidth: 500, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly', gap: 'clamp(4px, 1vh, 8px)' }}>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundImage: 'url(/images/final-leaderboard-template.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', padding: `28vh clamp(60px, 8vw, 120px) ${CONTROLS_SAFE_AREA_PX + 10}px` }}>
+        <div style={{ width: '100%', maxWidth: 560, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly', gap: 'clamp(4px, 1vh, 8px)' }}>
           {slide.entries.map(e => {
             const isHero = e.position === 1
             const isMedal = e.position === 2 || e.position === 3
@@ -754,20 +794,20 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
         </div>
       </PresentationPhoto>
     ) : (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(160deg, #14532d, #0f2a1c)', padding: 24 }}>
+      <GenericTemplateSlide>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2.5, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 10 }}>{slide.roundName} Winner{isTie ? 's' : ''}</p>
         <div style={{ width: 40, height: 1.5, background: '#fbbf24', marginBottom: 16 }} />
         <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(24px, 4vw, 38px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 10, textAlign: 'center' }}>{names}</p>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, color: '#d9c9a3' }}>{slide.winners[0]?.points} points</p>
-      </div>
+      </GenericTemplateSlide>
     )
   }
   if (slide.kind === 'bloopersDivider') {
     return (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(160deg, #1a1a16, #2a2318)' }}>
+      <GenericTemplateSlide>
         <p style={{ fontSize: 32, marginBottom: 10 }}>🎬</p>
         <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 3.6vw, 32px)', fontWeight: 800, color: '#fff', letterSpacing: 2 }}>BLOOPERS &amp; OUTTAKES</p>
-      </div>
+      </GenericTemplateSlide>
     )
   }
   if (slide.kind === 'blooper') {

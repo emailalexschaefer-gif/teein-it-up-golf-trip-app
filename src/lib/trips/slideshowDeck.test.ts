@@ -1301,3 +1301,65 @@ test('resolveSelectedMomentIds: the count it implies matches buildPresentationDe
   assert.equal(resolvedCount, 2)
   assert.equal(resolvedCount, actualSlideCount)
 })
+
+// -- V1.11 (7 Oct): middle-round Side Game Winners regression -------
+// Required regression test, modelling the exact real-device scenario:
+// three chronological rounds, each with a genuine, finalized Side
+// Game winner (winnerPlayerId set) -- Round 2 specifically, since
+// that is the round that failed on the real device. No round is
+// special: availability and actual slide generation must both treat
+// all three identically.
+
+test('V1.11 regression: Side Game Winners availability is true for every round with a genuine winner, including the middle round -- no round is special', () => {
+  const data = baseData({
+    rounds: [
+      round({ id: 'r1', ordinal: 1, name: 'Round 1' }),
+      round({ id: 'r2', ordinal: 2, name: 'Round 2' }),
+      round({ id: 'r3', ordinal: 3, name: 'Round 3' }),
+    ],
+    sideGameWinners: [
+      { sideCompId: 'sc1', roundId: 'r1', compType: 'longest_drive', label: 'R1 Game', holeNumber: 5, winnerPlayerId: 'p1', winnerName: 'Alex' },
+      { sideCompId: 'sc2', roundId: 'r2', compType: 'nearest_pin', label: "Pro's Approach", holeNumber: 1, winnerPlayerId: 'p1', winnerName: 'Alex Schaefer' },
+      { sideCompId: 'sc3', roundId: 'r2', compType: 'nearest_pin', label: 'Nearest the Pin', holeNumber: 6, winnerPlayerId: 'p2', winnerName: 'TEST' },
+      { sideCompId: 'sc4', roundId: 'r3', compType: 'longest_drive', label: 'R3 Game', holeNumber: 5, winnerPlayerId: 'p1', winnerName: 'Alex' },
+    ],
+  })
+  for (const roundId of ['r1', 'r2', 'r3']) {
+    const avail = getAvailableSections(data, { kind: 'round', roundId })
+    assert.equal(avail.find(a => a.type === 'SIDE_GAME_WINNERS')!.available, true, `${roundId} should report Side Game Winners available`)
+  }
+  const config = defaultPresentationConfig(data, { kind: 'fullEvent' })
+  for (const roundId of ['r1', 'r2', 'r3']) {
+    assert.equal(config.rounds.find(r => r.roundId === roundId)!.sideGameWinners, true, `${roundId} should default Side Game Winners ON`)
+  }
+})
+
+test('V1.11 regression: the deck itself actually generates winner slides for all three rounds, including both of Round 2\'s two winners (Alex Schaefer and TEST)', () => {
+  const data = baseData({
+    rounds: [
+      round({ id: 'r1', ordinal: 1, name: 'Round 1' }),
+      round({ id: 'r2', ordinal: 2, name: 'Round 2' }),
+      round({ id: 'r3', ordinal: 3, name: 'Round 3' }),
+    ],
+    sideGameWinners: [
+      { sideCompId: 'sc1', roundId: 'r1', compType: 'longest_drive', label: 'R1 Game', holeNumber: 5, winnerPlayerId: 'p1', winnerName: 'Alex' },
+      { sideCompId: 'sc2', roundId: 'r2', compType: 'nearest_pin', label: "Pro's Approach", holeNumber: 1, winnerPlayerId: 'p1', winnerName: 'Alex Schaefer' },
+      { sideCompId: 'sc3', roundId: 'r2', compType: 'nearest_pin', label: 'Nearest the Pin', holeNumber: 6, winnerPlayerId: 'p2', winnerName: 'TEST' },
+      { sideCompId: 'sc4', roundId: 'r3', compType: 'longest_drive', label: 'R3 Game', holeNumber: 5, winnerPlayerId: 'p1', winnerName: 'Alex' },
+    ],
+  })
+  const config: PresentationConfig = {
+    scope: { kind: 'fullEvent' }, eventOpening: false, eventAtAGlance: false, groupPhoto: false,
+    rounds: [
+      { roundId: 'r1', bestMoments: false, sideGameWinners: true, makersBreakers: false, roundResults: false },
+      { roundId: 'r2', bestMoments: false, sideGameWinners: true, makersBreakers: false, roundResults: false },
+      { roundId: 'r3', bestMoments: false, sideGameWinners: true, makersBreakers: false, roundResults: false },
+    ],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'all',
+  }
+  const deck = buildPresentationDeck(data, config)
+  const winnerSlides = deck.slides.filter((s): s is Extract<Slide, { kind: 'sideGameWinner' }> => s.kind === 'sideGameWinner')
+  assert.equal(winnerSlides.length, 4)
+  const r2Names = winnerSlides.filter(s => s.winnerName === 'Alex Schaefer' || s.winnerName === 'TEST').map(s => s.winnerName).sort()
+  assert.deepEqual(r2Names, ['Alex Schaefer', 'TEST'])
+})
