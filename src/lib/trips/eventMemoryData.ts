@@ -30,7 +30,7 @@
  */
 import { createAdminClient } from '@/lib/supabase/admin'
 import { computeFinalResults, type FinalResultsResult } from './finalResults'
-import { determineRoundWinners } from '@/lib/scoring/multiRound'
+import { determineRoundWinners, determineRoundStandings } from '@/lib/scoring/multiRound'
 import { computeRoundSideGames } from '@/lib/sideGames/computeRoundSideGames'
 import { resolveSideGameWinner, type SideCompForResolution } from './resolveSideGameWinner'
 
@@ -57,6 +57,10 @@ export interface EventMemoryData {
     // highest points, exactly as determineRoundWinners itself
     // guarantees.
     winners: { playerId: string; playerName: string; points: number }[] | null
+    // V1.14 (8 Oct) -- Round Top-5 standings, for the Round Results
+    // slide. Same null-when-not-completed convention as winners above
+    // -- never a mid-round snapshot presented as a result.
+    standings: { playerId: string; playerName: string; roundPoints: number; position: number }[] | null
   }[]
   memories: {
     momentId: string; roundId: string | null; roundOrdinal: number | null; holeNumber: number | null
@@ -121,6 +125,13 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
   // never a mid-round snapshot presented as a "result."
   const completedRoundIds = rounds.filter((r: { status: string }) => r.status === 'completed').map((r: { id: string }) => r.id)
   const roundWinnersByRoundId = new Map<string, { playerId: string; playerName: string; points: number }[]>()
+  // V1.14 (8 Oct) -- Round Top-5 standings, per the brief's own "do not
+  // create a second scoring implementation" instruction: this reuses
+  // the exact same playerResults this block already computes for
+  // determineRoundWinners, feeding it into determineRoundStandings
+  // (multiRound.ts) as well -- no second query, no recomputed points,
+  // just a second, ranked view of the same already-derived data.
+  const roundStandingsByRoundId = new Map<string, { playerId: string; playerName: string; roundPoints: number; position: number }[]>()
   if (completedRoundIds.length > 0) {
     const roundResultsArrays = await Promise.all(completedRoundIds.map(async (roundId: string) => {
       const scorecardsRes = await admin.from('scorecards')
@@ -132,9 +143,12 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
           roundPoints: (sc.score_entries ?? []).filter(e => e.capture_role === 'self').reduce((sum, e) => sum + (e.stableford_pts ?? 0), 0),
           holePoints: [],
         }))
-      return { roundId, winners: determineRoundWinners(playerResults) }
+      return { roundId, winners: determineRoundWinners(playerResults), standings: determineRoundStandings(playerResults) }
     }))
-    for (const r of roundResultsArrays) roundWinnersByRoundId.set(r.roundId, r.winners)
+    for (const r of roundResultsArrays) {
+      roundWinnersByRoundId.set(r.roundId, r.winners)
+      roundStandingsByRoundId.set(r.roundId, r.standings)
+    }
   }
 
   const membersRes = await admin.from('trip_members').select('profile_id').eq('trip_id', tripId)
@@ -316,6 +330,7 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
       id: r.id, ordinal: roundOrdinalById.get(r.id) ?? null, name: r.name, courseName: r.course_name, playDate: r.play_date, status: r.status, holes: r.holes,
       publishedHighlights: highlightsByRoundId.get(r.id)?.highlights ?? null,
       winners: r.status === 'completed' ? (roundWinnersByRoundId.get(r.id) ?? []) : null,
+      standings: r.status === 'completed' ? (roundStandingsByRoundId.get(r.id) ?? []) : null,
     })),
     memories: moments.map((m: {
       id: string; round_id: string | null; hole_number: number | null; player_id: string; captured_by: string | null

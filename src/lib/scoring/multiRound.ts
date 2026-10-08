@@ -235,6 +235,43 @@ export function determineRoundWinners(results: RoundPlayerResult[]): RoundWinner
     .map(r => ({ playerId: r.playerId, playerName: r.playerName, points: r.roundPoints }))
 }
 
+export interface RoundStanding { playerId: string; playerName: string; roundPoints: number; position: number }
+
+/**
+ * The ranked standings for a single round, independent of cumulative
+ * event standing -- same RoundPlayerResult input and the same
+ * roundPoints field determineRoundWinners already uses, just ranked
+ * and capped instead of filtered to the max. No scoring is
+ * recomputed here; this only sorts and ranks values already supplied
+ * by the caller, exactly as computeCumulativeStandings does for the
+ * cumulative case.
+ *
+ * Tie-safe via the same "standard competition ranking" convention as
+ * computeCumulativeStandings: players tied on roundPoints share a
+ * position, and the next distinct position accounts for how many
+ * shared it (1, 2, 2, 4 -- never 1, 2, 2, 3). Capped at `limit`
+ * (default 5) players by position count, not by row count, so a tie
+ * that straddles the cutoff is never split -- e.g. three players tied
+ * for 4th are either all included or all excluded, never two of the
+ * three. An empty `results` array returns an empty list, never a
+ * fabricated or padded row.
+ */
+export function determineRoundStandings(results: RoundPlayerResult[], limit = 5): RoundStanding[] {
+  if (results.length === 0) return []
+  const sorted = [...results].sort((a, b) => b.roundPoints - a.roundPoints)
+  const ranked: RoundStanding[] = []
+  let position = 0
+  let previousPoints: number | null = null
+  sorted.forEach((r, idx) => {
+    if (previousPoints === null || r.roundPoints !== previousPoints) {
+      position = idx + 1
+      previousPoints = r.roundPoints
+    }
+    ranked.push({ playerId: r.playerId, playerName: r.playerName, roundPoints: r.roundPoints, position })
+  })
+  return ranked.filter(r => r.position <= limit)
+}
+
 export interface Champion { playerId: string; playerName: string; totalPoints: number }
 
 /**

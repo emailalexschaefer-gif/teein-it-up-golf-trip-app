@@ -541,12 +541,20 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
           <img src="/images/event-at-a-glance-logo.png" alt="Teein' It Up" style={{ width: 'clamp(78px, 11vw, 130px)' }} />
         </div>
 
-        {/* Statistics row -- a separate section below the protected
-            logo zone, pushed down with its own top padding rather
-            than vertically centered across the remaining space, so
-            it never drifts upward toward the logo on a short canvas. */}
-        <div style={{ flex: 1, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '0 clamp(8px, 2.2vw, 24px)', paddingTop: 'clamp(6px, 1.4vh, 16px)', minHeight: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: 'clamp(4px, 1.3vw, 16px)', width: '100%', maxWidth: 980 }}>
+        {/* V1.14 (8 Oct) -- Section 1 composition refinement. The
+            statistics block is now vertically CENTERED within the
+            remaining space below the protected logo zone (rather than
+            pinned to the top of it), with the same minimum top gap
+            preserved so it can never drift up into the logo -- this
+            moves the whole composition toward the visual centre of
+            the slide, per the explicit real-device feedback, without
+            reopening the logo-overlap bug V1.10 fixed. The footer
+            tagline is now INSIDE this same centered block, directly
+            beneath the stats, rather than a separate element pinned
+            to the bottom edge -- so it's always visually grouped with
+            what it's commenting on, never detached. */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '0 clamp(8px, 2.2vw, 24px)', paddingTop: 'clamp(4px, 1vh, 10px)', paddingBottom: 'clamp(50px, 8vh, 72px)', minHeight: 0, gap: 'clamp(16px, 3.2vh, 32px)' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: 'clamp(10px, 2.2vw, 28px)', width: '100%', maxWidth: 980 }}>
             {/* Column 1 -- Rounds. ~34% via flex-basis, since it alone carries course names. */}
             <div style={{ flex: '1.7 1 0%', textAlign: 'center', minWidth: 0, borderRight: '1px solid rgba(217,197,163,0.4)', paddingRight: 'clamp(5px, 1.3vw, 16px)' }}>
               <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(26px, 4.8vw, 48px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.roundCount}</p>
@@ -579,11 +587,28 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
               <p style={{ fontSize: 'clamp(12px, 1.8vw, 20px)', marginTop: 7 }}>&#128081;</p>
             </div>
           </div>
+
+          {/* V1.14 (8 Oct) -- now a sibling of the stats row inside the
+              same centered container (participates in its `gap`), so it
+              reads as directly underneath the statistics rather than a
+              separate element detached near the bottom edge. Noticeably
+              larger per the explicit request. */}
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(18px, 3vw, 28px)', color: '#fff', fontStyle: 'italic', textAlign: 'center', flexShrink: 0 }}>
+            This is how it unfolded.
+          </p>
         </div>
 
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(12px, 1.8vw, 19px)', color: '#fff', fontStyle: 'italic', textAlign: 'center', margin: '0 auto clamp(12px, 2.6vh, 24px)', flexShrink: 0 }}>
-          This is how it unfolded.
-        </p>
+        {/* V1.14 (8 Oct) -- small branded logo, bottom-right, consistent
+            with the rest of the presentation system (Opening/Closing
+            both carry their own bottom-right mark baked into their
+            artwork; this slide's own background is a blurred derivative
+            that can't carry baked-in text, so the mark is composited
+            here the same way the top logo already is). Positioned and
+            sized to sit clear of both the statistics above and the
+            controls safe area below -- confirmed against
+            CONTROLS_SAFE_AREA_PX, never overlapping it. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/images/event-at-a-glance-logo.png" alt="" aria-hidden style={{ position: 'absolute', right: 'clamp(12px, 2.5vw, 24px)', bottom: CONTROLS_SAFE_AREA_PX + 14, width: 'clamp(40px, 6vw, 64px)', opacity: 0.88 }} />
       </div>
     )
   }
@@ -607,9 +632,13 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
   if (slide.kind === 'roundDivider') {
     return (
       <GenericTemplateSlide>
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(20px, 3.4vw, 30px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 10 }}>{slide.roundName}</p>
-        {slide.courseName && <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: '#e5e7eb' }}>{slide.courseName}</p>}
-        {slide.playDate && <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#d1d5db' }}>{new Date(slide.playDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>}
+        {/* V1.14 (8 Oct) -- typography increased ~40-50% per explicit
+            real-device sizing feedback (round name and course name),
+            date increased more moderately while remaining visually
+            tertiary. Background artwork untouched. */}
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(29px, 4.9vw, 44px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 14, textAlign: 'center' }}>{slide.roundName}</p>
+        {slide.courseName && <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(16px, 2.6vw, 22px)', color: '#e5e7eb', textAlign: 'center' }}>{slide.courseName}</p>}
+        {slide.playDate && <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(13px, 1.7vw, 15px)', color: '#d1d5db', marginTop: 4, textAlign: 'center' }}>{new Date(slide.playDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>}
       </GenericTemplateSlide>
     )
   }
@@ -658,13 +687,30 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     // photo.
     const { highlight: h } = slide
     const accentColor = h.kind === 'maker' ? '#eab308' : '#ef4444'
+    // V1.14 (8 Oct) -- Priority 3: identify who actually earned the
+    // award. A group highlight (h.roster present and non-empty) now
+    // shows the full list of player names belonging to that group,
+    // not just the group's own name -- the audience should never have
+    // to guess who earned it. An individual highlight (no roster)
+    // shows h.playerName exactly as before -- unchanged. Visual
+    // identity (gold/red accent, icon, title, description, generic
+    // template background) is entirely preserved; only the identity
+    // line beneath the title changes. Long rosters get a smaller font
+    // and wrap naturally (whiteSpace is left at its default, not
+    // nowrap) rather than ever overflowing the card.
+    const roster = h.roster && h.roster.length > 0 ? h.roster.map(m => m.playerName).join(' \u2022 ') : null
+    const rosterIsLong = (roster?.length ?? 0) > 60
     return (
       <GenericTemplateSlide>
-        <div style={{ border: `1.5px solid ${accentColor}66`, borderRadius: 18, padding: '36px 44px', textAlign: 'center', background: `linear-gradient(160deg, ${accentColor}22, ${accentColor}08)`, maxWidth: 420 }}>
+        <div style={{ border: `1.5px solid ${accentColor}66`, borderRadius: 18, padding: '36px 44px', textAlign: 'center', background: `linear-gradient(160deg, ${accentColor}22, ${accentColor}08)`, maxWidth: 460 }}>
           <p style={{ fontSize: 34, marginBottom: 10 }}>{h.icon}</p>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2, color: accentColor, textTransform: 'uppercase', marginBottom: 8 }}>{h.kind === 'maker' ? 'Maker' : 'Breaker'}</p>
           <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(20px, 3.4vw, 28px)', fontWeight: 800, color: '#fff', marginBottom: 10 }}>{h.title}</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, color: '#fff', marginBottom: 4 }}>{h.playerName}</p>
+          {roster ? (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: rosterIsLong ? 12.5 : 14.5, color: '#fff', marginBottom: 4, lineHeight: 1.5, overflowWrap: 'break-word' }}>{roster}</p>
+          ) : (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, color: '#fff', marginBottom: 4 }}>{h.playerName}</p>
+          )}
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#d1d5db' }}>{h.statLine}</p>
         </div>
       </GenericTemplateSlide>
@@ -778,27 +824,38 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     // fixing it: every slide kind added or changed in this same
     // session was cross-checked against this function's own coverage
     // before considering the work done (see the delivery report).
-    const isTie = slide.winners.length > 1
-    const names = slide.winners.map(w => w.playerName).join(' & ')
-    // V1.7 (6 Oct) -- now uses the shared PresentationPhoto treatment
-    // when a matched photo exists (fixes the reported "portrait image
-    // sitting awkwardly" bug the same way as Side Game Winner/
-    // Champion), with the same clean, no-photo card as before when
-    // none does.
-    return slide.photoUrl ? (
-      <PresentationPhoto imageUrl={slide.photoUrl} overlay="dark">
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', padding: '24px 24px 48px', textAlign: 'center' }}>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2.5, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 10 }}>{slide.roundName} Winner{isTie ? 's' : ''}</p>
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(24px, 4vw, 38px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 10, textAlign: 'center' }}>{names}</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, color: '#f0e6d2' }}>{slide.winners[0]?.points} points</p>
-        </div>
-      </PresentationPhoto>
-    ) : (
+    // V1.14 (8 Oct) -- replaced entirely, per explicit product
+    // correction: this round's own Top-5 standings, never a photo-led
+    // winner card, never Group Photo as a fallback. Position 1 is
+    // labelled ROUND WINNER distinctly; positions 2-5 (or fewer, never
+    // padded) are shown plainly below it. This is THIS ROUND's own
+    // scoring only (slide.standings comes from determineRoundStandings,
+    // fed this round's own scorecards) -- never cumulative event
+    // standings, which remain the separate, untouched Final Leaderboard
+    // slide.
+    return (
       <GenericTemplateSlide>
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2.5, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 10 }}>{slide.roundName} Winner{isTie ? 's' : ''}</p>
-        <div style={{ width: 40, height: 1.5, background: '#fbbf24', marginBottom: 16 }} />
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(24px, 4vw, 38px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 10, textAlign: 'center' }}>{names}</p>
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, color: '#d9c9a3' }}>{slide.winners[0]?.points} points</p>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2.5, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 4 }}>{slide.roundName}</p>
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(18px, 3vw, 26px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 16 }}>Results</p>
+        <div style={{ width: '100%', maxWidth: 460, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {slide.standings.map(s => {
+            const isWinner = s.position === 1
+            return (
+              <div key={s.playerId} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: isWinner ? '10px 16px' : '6px 14px',
+                borderRadius: isWinner ? 12 : 8,
+                background: isWinner ? 'linear-gradient(135deg, rgba(251,191,36,0.28), rgba(251,191,36,0.08))' : 'rgba(255,255,255,0.06)',
+                border: isWinner ? '1.5px solid rgba(251,191,36,0.55)' : 'none',
+              }}>
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: isWinner ? 20 : 15, fontWeight: 800, color: isWinner ? '#fbbf24' : '#d9c9a3', width: 24, flexShrink: 0, textAlign: 'center' }}>{s.position}</span>
+                <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: isWinner ? 17 : 13.5, fontWeight: isWinner ? 800 : 500, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.playerName}</span>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: isWinner ? 17 : 13.5, fontWeight: 700, color: isWinner ? '#fbbf24' : '#e5e7eb', flexShrink: 0 }}>{s.roundPoints} pts</span>
+                {isWinner && <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, letterSpacing: 1, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, flexShrink: 0 }}>Round Winner</span>}
+              </div>
+            )
+          })}
+        </div>
       </GenericTemplateSlide>
     )
   }

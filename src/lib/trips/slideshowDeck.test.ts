@@ -20,7 +20,7 @@ function memory(overrides: Partial<EventMemoryData['memories'][number]> & { mome
 }
 
 function round(overrides: Partial<EventMemoryData['rounds'][number]> & { id: string; ordinal: number }): EventMemoryData['rounds'][number] {
-  return { name: `Round ${overrides.ordinal}`, courseName: null, playDate: '2026-09-11', status: 'completed', holes: 18, publishedHighlights: null, winners: null, ...overrides }
+  return { name: `Round ${overrides.ordinal}`, courseName: null, playDate: '2026-09-11', status: 'completed', holes: 18, publishedHighlights: null, winners: null, standings: null, ...overrides }
 }
 
 function baseData(overrides: Partial<EventMemoryData> = {}): EventMemoryData {
@@ -943,9 +943,9 @@ test('existing V1.4 slideshow behaviour (buildSlideshowDeck) is not regressed by
 
 // -- V1.5 completion patch (15 Sep): Round Winner, derived not stored --
 
-test('Round Winner: a completed round with real winners produces a roundResults slide when toggled on', () => {
+test('V1.14: Round Results -- a completed round with real standings produces a roundResults slide when toggled on, position 1 is the round winner', () => {
   const data = baseData({
-    rounds: [round({ id: 'r1', ordinal: 1, winners: [{ playerId: 'p1', playerName: 'Alex', points: 38 }] })],
+    rounds: [round({ id: 'r1', ordinal: 1, winners: [{ playerId: 'p1', playerName: 'Alex', points: 38 }], standings: [{ playerId: 'p1', playerName: 'Alex', roundPoints: 38, position: 1 }, { playerId: 'p2', playerName: 'Dave', roundPoints: 30, position: 2 }] })],
     memories: [],
   })
   const config: PresentationConfig = {
@@ -956,7 +956,9 @@ test('Round Winner: a completed round with real winners produces a roundResults 
   const deck = buildPresentationDeck(data, config)
   const slide = deck.slides.find((s): s is Extract<Slide, { kind: 'roundResults' }> => s.kind === 'roundResults')
   assert.ok(slide)
-  assert.equal(slide!.winners[0].playerName, 'Alex')
+  assert.equal(slide!.standings[0].playerName, 'Alex')
+  assert.equal(slide!.standings[0].position, 1)
+  assert.equal(slide!.standings.length, 2)
 })
 
 test('Round Winner: toggled off produces no roundResults slide even though the round has real winners', () => {
@@ -979,20 +981,24 @@ test('Round Winner: a round not yet completed (winners: null) never produces a r
   assert.equal(buildPresentationDeck(data, config).slides.filter(s => s.kind === 'roundResults').length, 0)
 })
 
-test('Round Winner: a tie is represented honestly -- every tied player appears, never one picked arbitrarily', () => {
-  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1, winners: [{ playerId: 'p1', playerName: 'Alex', points: 38 }, { playerId: 'p2', playerName: 'Dave', points: 38 }] })], memories: [] })
+test('V1.14: Round Results -- a tie at position 1 is represented honestly, both sharing position 1, never one picked arbitrarily', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1, winners: [{ playerId: 'p1', playerName: 'Alex', points: 38 }, { playerId: 'p2', playerName: 'Dave', points: 38 }], standings: [{ playerId: 'p1', playerName: 'Alex', roundPoints: 38, position: 1 }, { playerId: 'p2', playerName: 'Dave', roundPoints: 38, position: 1 }] })],
+    memories: [],
+  })
   const config: PresentationConfig = {
     scope: { kind: 'round', roundId: 'r1' }, eventOpening: false, groupPhoto: false,
     rounds: [{ roundId: 'r1', bestMoments: false, sideGameWinners: false, makersBreakers: false, roundResults: true }],
     eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'all',
   }
   const slide = buildPresentationDeck(data, config).slides.find((s): s is Extract<Slide, { kind: 'roundResults' }> => s.kind === 'roundResults')!
-  assert.equal(slide.winners.length, 2)
+  assert.equal(slide.standings.length, 2)
+  assert.ok(slide.standings.every(s => s.position === 1))
 })
 
-test('Round Winner never gets confused with Event Champion -- both can appear, naming different players, in the same deck', () => {
+test('V1.14: Round Results never gets confused with Event Champion -- a round\'s own Top-5 can name a different #1 than the cumulative Final Leaderboard, in the same deck', () => {
   const data = baseData({
-    rounds: [round({ id: 'r1', ordinal: 1, winners: [{ playerId: 'round-winner', playerName: 'Dave', points: 38 }] })],
+    rounds: [round({ id: 'r1', ordinal: 1, winners: [{ playerId: 'round-winner', playerName: 'Dave', points: 38 }], standings: [{ playerId: 'round-winner', playerName: 'Dave', roundPoints: 38, position: 1 }] })],
     results: { champion: { champions: [{ playerId: 'event-champion', playerName: 'Alex', totalPoints: 150 }], hasTie: false, standings: [{ playerId: 'event-champion', playerName: 'Alex', totalPoints: 150, position: 1 }] } },
   })
   const config: PresentationConfig = {
@@ -1003,7 +1009,7 @@ test('Round Winner never gets confused with Event Champion -- both can appear, n
   const deck = buildPresentationDeck(data, config)
   const roundSlide = deck.slides.find((s): s is Extract<Slide, { kind: 'roundResults' }> => s.kind === 'roundResults')!
   const champSlide = deck.slides.find((s): s is Extract<Slide, { kind: 'champion' }> => s.kind === 'champion')!
-  assert.equal(roundSlide.winners[0].playerName, 'Dave')
+  assert.equal(roundSlide.standings[0].playerName, 'Dave')
   assert.equal(champSlide.champions[0].playerName, 'Alex')
 })
 
@@ -1080,10 +1086,20 @@ test('Champion Photo: with no explicit selection, falls back to a Favourite phot
   assert.equal(championSlide(deck.slides)?.photoUrl, 'https://x/fav.jpg')
 })
 
-test('Champion Photo: with no explicit selection and no Favourite of the champion, falls back to the Group Photo', () => {
+test('V1.14 regression: Champion Photo no longer automatically falls back to the Group Photo -- real-device bug fix: the Champion slide was silently reusing the exact same image already shown as its own dedicated Group Photo slide earlier in the deck', () => {
   const data = baseData({
     event: { id: 't1', name: 'Event', eventType: null, location: null, startDate: null, endDate: null, status: 'completed', groupPhotoMomentId: 'gp', championPhotoMomentId: null },
     memories: [memory({ momentId: 'gp', mediaType: 'photo', imageUrl: 'https://x/group.jpg' })],
+    results: { champion: { champions: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72, position: 1 }] } },
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(championSlide(deck.slides)?.photoUrl, null)
+})
+
+test('V1.14: the Group Photo Moment CAN still legitimately appear as the Champion photo if the organiser explicitly marks it a Favourite of the champion -- that is a deliberate choice, not automatic duplication', () => {
+  const data = baseData({
+    event: { id: 't1', name: 'Event', eventType: null, location: null, startDate: null, endDate: null, status: 'completed', groupPhotoMomentId: 'gp', championPhotoMomentId: null },
+    memories: [memory({ momentId: 'gp', mediaType: 'photo', imageUrl: 'https://x/group.jpg', organiserFavourite: true, playerId: 'p1' })],
     results: { champion: { champions: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72, position: 1 }] } },
   })
   const deck = buildSlideshowDeck(data, 'all')
@@ -1108,7 +1124,7 @@ test('Champion Photo: an explicit selection pointing at a non-photo Moment is re
   assert.equal(championSlide(deck.slides)?.photoUrl, null)
 })
 
-test('Champion Photo fallback chain also works correctly in the new buildPresentationDeck builder', () => {
+test('V1.14 regression: the Group-Photo-removal fix applies identically in buildPresentationDeck', () => {
   const data = baseData({
     event: { id: 't1', name: 'Event', eventType: null, location: null, startDate: null, endDate: null, status: 'completed', groupPhotoMomentId: 'gp', championPhotoMomentId: null },
     memories: [memory({ momentId: 'gp', mediaType: 'photo', imageUrl: 'https://x/group.jpg' })],
@@ -1119,7 +1135,7 @@ test('Champion Photo fallback chain also works correctly in the new buildPresent
     eventChampion: true, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'favourites',
   }
   const deck = buildPresentationDeck(data, config)
-  assert.equal(championSlide(deck.slides)?.photoUrl, 'https://x/group.jpg')
+  assert.equal(championSlide(deck.slides)?.photoUrl, null)
 })
 
 // -- V1.7 (6 Oct): Event-at-a-Glance ---------------------------------------
@@ -1362,4 +1378,29 @@ test('V1.11 regression: the deck itself actually generates winner slides for all
   assert.equal(winnerSlides.length, 4)
   const r2Names = winnerSlides.filter(s => s.winnerName === 'Alex Schaefer' || s.winnerName === 'TEST').map(s => s.winnerName).sort()
   assert.deepEqual(r2Names, ['Alex Schaefer', 'TEST'])
+})
+
+// -- V1.14 (8 Oct): Makers & Breakers group identity ------------------
+
+test('Makers & Breakers: a group highlight exposes its full roster of player names, not just the group name', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1, publishedHighlights: [
+      { kind: 'maker', icon: '\u{1F3F0}', title: 'The Fortress', playerName: '', statLine: '26.0 pt player average', roster: [{ playerId: 'p1', playerName: 'Alex Schaefer' }, { playerId: 'p2', playerName: 'Dave' }, { playerId: 'p3', playerName: 'Mick' }, { playerId: 'p4', playerName: 'Sam' }] },
+    ] })],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  const card = makersBreakersSlides(deck.slides)[0]
+  assert.deepEqual(card.highlight.roster?.map(m => m.playerName), ['Alex Schaefer', 'Dave', 'Mick', 'Sam'])
+})
+
+test('Makers & Breakers: an individual highlight (no roster) still exposes its own playerName, unchanged', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1, publishedHighlights: [
+      { kind: 'breaker', icon: '\u2744\ufe0f', title: 'Ice Cold', playerName: 'Nobody Wins Here', statLine: 'y' },
+    ] })],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  const card = makersBreakersSlides(deck.slides)[0]
+  assert.equal(card.highlight.playerName, 'Nobody Wins Here')
+  assert.equal(card.highlight.roster, undefined)
 })

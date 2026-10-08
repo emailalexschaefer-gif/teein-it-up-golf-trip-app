@@ -52,8 +52,16 @@ export type SlideshowSource = 'favourites' | 'all' | 'selected'
  * (category, kind, scope, icon, title, playerId, playerName,
  * statLine, definition) -- confirmed this is exactly what
  * published_round_highlights.highlights stores, read verbatim here,
- * never regenerated. */
-interface HighlightLike { kind: 'maker' | 'breaker'; icon: string; title: string; playerName: string; statLine: string }
+ * never regenerated. V1.14 (8 Oct) -- roster added: makersBreakers.ts
+ * already attaches a full { playerId, playerName }[] roster to every
+ * GROUP highlight (playerName itself is empty for a group award,
+ * which is an individual-award field), and the publish route writes
+ * the request body's highlights verbatim with no field stripping --
+ * so this data was already reaching the database, just never declared
+ * or read here, which is why the slideshow card could only ever show
+ * the group's name, never who was actually in it. undefined for an
+ * individual highlight, which has no group to roster. */
+interface HighlightLike { kind: 'maker' | 'breaker'; icon: string; title: string; playerName: string; statLine: string; roster?: { playerId: string; playerName: string }[] }
 
 export type Slide =
   | { kind: 'opening'; eventName: string; dateRange: string | null; heroImageUrl: string | null }
@@ -141,7 +149,14 @@ export type Slide =
   // playerId against that round's own photos (the winner's own
   // Favourite photo in that round, if one exists) -- never guessed,
   // null when none exists.
-  | { kind: 'roundResults'; roundId: string; roundName: string; winners: { playerId: string; playerName: string; points: number }[]; photoUrl: string | null }
+  // V1.14 (8 Oct) -- replaced the photo-led Round Winner card with a
+  // round-specific Top-5 standings slide, per explicit product
+  // correction: "do not require a Round Winner photograph; do not use
+  // Group Photo as a Round Winner fallback." standings is this round's
+  // own ranked results only (never cumulative), from
+  // determineRoundStandings -- position 1 is this round's winner,
+  // displayed distinctly by the renderer, never a separate field here.
+  | { kind: 'roundResults'; roundId: string; roundName: string; standings: { playerId: string; playerName: string; roundPoints: number; position: number }[] }
 
 export interface SlideshowDeck {
   slides: Slide[]
@@ -352,20 +367,18 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], gro
     // V1.6 (5 Oct) -- full priority chain, per the brief: (1) an
     // explicit organiser-selected Champion Photo always wins; (2)
     // otherwise a Favourite photo of the champion player, matched by
-    // playerId -- deterministic, never AI/guessed; (3) otherwise the
-    // event's own Group Photo, since the presentation may be
-    // generated immediately after the event with no time for the
-    // organiser to pick a dedicated Champion Photo; (4) only if none
-    // of those exist does the card render with no photo at all.
+    // playerId -- deterministic, never AI/guessed; (3) only if neither
+    // exists does the card render with no photo at all. V1.14 (8 Oct)
+    // -- the Group Photo fallback previously here has been removed;
+    // see the identical fix in buildPresentationDeck above for the
+    // full root-cause explanation (an automatic duplication the
+    // organiser never chose, not a deliberate re-selection).
     const championIds = new Set(champ.champions.map(c => c.playerId))
     const explicitChampionPhoto = data.event.championPhotoMomentId
       ? data.memories.find(m => m.momentId === data.event.championPhotoMomentId && m.mediaType === 'photo')
       : undefined
     const favouriteChampionPhoto = chronological.find(m => m.organiserFavourite && championIds.has(m.playerId))
-    const groupPhotoFallback = data.event.groupPhotoMomentId
-      ? data.memories.find(m => m.momentId === data.event.groupPhotoMomentId && m.mediaType === 'photo')
-      : undefined
-    const championPhotoUrl = explicitChampionPhoto?.imageUrl ?? favouriteChampionPhoto?.imageUrl ?? groupPhotoFallback?.imageUrl ?? null
+    const championPhotoUrl = explicitChampionPhoto?.imageUrl ?? favouriteChampionPhoto?.imageUrl ?? null
     slides.push({ kind: 'champion', champions: champ.champions, hasTie: champ.hasTie, photoUrl: championPhotoUrl })
 
     // V1.6 (5 Oct) -- redesigned from paginated Top 10 to a single
@@ -781,9 +794,13 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     // V1.9 (6 Oct) -- winnerPlayerId alone, matching the fix above.
     const roundWinnersAll = roundConfig.sideGameWinners ? (winnersByRoundId.get(round.id) ?? []).filter(w => w.winnerPlayerId !== null) : []
     const roundHighlights = roundConfig.makersBreakers ? parsePublishedHighlights(round.publishedHighlights) : []
-    const roundWinnerResult = roundConfig.roundResults ? (round.winners ?? []) : []
+    // V1.14 (8 Oct) -- standings (this round's own ranked Top-5), not
+    // winners alone -- winners is still used elsewhere (Priority
+    // 9/Event Champion context is untouched; this variable only feeds
+    // the Round Results slide below).
+    const roundStandingsResult = roundConfig.roundResults ? (round.standings ?? []) : []
 
-    if (bestMoments.length === 0 && roundWinnersAll.length === 0 && roundHighlights.length === 0 && roundWinnerResult.length === 0) continue // no empty round section
+    if (bestMoments.length === 0 && roundWinnersAll.length === 0 && roundHighlights.length === 0 && roundStandingsResult.length === 0) continue // no empty round section
 
     // Duplication fix (see function-level comment): exclude any Best
     // Moments photo that is also a winner's own matched photo.
@@ -807,13 +824,12 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
       // comment). Every card uses the standard premium background now.
       for (const h of roundHighlights) slides.push({ kind: 'makersBreakersCard', highlight: h })
     }
-    if (roundWinnerResult.length > 0) {
-      // Best-effort photo: a Favourite photo of one of the round's
-      // winners, in this round, matched by playerId -- deterministic,
-      // never guessed. null (a clean no-photo treatment) when none exists.
-      const winnerIds = new Set(roundWinnerResult.map(w => w.playerId))
-      const roundWinnerPhoto = data.memories.find(m => m.roundId === round.id && m.mediaType === 'photo' && m.organiserFavourite && winnerIds.has(m.playerId))
-      slides.push({ kind: 'roundResults', roundId: round.id, roundName: round.name, winners: roundWinnerResult, photoUrl: roundWinnerPhoto?.imageUrl ?? null })
+    // V1.14 (8 Oct) -- no photo matching at all now, per the explicit
+    // "do not require a Round Winner photograph; do not use Group
+    // Photo as a Round Winner fallback" instruction. The generic
+    // template owns this slide's presentation entirely.
+    if (roundStandingsResult.length > 0) {
+      slides.push({ kind: 'roundResults', roundId: round.id, roundName: round.name, standings: roundStandingsResult })
     }
   }
 
@@ -821,17 +837,27 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     const champ = data.results.champion
     // V1.6 (5 Oct) -- same priority chain as buildCoreSlides above:
     // explicit Champion Photo, then a Favourite photo of the
-    // champion, then the Group Photo as a safety net for a
-    // presentation generated right after the event.
+    // champion, then no photo (a clean card). V1.14 (8 Oct) -- the
+    // Group Photo fallback step that previously sat here has been
+    // removed entirely. Root cause, confirmed by a real-device report
+    // of "the original Group Photo appearing again after Round 3
+    // content": the Champion slide always comes after every round, so
+    // whenever no explicit Champion Photo and no Favourite photo of
+    // the champion existed, this fallback silently reused the exact
+    // same image already shown as its own dedicated Group Photo slide
+    // earlier in the deck -- an automatic duplication the organiser
+    // never chose, not a deliberate re-selection of that Moment. The
+    // organiser can still legitimately see the Group Photo's own
+    // image again if they explicitly mark that Moment a Favourite
+    // (it would then surface here via favouriteChampionPhoto, exactly
+    // as any other Favourite of the champion would) -- that remains
+    // an intentional choice, not automatic duplication.
     const championIds = new Set(champ.champions.map(c => c.playerId))
     const explicitChampionPhoto = data.event.championPhotoMomentId
       ? data.memories.find(m => m.momentId === data.event.championPhotoMomentId && m.mediaType === 'photo')
       : undefined
     const favouriteChampionPhoto = sortMemoriesChronologically(data.memories.filter(m => m.mediaType === 'photo' && m.organiserFavourite && championIds.has(m.playerId)))[0]
-    const groupPhotoFallback = data.event.groupPhotoMomentId
-      ? data.memories.find(m => m.momentId === data.event.groupPhotoMomentId && m.mediaType === 'photo')
-      : undefined
-    const championPhotoUrl = explicitChampionPhoto?.imageUrl ?? favouriteChampionPhoto?.imageUrl ?? groupPhotoFallback?.imageUrl ?? null
+    const championPhotoUrl = explicitChampionPhoto?.imageUrl ?? favouriteChampionPhoto?.imageUrl ?? null
     slides.push({ kind: 'champion', champions: champ.champions, hasTie: champ.hasTie, photoUrl: championPhotoUrl })
   }
 

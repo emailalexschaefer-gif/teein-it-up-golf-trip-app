@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { computeCumulativeStandings, determineRoundWinners, determineChampions, seedLeadersLast, sortRoundsChronologically, selectLeaderboardRound, selectRelevantSideGameRounds, buildRoundsSummary, derivePreviousCurrentTotal, resolveRequestedOrDefaultRound, matchesPlayerSearch, resolveFocusRound, buildCountbackKey, compareCountbackKeys } from './multiRound'
+import { computeCumulativeStandings, determineRoundWinners, determineRoundStandings, determineChampions, seedLeadersLast, sortRoundsChronologically, selectLeaderboardRound, selectRelevantSideGameRounds, buildRoundsSummary, derivePreviousCurrentTotal, resolveRequestedOrDefaultRound, matchesPlayerSearch, resolveFocusRound, buildCountbackKey, compareCountbackKeys } from './multiRound'
 
 // ── sortRoundsChronologically ────────────────────────────────────────────────
 
@@ -902,4 +902,85 @@ test('extending 1 round to 2, and 2 rounds to 3, both produce the same correct P
   assert.equal(pct3.current, 18)
   assert.equal(pct3.total, 63)
   assert.equal(pct3.isFirstRound, false)
+})
+
+// -- V1.14 (8 Oct): determineRoundStandings -----------------------------
+
+test('determineRoundStandings: ranks a single round by roundPoints descending, never recomputing points', () => {
+  const results = [
+    { playerId: 'p1', playerName: 'Alex', roundPoints: 32, holePoints: [] },
+    { playerId: 'p2', playerName: 'Dave', roundPoints: 40, holePoints: [] },
+    { playerId: 'p3', playerName: 'Mick', roundPoints: 28, holePoints: [] },
+  ]
+  const standings = determineRoundStandings(results)
+  assert.deepEqual(standings.map(s => s.playerName), ['Dave', 'Alex', 'Mick'])
+  assert.equal(standings[0].position, 1)
+  assert.equal(standings[0].roundPoints, 40)
+})
+
+test('determineRoundStandings: a tie shares one position, standard competition ranking (1, 2, 2, 4)', () => {
+  const results = [
+    { playerId: 'p1', playerName: 'A', roundPoints: 40, holePoints: [] },
+    { playerId: 'p2', playerName: 'B', roundPoints: 35, holePoints: [] },
+    { playerId: 'p3', playerName: 'C', roundPoints: 35, holePoints: [] },
+    { playerId: 'p4', playerName: 'D', roundPoints: 20, holePoints: [] },
+  ]
+  const standings = determineRoundStandings(results)
+  assert.deepEqual(standings.map(s => s.position), [1, 2, 2, 4])
+})
+
+test('determineRoundStandings: caps at 5 by position, never splitting a tie that straddles the cutoff', () => {
+  const results = [1, 2, 3, 4, 5, 5, 6].map((pts, i) => ({ playerId: `p${i}`, playerName: `P${i}`, roundPoints: 50 - pts, holePoints: [] }))
+  // Construct so positions 5 and 6 are tied (both roundPoints = 45),
+  // position 7 is strictly worse -- positions 5-6 must both be
+  // included or both excluded, never split.
+  const tiedAt5 = [
+    { playerId: 'a', playerName: 'A', roundPoints: 50, holePoints: [] },
+    { playerId: 'b', playerName: 'B', roundPoints: 49, holePoints: [] },
+    { playerId: 'c', playerName: 'C', roundPoints: 48, holePoints: [] },
+    { playerId: 'd', playerName: 'D', roundPoints: 47, holePoints: [] },
+    { playerId: 'e', playerName: 'E', roundPoints: 45, holePoints: [] },
+    { playerId: 'f', playerName: 'F', roundPoints: 45, holePoints: [] },
+    { playerId: 'g', playerName: 'G', roundPoints: 40, holePoints: [] },
+  ]
+  const standings = determineRoundStandings(tiedAt5)
+  assert.equal(standings.length, 6) // both E and F at position 5 included, G (position 7) excluded
+  assert.ok(standings.every(s => s.position <= 5))
+})
+
+test('determineRoundStandings: an empty round produces an empty list, never a fabricated row', () => {
+  assert.deepEqual(determineRoundStandings([]), [])
+})
+
+test('determineRoundStandings: fewer than 5 players returns exactly that many, never padded', () => {
+  const results = [
+    { playerId: 'p1', playerName: 'A', roundPoints: 30, holePoints: [] },
+    { playerId: 'p2', playerName: 'B', roundPoints: 25, holePoints: [] },
+  ]
+  assert.equal(determineRoundStandings(results).length, 2)
+})
+
+test('V1.14 regression: Round Results and the overall event can legitimately disagree on #1 -- Player A wins the round, Player B wins the event', () => {
+  // Deliberately chosen so cumulative totals (A: 20+20+40=80, B: 34+30+20=84)
+  // give Player B the overall win, even though Player A's single Round 3
+  // score (40) is the best score anyone posts in Round 3 specifically --
+  // confirmed by the assert.notEqual at the end, so a future arithmetic
+  // slip here would fail loudly rather than silently passing a vacuous test.
+  const round1 = [{ playerId: 'a', playerName: 'Player A', roundPoints: 20, holePoints: [] }, { playerId: 'b', playerName: 'Player B', roundPoints: 34, holePoints: [] }]
+  const round2 = [{ playerId: 'a', playerName: 'Player A', roundPoints: 20, holePoints: [] }, { playerId: 'b', playerName: 'Player B', roundPoints: 30, holePoints: [] }]
+  // Round 3: Player A has the single best round score this round --
+  // round standings must place A at #1 here regardless of the cumulative picture.
+  const round3 = [{ playerId: 'a', playerName: 'Player A', roundPoints: 40, holePoints: [] }, { playerId: 'b', playerName: 'Player B', roundPoints: 20, holePoints: [] }]
+
+  const round3Standings = determineRoundStandings(round3)
+  assert.equal(round3Standings[0].playerName, 'Player A')
+
+  // But cumulative across all three rounds, Player B's higher totals
+  // in rounds 1-2 make them the overall event winner.
+  const cumulative = computeCumulativeStandings([round1, round2, round3])
+  const champion = cumulative.find(s => s.position === 1)!
+  assert.equal(champion.playerName, 'Player B')
+
+  // The two must genuinely disagree -- proving this is a real divergence, not a vacuous test.
+  assert.notEqual(round3Standings[0].playerName, champion.playerName)
 })

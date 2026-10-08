@@ -462,8 +462,17 @@ export default function EventMemoriesPage() {
                     {detailMoment.organiserFavourite ? '⭐ Favourited' : '☆ Favourite'}
                   </button>
                 )}
-                {/* V1.4 completion patch (14 Sep) -- organiser-only, video Moments only. Never requires the Moment to also be a Favourite. */}
-                {isOrganiser && detailMoment.mediaType === 'video' && (
+                {/* V1.14 (8 Oct) -- fixed a real-device-confirmed bug: this
+                    was previously gated to mediaType === 'video' only, so a
+                    photo Moment's detail view never showed a Blooper control
+                    at all. is_blooper has no media-type restriction at the
+                    schema level, and Favourite/Blooper are independent
+                    classifications for any Moment -- organiser-only, never
+                    requires the Moment to also be a Favourite, never removes
+                    an existing Favourite. The container's flexWrap: 'wrap'
+                    already gives Favourite/Blooper/Download a clean
+                    responsive arrangement if all three don't fit one row. */}
+                {isOrganiser && (
                   <button onClick={() => toggleBlooper(detailMoment.momentId, !detailMoment.isBlooper)} style={smallButtonStyle}>
                     {detailMoment.isBlooper ? '🎬 Blooper ✓' : '🎬 Add to Bloopers'}
                   </button>
