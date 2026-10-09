@@ -61,7 +61,70 @@ export type SlideshowSource = 'favourites' | 'all' | 'selected'
  * or read here, which is why the slideshow card could only ever show
  * the group's name, never who was actually in it. undefined for an
  * individual highlight, which has no group to roster. */
-interface HighlightLike { kind: 'maker' | 'breaker'; icon: string; title: string; playerName: string; statLine: string; roster?: { playerId: string; playerName: string }[] }
+/** V1.15 (9 Oct) -- scope and category added. Both are already present
+ * verbatim on every real published_round_highlights row (makersBreakers.ts's
+ * Highlight interface declares both, and the publish route writes the
+ * request body through unchanged) -- same situation as roster above:
+ * already reaching the database, just never declared or read here.
+ * Needed to implement the approved brief's required presentation
+ * order (individual makers -> individual breakers -> group makers ->
+ * group breakers, each chronological). Optional, not required by the
+ * parse filter below, so a highlight stored before this field existed
+ * still renders -- it just sorts into the default "mid" phase and the
+ * "individual" scope bucket, matching how it would have rendered
+ * before this change. */
+interface HighlightLike { kind: 'maker' | 'breaker'; icon: string; title: string; playerName: string; statLine: string; roster?: { playerId: string; playerName: string }[]; scope?: 'individual' | 'group'; category?: string }
+
+/** CATEGORY_HOLE_PHASE -- canonical early/mid/late phase per archetype,
+ * derived directly from each find*() function's own hole-range in
+ * makersBreakers.ts (read exhaustively, not guessed): an archetype
+ * that only inspects a round's opening holes is "early", one that only
+ * inspects the back nine/final holes is "late", and anything computed
+ * over the whole round (or a single hole whose position isn't fixed,
+ * such as Hole from Hell or the Powerplay hole) is "mid" -- the
+ * existing structural fact of which holes an archetype looks at, not
+ * an invented new chronology. Categories not listed here (none
+ * currently exist outside ARCHETYPE_DEFINITIONS in makersBreakers.ts)
+ * default to "mid" in sortHighlightsForPresentation below. */
+const CATEGORY_HOLE_PHASE: Record<string, 0 | 1 | 2> = {
+  // early -- opening holes only
+  hot_start: 0, cold_start: 0, still_in_car_park: 0,
+  // late -- back nine / final holes only
+  back_nine_king: 2, back_nine_bandits: 2, fast_finish: 2, the_closers: 2,
+  rough_finish: 2, wheels_off: 2, back_nine_breakdown: 2, one_that_got_away: 2,
+  // mid -- whole-round or a variable/unfixed single hole (the_collapse's
+  // own definition text literally calls it "a real mid-round unravelling")
+  the_collapse: 1,
+}
+
+function highlightPhase(category: string | undefined): 0 | 1 | 2 {
+  return (category && CATEGORY_HOLE_PHASE[category] !== undefined) ? CATEGORY_HOLE_PHASE[category] : 1
+}
+
+/** sortHighlightsForPresentation -- the approved brief's required
+ * order: within a round, Individual Makers, then Individual Breakers,
+ * then Group Makers, then Group Breakers, each group internally
+ * chronological (early to late holes). A stable sort (guaranteed by
+ * Array.prototype.sort since ES2019) means highlights that land in the
+ * same bucket and the same phase keep their original relative order --
+ * which is generateMakersAndBreakers's own significance-descending
+ * order, so the strongest candidate within a tied phase still leads.
+ * No badge-awarding rule is touched here -- this only reorders
+ * already-qualified, already-published highlights for display. */
+function sortHighlightsForPresentation(highlights: HighlightLike[]): HighlightLike[] {
+  const bucketRank = (h: HighlightLike): number => {
+    const scope = h.scope ?? 'individual'
+    if (scope === 'individual' && h.kind === 'maker') return 0
+    if (scope === 'individual' && h.kind === 'breaker') return 1
+    if (scope === 'group' && h.kind === 'maker') return 2
+    return 3 // group breaker
+  }
+  return [...highlights].sort((a, b) => {
+    const bucketDiff = bucketRank(a) - bucketRank(b)
+    if (bucketDiff !== 0) return bucketDiff
+    return highlightPhase(a.category) - highlightPhase(b.category)
+  })
+}
 
 export type Slide =
   | { kind: 'opening'; eventName: string; dateRange: string | null; heroImageUrl: string | null }
@@ -426,10 +489,14 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], gro
 /** parsePublishedHighlights -- defensive parsing of the JSON blob
  * stored in published_round_highlights.highlights. Returns [] for
  * anything that doesn't genuinely look like a Highlight[] -- never
- * throws, never fabricates a highlight from malformed/absent data. */
+ * throws, never fabricates a highlight from malformed/absent data.
+ * V1.15 (9 Oct) -- now also applies sortHighlightsForPresentation
+ * before returning, so both call sites (buildCoreSlides and
+ * buildPresentationDeck) get the approved presentation order from
+ * this single place, rather than each needing to sort separately. */
 function parsePublishedHighlights(raw: unknown): HighlightLike[] {
   if (!Array.isArray(raw)) return []
-  return raw.filter((h): h is HighlightLike =>
+  const parsed = raw.filter((h): h is HighlightLike =>
     typeof h === 'object' && h !== null &&
     (h as Record<string, unknown>).kind !== undefined &&
     ((h as Record<string, unknown>).kind === 'maker' || (h as Record<string, unknown>).kind === 'breaker') &&
@@ -437,6 +504,7 @@ function parsePublishedHighlights(raw: unknown): HighlightLike[] {
     typeof (h as Record<string, unknown>).title === 'string' &&
     typeof (h as Record<string, unknown>).statLine === 'string'
   )
+  return sortHighlightsForPresentation(parsed)
 }
 
 /**

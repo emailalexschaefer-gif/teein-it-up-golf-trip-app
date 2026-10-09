@@ -669,10 +669,17 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     )
   }
   if (slide.kind === 'makersBreakersDivider') {
+    // V1.15 (9 Oct) -- reworded per the approved closing-slideshow
+    // brief, item 3: these are earned badges, not just a section
+    // label, and the slide should make that explicit plus point back
+    // to MyGolf (the same "revisit MyGolf" journey the closing slide
+    // itself reinforces) -- a subtle one-line reference here, not a
+    // promotional call-to-action.
     return (
       <GenericTemplateSlide>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, letterSpacing: 2, color: '#d9c9a3', textTransform: 'uppercase', marginBottom: 10 }}>{slide.roundName}</p>
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 3.6vw, 32px)', fontWeight: 800, color: '#fff', letterSpacing: 1 }}>Makers &amp; Breakers</p>
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 3.6vw, 32px)', fontWeight: 800, color: '#fff', letterSpacing: 1 }}>Makers &amp; Breakers Badges</p>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', marginTop: 10 }}>Your badges live in MyGolf.</p>
       </GenericTemplateSlide>
     )
   }
@@ -910,26 +917,30 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     )
   }
   // closing
-  // V1.6 (5 Oct) -- the new premium closing slide (brief item 8),
-  // replacing the plain green filler card entirely. Uses the supplied
-  // 16:9 artwork (public/images/event-highlights-closing.jpg) the
-  // same way the opening slide uses its own -- as a cover-sized
-  // background image, so it scales responsively to any device/canvas
-  // size without the raster image itself being hard-coded as the only
-  // possible layout, per the brief's own explicit instruction. Its
-  // composition (headline, subline, "Run your next golf event like a
-  // pro.", Powered by Teein' It Up) is already fully baked into the
-  // artwork itself and is deliberately generic -- no event-specific
-  // text is overlaid here, matching the brief's own "do not insert
-  // event-specific information" rule for this slide specifically
-  // (the opposite of the opening slide, which does overlay the real
-  // event name/dates on top of its own artwork).
+  // V1.15 (9 Oct) -- replaced with the final approved closing-slide
+  // artwork (public/images/event-highlights-closing.jpg). The approved
+  // image is a wide landscape composition, not an exact 16:9 crop, so
+  // this renders it with `object-fit: contain` against a solid
+  // dark-tone backdrop (sampled from the artwork's own corners) rather
+  // than `background-size: cover` -- cover would crop the golf ball on
+  // the left edge and/or the Teein' It Up logo panel on the right edge
+  // on a true 16:9 canvas, which is exactly what the approved brief
+  // says not to do ("preserve the entire composition... rather than
+  // crop the edges"). The full composition (headline, subline, MyGolf
+  // reminder, tagline, logo) is already baked into the artwork itself
+  // and is deliberately generic -- no event-specific text or CTA is
+  // overlaid here, matching the brief's explicit "no duplicate text
+  // over the artwork" and "no feature columns, sales panels or large
+  // promotional buttons" requirements.
   return (
-    <div style={{
-      position: 'absolute', inset: 0,
-      backgroundImage: 'url(/images/event-highlights-closing.jpg)',
-      backgroundSize: 'cover', backgroundPosition: 'center',
-    }} />
+    <div style={{ position: 'absolute', inset: 0, background: '#0a1410' }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/images/event-highlights-closing.jpg"
+        alt="What a great event! See you at the next one. Remember to check out your event memories and stats in MyGolf."
+        style={{ position: 'absolute', inset: 0, margin: 'auto', width: '100%', height: '100%', objectFit: 'contain' }}
+      />
+    </div>
   )
 }
 
