@@ -84,6 +84,23 @@ export interface EventHighlightsPlayerProps {
 
 const CONTROLS_SAFE_AREA_PX = 96
 
+// Real-device polish pass (10 Oct) -- Event-at-a-Glance legibility fix.
+// Shared across all four statistic columns so the numeral and its
+// label always get the identical treatment: a dark, soft text-shadow
+// (reads as a glow/halo rather than a hard outline) plus a very thin
+// dark stroke, applied as a CSSProperties object spread directly into
+// each <p>'s own style. This is a pure CSS/text-rendering fix -- the
+// approved artwork itself is untouched, and so is every live value it
+// wraps (roundCount/totalHoles/sideGameCount/championCount all still
+// come straight from `slide`, exactly as before).
+const numeralShadow: React.CSSProperties = {
+  textShadow: '0 2px 6px rgba(0,0,0,0.75), 0 1px 3px rgba(0,0,0,0.9), 0 0 14px rgba(0,0,0,0.35)',
+  WebkitTextStroke: '0.6px rgba(0,0,0,0.35)',
+}
+const labelShadow: React.CSSProperties = {
+  textShadow: '0 1px 3px rgba(0,0,0,0.8)',
+}
+
 /** V1.17 (10 Oct) -- gold-only decorative icons for Event-at-a-Glance,
  * replacing platform emoji. A standard emoji (the flag/golfer/crown
  * glyphs used previously) renders in each device's own default
@@ -141,7 +158,20 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
   // the playback effect never attempted unmuted autoplay at all. The
   // effect below still only ever sets video.muted to match this state
   // (never claims a sound state that isn't what's actually playing).
-  const [videoMuted, setVideoMuted] = useState(true)
+  //
+  // Real-device polish pass (10 Oct) -- back to `false` (sound ON by
+  // default), superseding V1.18's own "Audio = Muted" default for
+  // this same chapter. Direct real-device feedback: a Blooper's
+  // dialogue is part of what makes it funny, so defaulting to silence
+  // undercut the chapter's own point. The playback effect just below
+  // already attempts unmuted autoplay first and only falls back to
+  // muted (updating this state to match) if the browser's own
+  // autoplay-with-sound restriction rejects it -- that fallback was
+  // built in V1.6 and needed no change here; only the STARTING
+  // assumption changes, from "assume blocked" to "assume allowed,
+  // discover otherwise." The visible mute/unmute control is
+  // unaffected either way.
+  const [videoMuted, setVideoMuted] = useState(false)
   // V1.10 (6 Oct) -- Priority 6: true only if, after fullscreen and
   // orientation-lock were both attempted, the device is still
   // genuinely detectable as portrait. Dismissible; never blocks playback.
@@ -637,36 +667,55 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
             13%-92% of height). Kept well clear of both ends so it can
             never crowd the baked-in elements on a short viewport. */}
         <div style={{ position: 'absolute', left: 0, right: 0, top: '30%', bottom: '18%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%' }}>
+          {/* Real-device polish pass (10 Oct) -- two fixes applied
+              uniformly to all four columns below:
+              1. alignItems: 'flex-start' (was 'center') on this row,
+                 so every numeral starts from the SAME y position
+                 regardless of what renders underneath it in that
+                 column (Column 1 alone also carries course names,
+                 which was previously pulling its whole column's
+                 vertical centre, and therefore its numeral's
+                 baseline, out of line with the other three).
+              2. numeralShadow below, applied to every numeral
+                 (white AND gold) -- a dark text-shadow plus a thin
+                 dark stroke, so the figure stays readable wherever
+                 it lands on the artwork's own brightness, including
+                 the brightest part of the sunset, without altering
+                 the approved artwork itself or the live values
+                 beneath it. */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', width: '100%', height: '100%' }}>
             {/* Column 1 -- Rounds, 0-34.2% of width. */}
             <div style={{ width: '34.2%', textAlign: 'center', minWidth: 0, padding: '0 clamp(4px, 1.2vw, 14px)' }}>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(24px, 4.4vw, 46px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.roundCount}</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9px, 1.2vw, 13px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Round{slide.roundCount === 1 ? '' : 's'}</p>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 6.2vw, 60px)', fontWeight: 800, color: '#fff', lineHeight: 1, ...numeralShadow }}>{slide.roundCount}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9.5px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 5, ...labelShadow }}>Round{slide.roundCount === 1 ? '' : 's'}</p>
               {slide.courseNames.length > 0 && (
                 <div style={{ marginTop: 6 }}>
                   {slide.courseNames.map((name, i) => (
-                    <p key={i} style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(7.5px, 0.9vw, 11px)', color: '#e5e7eb', lineHeight: 1.35, overflowWrap: 'break-word', marginTop: i === 0 ? 0 : 2 }}>{name}</p>
+                    <p key={i} style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(7.5px, 0.9vw, 11px)', color: '#e5e7eb', lineHeight: 1.35, overflowWrap: 'break-word', marginTop: i === 0 ? 0 : 2, textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{name}</p>
                   ))}
                 </div>
               )}
             </div>
             {/* Column 2 -- Holes, 34.2%-50.2% of width (16%). */}
             <div style={{ width: '16%', textAlign: 'center', minWidth: 0, padding: '0 clamp(2px, 0.8vw, 10px)' }}>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(24px, 4.4vw, 46px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.totalHoles}</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9px, 1.2vw, 13px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Hole{slide.totalHoles === 1 ? '' : 's'}</p>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 6.2vw, 60px)', fontWeight: 800, color: '#fff', lineHeight: 1, ...numeralShadow }}>{slide.totalHoles}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9.5px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 5, ...labelShadow }}>Hole{slide.totalHoles === 1 ? '' : 's'}</p>
               <div style={{ marginTop: 7, display: 'flex', justifyContent: 'center' }}><GoldFlagIcon size="clamp(12px, 1.8vw, 20px)" /></div>
             </div>
             {/* Column 3 -- Side Games, 50.2%-66.6% of width (16.4%). */}
             <div style={{ width: '16.4%', textAlign: 'center', minWidth: 0, padding: '0 clamp(2px, 0.8vw, 10px)' }}>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(24px, 4.4vw, 46px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.sideGameCount}</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9px, 1.2vw, 13px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Side Game{slide.sideGameCount === 1 ? '' : 's'}</p>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 6.2vw, 60px)', fontWeight: 800, color: '#fff', lineHeight: 1, ...numeralShadow }}>{slide.sideGameCount}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9.5px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 5, ...labelShadow }}>Side Game{slide.sideGameCount === 1 ? '' : 's'}</p>
               <div style={{ marginTop: 7, display: 'flex', justifyContent: 'center' }}><GoldClubsIcon size="clamp(12px, 1.8vw, 20px)" /></div>
             </div>
             {/* Column 4 -- Event Champion, 66.6%-100% of width (33.4%).
-                Live championCount -- never hardcoded. */}
+                Live championCount -- never hardcoded. Gold-on-bright-sunset
+                was the specific legibility complaint, so this numeral
+                gets the same numeralShadow as the white ones -- the dark
+                halo is what restores contrast, not a colour change. */}
             <div style={{ width: '33.4%', textAlign: 'center', minWidth: 0, padding: '0 clamp(4px, 1.2vw, 14px)' }}>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(24px, 4.4vw, 46px)', fontWeight: 800, color: '#fbbf24', lineHeight: 1 }}>{slide.championCount}</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9px, 1.2vw, 13px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4, lineHeight: 1.25 }}>Event<br />Champion</p>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 6.2vw, 60px)', fontWeight: 800, color: '#fbbf24', lineHeight: 1, ...numeralShadow }}>{slide.championCount}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9.5px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 5, lineHeight: 1.25, ...labelShadow }}>Event<br />Champion</p>
               <div style={{ marginTop: 7, display: 'flex', justifyContent: 'center' }}><GoldCrownIcon size="clamp(12px, 1.8vw, 20px)" /></div>
             </div>
           </div>
@@ -814,64 +863,74 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
   if (slide.kind === 'leaderboard') {
     // V1.5 (15 Sep) -- fixed a genuine presentation bug found in live
     // testing: this previously used maxHeight + overflowY: auto,
-    // which is exactly what produced "only one large row visibly
-    // rendered, with an internal scrollbar" on a real landscape
-    // screen -- a slideshow has no way for anyone to scroll during
-    // playback, so that content was effectively just gone. Fixed
-    // structurally, not by tuning a pixel value: the row list is now
-    // a flex column that fills the available space and distributes
-    // its rows with `justify-content: space-evenly` -- every row
-    // genuinely fits inside the fixed space available, shrinking
-    // together via clamp() font sizing on a shorter canvas, rather
-    // than ever overflowing it. No overflow/scroll property appears
-    // anywhere in this slide's layout now, by design, not by
-    // accident -- confirmed directly, this is the single most
-    // important property to get right here and is called out
-    // specifically in the delivery report as the actual fix.
-    // V1.6 (5 Oct) -- redesigned from a flat Top-10 list to a genuine
-    // podium: 1st place is the hero row (largest, gold, trophy), 2nd/
-    // 3rd get their own medal treatment, 4th/5th stay restrained --
-    // per the brief's own explicit hierarchy. The non-scrolling,
-    // clamp()-sized flex-column foundation from the V1.5 fix is
-    // preserved unchanged -- only the row treatment itself changed.
+    // which produced "only one large row visibly rendered, with an
+    // internal scrollbar" -- a slideshow has no way for anyone to
+    // scroll during playback. Fixed structurally: rows size via
+    // clamp() rather than ever overflowing. That foundation is
+    // unchanged below.
+    // V1.6 (5 Oct) -- redesigned from a flat Top-10 list into a
+    // podium with 1st place as an oversized hero row.
+    // Real-device polish pass (10 Oct) -- that hero-row hierarchy is
+    // what the real-device screenshot flagged as "too wide and
+    // sparse, especially with only two players": `flex: 1.8/1.2/0.85`
+    // on rows inside a `flex: 1` container made each row STRETCH
+    // vertically to fill whatever space the other rows didn't use --
+    // with only 1-2 entries, that's almost the entire 16:9 canvas,
+    // producing a huge, sparse-looking card. Replaced with a compact,
+    // non-stretching vertical stack (same principle the Round
+    // Results slide below already uses successfully): fixed-ish row
+    // heights via clamp(), centred as a group rather than stretched
+    // to fill the frame, so 2 players and 5 players both read as a
+    // deliberately-sized podium, not a half-empty or overflowing one.
+    // Per the brief: positions 1-3 are now the SAME row height
+    // (podium tier) -- gold/silver/bronze is colour and border only,
+    // not a size hierarchy -- and 4-5 are visibly simpler/smaller,
+    // subordinate rows. Position/name/score sit in the same
+    // fixed-width columns on every row, podium or plain, so they line
+    // up down the whole list regardless of tier.
     const medalFor = (position: number) => position === 1 ? '\u{1F3C6}' : position === 2 ? '\u{1F948}' : position === 3 ? '\u{1F949}' : null
-    // V1.11 (7 Oct) -- switched to the dedicated, approved Final
-    // Leaderboard artwork (public/images/final-leaderboard-
-    // template.jpg). That artwork already contains the trophy, the
-    // "FINAL LEADERBOARD" title, its own decorative underline, the
-    // gold border, and the Teein' It Up branding -- all of that was
-    // previously being rendered a second time here in HTML/CSS,
-    // directly on top of where the artwork itself would eventually
-    // carry it. Removed entirely, per the explicit "there must be ONE
-    // Final Leaderboard title only" instruction. The results area
-    // below now starts with generous top padding specifically sized
-    // to clear the artwork's own baked-in header (confirmed by eye
-    // against the supplied reference image -- the title/trophy
-    // occupies roughly the top quarter of the 16:9 frame), so dynamic
-    // results can never collide with it.
+    const PODIUM_COL_WIDTH = 38
+    // V1.11 (7 Oct) -- the approved Final Leaderboard artwork
+    // (public/images/final-leaderboard-template.jpg) already carries
+    // the trophy, "FINAL LEADERBOARD" title, gold border and
+    // branding -- none of that is rendered here. Unchanged by this
+    // pass, per the explicit "don't replace or re-generate this
+    // artwork" instruction -- only the dynamic results overlay below
+    // is a code/layout change.
     return (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundImage: 'url(/images/final-leaderboard-template.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', padding: `28vh clamp(60px, 8vw, 120px) ${CONTROLS_SAFE_AREA_PX + 10}px` }}>
-        <div style={{ width: '100%', maxWidth: 560, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly', gap: 'clamp(4px, 1vh, 8px)' }}>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundImage: 'url(/images/final-leaderboard-template.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', padding: `28vh clamp(50px, 7vw, 100px) ${CONTROLS_SAFE_AREA_PX + 10}px` }}>
+        <div style={{ width: '100%', maxWidth: 400, display: 'flex', flexDirection: 'column', gap: 'clamp(7px, 1.3vh, 11px)' }}>
           {slide.entries.map(e => {
-            const isHero = e.position === 1
-            const isMedal = e.position === 2 || e.position === 3
+            const isPodium = e.position <= 3
+            const tier = e.position === 1 ? 'gold' : e.position === 2 ? 'silver' : e.position === 3 ? 'bronze' : 'plain'
+            const background = tier === 'gold' ? 'linear-gradient(135deg, rgba(251,191,36,0.32), rgba(251,191,36,0.12))'
+              : tier === 'silver' ? 'rgba(226,232,240,0.14)'
+              : tier === 'bronze' ? 'rgba(205,140,74,0.14)'
+              : 'rgba(255,255,255,0.04)'
+            const border = tier === 'gold' ? '1.5px solid rgba(251,191,36,0.6)'
+              : tier === 'silver' ? '1px solid rgba(226,232,240,0.35)'
+              : tier === 'bronze' ? '1px solid rgba(205,140,74,0.4)'
+              : 'none'
+            const scoreColor = tier === 'gold' ? '#fbbf24' : tier === 'silver' ? '#e2e8f0' : tier === 'bronze' ? '#d9a066' : '#9ca3af'
             return (
               <div key={e.position} style={{
-                display: 'flex', alignItems: 'center', gap: 12,
-                padding: isHero ? 'clamp(10px, 2vh, 18px) clamp(14px, 2.4vw, 22px)' : isMedal ? 'clamp(7px, 1.4vh, 12px) clamp(12px, 2vw, 18px)' : 'clamp(5px, 1vh, 9px) clamp(10px, 1.6vw, 16px)',
-                borderRadius: isHero ? 16 : 10,
-                background: isHero ? 'linear-gradient(135deg, rgba(251,191,36,0.32), rgba(251,191,36,0.1))' : isMedal ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.04)',
-                border: isHero ? '1.5px solid rgba(251,191,36,0.6)' : isMedal ? '1px solid rgba(255,255,255,0.15)' : 'none',
-                boxShadow: isHero ? '0 4px 18px rgba(0,0,0,0.35)' : undefined,
-                flex: isHero ? '1.8 1 0' : isMedal ? '1.2 1 0' : '0.85 1 0', minHeight: 0,
+                display: 'flex', alignItems: 'center', gap: 10,
+                // Equal height across all three podium positions (1-3)
+                // -- gold is distinguished by colour/border, never by
+                // being physically bigger. 4-5 get a visibly smaller,
+                // plainer row.
+                padding: isPodium ? 'clamp(9px, 1.7vh, 14px) clamp(12px, 2vw, 18px)' : 'clamp(5px, 1vh, 8px) clamp(10px, 1.6vw, 14px)',
+                borderRadius: isPodium ? 12 : 8,
+                background, border,
+                boxShadow: tier === 'gold' ? '0 3px 14px rgba(0,0,0,0.35)' : undefined,
               }}>
-                <span style={{ fontSize: isHero ? 'clamp(22px, 4vh, 34px)' : isMedal ? 'clamp(16px, 2.8vh, 24px)' : 'clamp(13px, 2vh, 17px)', flexShrink: 0, width: isHero ? 44 : 32, textAlign: 'center' }}>
+                <span style={{ fontSize: isPodium ? 'clamp(16px, 2.6vh, 22px)' : 'clamp(12px, 1.8vh, 15px)', flexShrink: 0, width: PODIUM_COL_WIDTH, textAlign: 'center' }}>
                   {medalFor(e.position) ?? e.position}
                 </span>
-                <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: isHero ? 'clamp(16px, 2.8vh, 24px)' : isMedal ? 'clamp(13px, 2.2vh, 18px)' : 'clamp(11px, 1.8vh, 14px)', fontWeight: isHero ? 800 : isMedal ? 600 : 400, color: isHero ? '#fff' : isMedal ? '#fff' : '#d1d5db', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-body)', fontSize: isPodium ? 'clamp(14px, 2.2vh, 18px)' : 'clamp(11px, 1.7vh, 13.5px)', fontWeight: isPodium ? 700 : 400, color: isPodium ? '#fff' : '#d1d5db', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {e.playerName}
                 </span>
-                <span style={{ fontFamily: 'var(--font-body)', fontSize: isHero ? 'clamp(16px, 2.8vh, 24px)' : isMedal ? 'clamp(13px, 2.2vh, 18px)' : 'clamp(11px, 1.8vh, 14px)', fontWeight: 700, color: isHero ? '#fbbf24' : isMedal ? '#d9c9a3' : '#9ca3af', flexShrink: 0 }}>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: isPodium ? 'clamp(14px, 2.2vh, 18px)' : 'clamp(11px, 1.7vh, 13.5px)', fontWeight: 700, color: scoreColor, flexShrink: 0, minWidth: 28, textAlign: 'right' }}>
                   {e.totalPoints}
                 </span>
               </div>

@@ -453,43 +453,124 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
 
   return (
     <div>
-      {/* Item 7 — persistent access. When this specific round is
-          completed and the organiser has dismissed/left the post-round
-          flow (postRoundStage === 'none'), the Snapshot/Makers &
-          Breakers entry points remain reachable here rather than
-          disappearing once the initial "Do this later" tap happens.
-          Genuinely honest scope note: this covers the round currently
-          being viewed (roundStatus prop), not yet a full list of every
-          completed round across a multi-round trip — that would need a
-          separate, trip-level component this pass didn't build. */}
+      {/* Phase D (10 Oct) — Event Health moved here, to the very top of
+          My HQ's operational dashboard, directly beneath the Guided
+          Workflow tracker + Event Progress badge rendered one level up
+          in MyHQClient.tsx. Previously this sat after the "ROUND —
+          COMPLETE" card, Leaderboard Snapshot, and the entire Close
+          Round flow — correctly sized/labelled already (My Golf + My
+          HQ UX Cleanup brief, item 4, still intact below), just
+          mid-page instead of near the top. No change to how health is
+          calculated or what it shows — position only.
+          My Golf + My HQ UX Cleanup brief (5 Sep), item 4 — "COLLAPSED
+          MUST NEVER MEAN AN IMPORTANT PROBLEM IS INVISIBLE." The status
+          badge (health.text + healthIcon) is the exact same summary
+          already computed for the always-visible version — shown here
+          in the collapsed HEADER itself, not only inside the expanded
+          content, so an organiser never has to open this section just
+          to learn whether anything needs attention. Event Health's own
+          calculation is completely untouched — only where/how its
+          existing summary text is displayed changed.
+
+          Final pre-production gate (10 Oct), item 1 — reactivity fix.
+          CollapsibleSection's `expanded` is a plain `useState(defaultExpanded)`
+          seeded ONLY on mount (confirmed by reading that component
+          directly) — it never re-reads `defaultExpanded` on a later
+          render. `data` (and so `data.health.level`) is polled every 8s
+          while the round is active, so a genuine green -> gold/red
+          transition happening WHILE this stays mounted would previously
+          never auto-expand; the organiser could miss a newly detected
+          issue entirely if they'd left it collapsed from an earlier,
+          healthy render.
+          Fix: `key` the section on the health BUCKET (not the raw
+          level), so React remounts it — re-seeding `expanded` fresh from
+          `defaultExpanded` — only on an actual green<->non-green
+          transition, never on every gold<->red fluctuation or every
+          poll while the bucket is unchanged. This exposes a newly
+          detected issue exactly once, without fighting an organiser who
+          deliberately re-collapses it afterward while the issue is
+          still the same severity bucket (the children render nothing
+          but props-derived JSX, so the remount loses no state of its
+          own). No change to how health is calculated. */}
+      <CollapsibleSection
+        key={data.health.level !== 'green' ? 'health-warn' : 'health-ok'}
+        icon="🩺" title="Event Health"
+        statusBadge={<span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: healthBorder }}>{healthIcon} {data.health.text}</span>}
+        defaultExpanded={data.health.level !== 'green'}
+      >
+      <div style={{ background: healthBg, border: `1.5px solid ${healthBorder}`, borderRadius: 14, padding: '14px 16px', marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 22 }}>{healthIcon}</span>
+          <div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8, color: '#9ca3af', textTransform: 'uppercase' }}>Event Health</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#14532d' }}>{data.health.text}</div>
+          </div>
+        </div>
+        {data.health.topMismatch && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#14532d' }}>
+              {data.health.topMismatch.playerName} — Hole {data.health.topMismatch.hole}
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 8 }}>
+              {data.health.topMismatch.groupName} · Marker mismatch
+            </div>
+            <Link href={`/trips/${tripId}/rounds/${roundId}?hole=${data.health.topMismatch.hole}`} style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#dc2626', textDecoration: 'none' }}>
+              Review now →
+            </Link>
+          </div>
+        )}
+        {!data.health.topMismatch && data.mismatchAlerts.length > 1 && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+            <a href="#alerts-section" style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#dc2626', textDecoration: 'none' }}>
+              View affected players →
+            </a>
+          </div>
+        )}
+      </div>
+      </CollapsibleSection>
+
+      {/* Item 7 — persistent access to the Round Snapshot for this
+          completed round, once the organiser has dismissed/left the
+          post-round flow (postRoundStage === 'none'). Genuinely honest
+          scope note: this covers the round currently being viewed
+          (roundStatus prop), not yet a full list of every completed
+          round across a multi-round trip — that would need a separate,
+          trip-level component this pass didn't build.
+          Phase D consolidation (10 Oct) — this card's own "Makers &
+          Breakers" button is removed: it opened the exact same
+          MakersBreakers component as RoundHighlightsCard (always shown
+          directly above this one in MyHQClient once the round is
+          completed) and the Guided Workflow tracker's own primary
+          action, with three visually competing buttons doing the
+          identical thing whenever a round completes and isn't yet
+          reviewed. Round Snapshot is kept — it's a genuinely different
+          action, not represented anywhere else. */}
       {roundStatus === 'completed' && (
         <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 14, padding: '12px 14px', marginBottom: 14 }}>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#166534', letterSpacing: 0.3, marginBottom: 8 }}>
             {data.roundName.toUpperCase()} — COMPLETE ✓
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={() => {
-                setClosedRoundId(roundId); setClosedRoundName(data.roundName); setClosedCourseName(data.courseName)
-                setPostRoundStage('snapshot'); setSnapshotLoading(true)
-                fetch(`/api/trips/${tripId}/rounds/${roundId}/highlights`)
-                  .then(r => r.ok ? r.json() : null)
-                  .then(b => { if (b?.courseReport) setSnapshot(b.courseReport) })
-                  .finally(() => setSnapshotLoading(false))
-              }}
-              style={{ flex: 1, padding: '9px 0', borderRadius: 8, background: '#fff', border: '1px solid #bbf7d0', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, color: '#166534', cursor: 'pointer' }}
-            >
-              📊 Round Snapshot →
-            </button>
-            <button
-              onClick={() => { setClosedRoundId(roundId); setPostRoundStage('makers_breakers') }}
-              style={{ flex: 1, padding: '9px 0', borderRadius: 8, background: '#fff', border: '1px solid #bbf7d0', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, color: '#166534', cursor: 'pointer' }}
-            >
-              🔥 Makers &amp; Breakers →
-            </button>
-          </div>
+          <button
+            onClick={() => {
+              setClosedRoundId(roundId); setClosedRoundName(data.roundName); setClosedCourseName(data.courseName)
+              setPostRoundStage('snapshot'); setSnapshotLoading(true)
+              fetch(`/api/trips/${tripId}/rounds/${roundId}/highlights`)
+                .then(r => r.ok ? r.json() : null)
+                .then(b => { if (b?.courseReport) setSnapshot(b.courseReport) })
+                .finally(() => setSnapshotLoading(false))
+            }}
+            style={{ width: '100%', padding: '9px 0', borderRadius: 8, background: '#fff', border: '1px solid #bbf7d0', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, color: '#166534', cursor: 'pointer' }}
+          >
+            📊 Round Snapshot →
+          </button>
         </div>
       )}
+      {/* My HQ V2 (10 Oct) — a stable, always-rendered anchor for the
+          Guided Workflow tracker's "Close Round" action to scroll to,
+          whether or not the round is actually ready to close yet (the
+          block below it is conditional; this div never is). Purely a
+          scroll target — no visual output, no logic. */}
+      <div id="close-round-section" />
       {/* ── Leaderboard Snapshot — top 5 only, never the full board ────── */}
       <SectionTitle>Leaderboard Snapshot</SectionTitle>
       <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 8, overflow: 'hidden' }}>
@@ -597,51 +678,6 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           </div>
         </div>
       )}
-
-      {/* My Golf + My HQ UX Cleanup brief (5 Sep), item 4 — "COLLAPSED
-          MUST NEVER MEAN AN IMPORTANT PROBLEM IS INVISIBLE." The status
-          badge (health.text + healthIcon) is the exact same summary
-          already computed for the always-visible version — shown here
-          in the collapsed HEADER itself, not only inside the expanded
-          content, so an organiser never has to open this section just
-          to learn whether anything needs attention. Event Health's own
-          calculation is completely untouched — only where/how its
-          existing summary text is displayed changed. */}
-      <CollapsibleSection
-        icon="🩺" title="Event Health / Progress"
-        statusBadge={<span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: healthBorder }}>{healthIcon} {data.health.text}</span>}
-      >
-      <div style={{ background: healthBg, border: `1.5px solid ${healthBorder}`, borderRadius: 14, padding: '14px 16px', marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 22 }}>{healthIcon}</span>
-          <div>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8, color: '#9ca3af', textTransform: 'uppercase' }}>Event Health</div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#14532d' }}>{data.health.text}</div>
-          </div>
-        </div>
-        {data.health.topMismatch && (
-          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#14532d' }}>
-              {data.health.topMismatch.playerName} — Hole {data.health.topMismatch.hole}
-            </div>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 8 }}>
-              {data.health.topMismatch.groupName} · Marker mismatch
-            </div>
-            <Link href={`/trips/${tripId}/rounds/${roundId}?hole=${data.health.topMismatch.hole}`} style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#dc2626', textDecoration: 'none' }}>
-              Review now →
-            </Link>
-          </div>
-        )}
-        {!data.health.topMismatch && data.mismatchAlerts.length > 1 && (
-          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-            <a href="#alerts-section" style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#dc2626', textDecoration: 'none' }}>
-              View affected players →
-            </a>
-          </div>
-        )}
-      </div>
-      </CollapsibleSection>
-
 
       {/* ── 2.2 Round Summary ────────────────────────────────────── */}
       <div style={{ background: 'linear-gradient(135deg,#14532d,#1a6b3a)', borderRadius: 14, padding: '14px 16px', marginBottom: 14, boxShadow: '0 4px 18px rgba(20,83,45,0.25)' }}>
@@ -973,8 +1009,22 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
       </CollapsibleSection>
 
       {/* ── 2.8 Group Map — compact operational table ────────────────── */}
-      <CollapsibleSection icon="✏️" title="Score Management">
-      <SectionTitle>Group Map</SectionTitle>
+      {/* Phase D audit (10 Oct) — this collapsible's own title was
+          "Score Management," identical to AdminScoreOverridePanel's
+          own "⚙ Score Management" header further down this same page
+          (outside MyHQClient entirely, mounted from page.tsx under
+          `id="score-management"`) — two differently-scoped things
+          sharing one label. This one is a read-only group-status table
+          (the same data Group Progress above already shows, just as a
+          compact table instead of an expandable list); the real
+          override/paper-scorecard/player-search tool lives at the
+          other one. Renamed to match what it actually is (its own
+          inner SectionTitle already said "Group Map") and linked
+          through to the real Score Management tool, rather than
+          colliding with its name. No capability removed — the table
+          itself, and the real admin panel, are both still exactly
+          where they were. */}
+      <CollapsibleSection icon="✏️" title="Group Map">
       <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
         {data.groups.map((g, i) => {
           const meta = STATUS_META[g.status]
@@ -994,20 +1044,30 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           )
         })}
       </div>
+      <a href="#score-management" style={{ display: 'block', marginTop: 10, fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#14532d', textDecoration: 'none' }}>
+        Override a score or manage scorecards →
+      </a>
       </CollapsibleSection>
 
       {/* My Golf + My HQ UX Cleanup brief, follow-up (5 Sep) — this
-          section (originally "Event Story") now serves as the single
-          "The Story" — Darren's own request to merge the two. See the
-          removed duplicate section above (right after Side Games) for
-          the full explanation: this one already combined the same
-          round's golf-story milestones with Moments, just from the
-          whole-Event moments feed rather than a round-scoped subset —
-          a strict superset of what the other section showed, so
-          nothing is lost by keeping only this one. EventStorySection
-          itself is completely unchanged; only which section wraps it,
-          and its title, changed. */}
-      <CollapsibleSection icon="📖" title="The Story">
+          section (originally "Event Story") absorbed the round-scoped
+          duplicate that used to sit after Side Games (see that
+          removed section's own comment, above). Renamed "The Story" at
+          the time of that merge, with no scope qualifier.
+          Phase D audit (10 Oct) — read its actual data source directly
+          rather than trusting the label: EventStorySection combines
+          this round's own golf-story milestones (data.story) with an
+          UNSCOPED, whole-event Moments query (['moments', tripId], no
+          roundId filter — see that function's own query below). The
+          Moments feed is the dominant, superset content here, and it's
+          genuinely event-wide, not this round's — so "The Story" was
+          the genuinely ambiguous label the brief asked to fix, not
+          "Round Story" (which would be actively wrong) and not quite
+          accurate as "The Story" either. Relabelled to "Event Story",
+          matching both the component's own name and its real scope.
+          EventStorySection itself is completely unchanged — label
+          only. */}
+      <CollapsibleSection icon="📖" title="Event Story">
       <EventStorySection tripId={tripId} golfStory={data.story} />
       </CollapsibleSection>
 

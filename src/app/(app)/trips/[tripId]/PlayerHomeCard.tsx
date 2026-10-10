@@ -7,7 +7,7 @@ import type { TripData, TripMemberRow } from './TripDetailClient'
 import EventCountdown from '@/components/trips/EventCountdown'
 import StartingGrid from '@/components/scoring/StartingGrid'
 import PlayerCardModal, { initialsOf, type PlayerCardData } from '@/components/shared/PlayerCardModal'
-import { resolveFocusRound } from '@/lib/scoring/multiRound'
+import { resolveFocusRound, sortRoundsChronologically } from '@/lib/scoring/multiRound'
 import WelcomeBrochure, { CollapsedWelcomeCard, isBrochureDismissed } from '@/components/trips/WelcomeBrochure'
 import InstallPwaCard from '@/components/trips/InstallPwaCard'
 import { trackEvent } from '@/lib/analytics/trackEvent'
@@ -218,7 +218,12 @@ function PlayerEventInfoView({ trip, onBack }: { trip: TripData; onBack: () => v
           <div style={{ background: '#ffffff', borderRadius: 16, border: '1px solid #eceae3', padding: 16 }}>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Rounds</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {[...trip.rounds].sort((a, b) => a.play_date.localeCompare(b.play_date)).map(r => (
+              {/* My HQ V2 (10 Oct) audit fix — same un-tiebroken sort,
+                  same fix: the canonical helper's play_date → created_at
+                  → id tiebreaker chain, so this display list's round
+                  order can't flip either when two rounds share a
+                  play_date. */}
+              {sortRoundsChronologically(trip.rounds).map(r => (
                 <div key={r.id} style={{ borderBottom: '1px solid #f3f1ea', paddingBottom: 10 }}>
                   <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, color: '#14532d' }}>{r.name}</div>
                   <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260', marginTop: 2 }}>
@@ -287,7 +292,23 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
   // otherwise the earliest upcoming one, otherwise the most recently
   // completed one — always exactly one round's status to act on, not a
   // list of tabs to interpret.
-  const rounds = [...trip.rounds].sort((a, b) => a.play_date.localeCompare(b.play_date))
+  //
+  // My HQ V2 (10 Oct) audit fix — this used to sort with a bare
+  // `play_date.localeCompare`, no tiebreaker. Rounds created together
+  // in one multi-row INSERT at trip setup can share an identical
+  // created_at (Postgres's now() resolves per-transaction, not
+  // per-row) and, less commonly, the organiser can configure the same
+  // play_date for two rounds too — either way, an un-tiebroken sort has
+  // no deterministic result when two rounds tie, which is the exact
+  // root cause already fixed everywhere else in this codebase on 28
+  // Aug (see DELIVERY_REPORT_MULTIROUND_2026-08-28.md) via
+  // sortRoundsChronologically's play_date → created_at → id tiebreaker
+  // chain. This was the one call site that fix never reached — it sat
+  // right next to the corrected pattern, silently exempt. Switched to
+  // the same canonical helper every other round-selection call site in
+  // this app already uses, so "most recently completed round" here
+  // can never again resolve non-deterministically.
+  const rounds = sortRoundsChronologically(trip.rounds)
   const activeRound = rounds.find(r => r.status === 'active')
   const upcomingRound = rounds.find(r => r.status === 'upcoming')
   const completedRounds = rounds.filter(r => r.status === 'completed')

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { trackEvent } from '@/lib/analytics/trackEvent'
 
 interface Highlight {
@@ -41,6 +42,7 @@ export default function MakersBreakers({
 }: {
   tripId: string; roundId: string; onProceedToResults: () => void
 }) {
+  const queryClient = useQueryClient()
   const [stage, setStage] = useState<Stage>('loading')
   const [makers, setMakers] = useState<Highlight[]>([])
   const [breakers, setBreakers] = useState<Highlight[]>([])
@@ -49,45 +51,117 @@ export default function MakersBreakers({
   const [presentIndex, setPresentIndex] = useState(0)
   const [publishState, setPublishState] = useState<'idle' | 'publishing' | 'done'>('idle')
   const [publishError, setPublishError] = useState('')
-  // 3 Sep field-test package, item 7 — "publish once, then lock." The
-  // organiser-side selection (the state above) survives only for the
-  // current browser session; published_round_highlights is the real,
-  // authoritative, server-side record — already correctly persisted,
+  // 3 Sep field-test package, item 7 — published_round_highlights is
+  // the real, authoritative, server-side record — correctly persisted,
   // round-scoped (UNIQUE on round_id), and organiser-write-gated by
   // the existing /published-highlights route (confirmed by reading it
-  // directly before making any change here). The actual gap was
-  // entirely on this side: nothing here ever checked that record
-  // before offering to regenerate. publishedHighlights holds exactly
-  // what was actually published, once confirmed to exist — the
-  // read-only 'published' stage below renders this, never anything
-  // freshly (re)computed.
+  // directly before making any change here). publishedHighlights holds
+  // exactly what was actually published, once confirmed to exist — the
+  // 'published' stage below renders this, never anything freshly
+  // (re)computed, and never regenerates/re-runs the algorithm on its
+  // own. Originally this stage was read-only with "no normal
+  // edit/regenerate option" by deliberate design. My HQ V2 (10 Oct)
+  // explicitly supersedes that: the approved brief requires the
+  // organiser to be able to revisit and update a finished review later
+  // — see startEditingPublished()/skipReview() below. The lock this
+  // comment used to describe is gone; what remains unchanged is that
+  // nothing is ever written except by an explicit organiser action.
   const [publishedHighlights, setPublishedHighlights] = useState<Highlight[] | null>(null)
   const [publishedAt, setPublishedAt] = useState<string | null>(null)
 
-  async function publish() {
+  // My HQ V2 (10 Oct), Stage 4 — the approved no-migration convention:
+  // a row is only ever written on an explicit organiser action (never
+  // on merely opening this screen), and an empty `highlights` array is
+  // a genuine, intentional "reviewed, selected nothing" outcome, not an
+  // absent one. doPublish() is the one shared write path for both the
+  // normal end-of-presentation publish and the explicit Skip action —
+  // same route, same upsert-on-round_id semantics, only the highlights
+  // array differs.
+  async function doPublish(highlights: Highlight[]): Promise<boolean> {
     setPublishState('publishing')
     setPublishError('')
     try {
-      const selMakers = makers.filter(hl => selected.has(hl.category))
-      const selBreakers = breakers.filter(hl => selected.has(hl.category))
       const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/published-highlights`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ highlights: [...selMakers, ...selBreakers] }),
+        body: JSON.stringify({ highlights }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         setPublishError(body.error ?? "Couldn't publish. Please try again.")
         setPublishState('idle')
-        return
+        return false
       }
+      setPublishedHighlights(highlights)
+      setPublishedAt(new Date().toISOString())
       setPublishState('done')
+      // Phase D verification fix (10 Oct) — this component manages its
+      // own published-highlights state via a plain fetch, never through
+      // React Query, so a successful publish here previously left every
+      // OTHER consumer of the same server record (RoundHighlightsSection
+      // and My HQ's own Guided Workflow tracker, both reading
+      // ['published-highlights', tripId, roundId] via useQuery with this
+      // app's 60s default staleTime) showing stale data until that
+      // staleTime elapsed or a window-focus refetch happened to fire.
+      // Invalidating that exact query key here — the one new line this
+      // fix needed — makes every other mounted consumer refetch
+      // immediately, with no change to this component's own already-
+      // correct local-state rendering.
+      queryClient.invalidateQueries({ queryKey: ['published-highlights', tripId, roundId] })
       // GA4 / Product Analytics brief — organiser behaviour. Fires
       // only on genuine, server-confirmed publish, not on opening the
       // curation screen or selecting cards.
-      trackEvent('makers_breakers_published', { tripId, roundId })
+      trackEvent('makers_breakers_published', { tripId, roundId, selectedCount: highlights.length })
+      return true
     } catch {
       setPublishError('Connection issue — please try again.')
       setPublishState('idle')
+      return false
+    }
+  }
+
+  async function publish() {
+    const selMakers = makers.filter(hl => selected.has(hl.category))
+    const selBreakers = breakers.filter(hl => selected.has(hl.category))
+    await doPublish([...selMakers, ...selBreakers])
+  }
+
+  // Explicit Skip/Finish-with-nothing action — the organiser is
+  // deliberately choosing "reviewed, selected nothing," distinct from
+  // not having reviewed at all. Publishes an empty array and, only on
+  // confirmed success, jumps straight to the published view (a failure
+  // leaves the organiser right where they were, with the same inline
+  // error the normal publish path already shows). This is also the
+  // escape hatch for the genuine empty-candidates case (no makers or
+  // breakers generated for this round at all), which must never
+  // permanently block Stage 4.
+  async function skipReview() {
+    const ok = await doPublish([])
+    if (ok) setStage('published')
+  }
+
+  // My HQ V2 (10 Oct) — revisit/edit. Per the approved brief, a
+  // finished review must stay changeable: re-fetches the same
+  // candidate set used at first review, pre-selects whatever is
+  // currently published (so re-opening never silently discards a prior
+  // real selection), and drops back into the ordinary curating flow.
+  // Saving from here goes through the exact same publish()/doPublish()
+  // upsert as a first-time review — no separate "edit" write path.
+  async function startEditingPublished() {
+    setStage('loading')
+    setPublishState('idle')
+    setPublishError('')
+    try {
+      const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/highlights`)
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error ?? 'Could not load highlights.')
+      setMakers(body.makers)
+      setBreakers(body.breakers)
+      setCourseReport(body.courseReport)
+      const publishedCategories = new Set((publishedHighlights ?? []).map(h => h.category))
+      setSelected(publishedCategories)
+      setStage('curating')
+    } catch {
+      setStage('error')
     }
   }
 
@@ -250,6 +324,25 @@ export default function MakersBreakers({
         >
           Present {selected.size} Highlight{selected.size === 1 ? '' : 's'} →
         </button>
+
+        {/* Explicit Finish Review / Skip — the only path that ever
+            writes an empty-array row. Available regardless of how many
+            candidates exist, so a round with none generated is never
+            stuck: the organiser can still explicitly finish the review
+            with nothing selected. */}
+        <button
+          onClick={() => void skipReview()}
+          disabled={publishState === 'publishing'}
+          style={{
+            display: 'block', width: '100%', marginTop: 10, padding: 11, borderRadius: 10,
+            background: 'none', border: '1px solid #d8d4c8', color: '#7a7260',
+            fontFamily: 'var(--font-body)', fontWeight: 600, fontSize: 13,
+            cursor: publishState === 'publishing' ? 'default' : 'pointer',
+          }}
+        >
+          {publishState === 'publishing' ? 'Saving…' : "Skip — don't select any highlights for this round"}
+        </button>
+        {publishError && <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#dc2626', marginTop: 8, textAlign: 'center' }}>{publishError}</p>}
       </div>
     )
   }
@@ -421,6 +514,23 @@ export default function MakersBreakers({
           style={{ width: '100%', padding: 12, borderRadius: 10, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
         >
           Present Round Results →
+        </button>
+
+        {/* My HQ V2 (10 Oct) — revisit/edit, per the approved brief:
+            a finished review (selected or skipped) must stay
+            changeable, never a locked terminal state. Reopens the
+            ordinary curating flow pre-selected with whatever is
+            currently published; nothing here overwrites the saved
+            selection unless the organiser explicitly saves again. */}
+        <button
+          onClick={() => void startEditingPublished()}
+          style={{
+            display: 'block', width: '100%', marginTop: 10, padding: 11, borderRadius: 10,
+            background: 'none', border: '1px solid #d8d4c8', color: '#7a7260',
+            fontFamily: 'var(--font-body)', fontWeight: 600, fontSize: 13, cursor: 'pointer',
+          }}
+        >
+          Edit Selection
         </button>
       </div>
     )

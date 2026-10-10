@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useMemo, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams, useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import type { EventMemoryData } from '@/lib/trips/eventMemoryData'
 import {
@@ -197,6 +197,55 @@ export default function EventMemoriesPage() {
     setPresentationConfig(defaultPresentationConfig(manifest, scope))
     setSlideshowStep('memories')
   }
+
+  // My HQ V2 Phase D (10 Oct) -- the Stage 5 "Create Round
+  // Presentation"/"Create Event Presentation" deep link, per the
+  // Phase A audit's own proposal: this page never read a URL param at
+  // all before now, so a guided-workflow organiser landed on the plain
+  // picker rather than their already-chosen scope. Audited the whole
+  // slideshow flow above before adding this -- it calls chooseScope(),
+  // the exact same function a manual tap on a round/Full-Event button
+  // already calls, so this is not a second/parallel config path, just
+  // an automatic first tap. Guarded so it only ever fires once (even
+  // though manifest can update after other actions later in this
+  // page), and silently does nothing if the round id doesn't match
+  // anything in the manifest -- the organiser just sees the ordinary
+  // picker in that case, never a broken or confusing state. Never
+  // touches buildPresentationDeck/getAvailableSections/deck generation
+  // -- this only pre-fills the same scope step a manual choice would.
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  const [deepLinkHandled, setDeepLinkHandled] = useState(false)
+  useEffect(() => {
+    if (deepLinkHandled || !manifest) return
+    const startSlideshow = searchParams.get('startSlideshow')
+    if (startSlideshow !== 'event' && startSlideshow !== 'round') return
+    setDeepLinkHandled(true)
+    // Final pre-production gate (10 Oct), item 2 -- strip the
+    // startSlideshow/roundId params from the URL the moment the deep
+    // link is consumed (whether it actually opened the slideshow or
+    // fell through to the ordinary picker below). Without this, the
+    // param stays in the address bar/history entry forever: a plain
+    // page refresh, or the PWA restoring this exact tab later, would
+    // re-run this whole effect from a fresh mount (deepLinkHandled
+    // resets to false on remount) and silently re-launch the
+    // slideshow every time the organiser revisits this URL -- not a
+    // one-time launch at all. router.replace (not push) so this
+    // cleanup never adds its own back-button entry; scroll:false so
+    // it doesn't jump the page. The slideshow's own in-memory state
+    // (slideshowStep/presentationConfig) is untouched by this --
+    // only the URL is cleaned up.
+    router.replace(pathname, { scroll: false })
+    if (startSlideshow === 'event') {
+      chooseScope({ kind: 'fullEvent' })
+    } else {
+      const roundId = searchParams.get('roundId')
+      const roundExists = !!roundId && manifest.rounds.some(r => r.id === roundId)
+      if (roundExists) chooseScope({ kind: 'round', roundId: roundId! })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manifest, deepLinkHandled])
 
   // V1.9 (6 Oct) -- the explicit Favourites/All Memories/Choose
   // Memories step. Setting bestMomentsSource here is the ONLY place

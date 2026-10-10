@@ -149,40 +149,79 @@ export default function UploadMomentsModal({ tripId, onClose, onUploaded }: { tr
 
   const allSettled = queue.length > 0 && queue.every(q => q.status === 'done' || q.status === 'failed')
 
+  // Real-device polish pass (10 Oct) -- root cause of "action buttons
+  // obscured by the fixed app navigation": TripBottomNav.tsx renders
+  // on every /trips/[tripId]/* route (including this one) at
+  // `position: fixed; zIndex: 100`. This modal's overlay was zIndex
+  // 70 -- BELOW the nav -- so the nav bar painted on top of the
+  // sheet's own footer, not merely visually crowding it. Every other
+  // bottom-sheet modal on this page has the same latent zIndex gap
+  // (70 vs. the nav's 100), but only this one was reported from a
+  // real device and the brief is explicitly scoped to it -- see the
+  // delivery report for that wider note. Fixed here by raising this
+  // modal alone above the nav (zIndex 200), and by using 100dvh
+  // (dynamic viewport height, which shrinks correctly when the mobile
+  // keyboard opens, unlike 100vh) plus the nav's own
+  // env(safe-area-inset-bottom) convention for the footer, so the
+  // footer is never geometrically covered by either the nav or a
+  // device's own home-indicator area, independent of z-ordering.
   return (
-    <div onClick={() => !running && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 70, display: 'flex', alignItems: 'flex-end' }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: 20, width: '100%', maxHeight: '80dvh', display: 'flex', flexDirection: 'column' }}>
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#1a1a16', marginBottom: 4 }}>＋ Upload Moments</p>
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 14 }}>
-          Add photos or videos from outside the app &mdash; forwarded from WhatsApp, say. These are saved as general Event Memories, with no round, hole, or player guessed for them.
-        </p>
+    <div
+      onClick={() => !running && onClose()}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: '#fff', borderRadius: '16px 16px 0 0', width: '100%',
+          maxHeight: 'min(80dvh, calc(100dvh - 24px))', display: 'flex', flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Header -- never scrolls away, always visible. */}
+        <div style={{ padding: '20px 20px 0' }}>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#1a1a16', marginBottom: 4 }}>＋ Upload Moments</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 14 }}>
+            Add photos or videos from outside the app &mdash; forwarded from WhatsApp, say. These are saved as general Event Memories, with no round, hole, or player guessed for them.
+          </p>
+        </div>
 
-        {queue.length === 0 ? (
-          <button
-            onClick={() => inputRef.current?.click()}
-            style={{ padding: '14px 0', borderRadius: 10, border: '1.5px dashed #d9c9a3', background: '#f8f4eb', fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: '#1a4731', cursor: 'pointer' }}
-          >
-            Select Files
-          </button>
-        ) : (
-          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {queue.map((q, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 10px', borderRadius: 8, background: '#f8f4eb' }}>
-                <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{q.file.name}</span>
-                <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, flexShrink: 0, color: q.status === 'done' ? '#1a4731' : q.status === 'failed' ? '#dc2626' : q.status === 'uploading' ? '#7a7260' : '#9ca3af' }}>
-                  {q.status === 'pending' && 'Waiting…'}
-                  {q.status === 'uploading' && 'Uploading…'}
-                  {q.status === 'done' && '✓ Saved'}
-                  {q.status === 'failed' && (q.error ? `✗ ${q.error}` : '✗ Failed')}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Body -- the ONLY independently-scrollable region, so a long
+            queue of files never pushes the header or footer out of
+            reach; flex + minHeight: 0 is what lets this shrink inside
+            the sheet's own maxHeight instead of overflowing it. */}
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 20px' }}>
+          {queue.length === 0 ? (
+            <button
+              onClick={() => inputRef.current?.click()}
+              style={{ width: '100%', padding: '14px 0', borderRadius: 10, border: '1.5px dashed #d9c9a3', background: '#f8f4eb', fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: '#1a4731', cursor: 'pointer' }}
+            >
+              Select Files
+            </button>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingBottom: 4 }}>
+              {queue.map((q, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 10px', borderRadius: 8, background: '#f8f4eb' }}>
+                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{q.file.name}</span>
+                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, flexShrink: 0, color: q.status === 'done' ? '#1a4731' : q.status === 'failed' ? '#dc2626' : q.status === 'uploading' ? '#7a7260' : '#9ca3af' }}>
+                    {q.status === 'pending' && 'Waiting…'}
+                    {q.status === 'uploading' && 'Uploading…'}
+                    {q.status === 'done' && '✓ Saved'}
+                    {q.status === 'failed' && (q.error ? `✗ ${q.error}` : '✗ Failed')}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <input ref={inputRef} type="file" accept={[...IMAGE_TYPES, ...VIDEO_TYPES].join(',')} multiple onChange={handlePick} style={{ display: 'none' }} />
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+        {/* Footer -- never scrolls away, always visible, and padded
+            for both the device's own safe area AND (via the raised
+            zIndex above) no longer paintable-over by the app's fixed
+            bottom nav. */}
+        <div style={{ display: 'flex', gap: 8, padding: '14px 20px', paddingBottom: 'calc(14px + env(safe-area-inset-bottom, 0px))', borderTop: '1px solid #f0ede4' }}>
           <button
             onClick={onClose}
             disabled={running}

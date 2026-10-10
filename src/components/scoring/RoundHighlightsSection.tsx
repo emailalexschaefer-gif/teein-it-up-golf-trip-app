@@ -57,6 +57,16 @@ function GroupRoster({ highlight, index }: { highlight: Highlight; index: number
  * candidates are never shown to players) — no empty section, no
  * "not yet published" placeholder cluttering an in-progress round's
  * leaderboard.
+ *
+ * My HQ V2 (10 Oct) — Stage 4 fix: this used to collapse "no row yet"
+ * and "row published with an empty highlights array" into the same
+ * hidden-section outcome (`!publishedAt || highlights.length === 0`).
+ * That made "reviewed, deliberately selected nothing" indistinguishable
+ * from "not reviewed at all" everywhere this component was read,
+ * including by My HQ's own workflow tracker. The fix is read-only and
+ * client-side only — `publishedAt` is what means "reviewed"; an empty
+ * `highlights` array is a genuine, intentional outcome, not an absent
+ * one, and now renders its own short line instead of being hidden.
  */
 export default function RoundHighlightsSection({
   tripId, roundId, roundName,
@@ -73,24 +83,34 @@ export default function RoundHighlightsSection({
     staleTime: 60000, // published + locked — no reason to poll this like live scores
   })
 
-  if (!data?.publishedAt || data.highlights.length === 0) return null
+  // publishedAt alone means "reviewed" — an empty highlights array is a
+  // genuine reviewed-and-selected-none outcome, not an absent one.
+  if (!data?.publishedAt) return null
 
+  const hasHighlights = data.highlights.length > 0
   let groupIndex = -1
 
   return (
     <div style={{ marginTop: 10 }}>
       <button
-        onClick={() => setExpanded(e => !e)}
+        onClick={() => hasHighlights && setExpanded(e => !e)}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
-          background: '#fdf3d9', border: '1px solid #e8c96a', borderRadius: 12, padding: '10px 14px', cursor: 'pointer',
+          background: '#fdf3d9', border: '1px solid #e8c96a', borderRadius: 12, padding: '10px 14px',
+          cursor: hasHighlights ? 'pointer' : 'default',
         }}
       >
         <span style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, color: '#7a5c00' }}>
-          🔥 {roundName} Makers &amp; Breakers ({data.highlights.length})
+          {hasHighlights ? `🔥 ${roundName} Makers & Breakers (${data.highlights.length})` : `${roundName} Makers & Breakers`}
         </span>
-        <span style={{ fontSize: 13, color: '#a1791f' }}>{expanded ? '▴' : '▾'}</span>
+        {hasHighlights && <span style={{ fontSize: 13, color: '#a1791f' }}>{expanded ? '▴' : '▾'}</span>}
       </button>
+
+      {!hasHighlights && (
+        <div style={{ marginTop: 6, fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260' }}>
+          Reviewed — no highlights selected
+        </div>
+      )}
 
       {expanded && (
         <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
