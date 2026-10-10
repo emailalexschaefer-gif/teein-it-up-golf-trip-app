@@ -52,15 +52,23 @@ export async function GET(req: NextRequest, { params }: RouteProps) {
   // (moments.player_id has the same "which FK" ambiguity risk that broke
   // event_messages GET once already, so this is deliberate, not an
   // oversight).
-  const playerIds = [...new Set(moments.map(m => m.player_id))]
-  const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', playerIds)
+  // V1.18 (10 Oct), migration 095 — player_id is now nullable (an
+  // unassigned, organiser-uploaded event-level Moment has none at
+  // all). Filtered out here before the profiles lookup/Map, and
+  // handled explicitly below — never passed to .in(), and never
+  // falls back to the generic 'Player' label, which would otherwise
+  // misleadingly imply a specific, unnamed person.
+  const playerIds = [...new Set(moments.map(m => m.player_id).filter((id): id is string => id !== null))]
+  const { data: profiles } = playerIds.length > 0
+    ? await supabase.from('profiles').select('id, full_name').in('id', playerIds)
+    : { data: [] }
   const nameByPlayerId = new Map<string, string>((profiles ?? []).map((p: { id: string; full_name: string }) => [p.id, p.full_name]))
 
   const enriched = await Promise.all(moments.map(async (m) => {
     const imageUrl = m.image_path
       ? (await supabase.storage.from('event-moments').createSignedUrl(m.image_path, 3600)).data?.signedUrl ?? null
       : null
-    return { ...m, playerName: nameByPlayerId.get(m.player_id) ?? 'Player', imageUrl }
+    return { ...m, playerName: m.player_id ? (nameByPlayerId.get(m.player_id) ?? 'Player') : null, imageUrl }
   }))
 
   return NextResponse.json({ moments: enriched })
@@ -73,7 +81,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   if (authError || !user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
 
   const body = await req.json().catch(() => ({}))
-  const { imagePath, caption, roundId, holeNumber, audience, sideCompId, sideCompEntryId, leadChangeId, playerId: requestedPlayerId, momentType, durationSeconds } = body as {
+  const { imagePath, caption, roundId, holeNumber, audience, sideCompId, sideCompEntryId, leadChangeId, playerId: requestedPlayerId, momentType, durationSeconds, unassigned } = body as {
     imagePath?: string; caption?: string; roundId?: string | null; holeNumber?: number | null; audience?: string
     // Sprint 9 Item 4 — Capture the Moment linking. Only ever present
     // when this Moment was launched from a New Leader prompt (see
@@ -88,6 +96,13 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     // support. Omitted entirely by every existing caller (photo/text),
     // which default to 'photo' below, identical to pre-V1.4 behaviour.
     momentType?: 'photo' | 'video'; durationSeconds?: number
+    // V1.18 (10 Oct), migration 095 — "Upload Moments" (Package 2).
+    // true ONLY for an organiser-uploaded, event-level Moment with no
+    // identifiable subject (e.g. a WhatsApp photo with unreliable
+    // metadata) — the one and only caller that sends this is the new
+    // Upload Moments flow (UploadMomentsModal.tsx). Every existing
+    // caller omits it entirely and is completely unaffected.
+    unassigned?: boolean
   }
 
   // A Moment needs either a photo/video or a caption — a Text Moment
@@ -124,6 +139,28 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     .eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
   if (!membership) return NextResponse.json({ error: 'You are not a member of this event.' }, { status: 403 })
 
+  // V1.18 (10 Oct) — "Upload Moments" (Package 2). An unassigned
+  // Moment is organiser-only (matching every other Event Memories
+  // primary control, which is already organiser-gated in the UI), and
+  // deliberately does NOT read roundId/holeNumber/requestedPlayerId/
+  // audience from the request body at all below — not "validated and
+  // rejected if present", genuinely never consulted — so this code
+  // path can never be made to invent a round, hole, or player
+  // association no matter what a future caller sends alongside
+  // unassigned: true. This is the literal implementation of the
+  // brief's explicit "do not invent a round, do not invent a hole
+  // number, do not invent a player association" rule, enforced
+  // structurally rather than by a validation check that could drift.
+  let isUnassigned = false
+  if (unassigned === true) {
+    if (!imagePath) return NextResponse.json({ error: 'An unassigned event photo needs an uploaded file.' }, { status: 400 })
+    const { data: tripRow } = await supabase.from('trips').select('organiser_id').eq('id', tripId).maybeSingle()
+    if (!tripRow || tripRow.organiser_id !== user.id) {
+      return NextResponse.json({ error: 'Only the event organiser can upload an unassigned event photo.' }, { status: 403 })
+    }
+    isUnassigned = true
+  }
+
   // Side Games proxy entry — same server-side playing-group validation
   // as the Side Games entries route (not trusted from the client), so
   // a Moment posted "of" someone else can only ever be for a genuine
@@ -135,7 +172,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   // own "NULL means captured by the subject themselves" convention.
   let subjectPlayerId = user.id
   let capturedBy: string | null = null
-  if (requestedPlayerId && requestedPlayerId !== user.id) {
+  if (!isUnassigned && requestedPlayerId && requestedPlayerId !== user.id) {
     const { data: nomineeMembership } = await supabase
       .from('trip_members').select('group_id')
       .eq('trip_id', tripId).eq('profile_id', requestedPlayerId).maybeSingle()
@@ -149,16 +186,22 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     // over what's ultimately a cosmetic attribution detail.
   }
 
+  // V1.18 (10 Oct) — for an unassigned upload, every context field is
+  // forced to null/everyone directly here, never computed from the
+  // request body — round_id/hole_number/player_id/group_id genuinely
+  // cannot be set by this path, by construction, matching the
+  // migration's own CHECK constraint (player_id IS NOT NULL OR
+  // captured_by IS NOT NULL) and RLS policy for this case.
   const { data: moment, error: momentErr } = await supabase.from('moments').insert({
     trip_id: tripId,
-    round_id: roundId ?? null,
-    hole_number: holeNumber ?? null,
-    player_id: subjectPlayerId,
-    captured_by: capturedBy,
-    group_id: resolvedAudience === 'group' ? membership.group_id : null,
+    round_id: isUnassigned ? null : (roundId ?? null),
+    hole_number: isUnassigned ? null : (holeNumber ?? null),
+    player_id: isUnassigned ? null : subjectPlayerId,
+    captured_by: isUnassigned ? user.id : capturedBy,
+    group_id: isUnassigned ? null : (resolvedAudience === 'group' ? membership.group_id : null),
     caption: caption?.trim() || null,
     image_path: imagePath ?? null,
-    audience: resolvedAudience,
+    audience: isUnassigned ? 'everyone' : resolvedAudience,
     moment_type: resolvedMomentType,
     duration_seconds: resolvedMomentType === 'video' ? durationSeconds : null,
   }).select().single()
@@ -186,12 +229,13 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   // via My Moments / Event Story) — logged, not silently swallowed, but
   // not rolled back either, since a missing chat entry is a lesser
   // failure than losing the photo itself.
+  const chatAudience = isUnassigned ? 'everyone' : resolvedAudience
   const chatInsertPayload = {
     trip_id: tripId,
     sender_user_id: user.id,
     message_type: 'moment',
-    recipient_type: resolvedAudience === 'group' ? 'group' : 'all',
-    recipient_group_id: resolvedAudience === 'group' ? membership.group_id : null,
+    recipient_type: chatAudience === 'group' ? 'group' : 'all',
+    recipient_group_id: chatAudience === 'group' ? membership.group_id : null,
     message: caption?.trim() || (resolvedMomentType === 'video' ? '🎬 Video' : '📷 Moment'),
     moment_id: moment.id,
   }

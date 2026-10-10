@@ -6,10 +6,11 @@ import Link from 'next/link'
 import type { EventMemoryData } from '@/lib/trips/eventMemoryData'
 import {
   type SlideshowDeck,
-  buildPresentationDeck, getAvailableSections, defaultPresentationConfig, resolveSelectedMomentIds,
+  buildPresentationDeck, getAvailableSections, defaultPresentationConfig, resolveSelectedMomentIds, resolveAftershowMomentIds,
   type PresentationConfig, type PresentationScope, type RoundSectionConfig, type SectionAvailability,
 } from '@/lib/trips/slideshowDeck'
 import EventHighlightsPlayer from '@/components/memories/EventHighlightsPlayer'
+import UploadMomentsModal from '@/components/memories/UploadMomentsModal'
 
 // Event Memories V1.2 (12 Sep) -- the gallery's own Memory/Round/
 // Manifest types used to be a locally-defined subset that had drifted
@@ -83,6 +84,17 @@ export default function EventMemoriesPage() {
   // calls setChampionPhoto when the organiser explicitly taps Save.
   const [pendingChampionPhoto, setPendingChampionPhoto] = useState<string | null | undefined>(undefined)
   const [settingChampionPhoto, setSettingChampionPhoto] = useState(false)
+  // V1.18 (10 Oct) -- Package 2 (Upload Moments) and Package 4
+  // (Moments & Bloopers aftershow selection picker).
+  const [showUploadModal, setShowUploadModal] = useState(false)
+  const [showAftershowPicker, setShowAftershowPicker] = useState(false)
+
+  function refreshManifest() {
+    return fetch(`/api/trips/${params.tripId}/memory-manifest`).then(r => r.json()).then(body => {
+      if (body.error) { setError(body.error); return }
+      setManifest(body)
+    }).catch(() => { setError('Could not load Event Memories.') })
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -120,6 +132,21 @@ export default function EventMemoriesPage() {
     try {
       await fetch(`/api/trips/${params.tripId}/memories/${momentId}/blooper`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ blooper: next }),
+      })
+    } catch { /* optimistic update stands; a manual refresh will reconcile if this failed */ }
+  }
+
+  // V1.18 (10 Oct), Package 3/4 -- sets the organiser's own EXPLICIT
+  // aftershow decision for one Moment. `included` is the tri-state
+  // value the PATCH route and resolveAftershowMomentIds both expect:
+  // true/false is an explicit decision that always wins; null clears
+  // it back to "follow the automatic suggestion."
+  async function setAftershowIncluded(momentId: string, included: boolean | null) {
+    if (!manifest) return
+    setManifest({ ...manifest, memories: manifest.memories.map(m => m.momentId === momentId ? { ...m, aftershowIncluded: included } : m) })
+    try {
+      await fetch(`/api/trips/${params.tripId}/memories/${momentId}/aftershow`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ included }),
       })
     } catch { /* optimistic update stands; a manual refresh will reconcile if this failed */ }
   }
@@ -333,6 +360,26 @@ export default function EventMemoriesPage() {
             </div>
           )}
 
+          {/* V1.18 (10 Oct), Package 2 -- "Upload Moments", a new
+              primary control alongside the others above, matching
+              their organiser-only gating and dark-green/gold/rounded
+              visual language. Shown even with photoCount === 0 (the
+              row above isn't), since this is exactly how an organiser
+              would add the FIRST photos for an event with none yet. */}
+          {isOrganiser && (
+            <div style={{ marginBottom: 10 }}>
+              <button
+                onClick={() => setShowUploadModal(true)}
+                style={{
+                  width: '100%', padding: '10px 0', borderRadius: 8, border: '1.5px solid #d9c9a3', background: '#fff',
+                  fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#1a4731', cursor: 'pointer',
+                }}
+              >
+                ＋ Upload Moments
+              </button>
+            </div>
+          )}
+
           {isOrganiser && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8, position: 'relative' }}>
               <button
@@ -452,7 +499,12 @@ export default function EventMemoriesPage() {
             <div style={{ padding: 14 }}>
               {detailMoment.caption && <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151', marginBottom: 6 }}>{detailMoment.caption}</p>}
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af' }}>
-                {detailMoment.playerName ?? 'Unknown'}
+                {/* V1.18 (10 Oct) -- playerName is null for an unassigned,
+                    organiser-uploaded event-level Moment (migration 095) --
+                    "Event Photo" says what it is, rather than "Unknown",
+                    which would read as a data problem rather than an
+                    intentional, context-free upload. */}
+                {detailMoment.playerName ?? 'Event Photo'}
                 {detailMoment.holeNumber ? ` · Hole ${detailMoment.holeNumber}` : ''}
                 {detailMoment.roundId ? ` · ${manifest.rounds.find(r => r.id === detailMoment.roundId)?.name ?? ''}` : ''}
               </p>
@@ -477,6 +529,24 @@ export default function EventMemoriesPage() {
                     {detailMoment.isBlooper ? '🎬 Blooper ✓' : '🎬 Add to Bloopers'}
                   </button>
                 )}
+                {/* V1.18 (10 Oct), Package 3 -- "Include in Aftershow" is
+                    independent of Favourite/Blooper above, never renaming
+                    or replacing either. Only ever shown for photo/video
+                    (a text Moment has no visual content for this chapter,
+                    matching the aftershow PATCH route's own check). Reflects
+                    the EFFECTIVE state (explicit decision, or the automatic
+                    suggestion when none has been made yet) -- tapping
+                    always sets an explicit decision, which from then on
+                    always wins over the suggestion (see
+                    resolveAftershowMomentIds). */}
+                {isOrganiser && detailMoment.mediaType !== 'text' && (() => {
+                  const effective = detailMoment.aftershowIncluded ?? (detailMoment.isBlooper || detailMoment.playerId === null)
+                  return (
+                    <button onClick={() => setAftershowIncluded(detailMoment.momentId, !effective)} style={smallButtonStyle}>
+                      {effective ? '🎉 In Aftershow ✓' : '🎉 Add to Aftershow'}
+                    </button>
+                  )
+                })()}
                 <button onClick={() => downloadOne(detailMoment.momentId)} style={smallButtonStyle}>⬇ Download</button>
               </div>
             </div>
@@ -629,7 +699,22 @@ export default function EventMemoriesPage() {
                     <ToggleRow label="Final Leaderboard" checked={presentationConfig.finalLeaderboard} onChange={v => setPresentationConfig(prev => prev && { ...prev, finalLeaderboard: v })} />
                   )}
                   {getAvailableSections(manifest, { kind: 'fullEvent' }).find(a => a.type === 'BLOOPERS')?.available && (
-                    <ToggleRow label="Bloopers" checked={presentationConfig.bloopers} onChange={v => setPresentationConfig(prev => prev && { ...prev, bloopers: v })} />
+                    <>
+                      <ToggleRow label="Moments & Bloopers" checked={presentationConfig.bloopers} onChange={v => setPresentationConfig(prev => prev && { ...prev, bloopers: v })} />
+                      {/* V1.18 (10 Oct), Package 4/5 -- only shown once the
+                          chapter itself is on. "Repeat" defaults ON
+                          (Package 5.2's own default settings table);
+                          "Edit Selection" opens the Select All/Clear
+                          All/add-or-remove picker. */}
+                      {presentationConfig.bloopers && (
+                        <>
+                          <ToggleRow label="Repeat Moments & Bloopers" checked={presentationConfig.aftershowLoop ?? true} onChange={v => setPresentationConfig(prev => prev && { ...prev, aftershowLoop: v })} />
+                          <button onClick={() => setShowAftershowPicker(true)} style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#1a4731', background: 'none', border: 'none', padding: '2px 0 10px', cursor: 'pointer', textDecoration: 'underline' }}>
+                            Edit Moments &amp; Bloopers Selection
+                          </button>
+                        </>
+                      )}
+                    </>
                   )}
                   <ToggleRow label="Closing / Thanks" checked={presentationConfig.eventFinale} onChange={v => setPresentationConfig(prev => prev && { ...prev, eventFinale: v })} />
                 </div>
@@ -716,8 +801,68 @@ export default function EventMemoriesPage() {
           slides={slideshowDeck.slides}
           durationSeconds={slideshowDuration}
           onExit={() => setSlideshowStep('review')}
+          aftershowStartIndex={slideshowDeck.aftershowStartIndex}
+          aftershowLoop={slideshowDeck.aftershowLoop}
         />
       )}
+
+      {/* V1.18 (10 Oct), Package 2. */}
+      {showUploadModal && (
+        <UploadMomentsModal
+          tripId={params.tripId}
+          onClose={() => setShowUploadModal(false)}
+          onUploaded={() => { void refreshManifest() }}
+        />
+      )}
+
+      {/* V1.18 (10 Oct), Package 4 -- the Moments & Bloopers aftershow
+          picker. Mirrors the existing Choose Memories grid picker
+          exactly in shape, but operates on resolveAftershowMomentIds'
+          own resolved set rather than resolveSelectedMomentIds', and
+          persists each tap immediately via the aftershow PATCH route
+          (not staged until a later "Done") -- the brief's own "do not
+          silently reselect previously excluded Moments" requirement
+          means every decision has to be durable the moment it's made,
+          not held in local state that could be lost. */}
+      {showAftershowPicker && manifest && (() => {
+        const includedIds = resolveAftershowMomentIds(manifest)
+        const eligible = manifest.memories.filter(m => m.mediaType === 'photo' || m.mediaType === 'video')
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: '#fff', zIndex: 65, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: 16, borderBottom: '1px solid #eceae3', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#1a1a16' }}>{includedIds.size} in Aftershow</p>
+              <button onClick={() => setShowAftershowPicker(false)} style={{ border: 'none', background: '#1a4731', color: '#fff', borderRadius: 8, padding: '7px 14px', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Done</button>
+            </div>
+            <div style={{ padding: '10px 16px', display: 'flex', gap: 8, borderBottom: '1px solid #f3f4f1' }}>
+              <button onClick={async () => { for (const m of eligible) await setAftershowIncluded(m.momentId, true) }} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid #1a4731', background: '#fff', color: '#1a4731', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Select All</button>
+              <button onClick={async () => { for (const m of eligible) await setAftershowIncluded(m.momentId, false) }} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid #d9c9a3', background: '#fff', color: '#7a7260', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Clear All</button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                {eligible.map(m => {
+                  const included = includedIds.has(m.momentId)
+                  return (
+                    <button key={m.momentId} onClick={() => setAftershowIncluded(m.momentId, !included)} style={{ position: 'relative', aspectRatio: '1', borderRadius: 8, overflow: 'hidden', border: included ? '3px solid #1a4731' : '1px solid #eceae3', padding: 0, cursor: 'pointer', opacity: included ? 1 : 0.5, background: '#f3f4f6' }}>
+                      {m.mediaType === 'video' ? (
+                        m.imageUrl && <video src={m.imageUrl} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        m.imageUrl && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={m.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        )
+                      )}
+                      {included && <span style={{ position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: 10, background: '#1a4731', color: '#fff', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✓</span>}
+                    </button>
+                  )
+                })}
+              </div>
+              {eligible.length === 0 && (
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', textAlign: 'center', padding: '20px 0' }}>No photos or videos available yet.</p>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Group Photo picker -- V1.4 completion patch (14 Sep). Only
           genuine photo Moments are offered; the server independently

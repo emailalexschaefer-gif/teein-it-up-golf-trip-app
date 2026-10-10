@@ -40,7 +40,12 @@ export async function GET(_req: Request, { params }: RouteProps) {
     .eq('id', momentId).eq('trip_id', tripId).maybeSingle()
   if (!momentRes.data) return NextResponse.json({ error: 'Moment not found for this event.' }, { status: 404 })
 
-  const m = momentRes.data as { id: string; image_path: string; player_id: string; audience: string; group_id: string | null }
+  // V1.18 — player_id is nullable (an organiser's unassigned event
+  // upload has no subject). Typed accurately here; functionally this
+  // changes nothing below, since `null === user.id` is always false
+  // and an unassigned upload is always stored with audience='everyone'
+  // anyway, so it's already covered by the first clause.
+  const m = momentRes.data as { id: string; image_path: string; player_id: string | null; audience: string; group_id: string | null }
   const canAccess = m.audience === 'everyone' || m.player_id === user.id || (m.audience === 'group' && m.group_id !== null && m.group_id === memberRes.data.group_id)
   if (!canAccess) return NextResponse.json({ error: 'You do not have access to this Moment.' }, { status: 403 })
 

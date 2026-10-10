@@ -72,25 +72,76 @@ export interface EventHighlightsPlayerProps {
   slides: Slide[]
   durationSeconds: 5 | 8 | 10
   onExit: () => void
+  // V1.18 (10 Oct), Package 5 -- when set, playback loops back to this
+  // index (the Moments & Bloopers aftershow chapter's own start)
+  // instead of stopping once it reaches the end of the deck. undefined
+  // when the deck has no aftershow content, or aftershowLoop is false
+  // -- playback then stops on the final slide exactly as before this
+  // package (the closing screen, per the new ordering in slideshowDeck.ts).
+  aftershowStartIndex?: number
+  aftershowLoop?: boolean
 }
 
 const CONTROLS_SAFE_AREA_PX = 96
 
-export default function EventHighlightsPlayer({ slides, durationSeconds, onExit }: EventHighlightsPlayerProps) {
+/** V1.17 (10 Oct) -- gold-only decorative icons for Event-at-a-Glance,
+ * replacing platform emoji. A standard emoji (the flag/golfer/crown
+ * glyphs used previously) renders in each device's own default
+ * multi-colour style -- skin tones, a blue flag, etc. -- which is
+ * exactly the "brightly coloured emoji that disrupts the presentation"
+ * the brief asks to avoid. A simple inline SVG, filled entirely with
+ * the presentation's own gold (#fbbf24), renders identically and
+ * consistently gold on every device. */
+function GoldFlagIcon({ size }: { size: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="5" y="2" width="2" height="20" rx="1" fill="#fbbf24" />
+      <path d="M7 3.5L19 7L7 10.5V3.5Z" fill="#fbbf24" />
+    </svg>
+  )
+}
+function GoldClubsIcon({ size }: { size: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <g transform="rotate(-20 12 12)">
+        <rect x="11" y="2" width="2" height="19" rx="1" fill="#fbbf24" />
+        <circle cx="12" cy="3" r="2.2" fill="#fbbf24" />
+      </g>
+      <g transform="rotate(20 12 12)">
+        <rect x="11" y="2" width="2" height="19" rx="1" fill="#fbbf24" />
+        <path d="M9.5 2.5L14.5 2.5L12 6.5Z" fill="#fbbf24" />
+      </g>
+    </svg>
+  )
+}
+function GoldCrownIcon({ size }: { size: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M3 9L7 12L12 5L17 12L21 9L19.5 18H4.5L3 9Z" fill="#fbbf24" />
+      <rect x="4.5" y="19" width="15" height="1.8" rx="0.9" fill="#fbbf24" />
+    </svg>
+  )
+}
+
+export default function EventHighlightsPlayer({ slides, durationSeconds, onExit, aftershowStartIndex, aftershowLoop }: EventHighlightsPlayerProps) {
   const [index, setIndex] = useState(0)
   const [playing, setPlaying] = useState(true)
   const [controlsVisible, setControlsVisible] = useState(true)
   const [failedUrls, setFailedUrls] = useState<Set<string>>(new Set())
+  // V1.18 (10 Oct), Package 5.2 -- "Audio = Muted" is the aftershow's
+  // own explicit default setting (an ambient, background-slideshow
+  // chapter playing while guests socialise, not a sudden burst of
+  // sound) -- this supersedes the V1.6 "sound on by default" choice
+  // documented below, which predates this brief and was written for
+  // the old, narrower Bloopers chapter. Starts true (muted); the
+  // unmute control below remains available for anyone who wants sound.
   // V1.6 (5 Oct) -- fixed a real UI/reality mismatch: video playback
   // (including audio) was already working correctly, but the mute
   // icon always showed muted regardless, since this started true and
-  // the playback effect never attempted unmuted autoplay at all.
-  // Starts false (sound on) now -- the effect below attempts unmuted
-  // playback first and only falls back to muted, updating this state
-  // to match, if the browser's own autoplay policy genuinely blocks
-  // unmuted autoplay. The icon is never allowed to diverge from what
-  // is actually happening.
-  const [videoMuted, setVideoMuted] = useState(false)
+  // the playback effect never attempted unmuted autoplay at all. The
+  // effect below still only ever sets video.muted to match this state
+  // (never claims a sound state that isn't what's actually playing).
+  const [videoMuted, setVideoMuted] = useState(true)
   // V1.10 (6 Oct) -- Priority 6: true only if, after fullscreen and
   // orientation-lock were both attempted, the device is still
   // genuinely detectable as portrait. Dismissible; never blocks playback.
@@ -124,18 +175,50 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit 
     setIndex(Math.max(0, Math.min(slides.length - 1, next)))
   }, [slides.length])
 
+  // V1.18 (10 Oct), Package 5.3 -- "when the final aftershow item
+  // finishes, return to the first selected aftershow Moment and
+  // continue indefinitely until the organiser exits or pauses... the
+  // formal presentation plays once, the aftershow repeats." Looping
+  // only ever applies once already inside the aftershow chapter
+  // (index >= aftershowStartIndex) -- the formal presentation before
+  // it, including the closing screen, never loops, by construction:
+  // this is the only place `index` can ever jump backwards during
+  // auto-advance, and it only fires once genuinely at the end of the
+  // whole deck.
+  const canLoopAftershow = aftershowLoop !== false && aftershowStartIndex !== undefined
+  // V1.18 pre-deployment verification, item 4 -- the loop's landing
+  // spot is the first actual Moment AFTER the "MOMENTS & BLOOPERS"
+  // divider (aftershowStartIndex + 1), not the divider itself. The
+  // divider is a chapter title card; it's meant to be seen once, on
+  // the natural forward transition out of the closing screen, not
+  // re-announced every time the ambient loop comes back around (which
+  // would break the "background slideshow at a wedding" feel the
+  // brief asks for). aftershowStartIndex + 1 is always a valid slide
+  // index whenever aftershowStartIndex is set, because the divider is
+  // only ever pushed when at least one aftershow Moment follows it
+  // (see buildCoreSlides/buildPresentationDeck).
+  const aftershowLoopTarget = aftershowStartIndex !== undefined ? aftershowStartIndex + 1 : undefined
   const advance = useCallback(() => {
-    setIndex(prev => (prev >= slides.length - 1 ? prev : prev + 1))
-  }, [slides.length])
+    setIndex(prev => {
+      if (prev < slides.length - 1) return prev + 1
+      if (canLoopAftershow && aftershowStartIndex! <= prev) return aftershowLoopTarget!
+      return prev
+    })
+  }, [slides.length, canLoopAftershow, aftershowStartIndex, aftershowLoopTarget])
 
-  // Auto-advance (fallback timer for every slide, including Bloopers).
+  // Auto-advance (fallback timer for every slide, including the
+  // aftershow). Stops on the last slide UNLESS the aftershow is about
+  // to loop -- in that case advance() itself performs the loop-back,
+  // so the timer must still fire.
   useEffect(() => {
     if (advanceTimer.current) clearTimeout(advanceTimer.current)
     if (!playing) return
-    if (index >= slides.length - 1) { setPlaying(false); return }
+    const atEnd = index >= slides.length - 1
+    const willLoop = atEnd && canLoopAftershow && aftershowStartIndex! <= index
+    if (atEnd && !willLoop) { setPlaying(false); return }
     advanceTimer.current = setTimeout(advance, slideDurationMs)
     return () => { if (advanceTimer.current) clearTimeout(advanceTimer.current) }
-  }, [index, playing, slideDurationMs, advance, slides.length])
+  }, [index, playing, slideDurationMs, advance, slides.length, canLoopAftershow, aftershowStartIndex])
 
   // Video playback: play/pause follows the presentation's own state;
   // the video's real `ended` event advances immediately rather than
@@ -292,6 +375,9 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit 
       onTouchStart={bumpControls}
       style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 100, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >
+      {/* V1.18 (10 Oct), Package 5.2 -- the aftershow's "gentle fade"
+          transition keyframe, defined once here rather than per-slide. */}
+      <style>{'@keyframes ttuAftershowFade { from { opacity: 0 } to { opacity: 1 } }'}</style>
       {/* 16:9 presentation canvas -- letterboxes on a portrait device,
           fills on landscape/TV. Everything slide-related renders
           inside this fixed-ratio box, never directly against the raw
@@ -370,7 +456,16 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit 
           <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: CONTROLS_SAFE_AREA_PX, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 18, background: 'linear-gradient(transparent, rgba(0,0,0,0.6))' }}>
             <button onClick={() => goTo(index - 1)} disabled={index === 0} style={navButtonStyle(index === 0)}>‹</button>
             <button onClick={() => setPlaying(p => !p)} style={playButtonStyle}>{playing ? '⏸' : '▶'}</button>
-            <button onClick={() => goTo(index + 1)} disabled={index === slides.length - 1} style={navButtonStyle(index === slides.length - 1)}>›</button>
+            {/* V1.18 (10 Oct), Package 5.4 -- "Next Moment" stays usable
+                at the very end of the aftershow by manually looping back
+                to its start too, matching what auto-advance already
+                does -- never disabled merely because the deck array
+                itself has ended when the aftershow is still playable. */}
+            <button
+              onClick={() => goTo(index === slides.length - 1 && canLoopAftershow && aftershowStartIndex! <= index ? aftershowLoopTarget! : index + 1)}
+              disabled={index === slides.length - 1 && !(canLoopAftershow && aftershowStartIndex! <= index)}
+              style={navButtonStyle(index === slides.length - 1 && !(canLoopAftershow && aftershowStartIndex! <= index))}
+            >›</button>
           </div>
         </div>
       </div>
@@ -497,118 +592,85 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     )
   }
   if (slide.kind === 'eventAtAGlance') {
-    // V1.8 (6 Oct) -- final approved artwork treatment, replacing the
-    // prior session's temporary gradient. The approved reference image
-    // has the example statistics (3 Rounds, 54 Holes, 8 Side Games, 1
-    // Event Champion, sample course names) rasterized directly into
-    // it -- using it as-is would show that fake data sitting behind
-    // this event's real numbers. No image-generation/inpainting tool
-    // is available in this environment to cleanly remove just the
-    // baked-in text while preserving the photo and logo underneath it,
-    // so the background below (event-at-a-glance-bg.jpg) is the
-    // reference image with a strong Gaussian blur and darkening pass
-    // applied -- verified by eye that this makes the original numbers
-    // and course names genuinely illegible (soft glows, not readable
-    // digits), while preserving the reference's colour palette, sunset-
-    // golf-course mood, and rough light/dark composition. The logo
-    // mark (event-at-a-glance-logo.png) is a separate, tightly cropped,
-    // feather-edged extraction from the same reference image, composited
-    // back on top at its original position. Every number, label, and
-    // course name below is a live value from `slide`'s own fields,
-    // computed from real event data -- nothing here is rasterized.
-    // V1.10 (6 Oct) -- real-device layout fixes, per the brief's own
-    // observed issues: the logo now sits in its own protected,
-    // flexShrink:0 zone with an explicit minHeight reserving real
-    // space for it -- the statistics row is a SEPARATE flex section
-    // below it, never sharing the same centered flex box the logo
-    // used to share, so it structurally cannot creep upward into the
-    // logo's own area on a short viewport, the way "27 Holes and Side
-    // Games encroach into the logo area" described. The statistics
-    // row's own justifyContent is 'flex-start' with an explicit top
-    // gap (not 'center'), so it is pushed down from the logo zone
-    // rather than floating up toward it when there's spare vertical
-    // room. Column widths now follow the brief's own suggested
-    // distribution (roughly Rounds 34% / Holes 22% / Side Games 22% /
-    // Champion 22%) via unequal flex-basis values, giving the Rounds
-    // column -- the one that has to fit course names -- meaningfully
-    // more room than before, not just a small nudge.
+    // V1.17 (10 Oct) -- final approved backdrop integration, replacing
+    // the prior blurred-derivative + composited-logo treatment
+    // entirely. The newly approved artwork (event-at-a-glance-bg.jpg)
+    // already has the Teein' It Up logo, the gold horizontal decorative
+    // lines, the three gold vertical column dividers, and the closing
+    // phrase "This is how it unfolded." all baked in at full
+    // resolution -- so none of those are rendered a second time here.
+    // Doing so previously caused the reported "two logos" bug (one
+    // composited top, one composited bottom-right, both on top of a
+    // background that -- before this artwork -- couldn't carry its own
+    // baked-in logo). This version renders ONLY the four live data
+    // columns on top of the artwork; the artwork alone supplies every
+    // other visual element.
+    //
+    // Column x-positions are measured directly from the approved
+    // artwork's own three gold vertical dividers (sampled at multiple
+    // rows, consistently at 34.2% / 50.2% / 66.6% of width), not
+    // guessed -- so each column's centred text lines up with the real
+    // dividers already printed in the image: Rounds 0-34.2% (widest,
+    // since it alone carries course names), Holes 34.2-50.2%, Side
+    // Games 50.2-66.6%, Event Champion 66.6-100% (widest of the
+    // remaining three, matching the artwork's own wider right-hand
+    // panel). No CSS divider lines are drawn -- the brief is explicit
+    // that they already exist in the artwork.
+    //
+    // Icons are gold-only inline SVGs (GoldFlagIcon/GoldClubsIcon/
+    // GoldCrownIcon, defined above), not emoji -- avoids each device's
+    // own multi-colour default emoji rendering, per the explicit
+    // "avoid brightly coloured emojis" requirement.
+    //
+    // Every number and name below is a live value from `slide`'s own
+    // fields, computed from real event data -- nothing here is
+    // rasterized, and the Event Champion column is no longer hardcoded
+    // to "1" (see slideshowDeck.ts's championCount, sourced from the
+    // same authoritative champions array the Champion slide itself
+    // uses).
     return (
-      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/event-at-a-glance-bg.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', display: 'flex', flexDirection: 'column' }}>
-        {/* Protected logo zone -- a fixed minimum height reserved for
-            the logo alone; nothing else is ever laid out inside it. */}
-        <div style={{ flexShrink: 0, minHeight: 'clamp(70px, 11vh, 110px)', display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 'clamp(8px, 1.6vh, 16px)' }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/images/event-at-a-glance-logo.png" alt="Teein' It Up" style={{ width: 'clamp(78px, 11vw, 130px)' }} />
-        </div>
-
-        {/* V1.14 (8 Oct) -- Section 1 composition refinement. The
-            statistics block is now vertically CENTERED within the
-            remaining space below the protected logo zone (rather than
-            pinned to the top of it), with the same minimum top gap
-            preserved so it can never drift up into the logo -- this
-            moves the whole composition toward the visual centre of
-            the slide, per the explicit real-device feedback, without
-            reopening the logo-overlap bug V1.10 fixed. The footer
-            tagline is now INSIDE this same centered block, directly
-            beneath the stats, rather than a separate element pinned
-            to the bottom edge -- so it's always visually grouped with
-            what it's commenting on, never detached. */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '0 clamp(8px, 2.2vw, 24px)', paddingTop: 'clamp(4px, 1vh, 10px)', paddingBottom: 'clamp(50px, 8vh, 72px)', minHeight: 0, gap: 'clamp(16px, 3.2vh, 32px)' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: 'clamp(10px, 2.2vw, 28px)', width: '100%', maxWidth: 980 }}>
-            {/* Column 1 -- Rounds. ~34% via flex-basis, since it alone carries course names. */}
-            <div style={{ flex: '1.7 1 0%', textAlign: 'center', minWidth: 0, borderRight: '1px solid rgba(217,197,163,0.4)', paddingRight: 'clamp(5px, 1.3vw, 16px)' }}>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(26px, 4.8vw, 48px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.roundCount}</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Round{slide.roundCount === 1 ? '' : 's'}</p>
+      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/event-at-a-glance-bg.jpg)', backgroundSize: 'cover', backgroundPosition: 'center' }}>
+        {/* Statistics band -- vertically centred within the artwork's
+            own empty middle zone (below the baked-in logo/horizontal
+            lines, above the baked-in tagline), matching where the
+            artwork's own gold vertical dividers actually run (measured
+            13%-92% of height). Kept well clear of both ends so it can
+            never crowd the baked-in elements on a short viewport. */}
+        <div style={{ position: 'absolute', left: 0, right: 0, top: '30%', bottom: '18%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%' }}>
+            {/* Column 1 -- Rounds, 0-34.2% of width. */}
+            <div style={{ width: '34.2%', textAlign: 'center', minWidth: 0, padding: '0 clamp(4px, 1.2vw, 14px)' }}>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(24px, 4.4vw, 46px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.roundCount}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9px, 1.2vw, 13px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Round{slide.roundCount === 1 ? '' : 's'}</p>
               {slide.courseNames.length > 0 && (
                 <div style={{ marginTop: 6 }}>
                   {slide.courseNames.map((name, i) => (
-                    <p key={i} style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(7.5px, 0.95vw, 11px)', color: '#e5e7eb', lineHeight: 1.35, overflowWrap: 'break-word', marginTop: i === 0 ? 0 : 2 }}>{name}</p>
+                    <p key={i} style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(7.5px, 0.9vw, 11px)', color: '#e5e7eb', lineHeight: 1.35, overflowWrap: 'break-word', marginTop: i === 0 ? 0 : 2 }}>{name}</p>
                   ))}
                 </div>
               )}
             </div>
-            {/* Column 2 -- Holes, ~22% */}
-            <div style={{ flex: '1.1 1 0%', textAlign: 'center', minWidth: 0, borderRight: '1px solid rgba(217,197,163,0.4)', paddingRight: 'clamp(5px, 1.3vw, 16px)' }}>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(26px, 4.8vw, 48px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.totalHoles}</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Hole{slide.totalHoles === 1 ? '' : 's'}</p>
-              <p style={{ fontSize: 'clamp(12px, 1.8vw, 20px)', marginTop: 7 }}>&#9971;</p>
+            {/* Column 2 -- Holes, 34.2%-50.2% of width (16%). */}
+            <div style={{ width: '16%', textAlign: 'center', minWidth: 0, padding: '0 clamp(2px, 0.8vw, 10px)' }}>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(24px, 4.4vw, 46px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.totalHoles}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9px, 1.2vw, 13px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Hole{slide.totalHoles === 1 ? '' : 's'}</p>
+              <div style={{ marginTop: 7, display: 'flex', justifyContent: 'center' }}><GoldFlagIcon size="clamp(12px, 1.8vw, 20px)" /></div>
             </div>
-            {/* Column 3 -- Side Games, ~22% */}
-            <div style={{ flex: '1.1 1 0%', textAlign: 'center', minWidth: 0, borderRight: '1px solid rgba(217,197,163,0.4)', paddingRight: 'clamp(5px, 1.3vw, 16px)' }}>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(26px, 4.8vw, 48px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.sideGameCount}</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Side Game{slide.sideGameCount === 1 ? '' : 's'}</p>
-              <p style={{ fontSize: 'clamp(12px, 1.8vw, 20px)', marginTop: 7 }}>&#127948;</p>
+            {/* Column 3 -- Side Games, 50.2%-66.6% of width (16.4%). */}
+            <div style={{ width: '16.4%', textAlign: 'center', minWidth: 0, padding: '0 clamp(2px, 0.8vw, 10px)' }}>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(24px, 4.4vw, 46px)', fontWeight: 800, color: '#fff', lineHeight: 1 }}>{slide.sideGameCount}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9px, 1.2vw, 13px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4 }}>Side Game{slide.sideGameCount === 1 ? '' : 's'}</p>
+              <div style={{ marginTop: 7, display: 'flex', justifyContent: 'center' }}><GoldClubsIcon size="clamp(12px, 1.8vw, 20px)" /></div>
             </div>
-            {/* Column 4 -- Event Champion, ~22%. Always "1" --
-                deliberate foreshadowing; the name is never revealed here. */}
-            <div style={{ flex: '1.1 1 0%', textAlign: 'center', minWidth: 0 }}>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(26px, 4.8vw, 48px)', fontWeight: 800, color: '#fbbf24', lineHeight: 1 }}>1</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4, lineHeight: 1.25 }}>Event<br />Champion</p>
-              <p style={{ fontSize: 'clamp(12px, 1.8vw, 20px)', marginTop: 7 }}>&#128081;</p>
+            {/* Column 4 -- Event Champion, 66.6%-100% of width (33.4%).
+                Live championCount -- never hardcoded. */}
+            <div style={{ width: '33.4%', textAlign: 'center', minWidth: 0, padding: '0 clamp(4px, 1.2vw, 14px)' }}>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(24px, 4.4vw, 46px)', fontWeight: 800, color: '#fbbf24', lineHeight: 1 }}>{slide.championCount}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9px, 1.2vw, 13px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 4, lineHeight: 1.25 }}>Event<br />Champion</p>
+              <div style={{ marginTop: 7, display: 'flex', justifyContent: 'center' }}><GoldCrownIcon size="clamp(12px, 1.8vw, 20px)" /></div>
             </div>
           </div>
-
-          {/* V1.14 (8 Oct) -- now a sibling of the stats row inside the
-              same centered container (participates in its `gap`), so it
-              reads as directly underneath the statistics rather than a
-              separate element detached near the bottom edge. Noticeably
-              larger per the explicit request. */}
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(18px, 3vw, 28px)', color: '#fff', fontStyle: 'italic', textAlign: 'center', flexShrink: 0 }}>
-            This is how it unfolded.
-          </p>
         </div>
-
-        {/* V1.14 (8 Oct) -- small branded logo, bottom-right, consistent
-            with the rest of the presentation system (Opening/Closing
-            both carry their own bottom-right mark baked into their
-            artwork; this slide's own background is a blurred derivative
-            that can't carry baked-in text, so the mark is composited
-            here the same way the top logo already is). Positioned and
-            sized to sit clear of both the statistics above and the
-            controls safe area below -- confirmed against
-            CONTROLS_SAFE_AREA_PX, never overlapping it. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/images/event-at-a-glance-logo.png" alt="" aria-hidden style={{ position: 'absolute', right: 'clamp(12px, 2.5vw, 24px)', bottom: CONTROLS_SAFE_AREA_PX + 14, width: 'clamp(40px, 6vw, 64px)', opacity: 0.88 }} />
       </div>
     )
   }
@@ -867,10 +929,18 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     )
   }
   if (slide.kind === 'bloopersDivider') {
+    // V1.18 (10 Oct), Package 4 -- renamed from "Bloopers & Outtakes"
+    // to "Moments & Bloopers", per the approved brief: this chapter now
+    // also carries unassigned event-level uploads, not just Blooper-
+    // tagged clips, so the title and subtitle reflect that wider scope.
+    // Only the SLIDESHOW SECTION's own name/scope changes here -- the
+    // underlying Blooper classification in Event Memories itself is
+    // untouched (Package 7's explicit hard boundary).
     return (
       <GenericTemplateSlide>
         <p style={{ fontSize: 32, marginBottom: 10 }}>🎬</p>
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 3.6vw, 32px)', fontWeight: 800, color: '#fff', letterSpacing: 2 }}>BLOOPERS &amp; OUTTAKES</p>
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 3.6vw, 32px)', fontWeight: 800, color: '#fff', letterSpacing: 2 }}>MOMENTS &amp; BLOOPERS</p>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#d9c9a3', marginTop: 10 }}>Keep the memories playing after the awards.</p>
       </GenericTemplateSlide>
     )
   }
@@ -884,8 +954,14 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     // mediaType now: a video Blooper plays as before; a photo Blooper
     // renders as a plain image, exactly like an ordinary photo slide,
     // just within the Bloopers chapter.
+    // V1.18 (10 Oct), Package 5.2 -- "Transitions = Gentle fade" for
+    // the aftershow chapter. A lightweight CSS opacity fade, keyed by
+    // momentId so it genuinely replays on every new aftershow slide
+    // (React remounts this div when the key changes) -- additive only,
+    // scoped entirely to this one slide kind's own wrapper, never
+    // touching any other slide's rendering or timing.
     return (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
+      <div key={slide.momentId} style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', animation: 'ttuAftershowFade 0.5s ease' }}>
         {slide.mediaType === 'video' ? (
           slide.imageUrl ? (
             <video
@@ -917,27 +993,29 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     )
   }
   // closing
-  // V1.15 (9 Oct) -- replaced with the final approved closing-slide
-  // artwork (public/images/event-highlights-closing.jpg). The approved
-  // image is a wide landscape composition, not an exact 16:9 crop, so
-  // this renders it with `object-fit: contain` against a solid
-  // dark-tone backdrop (sampled from the artwork's own corners) rather
-  // than `background-size: cover` -- cover would crop the golf ball on
-  // the left edge and/or the Teein' It Up logo panel on the right edge
-  // on a true 16:9 canvas, which is exactly what the approved brief
-  // says not to do ("preserve the entire composition... rather than
-  // crop the edges"). The full composition (headline, subline, MyGolf
-  // reminder, tagline, logo) is already baked into the artwork itself
-  // and is deliberately generic -- no event-specific text or CTA is
-  // overlaid here, matching the brief's explicit "no duplicate text
-  // over the artwork" and "no feature columns, sales panels or large
-  // promotional buttons" requirements.
+  // V1.15 (9 Oct) -- replaced with the first approved closing-slide
+  // artwork. V1.18 (10 Oct), Package 1 -- replaced AGAIN with the
+  // final approved artwork (same filename and same 2.17:1 aspect
+  // ratio as the V1.15 asset -- confirmed by direct pixel comparison
+  // before replacing, not assumed -- so the `object-fit: contain`
+  // treatment below, chosen specifically to avoid cropping on a true
+  // 16:9 canvas, remains correct with no code change needed). Wording
+  // order changed in this final version ("Check out all your event
+  // memories and stats in MyGolf" now before "See you at the next
+  // one!", not after) -- purely a different bake of the same artwork
+  // asset; this component never renders any of that text itself, so
+  // no rendering logic needed to change either way. The full
+  // composition (headline, sublines, tagline, logo) is already baked
+  // into the artwork itself and is deliberately generic -- no
+  // event-specific text or CTA is overlaid here, matching the brief's
+  // explicit "no duplicate text over the artwork" and "no feature
+  // columns, sales panels or large promotional buttons" requirements.
   return (
     <div style={{ position: 'absolute', inset: 0, background: '#0a1410' }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src="/images/event-highlights-closing.jpg"
-        alt="What a great event! See you at the next one. Remember to check out your event memories and stats in MyGolf."
+        alt="What a great event! Check out all your event memories and stats in MyGolf. See you at the next one. Run your golf event like a pro."
         style={{ position: 'absolute', inset: 0, margin: 'auto', width: '100%', height: '100%', objectFit: 'contain' }}
       />
     </div>

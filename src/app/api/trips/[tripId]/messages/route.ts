@@ -122,8 +122,8 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   const nameBySenderId = new Map<string, string>((profilesRes.data ?? []).map((p: { id: string; full_name: string }) => [p.id, p.full_name]))
   const nameByGroupId = new Map<string, string>((groupsRes.data ?? []).map((g: { id: string; name: string }) => [g.id, g.name]))
   const roleBySenderId = new Map<string, string>((roleRes.data ?? []).map((rm: { profile_id: string; role: string }) => [rm.profile_id, rm.role]))
-  const momentById = new Map<string, { player_id: string; image_path: string; hole_number: number | null; caption: string | null }>(
-    (momentsRes.data ?? []).map((mo: { id: string; player_id: string; image_path: string; hole_number: number | null; caption: string | null }) => [mo.id, mo])
+  const momentById = new Map<string, { player_id: string | null; image_path: string; hole_number: number | null; caption: string | null }>(
+    (momentsRes.data ?? []).map((mo: { id: string; player_id: string | null; image_path: string; hole_number: number | null; caption: string | null }) => [mo.id, mo])
   )
 
   // Shared-Device Two-Player Fix, item 4 — a Moment's SUBJECT
@@ -135,7 +135,17 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   // map (not a second, parallel one) since this is exactly the same
   // "resolve a profile id to a display name" concern, just for a
   // second kind of person per message.
-  const subjectIds = [...new Set((momentsRes.data ?? []).map((mo: { player_id: string }) => mo.player_id))].filter(id => !nameBySenderId.has(id))
+  //
+  // V1.18 — moments.player_id is now nullable (an organiser's
+  // unassigned event upload has no subject at all). Filter those out
+  // BEFORE building subjectIds: passing a `null` entry into
+  // `.in('id', [...])` is a genuine behaviour change, not a no-op, and
+  // must not be allowed to affect resolution of the other, real
+  // subject ids in the same batch.
+  const subjectIds = [...new Set((momentsRes.data ?? [])
+    .map((mo: { player_id: string | null }) => mo.player_id)
+    .filter((id): id is string => id !== null))]
+    .filter(id => !nameBySenderId.has(id))
   if (subjectIds.length > 0) {
     const subjectProfilesRes = await admin.from('profiles').select('id, full_name').in('id', subjectIds)
     for (const p of (subjectProfilesRes.data ?? []) as { id: string; full_name: string }[]) nameBySenderId.set(p.id, p.full_name)
@@ -167,7 +177,11 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       // present on 'moment'-type messages (moment is null otherwise);
       // undefined/null here, not a fallback name, so the client can
       // tell "no moment attached" apart from "subject name unresolved."
-      momentPlayerName: moment ? (nameBySenderId.get(moment.player_id) ?? null) : null,
+      // V1.18 — an unassigned organiser upload has no subject at all
+      // (moment.player_id is null); that's a genuinely different case
+      // from "subject name unresolved," so it's checked explicitly
+      // rather than relying on nameBySenderId.get(null) to fall through.
+      momentPlayerName: moment && moment.player_id ? (nameBySenderId.get(moment.player_id) ?? null) : null,
     }
   })
 

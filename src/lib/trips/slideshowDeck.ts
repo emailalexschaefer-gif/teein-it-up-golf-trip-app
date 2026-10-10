@@ -186,8 +186,14 @@ export type Slide =
   // that genuinely has a course name set -- a round without one is
   // simply omitted from the list, never shown as a blank line).
   // sideGameCount reflects every Side Game configured for the event,
-  // not just finalized winners.
-  | { kind: 'eventAtAGlance'; roundCount: number; courseNames: string[]; totalHoles: number; sideGameCount: number }
+  // not just finalized winners. V1.17 (10 Oct) -- championCount added,
+  // replacing a hardcoded "1" in the renderer: the real count of
+  // confirmed champions from data.results.champion.champions (the
+  // SAME authoritative countback computeFinalResults/the Champion
+  // slide itself already use) -- 0 for an event with no confirmed
+  // champion yet, 1 for a sole winner, 2+ for a genuine tie. Never
+  // fabricated and never silently collapsed to 1 when there's a tie.
+  | { kind: 'eventAtAGlance'; roundCount: number; courseNames: string[]; totalHoles: number; sideGameCount: number; championCount: number }
   // Bloopers chapter divider -- only emitted when at least one
   // blooper clip genuinely exists, matching every other divider's
   // "no empty chapter" rule.
@@ -224,6 +230,21 @@ export type Slide =
 export interface SlideshowDeck {
   slides: Slide[]
   memoryCount: number
+  /** V1.18 (10 Oct), Package 5. Index within `slides` of the first
+   * Moments & Bloopers aftershow slide (its chapter divider) --
+   * undefined when the aftershow has no eligible media, so playback
+   * correctly ends on the closing screen with no empty chapter.
+   * EventHighlightsPlayer loops playback back to this index when it
+   * reaches the end of the deck, instead of stopping -- "only Moments
+   * & Bloopers should repeat... the formal presentation plays once." */
+  aftershowStartIndex?: number
+  /** Whether the aftershow should loop at all once reached. Defaults
+   * to true (Package 5.2's own default settings table: "Repeat
+   * aftershow = ON") -- an organiser can turn it off via
+   * PresentationConfig.aftershowLoop. Always true for the legacy
+   * buildSlideshowDeck path, which has no config object to read a
+   * preference from. */
+  aftershowLoop?: boolean
 }
 
 interface MemoryLike {
@@ -233,6 +254,14 @@ interface MemoryLike {
   sourceType: MemorySourceType; sideCompName: string | null
   // V1.4 (14 Sep) -- migration 086.
   mediaType: 'photo' | 'text' | 'video'; durationSeconds: number | null; isBlooper: boolean
+  // V1.18 (10 Oct), migration 095 -- playerId null means an organiser-
+  // uploaded, event-level Moment with no identifiable subject (Package
+  // 2's "Upload Moments"); this is exactly what makes a Moment
+  // eligible for the aftershow's "unassigned event-level upload"
+  // auto-suggestion rule in resolveAftershowMomentIds below.
+  // aftershowIncluded is the organiser's own explicit override for
+  // that same resolution -- see the same function.
+  playerId: string | null; aftershowIncluded: boolean | null
 }
 
 /** Stable chronological order: created_at first, momentId as a
@@ -298,8 +327,8 @@ function selectMemories(data: EventMemoryData, source: SlideshowSource, selected
 export function buildSlideshowDeck(data: EventMemoryData, source: SlideshowSource, selectedMomentIds?: string[], groupPhotoMomentId?: string): SlideshowDeck {
   const selected = selectMemories(data, source, selectedMomentIds)
   const chronological = sortMemoriesChronologically(selected)
-  const slides = buildCoreSlides(data, chronological, groupPhotoMomentId)
-  return { slides, memoryCount: selected.length }
+  const { slides, aftershowStartIndex } = buildCoreSlides(data, chronological, groupPhotoMomentId)
+  return { slides, memoryCount: selected.length, aftershowStartIndex, aftershowLoop: true }
 }
 
 function toPhotoSlide(m: MemoryLike, roundName: string | null): Slide {
@@ -331,7 +360,7 @@ function toPhotoSlide(m: MemoryLike, roundName: string | null): Slide {
  * is `null` for a live/incomplete event (see eventMemoryData.ts); no
  * slide is produced at all in that case, never a guessed result.
  */
-function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], groupPhotoMomentId?: string): Slide[] {
+function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], groupPhotoMomentId?: string): { slides: Slide[]; aftershowStartIndex?: number } {
   const slides: Slide[] = []
   const firstFavourite = chronological.find(m => m.organiserFavourite)
   slides.push({
@@ -456,34 +485,41 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], gro
     slides.push({ kind: 'leaderboard', entries, page: 1, totalPages: 1 })
   }
 
-  // Bloopers/Outtakes (V1.4, 14 Sep) -- always derived from the
-  // organiser's own is_blooper selection on data.memories directly,
-  // never from the chronological/curated photo sequence or from the
-  // chosen slideshow source (favourites/all/selected) -- Bloopers are
-  // their own separate curation layer, exactly like Side Game
-  // winners and Makers & Breakers are automatic results rather than
-  // tied to photo curation. V1.6 (5 Oct), migration 090 -- a photo or
-  // video Moment flagged is_blooper can now both appear here; media
-  // type and storytelling classification are independent, per the
-  // explicit product correction. A text Moment flagged is_blooper
-  // (which the database schema does not prevent, by design) is still
-  // excluded -- it has no visual content to show in this chapter at
-  // all. No chapter divider or section is added at all when there are
-  // zero selected Bloopers -- no empty chapter, matching every other
-  // section's own rule.
+  // V1.18 (10 Oct), Package 5 -- the closing screen now comes BEFORE
+  // the Moments & Bloopers aftershow, not after: "Closing Screen ->
+  // Moments & Bloopers (automatic looping aftershow)." The formal
+  // presentation (everything up to and including this slide) plays
+  // exactly once; only what follows it ever loops.
+  slides.push({ kind: 'closing' })
+
+  // Moments & Bloopers aftershow (V1.4, 14 Sep; renamed and widened
+  // V1.18, 10 Oct, Package 4) -- its member set is now resolved by
+  // resolveAftershowMomentIds, the single canonical resolver also used
+  // by the organiser's own picker UI (Package 4.3's explicit "reuse
+  // the existing selection architecture" requirement), rather than a
+  // plain is_blooper filter duplicated here. See that function for the
+  // full suggestion/override contract. No chapter divider or section
+  // is added at all when there are zero included Moments -- no empty
+  // chapter, matching every other section's own rule, and matching
+  // Package 5's explicit "if no aftershow media is selected, the
+  // slideshow should end normally on the closing screen."
+  const aftershowIds = resolveAftershowMomentIds(data)
   const bloopers = data.memories
-    .filter(m => m.isBlooper && (m.mediaType === 'video' || m.mediaType === 'photo'))
+    .filter(m => aftershowIds.has(m.momentId))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.momentId.localeCompare(b.momentId))
-  if (bloopers.length > 0) slides.push({ kind: 'bloopersDivider' })
-  for (const b of bloopers) {
-    slides.push({
-      kind: 'blooper', momentId: b.momentId, mediaType: b.mediaType as 'photo' | 'video', imageUrl: b.imageUrl,
-      durationSeconds: b.durationSeconds, playerName: b.playerName, caption: b.caption,
-    })
+  let aftershowStartIndex: number | undefined
+  if (bloopers.length > 0) {
+    aftershowStartIndex = slides.length
+    slides.push({ kind: 'bloopersDivider' })
+    for (const b of bloopers) {
+      slides.push({
+        kind: 'blooper', momentId: b.momentId, mediaType: b.mediaType as 'photo' | 'video', imageUrl: b.imageUrl,
+        durationSeconds: b.durationSeconds, playerName: b.playerName, caption: b.caption,
+      })
+    }
   }
 
-  slides.push({ kind: 'closing' })
-  return slides
+  return { slides, aftershowStartIndex }
 }
 
 /** parsePublishedHighlights -- defensive parsing of the JSON blob
@@ -537,8 +573,8 @@ export function rebuildDeckFromOrder(data: EventMemoryData, orderedMomentIds: st
     // guards against a video/text Moment id ever reaching the regular
     // sequence regardless of how it got there.
     .filter((m): m is EventMemoryData['memories'][number] => m !== undefined && m.mediaType === 'photo')
-  const slides = buildCoreSlides(data, orderedMemories, groupPhotoMomentId)
-  return { slides, memoryCount: orderedMemories.length }
+  const { slides, aftershowStartIndex } = buildCoreSlides(data, orderedMemories, groupPhotoMomentId)
+  return { slides, memoryCount: orderedMemories.length, aftershowStartIndex, aftershowLoop: true }
 }
 
 // =============================================================================
@@ -607,6 +643,13 @@ export interface PresentationConfig {
   eventChampion: boolean
   finalLeaderboard: boolean
   bloopers: boolean
+  // V1.18 (10 Oct), Package 5.2 -- "Repeat aftershow = ON" is the
+  // stated default; optional (not required on every config literal)
+  // so existing hand-built PresentationConfig objects (tests, saved
+  // configs from before this field existed) keep working unchanged --
+  // treated as true wherever it's actually read, matching the brief's
+  // own stated default rather than an unset toggle silently meaning off.
+  aftershowLoop?: boolean
   eventFinale: boolean
   /** Best Moments source -- shared across every included round's
    * BEST_MOMENTS section, matching the existing, already-proven
@@ -637,7 +680,11 @@ export function getAvailableSections(data: EventMemoryData, scope: PresentationS
   const hasAnyPhoto = data.memories.some(m => m.mediaType === 'photo')
   const hasGroupPhoto = data.event.groupPhotoMomentId !== null && data.memories.some(m => m.momentId === data.event.groupPhotoMomentId && m.mediaType === 'photo')
   const hasChampion = data.results.champion !== null
-  const hasBloopers = data.memories.some(m => m.mediaType === 'video' && m.isBlooper)
+  // V1.18 (10 Oct), Package 4 -- availability now reflects the full
+  // resolved aftershow set (Blooper-tagged + unassigned event-level
+  // uploads + any explicit organiser inclusion), not just a plain
+  // is_blooper video filter.
+  const hasBloopers = resolveAftershowMomentIds(data).size > 0
 
   function roundAvailability(roundId: string): { bestMoments: boolean; sideGameWinners: boolean; makersBreakers: boolean; roundResults: boolean } {
     const round = data.rounds.find(r => r.id === roundId)
@@ -680,7 +727,7 @@ export function getAvailableSections(data: EventMemoryData, scope: PresentationS
     { type: 'MAKERS_BREAKERS', label: 'Makers & Breakers', available: data.rounds.some(r => parsePublishedHighlights(r.publishedHighlights).length > 0) },
     { type: 'EVENT_CHAMPION', label: 'Event Champion', available: hasChampion, reason: hasChampion ? undefined : 'Event not completed yet.' },
     { type: 'FINAL_LEADERBOARD', label: 'Final Leaderboard', available: hasChampion, reason: hasChampion ? undefined : 'Event not completed yet.' },
-    { type: 'BLOOPERS', label: 'Bloopers', available: hasBloopers, reason: hasBloopers ? undefined : 'No Bloopers selected yet.' },
+    { type: 'BLOOPERS', label: 'Moments & Bloopers', available: hasBloopers, reason: hasBloopers ? undefined : 'No Moments or Bloopers to include yet.' },
     { type: 'EVENT_FINALE', label: "Teein' It Up Finale", available: true },
     { type: 'ROUND_INTRO', label: 'Round sections', available: data.rounds.length > 0 },
     // favourite-availability exposed for a picker that wants to warn
@@ -720,7 +767,7 @@ export function defaultPresentationConfig(data: EventMemoryData, scope: Presenta
     return {
       scope, eventOpening: false, eventAtAGlance: false, groupPhoto: false,
       rounds: [{ roundId: scope.roundId, bestMoments: isAvail('BEST_MOMENTS'), sideGameWinners: isAvail('SIDE_GAME_WINNERS'), makersBreakers: isAvail('MAKERS_BREAKERS'), roundResults: isAvail('ROUND_RESULTS') }],
-      eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false,
+      eventChampion: false, finalLeaderboard: false, bloopers: false, aftershowLoop: true, eventFinale: false,
       bestMomentsSource: 'favourites',
     }
   }
@@ -755,7 +802,7 @@ export function defaultPresentationConfig(data: EventMemoryData, scope: Presenta
     scope, eventOpening: true, eventAtAGlance: isAvail('EVENT_AT_A_GLANCE'), groupPhoto: isAvail('GROUP_PHOTO'),
     rounds,
     eventChampion: isAvail('EVENT_CHAMPION'), finalLeaderboard: isAvail('FINAL_LEADERBOARD'),
-    bloopers: isAvail('BLOOPERS'), eventFinale: true,
+    bloopers: isAvail('BLOOPERS'), aftershowLoop: true, eventFinale: true,
     bestMomentsSource: 'favourites',
   }
 }
@@ -795,6 +842,56 @@ export function resolveSelectedMomentIds(data: EventMemoryData, config: Presenta
     return new Set(eligible.filter(m => requested.has(m.momentId)).map(m => m.momentId))
   }
   return new Set(eligible.map(m => m.momentId))
+}
+
+/**
+ * resolveAftershowMomentIds -- V1.18 (10 Oct), Package 4.3's explicit
+ * "reuse the existing Moments-selection architecture" requirement,
+ * applied to the aftershow exactly as resolveSelectedMomentIds (above)
+ * is applied to Best Moments: one canonical function, called by both
+ * the deck builder and the organiser's own picker UI, so the two can
+ * never disagree about what the aftershow actually contains.
+ *
+ * Eligible media: every photo or video Moment (never text -- no
+ * visual content to show in this chapter), independent of which
+ * rounds are included in this particular presentation (the aftershow
+ * is explicitly "a relaxed collection of memories," not scoped to the
+ * same rounds as the formal presentation, per the brief's own Package 6).
+ *
+ * For a Moment with no explicit organiser decision yet
+ * (aftershowIncluded === null -- the default for every Moment,
+ * including a brand new upload), the AUTOMATIC SUGGESTION applies:
+ * included when it's flagged isBlooper, OR it's an unassigned
+ * event-level upload (playerId === null) -- Package 4's "all eligible
+ * Blooper-tagged Moments, and all eligible event-level media uploaded
+ * by the organiser without a round assignment ... both sets initially
+ * pre-selected."
+ *
+ * For a Moment the organiser HAS explicitly decided
+ * (aftershowIncluded === true or false), that decision always wins,
+ * regardless of the suggestion rule above. This is the single most
+ * important behaviour this function exists to guarantee -- the
+ * brief's own most heavily flagged requirement: "once the organiser
+ * manually changes the selection, preserve those decisions. Do not
+ * silently reselect previously excluded Moments when the slideshow
+ * builder refreshes. New uploads may be suggested, but existing
+ * manual exclusions must remain respected." A fresh upload has
+ * aftershowIncluded still null (it's never been decided), so it is
+ * correctly suggested by the rule above without ever touching any
+ * other Moment's own, already-persisted explicit decision.
+ */
+export function resolveAftershowMomentIds(data: EventMemoryData): Set<string> {
+  const eligible = data.memories.filter(m => m.mediaType === 'photo' || m.mediaType === 'video')
+  const included = eligible.filter(m => {
+    // == null (not ===) deliberately catches both null and undefined --
+    // every real row from eventMemoryData.ts is always null or a real
+    // boolean, never undefined, but this keeps the function robust
+    // against any caller (including a test fixture) that simply omits
+    // the field rather than setting it to null explicitly.
+    if (m.aftershowIncluded == null) return m.isBlooper || m.playerId === null
+    return m.aftershowIncluded
+  })
+  return new Set(included.map(m => m.momentId))
 }
 
 function resolveBestMoments(data: EventMemoryData, roundId: string | null, config: PresentationConfig): MemoryLike[] {
@@ -839,13 +936,34 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     })
   }
 
-  if (config.eventAtAGlance && data.rounds.length > 0) {
+  // V1.17 (10 Oct) -- defensive scope guard added: Event-at-a-Glance
+  // summarises the WHOLE event (every round in data.rounds), by
+  // design, matching how Opening/Group Photo are also always event-
+  // level regardless of which rounds this particular presentation
+  // includes -- this is documented, existing behaviour, not changed
+  // here (see the delivery report for the full reasoning). What IS
+  // new is this explicit `config.scope.kind === 'fullEvent'` check:
+  // defaultPresentationConfig already hardcodes eventAtAGlance=false
+  // for a round-scoped presentation and no UI ever exposes this
+  // section's toggle in round scope, so this was never reachable in
+  // practice -- but the builder itself previously had no structural
+  // guarantee against it, only the UI's own convention. This closes
+  // that gap so a round-scoped presentation can never show whole-event
+  // statistics, even if a future config path set the flag true.
+  if (config.eventAtAGlance && config.scope.kind === 'fullEvent' && data.rounds.length > 0) {
     const roundsInOrder = [...data.rounds].sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0))
     const courseNames = roundsInOrder.map(r => r.courseName).filter((n): n is string => n !== null && n.length > 0)
     const totalHoles = roundsInOrder.reduce((sum, r) => sum + r.holes, 0)
+    // V1.17 (10 Oct) -- championCount from the exact same authoritative
+    // result the Champion slide itself uses (data.results.champion,
+    // computeFinalResults' own countback) -- never a separate
+    // calculation. 0 when the event isn't completed/has no confirmed
+    // champion yet; genuinely reflects a tie (2+) rather than
+    // collapsing it to 1.
+    const championCount = data.results.champion?.champions.length ?? 0
     slides.push({
       kind: 'eventAtAGlance', roundCount: roundsInOrder.length, courseNames,
-      totalHoles, sideGameCount: data.sideGameCount,
+      totalHoles, sideGameCount: data.sideGameCount, championCount,
     })
   }
 
@@ -936,16 +1054,34 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     slides.push({ kind: 'leaderboard', entries, page: 1, totalPages: 1 })
   }
 
+  // V1.18 (10 Oct), Package 5 -- the closing screen now comes BEFORE
+  // the Moments & Bloopers aftershow (see buildCoreSlides' identical
+  // reordering above for the full reasoning): "Closing Screen ->
+  // Moments & Bloopers (automatic looping aftershow)." The formal
+  // presentation plays exactly once; only the aftershow chapter loops.
+  if (config.eventFinale) slides.push({ kind: 'closing' })
+
+  // Moments & Bloopers aftershow (renamed/widened V1.18, Package 4) --
+  // resolved by resolveAftershowMomentIds, the same canonical resolver
+  // the organiser's own picker UI uses (Package 4.3), not a plain
+  // is_blooper filter duplicated here. config.bloopers remains the
+  // existing "include this chapter at all" toggle, unchanged in
+  // meaning. aftershowStartIndex/aftershowLoop are only ever set when
+  // the chapter genuinely has content -- an empty aftershow produces
+  // no divider and no loop point, so playback correctly ends on the
+  // closing screen (Package 5: "if no aftershow media is selected,
+  // the slideshow should end normally on the closing screen").
+  let aftershowStartIndex: number | undefined
   if (config.bloopers) {
-    const bloopers = data.memories.filter(m => m.isBlooper && (m.mediaType === 'video' || m.mediaType === 'photo'))
+    const aftershowIds = resolveAftershowMomentIds(data)
+    const bloopers = data.memories.filter(m => aftershowIds.has(m.momentId))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.momentId.localeCompare(b.momentId))
     if (bloopers.length > 0) {
+      aftershowStartIndex = slides.length
       slides.push({ kind: 'bloopersDivider' })
       for (const b of bloopers) slides.push({ kind: 'blooper', momentId: b.momentId, mediaType: b.mediaType as 'photo' | 'video', imageUrl: b.imageUrl, durationSeconds: b.durationSeconds, playerName: b.playerName, caption: b.caption })
     }
   }
 
-  if (config.eventFinale) slides.push({ kind: 'closing' })
-
-  return { slides, memoryCount }
+  return { slides, memoryCount, aftershowStartIndex, aftershowLoop: config.aftershowLoop ?? true }
 }

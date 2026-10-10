@@ -64,7 +64,12 @@ export interface EventMemoryData {
   }[]
   memories: {
     momentId: string; roundId: string | null; roundOrdinal: number | null; holeNumber: number | null
-    playerId: string; playerName: string | null; capturedBy: string | null; capturedByName: string | null
+    // V1.18 (10 Oct), migration 095 -- playerId is now nullable: an
+    // organiser-uploaded, event-level Moment (e.g. a WhatsApp photo
+    // with unreliable metadata) genuinely has no identifiable subject.
+    // Never defaulted to the uploader -- see capturedBy for who
+    // actually uploaded it in that case.
+    playerId: string | null; playerName: string | null; capturedBy: string | null; capturedByName: string | null
     caption: string | null; imagePath: string; imageUrl: string | null; audience: string
     createdAt: string; organiserFavourite: boolean
     sourceType: MemorySourceType; sideCompId: string | null; sideCompName: string | null; sideCompType: string | null
@@ -75,6 +80,14 @@ export interface EventMemoryData {
     // selection for the Bloopers/Outtakes chapter, never inferred
     // from mediaType alone.
     mediaType: 'photo' | 'text' | 'video'; durationSeconds: number | null; isBlooper: boolean
+    // V1.18 (10 Oct), migration 095 -- the organiser's own explicit
+    // override for this Moment's inclusion in the "Moments & Bloopers"
+    // aftershow chapter. NULL means "not yet decided -- follow the
+    // automatic suggestion" (see resolveAftershowMomentIds in
+    // slideshowDeck.ts, the single place this is resolved). An
+    // independent, presentation-only selection -- never a Moment
+    // classification alongside Favourite/Blooper.
+    aftershowIncluded: boolean | null
   }[]
   sideGameWinners: { sideCompId: string; roundId: string; compType: string; label: string; holeNumber: number | null; winnerPlayerId: string | null; winnerName: string | null }[]
   // V1.7 (6 Oct) -- for Event-at-a-Glance's "X Side Games": every
@@ -155,7 +168,7 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
   const playerCount = new Set(((membersRes.data ?? []) as { profile_id: string }[]).map(m => m.profile_id)).size
 
   const momentsRes = await admin.from('moments')
-    .select('id, round_id, hole_number, player_id, captured_by, caption, image_path, audience, created_at, is_event_favourite, moment_type, duration_seconds, is_blooper, profiles:player_id(full_name)')
+    .select('id, round_id, hole_number, player_id, captured_by, caption, image_path, audience, created_at, is_event_favourite, moment_type, duration_seconds, is_blooper, aftershow_included, profiles:player_id(full_name)')
     .eq('trip_id', tripId)
     .order('created_at', { ascending: true })
   const moments = momentsRes.data ?? []
@@ -333,9 +346,10 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
       standings: r.status === 'completed' ? (roundStandingsByRoundId.get(r.id) ?? []) : null,
     })),
     memories: moments.map((m: {
-      id: string; round_id: string | null; hole_number: number | null; player_id: string; captured_by: string | null
+      id: string; round_id: string | null; hole_number: number | null; player_id: string | null; captured_by: string | null
       caption: string | null; image_path: string; audience: string; created_at: string
       is_event_favourite: boolean; moment_type: 'photo' | 'text' | 'video'; duration_seconds: number | null; is_blooper: boolean
+      aftershow_included: boolean | null
       profiles: { full_name: string } | null
     }) => {
       const linkedSideCompId = sideCompIdByMomentId.get(m.id) ?? null
@@ -344,6 +358,9 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
       return {
         momentId: m.id, roundId: m.round_id, roundOrdinal: m.round_id ? roundOrdinalById.get(m.round_id) ?? null : null,
         holeNumber: m.hole_number,
+        // m.player_id null -> profiles:player_id(...) embeds as null
+        // too (PostgREST's own left-join-on-null-FK behaviour) -- no
+        // extra handling needed here beyond the type itself allowing it.
         playerId: m.player_id, playerName: m.profiles?.full_name ?? null,
         capturedBy: m.captured_by, capturedByName: m.captured_by ? nameByCapturedById.get(m.captured_by) ?? null : null,
         caption: m.caption, imagePath: m.image_path, imageUrl: signedUrlByPath.get(m.image_path) ?? null, audience: m.audience,
@@ -353,6 +370,7 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
         sideCompName: linkedSideComp ? (linkedSideComp.name || SIDE_COMP_LABEL[linkedSideComp.comp_type] || linkedSideComp.comp_type) : null,
         sideCompType: linkedSideComp?.comp_type ?? null,
         mediaType: m.moment_type, durationSeconds: m.duration_seconds, isBlooper: m.is_blooper,
+        aftershowIncluded: m.aftershow_included,
       }
     }),
     sideGameWinners,

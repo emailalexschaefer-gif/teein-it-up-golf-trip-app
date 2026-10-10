@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildSlideshowDeck, rebuildDeckFromOrder, photoMomentIdsInOrder, type Slide,
-  buildPresentationDeck, getAvailableSections, defaultPresentationConfig, resolveSelectedMomentIds,
+  buildPresentationDeck, getAvailableSections, defaultPresentationConfig, resolveSelectedMomentIds, resolveAftershowMomentIds,
   type PresentationConfig, type RoundSectionConfig,
 } from './slideshowDeck'
 import type { EventMemoryData } from './eventMemoryData'
@@ -14,7 +14,7 @@ function memory(overrides: Partial<EventMemoryData['memories'][number]> & { mome
     imagePath: 'trip/general/p1/1.jpg', imageUrl: 'https://signed.example/1.jpg', audience: 'everyone',
     createdAt: '2026-09-11T10:00:00Z', organiserFavourite: false,
     sourceType: 'GENERAL', sideCompId: null, sideCompName: null, sideCompType: null,
-    mediaType: 'photo', durationSeconds: null, isBlooper: false,
+    mediaType: 'photo', durationSeconds: null, isBlooper: false, aftershowIncluded: null,
     ...overrides,
   }
 }
@@ -610,7 +610,7 @@ test('Bloopers: zero selected clips produces no Bloopers divider at all -- no em
   assert.ok(!deck.slides.some(s => s.kind === 'bloopersDivider'))
 })
 
-test('Bloopers appear after the Champion/Leaderboard and before the closing slide', () => {
+test('V1.18 (Package 5): the Moments & Bloopers aftershow appears after the Champion/Leaderboard AND after the closing slide -- the formal presentation (ending on the closing screen) plays once, then the aftershow follows it, not the other way around', () => {
   const data = baseData({
     memories: [memory({ momentId: 'vid', mediaType: 'video', durationSeconds: 5, isBlooper: true })],
     results: { champion: { champions: [{ playerId: 'p1', playerName: 'A', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'A', totalPoints: 72, position: 1 }] } },
@@ -618,10 +618,13 @@ test('Bloopers appear after the Champion/Leaderboard and before the closing slid
   const deck = buildSlideshowDeck(data, 'all')
   const kinds = deck.slides.map(s => s.kind)
   const champIdx = kinds.indexOf('champion')
-  const blooperDividerIdx = kinds.indexOf('bloopersDivider')
   const closingIdx = kinds.indexOf('closing')
-  assert.ok(champIdx < blooperDividerIdx)
-  assert.ok(blooperDividerIdx < closingIdx)
+  const blooperDividerIdx = kinds.indexOf('bloopersDivider')
+  assert.ok(champIdx < closingIdx)
+  assert.ok(closingIdx < blooperDividerIdx)
+  // The deck also reports where the aftershow starts, for the player's
+  // own looping logic.
+  assert.equal(deck.aftershowStartIndex, blooperDividerIdx)
 })
 
 test('Bloopers source is independent of the chosen slideshow source (favourites/all/selected) and of Favourite status', () => {
@@ -1215,6 +1218,84 @@ test('defaultPresentationConfig: Event-at-a-Glance defaults ON for Full Event wh
   assert.equal(config.eventAtAGlance, true)
 })
 
+// -- V1.17 (10 Oct): Event-at-a-Glance final backdrop + live championCount --
+
+test('Event-at-a-Glance: three 9-hole rounds sum to 27 holes, not assumed 18-hole rounds -- the brief\'s own worked example', () => {
+  const data = baseData({
+    rounds: [
+      round({ id: 'r1', ordinal: 1, holes: 9, courseName: "St. John's" }),
+      round({ id: 'r2', ordinal: 2, holes: 9, courseName: 'Champions' }),
+      round({ id: 'r3', ordinal: 3, holes: 9, courseName: 'North' }),
+    ],
+  })
+  const deck = buildPresentationDeck(data, fullEventConfig())
+  const slide = glanceSlide(deck.slides)!
+  assert.equal(slide.roundCount, 3)
+  assert.equal(slide.totalHoles, 27)
+  assert.deepEqual(slide.courseNames, ["St. John's", 'Champions', 'North'])
+})
+
+test('Event-at-a-Glance: three 18-hole rounds sum to 54 holes -- the canonical round-hole configuration is used, never inferred from score entries', () => {
+  const data = baseData({
+    rounds: [
+      round({ id: 'r1', ordinal: 1, holes: 18 }),
+      round({ id: 'r2', ordinal: 2, holes: 18 }),
+      round({ id: 'r3', ordinal: 3, holes: 18 }),
+    ],
+  })
+  const deck = buildPresentationDeck(data, fullEventConfig())
+  assert.equal(glanceSlide(deck.slides)!.totalHoles, 54)
+})
+
+test('Event-at-a-Glance: 5 configured Side Games produce a count of 5, matching the brief\'s own regression-check expectation', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1 })], sideGameCount: 5 })
+  const deck = buildPresentationDeck(data, fullEventConfig())
+  assert.equal(glanceSlide(deck.slides)!.sideGameCount, 5)
+})
+
+test('Event-at-a-Glance: championCount is 0 for an event with no confirmed champion yet -- never hardcoded to 1', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1 })], results: { champion: null } })
+  const deck = buildPresentationDeck(data, fullEventConfig())
+  assert.equal(glanceSlide(deck.slides)!.championCount, 0)
+})
+
+test('Event-at-a-Glance: championCount is 1 for a completed event with one confirmed champion', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 })],
+    results: { champion: { champions: [{ playerId: 'p1', playerName: 'Darren Lappen', totalPoints: 72 }], hasTie: false, standings: [{ playerId: 'p1', playerName: 'Darren Lappen', totalPoints: 72, position: 1 }] } },
+  })
+  const deck = buildPresentationDeck(data, fullEventConfig())
+  assert.equal(glanceSlide(deck.slides)!.championCount, 1)
+})
+
+test('Event-at-a-Glance: championCount is 2 for a genuine tied-champion outcome -- never silently collapsed to 1', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 })],
+    results: {
+      champion: {
+        champions: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72 }, { playerId: 'p2', playerName: 'Dave', totalPoints: 72 }],
+        hasTie: true,
+        standings: [{ playerId: 'p1', playerName: 'Alex', totalPoints: 72, position: 1 }, { playerId: 'p2', playerName: 'Dave', totalPoints: 72, position: 1 }],
+      },
+    },
+  })
+  const deck = buildPresentationDeck(data, fullEventConfig())
+  assert.equal(glanceSlide(deck.slides)!.championCount, 2)
+})
+
+test('Event-at-a-Glance: a round-scoped presentation never shows whole-event statistics, even if eventAtAGlance were somehow set true -- defensive scope guard, not just a UI convention', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1, holes: 18 }), round({ id: 'r2', ordinal: 2, holes: 18 })],
+  })
+  const roundConfig: PresentationConfig = {
+    scope: { kind: 'round', roundId: 'r1' }, eventOpening: false, eventAtAGlance: true, groupPhoto: false,
+    rounds: [{ roundId: 'r1', bestMoments: false, sideGameWinners: false, makersBreakers: false, roundResults: false }],
+    eventChampion: false, finalLeaderboard: false, bloopers: false, eventFinale: false, bestMomentsSource: 'favourites',
+  }
+  const deck = buildPresentationDeck(data, roundConfig)
+  assert.equal(glanceSlide(deck.slides), undefined)
+})
+
 test('getAvailableSections: EVENT_AT_A_GLANCE is unavailable with a reason when there are no rounds yet', () => {
   const data = baseData({ rounds: [] })
   const avail = getAvailableSections(data, { kind: 'fullEvent' })
@@ -1403,4 +1484,244 @@ test('Makers & Breakers: an individual highlight (no roster) still exposes its o
   const card = makersBreakersSlides(deck.slides)[0]
   assert.equal(card.highlight.playerName, 'Nobody Wins Here')
   assert.equal(card.highlight.roster, undefined)
+})
+
+// =============================================================================
+// V1.18 (10 Oct) -- SLIDESHOW FINAL RELEASE
+// Closing Screen, Upload Moments & Moments and Bloopers Aftershow
+// =============================================================================
+// Package 8's own numbered test list, as far as pure deck/resolver logic
+// can verify it in this sandbox (no browser, no database, no real file
+// upload -- see the delivery report for exactly which of the 27 items
+// these tests cover vs. require live-device verification).
+
+function blooperMomentIds(slides: Slide[]): string[] {
+  return slides.filter((s): s is Extract<Slide, { kind: 'blooper' }> => s.kind === 'blooper').map(s => s.momentId)
+}
+
+// -- Closing screen (1-4) ----------------------------------------------
+
+test('V1.18 #2/#4: exactly one closing slide is ever produced, and it always precedes the aftershow chapter when one exists', () => {
+  const data = baseData({
+    memories: [
+      memory({ momentId: 'blooper-1', mediaType: 'video', durationSeconds: 5, isBlooper: true }),
+      memory({ momentId: 'blooper-2', mediaType: 'video', durationSeconds: 5, isBlooper: true }),
+    ],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  const closingCount = deck.slides.filter(s => s.kind === 'closing').length
+  assert.equal(closingCount, 1)
+  const closingIdx = deck.slides.findIndex(s => s.kind === 'closing')
+  assert.equal(deck.aftershowStartIndex! > closingIdx, true)
+})
+
+test('V1.18 #4: with zero eligible aftershow media, the slideshow ends on the closing slide with no divider and no aftershowStartIndex at all', () => {
+  const data = baseData({ memories: [memory({ momentId: 'ordinary', organiserFavourite: true })] })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(deck.slides.at(-1)!.kind, 'closing')
+  assert.ok(!deck.slides.some(s => s.kind === 'bloopersDivider'))
+  assert.equal(deck.aftershowStartIndex, undefined)
+})
+
+// -- Upload Moments / unassigned event-level Moments (5-10, logic-testable parts) --
+
+test('V1.18 #8: an unassigned event-level upload (playerId null, no round/hole) never fabricates context -- confirmed structurally on the EventMemoryData shape the deck builder consumes', () => {
+  const data = baseData({
+    memories: [memory({ momentId: 'unassigned-1', playerId: null, roundId: null, holeNumber: null, playerName: null })],
+  })
+  // An unassigned Moment is still a perfectly ordinary photo Moment for
+  // the main presentation -- it just has no player/round attribution,
+  // never a fabricated one. 'all' source includes it like any other.
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.deepEqual(photoMomentIdsInOrder(deck), ['unassigned-1'])
+  const slide = deck.slides.find(s => s.kind === 'photo')!
+  assert.equal((slide as Extract<Slide, { kind: 'photo' }>).playerName, null)
+})
+
+test('V1.18 #9/#10: an unassigned upload is eligible for the slideshow builder (appears in the main deck) exactly like any other Moment -- never silently hidden for lacking a player', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 })],
+    memories: [memory({ momentId: 'unassigned-1', playerId: null, roundId: null })],
+  })
+  const avail = getAvailableSections(data, { kind: 'fullEvent' })
+  assert.equal(avail.find(a => a.type === 'BEST_MOMENTS')?.available, true)
+})
+
+// -- Classification independence, including the new Aftershow flag (11-14) --
+
+test('V1.18 #11/#12: a Moment can be Favourite=true, Blooper=false, Aftershow=true all at once -- three fully independent flags, none implying another', () => {
+  const data = baseData({
+    memories: [memory({ momentId: 'm1', organiserFavourite: true, isBlooper: false, aftershowIncluded: true })],
+  })
+  const ids = resolveAftershowMomentIds(data)
+  assert.ok(ids.has('m1'))
+  // Still shows up as an ordinary Favourite for the main presentation too.
+  const deck = buildSlideshowDeck(data, 'favourites')
+  assert.deepEqual(photoMomentIdsInOrder(deck), ['m1'])
+})
+
+test('V1.18 #13: a Moment can be in the aftershow with neither Favourite nor Blooper set', () => {
+  const data = baseData({
+    memories: [memory({ momentId: 'm1', organiserFavourite: false, isBlooper: false, aftershowIncluded: true })],
+  })
+  assert.ok(resolveAftershowMomentIds(data).has('m1'))
+})
+
+test('V1.18 #14: removing a Moment from the aftershow never changes its Favourite/Blooper status -- the three flags are written independently', () => {
+  const data = baseData({
+    memories: [memory({ momentId: 'm1', organiserFavourite: true, isBlooper: true, aftershowIncluded: false })],
+  })
+  // Explicitly excluded from the aftershow...
+  assert.ok(!resolveAftershowMomentIds(data).has('m1'))
+  // ...yet still a Favourite in the main presentation, and still
+  // flagged isBlooper on the record itself (resolveAftershowMomentIds
+  // never mutates isBlooper/organiserFavourite -- it only reads them).
+  const deck = buildSlideshowDeck(data, 'favourites')
+  assert.deepEqual(photoMomentIdsInOrder(deck), ['m1'])
+  assert.equal(data.memories[0].isBlooper, true)
+})
+
+// -- Selection: suggestion + persistence (15-19) --
+
+test('V1.18 #15: Blooper-tagged Moments are suggested (included) by default, with no explicit organiser decision made yet', () => {
+  const data = baseData({ memories: [memory({ momentId: 'b1', mediaType: 'video', durationSeconds: 5, isBlooper: true, aftershowIncluded: null })] })
+  assert.ok(resolveAftershowMomentIds(data).has('b1'))
+})
+
+test('V1.18 #15: an unassigned event-level upload is suggested (included) by default too, alongside Blooper-tagged Moments -- both sets pre-selected, per the brief’s own worked rule', () => {
+  const data = baseData({
+    memories: [
+      memory({ momentId: 'blooper', mediaType: 'video', durationSeconds: 5, isBlooper: true }),
+      memory({ momentId: 'unassigned', playerId: null }),
+      memory({ momentId: 'ordinary-with-player' }),
+    ],
+  })
+  const ids = resolveAftershowMomentIds(data)
+  assert.ok(ids.has('blooper'))
+  assert.ok(ids.has('unassigned'))
+  assert.ok(!ids.has('ordinary-with-player'))
+})
+
+test('V1.18 #16: the organiser can remove a suggested Moment -- an explicit false always overrides the suggestion rule, even for a Blooper-tagged clip', () => {
+  const data = baseData({ memories: [memory({ momentId: 'b1', mediaType: 'video', durationSeconds: 5, isBlooper: true, aftershowIncluded: false })] })
+  assert.ok(!resolveAftershowMomentIds(data).has('b1'))
+})
+
+test('V1.18 #17: the organiser can add a Moment the suggestion rule would not have picked -- an explicit true always overrides, even for an ordinary photo with a known player', () => {
+  const data = baseData({ memories: [memory({ momentId: 'p1photo', isBlooper: false, aftershowIncluded: true })] })
+  assert.ok(resolveAftershowMomentIds(data).has('p1photo'))
+})
+
+test('V1.18 #18: a manual exclusion survives re-resolving from scratch (the slideshow builder “refreshing”) -- the decision lives on the Moment record, not in any session-only state the resolver itself could reset', () => {
+  const data = baseData({ memories: [memory({ momentId: 'b1', mediaType: 'video', durationSeconds: 5, isBlooper: true, aftershowIncluded: false })] })
+  // Calling the resolver twice, as two separate builder sessions would,
+  // produces the identical result both times -- nothing about calling
+  // it again silently reselects 'b1'.
+  assert.deepEqual([...resolveAftershowMomentIds(data)], [...resolveAftershowMomentIds(data)])
+  assert.ok(!resolveAftershowMomentIds(data).has('b1'))
+})
+
+test('V1.18 #19: a brand new upload is suggested normally without disturbing any other Moment’s own existing explicit decision -- the critical persistence requirement the brief flags most heavily', () => {
+  const before = baseData({
+    memories: [
+      memory({ momentId: 'blooper-excluded', mediaType: 'video', durationSeconds: 5, isBlooper: true, aftershowIncluded: false }),
+      memory({ momentId: 'manually-included', isBlooper: false, aftershowIncluded: true }),
+    ],
+  })
+  const idsBefore = resolveAftershowMomentIds(before)
+  assert.ok(!idsBefore.has('blooper-excluded'))
+  assert.ok(idsBefore.has('manually-included'))
+
+  // A new upload arrives -- aftershowIncluded still null, the default
+  // for anything that's never been decided. The two existing Moments'
+  // own rows are untouched (exactly as a real new INSERT would leave
+  // every other row untouched).
+  const after = baseData({
+    memories: [
+      ...before.memories,
+      memory({ momentId: 'new-unassigned-upload', playerId: null, aftershowIncluded: null }),
+    ],
+  })
+  const idsAfter = resolveAftershowMomentIds(after)
+  assert.ok(!idsAfter.has('blooper-excluded'), 'the prior manual exclusion must still be respected after a new upload')
+  assert.ok(idsAfter.has('manually-included'), 'the prior manual inclusion must still be respected after a new upload')
+  assert.ok(idsAfter.has('new-unassigned-upload'), 'the new upload is suggested normally, following the default rule')
+})
+
+// -- Playback / looping (20-27, deck-level contract the player consumes) --
+
+test('V1.18 #20/#21: the aftershow has its own start index, strictly after every formal-presentation slide including the closing screen -- "only Moments & Bloopers should repeat"', () => {
+  const data = baseData({
+    rounds: [round({ id: 'r1', ordinal: 1 })],
+    memories: [
+      memory({ momentId: 'ordinary', roundId: 'r1', organiserFavourite: true }),
+      memory({ momentId: 'blooper', mediaType: 'video', durationSeconds: 5, isBlooper: true }),
+    ],
+  })
+  const deck = buildSlideshowDeck(data, 'favourites')
+  assert.ok(deck.aftershowStartIndex !== undefined)
+  // Everything before aftershowStartIndex is the formal presentation --
+  // the closing slide in particular must be one of those, never inside
+  // or after the aftershow's own slides.
+  const formalSlides = deck.slides.slice(0, deck.aftershowStartIndex)
+  assert.ok(formalSlides.some(s => s.kind === 'closing'))
+  const aftershowSlides = deck.slides.slice(deck.aftershowStartIndex)
+  assert.ok(!aftershowSlides.some(s => s.kind === 'closing'), 'the closing screen must never be inside the looping aftershow range')
+})
+
+test('V1.18 #23: the closing screen appears exactly once even when the aftershow has multiple clips -- it is never duplicated to "frame" each loop', () => {
+  const data = baseData({
+    memories: [
+      memory({ momentId: 'b1', mediaType: 'video', durationSeconds: 5, isBlooper: true }),
+      memory({ momentId: 'b2', mediaType: 'video', durationSeconds: 5, isBlooper: true }),
+      memory({ momentId: 'b3', mediaType: 'video', durationSeconds: 5, isBlooper: true }),
+    ],
+  })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(deck.slides.filter(s => s.kind === 'closing').length, 1)
+  assert.deepEqual(blooperMomentIds(deck.slides), ['b1', 'b2', 'b3'])
+})
+
+test('V1.18 #26: aftershowLoop defaults to true (Package 5.2’s own default settings table: "Repeat aftershow = ON") whenever aftershow content exists', () => {
+  const data = baseData({ memories: [memory({ momentId: 'b1', mediaType: 'video', durationSeconds: 5, isBlooper: true })] })
+  const deck = buildSlideshowDeck(data, 'all')
+  assert.equal(deck.aftershowLoop, true)
+})
+
+test('V1.18 #26: the organiser can turn looping off via PresentationConfig.aftershowLoop -- buildPresentationDeck carries that choice through onto the returned deck', () => {
+  const data = baseData({ memories: [memory({ momentId: 'b1', mediaType: 'video', durationSeconds: 5, isBlooper: true })] })
+  const config: PresentationConfig = {
+    scope: { kind: 'fullEvent' }, eventOpening: false, eventAtAGlance: false, groupPhoto: false, rounds: [],
+    eventChampion: false, finalLeaderboard: false, bloopers: true, aftershowLoop: false, eventFinale: true,
+    bestMomentsSource: 'favourites',
+  }
+  const deck = buildPresentationDeck(data, config)
+  assert.equal(deck.aftershowLoop, false)
+  // The chapter itself still plays (just doesn't loop) -- confirmed
+  // the content is still there, not accidentally suppressed too.
+  assert.ok(deck.aftershowStartIndex !== undefined)
+})
+
+test('V1.18 #27: the new builder (buildPresentationDeck) also orders the closing screen before the aftershow chapter, matching buildSlideshowDeck exactly', () => {
+  const data = baseData({ memories: [memory({ momentId: 'b1', mediaType: 'video', durationSeconds: 5, isBlooper: true })] })
+  const config: PresentationConfig = {
+    scope: { kind: 'fullEvent' }, eventOpening: false, eventAtAGlance: false, groupPhoto: false, rounds: [],
+    eventChampion: false, finalLeaderboard: false, bloopers: true, eventFinale: true,
+    bestMomentsSource: 'favourites',
+  }
+  const deck = buildPresentationDeck(data, config)
+  const kinds = deck.slides.map(s => s.kind)
+  assert.ok(kinds.indexOf('closing') < kinds.indexOf('bloopersDivider'))
+})
+
+test('V1.18: getAvailableSections labels the chapter "Moments & Bloopers", not "Bloopers" -- Package 4’s explicit rename', () => {
+  const data = baseData({ memories: [memory({ momentId: 'b1', mediaType: 'video', durationSeconds: 5, isBlooper: true })] })
+  const avail = getAvailableSections(data, { kind: 'fullEvent' })
+  assert.equal(avail.find(a => a.type === 'BLOOPERS')?.label, 'Moments & Bloopers')
+})
+
+test('V1.18: defaultPresentationConfig sets aftershowLoop true for a full-event presentation, matching Package 5.2’s stated default', () => {
+  const data = baseData({ memories: [memory({ momentId: 'b1', mediaType: 'video', durationSeconds: 5, isBlooper: true })] })
+  const config = defaultPresentationConfig(data, { kind: 'fullEvent' })
+  assert.equal(config.aftershowLoop, true)
 })
