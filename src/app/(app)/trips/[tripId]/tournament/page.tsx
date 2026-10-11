@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import MyHQClient from '@/components/scoring/MyHQClient'
-import AdminScoreOverridePanel from '@/components/scoring/AdminScoreOverridePanel'
 import MyRoundClient from '@/components/scoring/MyRoundClient'
 import EventCountdown from '@/components/trips/EventCountdown'
 import { resolveFocusRound, sortRoundsChronologically, getRoundDisplayName } from '@/lib/scoring/multiRound'
@@ -195,20 +194,6 @@ export default async function TournamentPage({ params, searchParams }: Props) {
         eventFullyComplete={eventFullyComplete}
       />
 
-      {/* Item 3 — Score Management. Deliberately outside MyHQClient's own
-          round-selector scope — this already had its own independent
-          round selector inside AdminScoreOverridePanel and covers every
-          live/completed round at once, not just whichever one is
-          currently selected above. Unaffected by this fix. */}
-      {(rounds ?? []).some(r => r.status === 'active' || r.status === 'completed') && (
-        <div id="score-management" style={{ marginTop: 20 }}>
-          <div style={{ height: 1, background: '#eceae3', marginBottom: 16 }} />
-          <AdminScoreOverridePanel
-            tripId={tripId}
-            rounds={(rounds ?? []).filter(r => r.status === 'active' || r.status === 'completed')}
-          />
-        </div>
-      )}
     </div>
   )
 }

@@ -8,10 +8,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import PlayingPartnerStatus from './PlayingPartnerStatus'
 import MomentViewer, { type MomentViewerData } from '@/components/moments/MomentViewer'
 import MakersBreakers from './MakersBreakers'
-import RoundHighlightsSection from './RoundHighlightsSection'
 import CollapsibleSection from '@/components/shared/CollapsibleSection'
 import { trackEvent } from '@/lib/analytics/trackEvent'
-import EventMemoriesCard from './EventMemoriesCard'
 
 interface GroupPlayer {
   playerId: string; name: string; holesPlayed: number; finished: boolean; hasMismatch: boolean; waitingForMarker: boolean
@@ -41,7 +39,13 @@ interface MismatchAlert {
   playerName: string; markerName: string; groupName: string; groupId: string | null
   hole: number; playerScore: string; markerScore: string; at: string
 }
-interface StoryEntry { icon: string; text: string; at: string; imageUrl?: string }
+// Phase E (11 Oct), Task #55 — exported so MyHQClient can embed this
+// round's own golf-story milestones directly inside Stage 5 ("Review &
+// Present") of the Round Control Centre, alongside EventStorySection
+// below (also now exported) — see that component's own comment for
+// why it moved out of this file's tail rather than staying mounted
+// here unconditionally.
+export interface StoryEntry { icon: string; text: string; at: string; imageUrl?: string }
 // Discriminated timeline item — 'system' entries (golf milestones, group
 // finishes, leader changes) stay compact text-only rows exactly as
 // before; 'moment' entries carry the actual image so it can be rendered
@@ -61,9 +65,14 @@ type TimelineItem =
   | { kind: 'system'; icon: string; text: string; at: string; imageUrl?: string }
   | { kind: 'moment'; at: string; imageUrl: string | null; caption: string | null; playerName: string; holeNumber: number | null }
 interface LeaderboardSnapshotRow { position: number; playerId: string; name: string; totalPts: number; holesPlayed: number; finished: boolean }
+// Phase E (11 Oct) verification pass -- exported so MyHQClient can render
+// EventHealthSection (below) genuinely OUTSIDE the five-stage Round
+// Control Centre. See that component's own comment for the full trace
+// of why it had to move a second time.
+export interface EventHealthInfo { level: 'green' | 'gold' | 'red'; text: string; topMismatch?: MismatchAlert }
 interface TournamentData {
   roundName: string; courseName: string | null; scoringFormat: string; roundStatus: string; totalHoles: number
-  health: { level: 'green' | 'gold' | 'red'; text: string; topMismatch?: MismatchAlert }
+  health: EventHealthInfo
   summary: { players: number; groups: number; scoringNow: number; finishedCount: number; awaitingReconciliation: number; completionPct: number }
   groups: GroupProgress[]
   alerts: Alert[]
@@ -222,29 +231,16 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
     staleTime: 0,
   })
 
-  // "The Story" (below) previously showed only golf milestones computed
-  // server-side (data.story) — a player-posted Moment never appeared
-  // there, only in the separate "Event Story" section further down the
-  // page, which already merges moments correctly. Root cause: no
-  // filtering bug (the /moments endpoint itself is already correctly
-  // trip-scoped by RLS only, not filtered by sender/organiser_id — any
-  // trip member's Moment is returned), it's simply that this first,
-  // most-visible section was never wired to include moments at all.
-  // Fetches THIS round's moments specifically (?roundId=), matching this
-  // section's own stated scope ("the story of the ROUND") — deliberately
-  // a different, more specific query than Event Story's unscoped
-  // trip-wide ['moments', tripId] fetch below, so past rounds' moments
-  // don't leak into a single round's story.
-  const { data: roundMomentsData } = useQuery<{ moments: Moment[] }>({
-    queryKey: ['moments', tripId, roundId],
-    queryFn: async () => {
-      const res = await fetch(`/api/trips/${tripId}/moments?roundId=${roundId}`)
-      if (!res.ok) throw new Error('failed')
-      return res.json()
-    },
-    staleTime: 10000,
-    refetchOnWindowFocus: true,
-  })
+  // Phase E audit (11 Oct) -- confirmed-dead query removed. This used
+  // to feed a round-scoped "The Story" section (distinct from the
+  // trip-wide Event Story further down) that was removed in an earlier
+  // pass; the query itself (`roundMomentsData`, queryKey ['moments',
+  // tripId, roundId]) was left behind, firing on every mount and every
+  // window-focus refetch for a result nothing ever displayed -- grepped
+  // the whole file to confirm `roundMomentsData` had exactly one
+  // reference (its own declaration) before deleting. Event Story's own
+  // unscoped ['moments', tripId] query further down this file is a
+  // separate, still-used fetch and is untouched.
 
   // Bug 5 (field-test corrective) — the Side Games Snapshot below was
   // previously a hardcoded, unconditional placeholder string with no
@@ -447,87 +443,25 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
     )
   }
 
-  const healthBg = data.health.level === 'green' ? '#f0fdf4' : data.health.level === 'gold' ? '#fdf3d9' : '#fef2f2'
-  const healthBorder = data.health.level === 'green' ? '#bbf7d0' : data.health.level === 'gold' ? '#e8c96a' : '#fecaca'
-  const healthIcon = data.health.level === 'green' ? '🟢' : data.health.level === 'gold' ? '🟡' : '🔴'
-
   return (
     <div>
-      {/* Phase D (10 Oct) — Event Health moved here, to the very top of
-          My HQ's operational dashboard, directly beneath the Guided
-          Workflow tracker + Event Progress badge rendered one level up
-          in MyHQClient.tsx. Previously this sat after the "ROUND —
-          COMPLETE" card, Leaderboard Snapshot, and the entire Close
-          Round flow — correctly sized/labelled already (My Golf + My
-          HQ UX Cleanup brief, item 4, still intact below), just
-          mid-page instead of near the top. No change to how health is
-          calculated or what it shows — position only.
-          My Golf + My HQ UX Cleanup brief (5 Sep), item 4 — "COLLAPSED
-          MUST NEVER MEAN AN IMPORTANT PROBLEM IS INVISIBLE." The status
-          badge (health.text + healthIcon) is the exact same summary
-          already computed for the always-visible version — shown here
-          in the collapsed HEADER itself, not only inside the expanded
-          content, so an organiser never has to open this section just
-          to learn whether anything needs attention. Event Health's own
-          calculation is completely untouched — only where/how its
-          existing summary text is displayed changed.
-
-          Final pre-production gate (10 Oct), item 1 — reactivity fix.
-          CollapsibleSection's `expanded` is a plain `useState(defaultExpanded)`
-          seeded ONLY on mount (confirmed by reading that component
-          directly) — it never re-reads `defaultExpanded` on a later
-          render. `data` (and so `data.health.level`) is polled every 8s
-          while the round is active, so a genuine green -> gold/red
-          transition happening WHILE this stays mounted would previously
-          never auto-expand; the organiser could miss a newly detected
-          issue entirely if they'd left it collapsed from an earlier,
-          healthy render.
-          Fix: `key` the section on the health BUCKET (not the raw
-          level), so React remounts it — re-seeding `expanded` fresh from
-          `defaultExpanded` — only on an actual green<->non-green
-          transition, never on every gold<->red fluctuation or every
-          poll while the bucket is unchanged. This exposes a newly
-          detected issue exactly once, without fighting an organiser who
-          deliberately re-collapses it afterward while the issue is
-          still the same severity bucket (the children render nothing
-          but props-derived JSX, so the remount loses no state of its
-          own). No change to how health is calculated. */}
-      <CollapsibleSection
-        key={data.health.level !== 'green' ? 'health-warn' : 'health-ok'}
-        icon="🩺" title="Event Health"
-        statusBadge={<span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: healthBorder }}>{healthIcon} {data.health.text}</span>}
-        defaultExpanded={data.health.level !== 'green'}
-      >
-      <div style={{ background: healthBg, border: `1.5px solid ${healthBorder}`, borderRadius: 14, padding: '14px 16px', marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 22 }}>{healthIcon}</span>
-          <div>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8, color: '#9ca3af', textTransform: 'uppercase' }}>Event Health</div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#14532d' }}>{data.health.text}</div>
-          </div>
-        </div>
-        {data.health.topMismatch && (
-          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#14532d' }}>
-              {data.health.topMismatch.playerName} — Hole {data.health.topMismatch.hole}
-            </div>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 8 }}>
-              {data.health.topMismatch.groupName} · Marker mismatch
-            </div>
-            <Link href={`/trips/${tripId}/rounds/${roundId}?hole=${data.health.topMismatch.hole}`} style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#dc2626', textDecoration: 'none' }}>
-              Review now →
-            </Link>
-          </div>
-        )}
-        {!data.health.topMismatch && data.mismatchAlerts.length > 1 && (
-          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-            <a href="#alerts-section" style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#dc2626', textDecoration: 'none' }}>
-              View affected players →
-            </a>
-          </div>
-        )}
-      </div>
-      </CollapsibleSection>
+      {/* Phase E (11 Oct) verification pass -- Event Health moved OUT of
+          this file entirely. It used to render here, at the top of
+          TournamentControl's own return -- but Task #55 made
+          TournamentControl itself mount only inside Stage 2's own
+          expandable body (`isExpanded && body` in RoundWorkflowTracker),
+          so Event Health was silently disappearing whenever every stage
+          was collapsed -- confirmed by direct inspection of the actual
+          component tree, not a documentation-only claim this time.
+          Being "unconditional within TournamentControl" never actually
+          satisfied "visible regardless of which stage is expanded" once
+          TournamentControl's own MOUNTING became stage-gated. It's now
+          EventHealthSection (exported below), rendered directly by
+          MyHQClient between Event Progress and the Round Control Centre
+          tracker -- genuinely outside all five stages, reading the same
+          shared ['tournament', tripId, roundId] query cache entry
+          MyHQClient already holds for Stage 5's `story` field, so this
+          is still no second fetch and no second calculation of health. */}
 
       {/* Item 7 — persistent access to the Round Snapshot for this
           completed round, once the organiser has dismissed/left the
@@ -702,7 +636,26 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
       </div>
 
       {/* ── 2.3 Live Group Progress ───────────────────────────────────── */}
-      <SectionTitle>Group Progress</SectionTitle>
+      {/* Phase E (11 Oct), Task #56 — "Stage 2 nested subsections, avoid
+          a long page." Nested into the same CollapsibleSection pattern
+          already used for Side Games/Live Statistics/Group Map below —
+          previously this rendered as a permanently-open, unbounded list
+          of every group (the single largest contributor to Stage 2's
+          page length on an event with many groups). Defaults open only
+          while something in it genuinely needs attention (any group
+          mid-reconciliation, needing attention, finished-needs-review,
+          or with a paper card outstanding) — mirroring Event Health's
+          own "never let a real problem hide behind a collapsed
+          section" convention above, including the same `key` trick so
+          a group genuinely transitioning INTO one of those states while
+          this stays mounted still forces it back open, not just on
+          first mount. Every group row's own internal expand (player
+          detail) is unchanged. */}
+      <CollapsibleSection
+        key={data.groups.some(g => g.status === 'reconciliation' || g.status === 'needs_attention' || g.status === 'finished_needs_review' || g.status === 'paper_outstanding') ? 'groups-warn' : 'groups-ok'}
+        icon="⛳" title="Group Progress" count={data.groups.length}
+        defaultExpanded={data.groups.length === 0 || data.groups.some(g => g.status === 'reconciliation' || g.status === 'needs_attention' || g.status === 'finished_needs_review' || g.status === 'paper_outstanding')}
+      >
       <div style={{ marginBottom: 14 }}>
         {data.groups.length === 0 && <EmptyNote>No groups yet.</EmptyNote>}
         {data.groups.map(g => {
@@ -779,11 +732,27 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           )
         })}
       </div>
+      </CollapsibleSection>
 
       {/* ── 2.4 Organiser Alerts ──────────────────────────────────────── */}
-      <div id="alerts-section">
-        <SectionTitle>Alerts</SectionTitle>
-      </div>
+      {/* Phase E (11 Oct), Task #56 — Alerts is now a CollapsibleSection
+          too, rather than an always-expanded, always-rendered block
+          (even with nothing in it). It's only rendered at all when
+          there's genuinely something to show, and auto-expands
+          whenever it is — same `key`-on-the-meaningful-bucket trick as
+          Event Health/Group Progress above, so a mismatch/alert
+          appearing while this stays mounted still forces it open, not
+          just on first mount. `#alerts-section` is kept as its own
+          stable anchor (Event Health's own "View affected players →"
+          link still targets it) regardless of whether this section is
+          currently rendered. */}
+      <div id="alerts-section" />
+      {(data.mismatchAlerts.length > 0 || data.alerts.length > 0) && (
+        <CollapsibleSection
+          key="alerts-present"
+          icon="⚠️" title="Alerts" count={data.mismatchAlerts.length + data.alerts.length}
+          defaultExpanded
+        >
       <div style={{ marginBottom: 14 }}>
         {data.mismatchAlerts.map((m, i) => (
           <div key={`mismatch-${i}`} style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 12, padding: '10px 14px', marginBottom: 8 }}>
@@ -818,6 +787,8 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           )
         })}
       </div>
+        </CollapsibleSection>
+      )}
 
       {/* ── Notify Group composer — pre-populated, editable, per the
           explicit flow: Notify Group -> composer -> Send/Cancel. ────────── */}
@@ -953,15 +924,17 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
           along with this section. */}
       <PlayingPartnerStatus tripId={tripId} roundId={roundId} />
 
-      {/* My Golf + My HQ UX Cleanup brief, follow-up (5 Sep) — "Makers
-          and breakers doesn't stay with makers and breakers, it
-          appears lower down the list." Moved from after Score
-          Management to directly beneath Side Games, keeping the two
-          Side Games / Makers & Breakers organiser-facing round
-          results sections adjacent. No change to RoundHighlightsSection
-          itself — same component, same publish-lock-respecting read,
-          only its position moved. */}
-      <RoundHighlightsSection tripId={tripId} roundId={roundId} roundName={data.roundName} />
+      {/* Phase E (11 Oct), Task #55 — RoundHighlightsSection (the
+          organiser's read-only published-highlights view) moved out of
+          this file entirely. It now mounts alongside RoundHighlightsCard
+          (the selection/review entry point, previously a separate
+          standalone card at the My HQ page level) inside Stage 4
+          ("Makers & Breakers") of the new Round Control Centre in
+          MyHQClient.tsx — consolidating the two previously scattered
+          Makers & Breakers entry points into the one stage that's
+          actually about Makers & Breakers, per the approved brief.
+          No change to RoundHighlightsSection itself, only where it's
+          mounted. */}
 
       {/* ── Live Statistics (includes Quick Actions — small, closely
           related navigation links, folded into the same section rather
@@ -1049,32 +1022,18 @@ export default function TournamentControl({ tripId, roundId, roundStatus }: { tr
       </a>
       </CollapsibleSection>
 
-      {/* My Golf + My HQ UX Cleanup brief, follow-up (5 Sep) — this
-          section (originally "Event Story") absorbed the round-scoped
-          duplicate that used to sit after Side Games (see that
-          removed section's own comment, above). Renamed "The Story" at
-          the time of that merge, with no scope qualifier.
-          Phase D audit (10 Oct) — read its actual data source directly
-          rather than trusting the label: EventStorySection combines
-          this round's own golf-story milestones (data.story) with an
-          UNSCOPED, whole-event Moments query (['moments', tripId], no
-          roundId filter — see that function's own query below). The
-          Moments feed is the dominant, superset content here, and it's
-          genuinely event-wide, not this round's — so "The Story" was
-          the genuinely ambiguous label the brief asked to fix, not
-          "Round Story" (which would be actively wrong) and not quite
-          accurate as "The Story" either. Relabelled to "Event Story",
-          matching both the component's own name and its real scope.
-          EventStorySection itself is completely unchanged — label
-          only. */}
-      <CollapsibleSection icon="📖" title="Event Story">
-      <EventStorySection tripId={tripId} golfStory={data.story} />
-      </CollapsibleSection>
-
-      {/* Event Memories V1 follow-up (10 Sep) -- the My HQ entry point
-          the original spec called for, added here after review found
-          it missing from the initial delivery. */}
-      <EventMemoriesCard tripId={tripId} />
+      {/* Phase E (11 Oct), Task #55 — Event Story (below, now exported)
+          and EventMemoriesCard both moved out of this file's tail.
+          They now mount inside Stage 5 ("Review & Present") of the new
+          Round Control Centre in MyHQClient.tsx, alongside the
+          existing Create Presentation action — "Review & Present"
+          genuinely is the stage this content belongs to, rather than
+          being the last two cards of an otherwise-unrelated dashboard.
+          data.story (this round's own golf-story milestones) is passed
+          to MyHQClient the same way every other field already is: via
+          the shared ['tournament', tripId, roundId] query cache entry
+          — no second fetch, no duplicated calculation. Neither
+          component's own logic changed, only where each is mounted. */}
     </div>
   )
 }
@@ -1209,7 +1168,93 @@ interface SideGameCompetitionSummary {
   isComplete: boolean
 }
 
-function EventStorySection({ tripId, golfStory }: { tripId: string; golfStory: StoryEntry[] }) {
+// Phase E (11 Oct) verification pass -- extracted from this file's own
+// main return (see that comment for the full trace of why it had to
+// move a second time) so MyHQClient can mount it genuinely outside the
+// five-stage Round Control Centre, rather than inside TournamentControl
+// itself, which only mounts when Stage 2 is expanded. Same markup,
+// same styling, same calculation (health/mismatchCount are both read
+// from the caller's own already-fetched data) -- position only.
+export function EventHealthSection({ tripId, roundId, health, mismatchCount, onViewAffectedPlayers }: {
+  tripId: string
+  roundId: string
+  health: EventHealthInfo
+  /** data.mismatchAlerts.length from the caller's own already-fetched tournament data. */
+  mismatchCount: number
+  /**
+   * "View affected players" used to be a bare `#alerts-section` anchor
+   * link -- safe only while Alerts and Event Health were siblings in
+   * the same always-rendered component. Now that Event Health lives
+   * outside the five stages and Alerts lives inside Stage 2's own
+   * conditionally-mounted body, the anchor target may not exist in the
+   * DOM at all if Stage 2 is collapsed. The caller (MyHQClient) expands
+   * Stage 2 first, then scrolls -- same pattern already used for the
+   * Close Round action.
+   */
+  onViewAffectedPlayers: () => void
+}) {
+  const healthBg = health.level === 'green' ? '#f0fdf4' : health.level === 'gold' ? '#fdf3d9' : '#fef2f2'
+  const healthBorder = health.level === 'green' ? '#bbf7d0' : health.level === 'gold' ? '#e8c96a' : '#fecaca'
+  const healthIcon = health.level === 'green' ? '🟢' : health.level === 'gold' ? '🟡' : '🔴'
+
+  return (
+    // My Golf + My HQ UX Cleanup brief (5 Sep), item 4 — "COLLAPSED MUST
+    // NEVER MEAN AN IMPORTANT PROBLEM IS INVISIBLE" — the status badge
+    // (health.text + healthIcon) is shown in the collapsed HEADER
+    // itself, not only inside the expanded content, unchanged.
+    //
+    // Final pre-production gate (10 Oct), item 1 — reactivity fix,
+    // unchanged: `key`-ing on the health BUCKET forces a remount (so
+    // `expanded` is re-seeded from `defaultExpanded`) only on a genuine
+    // green<->non-green transition, never on every poll.
+    <CollapsibleSection
+      key={health.level !== 'green' ? 'health-warn' : 'health-ok'}
+      icon="🩺" title="Event Health"
+      statusBadge={<span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: healthBorder }}>{healthIcon} {health.text}</span>}
+      defaultExpanded={health.level !== 'green'}
+    >
+      <div style={{ background: healthBg, border: `1.5px solid ${healthBorder}`, borderRadius: 14, padding: '14px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 22 }}>{healthIcon}</span>
+          <div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8, color: '#9ca3af', textTransform: 'uppercase' }}>Event Health</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: '#14532d' }}>{health.text}</div>
+          </div>
+        </div>
+        {health.topMismatch && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#14532d' }}>
+              {health.topMismatch.playerName} — Hole {health.topMismatch.hole}
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 8 }}>
+              {health.topMismatch.groupName} · Marker mismatch
+            </div>
+            <Link href={`/trips/${tripId}/rounds/${roundId}?hole=${health.topMismatch.hole}`} style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#dc2626', textDecoration: 'none' }}>
+              Review now →
+            </Link>
+          </div>
+        )}
+        {!health.topMismatch && mismatchCount > 1 && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+            <button
+              onClick={onViewAffectedPlayers}
+              style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: '#dc2626', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+            >
+              View affected players →
+            </button>
+          </div>
+        )}
+      </div>
+    </CollapsibleSection>
+  )
+}
+
+// Phase E (11 Oct), Task #55 — exported; now mounted from MyHQClient's
+// Stage 5 ("Review & Present") body instead of unconditionally at this
+// file's own tail. See this file's "Phase E" comment near the old
+// mount site (above, in the main return) for the full trace. Nothing
+// about this component's own data source or rendering changed.
+export function EventStorySection({ tripId, golfStory }: { tripId: string; golfStory: StoryEntry[] }) {
   const { data } = useQuery<{ moments: Moment[] }>({
     queryKey: ['moments', tripId],
     queryFn: async () => {

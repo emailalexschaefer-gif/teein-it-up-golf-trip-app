@@ -27,16 +27,23 @@ const myHqClientSrc = readFileSync(
 )
 
 // ── Item 1: Event Health reactivity ─────────────────────────────────────
+// Phase E (11 Oct) verification pass -- Event Health was extracted out
+// of TournamentControl's own `data.health` scope into the standalone,
+// exported EventHealthSection (prop name `health`, not `data.health`),
+// so it can be mounted genuinely outside the five-stage Round Control
+// Centre from MyHQClient. Same key-on-bucket logic, same component,
+// just a renamed variable and a new home -- these checks now read it
+// from its new location.
 test('Event Health: CollapsibleSection is keyed on the health bucket, not just given a static defaultExpanded -- so a green->non-green transition while mounted forces a re-seed instead of being silently missed', () => {
-  const block = tournamentControlSrc.match(/<CollapsibleSection\s*\n\s*key=\{data\.health\.level[\s\S]*?defaultExpanded=\{data\.health\.level !== 'green'\}/)
+  const block = tournamentControlSrc.match(/<CollapsibleSection\s*\n\s*key=\{health\.level[\s\S]*?defaultExpanded=\{health\.level !== 'green'\}/)
   assert.ok(block, 'expected the Event Health CollapsibleSection to carry a health-bucket key alongside defaultExpanded')
-  assert.match(block![0], /key=\{data\.health\.level !== 'green' \? 'health-warn' : 'health-ok'\}/)
+  assert.match(block![0], /key=\{health\.level !== 'green' \? 'health-warn' : 'health-ok'\}/)
 })
 test('Event Health: the key buckets gold and red together -- a fluctuation within the same non-green severity never forces an unnecessary remount/reset', () => {
   // Only two possible key values exist for this element -- confirmed by
   // the exact ternary text above, not a separate per-level key -- so
   // 'gold' and 'red' always share 'health-warn'.
-  assert.match(tournamentControlSrc, /key=\{data\.health\.level !== 'green' \? 'health-warn' : 'health-ok'\}/)
+  assert.match(tournamentControlSrc, /key=\{health\.level !== 'green' \? 'health-warn' : 'health-ok'\}/)
 })
 
 // ── Item 2: Slideshow deep link robustness ──────────────────────────────

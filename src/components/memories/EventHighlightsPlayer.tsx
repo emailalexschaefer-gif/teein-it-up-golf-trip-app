@@ -616,76 +616,79 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
             might not sufficiently darken at every point. */}
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '7% 6% 0', background: 'linear-gradient(rgba(4,12,8,0.75) 0%, rgba(4,12,8,0.35) 55%, rgba(4,12,8,0) 85%)' }}>
           <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 4vw, 38px)', fontWeight: 800, color: '#fff', marginBottom: 6, letterSpacing: 0.5, maxWidth: '70%', lineHeight: 1.15, textShadow: '0 2px 10px rgba(0,0,0,0.75), 0 1px 3px rgba(0,0,0,0.9)' }}>{slide.eventName}</p>
-          {slide.dateRange && <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(12px, 1.5vw, 16px)', color: '#f0e6d2', letterSpacing: 0.5, textShadow: '0 1px 6px rgba(0,0,0,0.8), 0 1px 2px rgba(0,0,0,0.9)' }}>{slide.dateRange}</p>}
+          {/* Final pre-production gate follow-up / Phase E (11 Oct) --
+              date visibility fix. Previously clamp(12px,1.5vw,16px) at
+              a pale cream (#f0e6d2) -- legible against a dark lower
+              sky but easy to miss against a bright sunrise, and small
+              enough to read as an afterthought beneath the event
+              title. Reuses formatDateRange()'s own output verbatim
+              (slide.dateRange) -- no new date formatting logic, only
+              this renderer's own size/colour/weight. Event title above
+              is completely unchanged -- still the visually dominant
+              element on this slide. */}
+          {slide.dateRange && <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(15px, 2.1vw, 21px)', fontWeight: 700, color: '#ffffff', letterSpacing: 0.6, textShadow: '0 2px 8px rgba(0,0,0,0.9), 0 1px 3px rgba(0,0,0,0.95)' }}>{slide.dateRange}</p>}
         </div>
       </div>
     )
   }
   if (slide.kind === 'eventAtAGlance') {
-    // V1.17 (10 Oct) -- final approved backdrop integration, replacing
-    // the prior blurred-derivative + composited-logo treatment
-    // entirely. The newly approved artwork (event-at-a-glance-bg.jpg)
-    // already has the Teein' It Up logo, the gold horizontal decorative
-    // lines, the three gold vertical column dividers, and the closing
-    // phrase "This is how it unfolded." all baked in at full
-    // resolution -- so none of those are rendered a second time here.
-    // Doing so previously caused the reported "two logos" bug (one
-    // composited top, one composited bottom-right, both on top of a
-    // background that -- before this artwork -- couldn't carry its own
-    // baked-in logo). This version renders ONLY the four live data
-    // columns on top of the artwork; the artwork alone supplies every
-    // other visual element.
+    // Phase E (11 Oct) verification pass -- corrected per the user's
+    // review. The approved photographic composition (sunset, water,
+    // golf ball, gold dividers, bottom-right branding) is now the real
+    // background image (event-at-a-glance-bg-v2.jpg), supplied clean --
+    // no event name, heading or stats baked in, confirmed by direct
+    // visual inspection before wiring it in. Only the genuinely dynamic
+    // content (the "EVENT SNAPSHOT" heading's event name, and the four
+    // live stat columns) is real DOM text layered on top; the divider
+    // lines, logo and tagline are part of the artwork itself, not
+    // redrawn in CSS. The earlier CSS-gradient version (Option B,
+    // adopted because the background asset on hand at the time had a
+    // mismatched baked heading) is gone.
     //
-    // Column x-positions are measured directly from the approved
-    // artwork's own three gold vertical dividers (sampled at multiple
-    // rows, consistently at 34.2% / 50.2% / 66.6% of width), not
-    // guessed -- so each column's centred text lines up with the real
-    // dividers already printed in the image: Rounds 0-34.2% (widest,
-    // since it alone carries course names), Holes 34.2-50.2%, Side
-    // Games 50.2-66.6%, Event Champion 66.6-100% (widest of the
-    // remaining three, matching the artwork's own wider right-hand
-    // panel). No CSS divider lines are drawn -- the brief is explicit
-    // that they already exist in the artwork.
+    // Stat-column x-positions are measured directly from this specific
+    // image's own baked divider lines (35.89% / 50.51% / 64.95%, pixel-
+    // sampled from the supplied artwork), not reused from the prior
+    // artwork's different proportions.
     //
     // Icons are gold-only inline SVGs (GoldFlagIcon/GoldClubsIcon/
     // GoldCrownIcon, defined above), not emoji -- avoids each device's
     // own multi-colour default emoji rendering, per the explicit
-    // "avoid brightly coloured emojis" requirement.
+    // "avoid brightly coloured emojis" requirement, unchanged from
+    // before.
     //
     // Every number and name below is a live value from `slide`'s own
     // fields, computed from real event data -- nothing here is
-    // rasterized, and the Event Champion column is no longer hardcoded
-    // to "1" (see slideshowDeck.ts's championCount, sourced from the
-    // same authoritative champions array the Champion slide itself
-    // uses).
+    // rasterized, and the Event Champion column correctly reflects a
+    // tie (2+) or no confirmed champion yet (0), never hardcoded to 1
+    // (slideshowDeck.ts's championCount, sourced from the same
+    // authoritative champions array the Champion slide itself uses).
+    // No date is shown anywhere on this slide, per the approved brief.
     return (
-      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/event-at-a-glance-bg.jpg)', backgroundSize: 'cover', backgroundPosition: 'center' }}>
-        {/* Statistics band -- vertically centred within the artwork's
-            own empty middle zone (below the baked-in logo/horizontal
-            lines, above the baked-in tagline), matching where the
-            artwork's own gold vertical dividers actually run (measured
-            13%-92% of height). Kept well clear of both ends so it can
-            never crowd the baked-in elements on a short viewport. */}
-        <div style={{ position: 'absolute', left: 0, right: 0, top: '30%', bottom: '18%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {/* Real-device polish pass (10 Oct) -- two fixes applied
-              uniformly to all four columns below:
-              1. alignItems: 'flex-start' (was 'center') on this row,
-                 so every numeral starts from the SAME y position
-                 regardless of what renders underneath it in that
-                 column (Column 1 alone also carries course names,
-                 which was previously pulling its whole column's
-                 vertical centre, and therefore its numeral's
-                 baseline, out of line with the other three).
-              2. numeralShadow below, applied to every numeral
-                 (white AND gold) -- a dark text-shadow plus a thin
-                 dark stroke, so the figure stays readable wherever
-                 it lands on the artwork's own brightness, including
-                 the brightest part of the sunset, without altering
-                 the approved artwork itself or the live values
-                 beneath it. */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', width: '100%', height: '100%' }}>
-            {/* Column 1 -- Rounds, 0-34.2% of width. */}
-            <div style={{ width: '34.2%', textAlign: 'center', minWidth: 0, padding: '0 clamp(4px, 1.2vw, 14px)' }}>
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- the approved photographic background; decorative, all real content is the DOM text below */}
+        <img
+          src="/images/event-at-a-glance-bg-v2.jpg"
+          alt=""
+          aria-hidden
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+        />
+
+        {/* Top zone -- the mandatory "EVENT SNAPSHOT" heading, then the
+            event's own (dynamic) name beneath it. No logo here -- it's
+            already part of the artwork, bottom-right. */}
+        <div style={{ position: 'absolute', left: 0, right: 0, top: '6%', textAlign: 'center', padding: '0 6%' }}>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 4.2vw, 40px)', fontWeight: 800, color: '#fff', letterSpacing: 1, textShadow: '0 2px 10px rgba(0,0,0,0.6)' }}>{slide.eventName}</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(14px, 2.1vw, 22px)', color: '#fbbf24', marginTop: 8, fontWeight: 700, letterSpacing: 3, textShadow: '0 2px 10px rgba(0,0,0,0.6)' }}>EVENT SNAPSHOT</p>
+        </div>
+
+        {/* Statistics band -- vertically centred between the heading
+            block above and the bottom edge, aligned to this image's own
+            baked divider lines. */}
+        <div style={{ position: 'absolute', left: 0, right: 0, top: '38%', bottom: '8%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', width: '100%', height: '100%', position: 'relative' }}>
+            {/* Column 1 -- Rounds, 0-35.89% of width (matches the
+                artwork's first baked divider line). */}
+            <div style={{ width: '35.89%', textAlign: 'center', minWidth: 0, padding: '0 clamp(4px, 1.2vw, 14px)' }}>
               <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 6.2vw, 60px)', fontWeight: 800, color: '#fff', lineHeight: 1, ...numeralShadow }}>{slide.roundCount}</p>
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9.5px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 5, ...labelShadow }}>Round{slide.roundCount === 1 ? '' : 's'}</p>
               {slide.courseNames.length > 0 && (
@@ -696,24 +699,22 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
                 </div>
               )}
             </div>
-            {/* Column 2 -- Holes, 34.2%-50.2% of width (16%). */}
-            <div style={{ width: '16%', textAlign: 'center', minWidth: 0, padding: '0 clamp(2px, 0.8vw, 10px)' }}>
+            {/* Column 2 -- Holes, 35.89%-50.51% of width (14.62%). */}
+            <div style={{ width: '14.62%', textAlign: 'center', minWidth: 0, padding: '0 clamp(2px, 0.8vw, 10px)' }}>
               <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 6.2vw, 60px)', fontWeight: 800, color: '#fff', lineHeight: 1, ...numeralShadow }}>{slide.totalHoles}</p>
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9.5px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 5, ...labelShadow }}>Hole{slide.totalHoles === 1 ? '' : 's'}</p>
               <div style={{ marginTop: 7, display: 'flex', justifyContent: 'center' }}><GoldFlagIcon size="clamp(12px, 1.8vw, 20px)" /></div>
             </div>
-            {/* Column 3 -- Side Games, 50.2%-66.6% of width (16.4%). */}
-            <div style={{ width: '16.4%', textAlign: 'center', minWidth: 0, padding: '0 clamp(2px, 0.8vw, 10px)' }}>
+            {/* Column 3 -- Side Games, 50.51%-64.95% of width (14.44%). */}
+            <div style={{ width: '14.44%', textAlign: 'center', minWidth: 0, padding: '0 clamp(2px, 0.8vw, 10px)' }}>
               <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 6.2vw, 60px)', fontWeight: 800, color: '#fff', lineHeight: 1, ...numeralShadow }}>{slide.sideGameCount}</p>
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9.5px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 5, ...labelShadow }}>Side Game{slide.sideGameCount === 1 ? '' : 's'}</p>
               <div style={{ marginTop: 7, display: 'flex', justifyContent: 'center' }}><GoldClubsIcon size="clamp(12px, 1.8vw, 20px)" /></div>
             </div>
-            {/* Column 4 -- Event Champion, 66.6%-100% of width (33.4%).
-                Live championCount -- never hardcoded. Gold-on-bright-sunset
-                was the specific legibility complaint, so this numeral
-                gets the same numeralShadow as the white ones -- the dark
-                halo is what restores contrast, not a colour change. */}
-            <div style={{ width: '33.4%', textAlign: 'center', minWidth: 0, padding: '0 clamp(4px, 1.2vw, 14px)' }}>
+            {/* Column 4 -- Event Champion, 64.95%-100% of width (35.05%).
+                Live championCount -- never hardcoded, correctly shows
+                0 (no confirmed champion yet) or 2+ (a genuine tie). */}
+            <div style={{ width: '35.05%', textAlign: 'center', minWidth: 0, padding: '0 clamp(4px, 1.2vw, 14px)' }}>
               <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 6.2vw, 60px)', fontWeight: 800, color: '#fbbf24', lineHeight: 1, ...numeralShadow }}>{slide.championCount}</p>
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9.5px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 5, lineHeight: 1.25, ...labelShadow }}>Event<br />Champion</p>
               <div style={{ marginTop: 7, display: 'flex', justifyContent: 'center' }}><GoldCrownIcon size="clamp(12px, 1.8vw, 20px)" /></div>
@@ -1052,30 +1053,25 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     )
   }
   // closing
-  // V1.15 (9 Oct) -- replaced with the first approved closing-slide
-  // artwork. V1.18 (10 Oct), Package 1 -- replaced AGAIN with the
-  // final approved artwork (same filename and same 2.17:1 aspect
-  // ratio as the V1.15 asset -- confirmed by direct pixel comparison
-  // before replacing, not assumed -- so the `object-fit: contain`
-  // treatment below, chosen specifically to avoid cropping on a true
-  // 16:9 canvas, remains correct with no code change needed). Wording
-  // order changed in this final version ("Check out all your event
-  // memories and stats in MyGolf" now before "See you at the next
-  // one!", not after) -- purely a different bake of the same artwork
-  // asset; this component never renders any of that text itself, so
-  // no rendering logic needed to change either way. The full
-  // composition (headline, sublines, tagline, logo) is already baked
-  // into the artwork itself and is deliberately generic -- no
-  // event-specific text or CTA is overlaid here, matching the brief's
-  // explicit "no duplicate text over the artwork" and "no feature
-  // columns, sales panels or large promotional buttons" requirements.
+  // Phase E (11 Oct) verification pass -- corrected static artwork
+  // supplied by the user, replacing the Task #59 Option B blur/DOM-text
+  // treatment. Because every word on this slide ("What a Great Event!",
+  // both sublines, and the tagline) is fixed copy with no per-event
+  // data, there is no actual need for a DOM text layer here -- the
+  // earlier blur treatment was solving a problem ("how do we style 'My
+  // Golf' without baking it into a static image") that doesn't apply
+  // once a corrected image with the right wording/emphasis already
+  // exists. This renders event-highlights-closing-v2.jpg full-bleed,
+  // crisp, with no blur and no overlay -- the "My Golf" gold/bold/
+  // underline emphasis is now part of the artwork itself, confirmed by
+  // direct visual inspection of the supplied image before wiring it in.
   return (
-    <div style={{ position: 'absolute', inset: 0, background: '#0a1410' }}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
+    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#0a1410' }}>
+      {/* eslint-disable-next-line @next/next/no-img-element -- the full, final slide artwork; no DOM text overlay needed */}
       <img
-        src="/images/event-highlights-closing.jpg"
-        alt="What a great event! Check out all your event memories and stats in MyGolf. See you at the next one. Run your golf event like a pro."
-        style={{ position: 'absolute', inset: 0, margin: 'auto', width: '100%', height: '100%', objectFit: 'contain' }}
+        src="/images/event-highlights-closing-v2.jpg"
+        alt="What a great event! Check out all your event memories and stats in My Golf. See you at the next one! Run your golf event like a pro."
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
       />
     </div>
   )

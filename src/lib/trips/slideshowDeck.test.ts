@@ -1164,6 +1164,15 @@ test('Event-at-a-Glance: a single round shows 1 Round, its own course name, its 
   assert.equal(slide.totalHoles, 18)
 })
 
+// -- Phase E (11 Oct): "EVENT SNAPSHOT" rebuild -- eventName field --
+
+test('Event-at-a-Glance: carries the event\'s own real name, not a second/hardcoded lookup', () => {
+  const data = baseData({ rounds: [round({ id: 'r1', ordinal: 1, holes: 18 })] })
+  const deck = buildPresentationDeck(data, fullEventConfig())
+  const slide = glanceSlide(deck.slides)!
+  assert.equal(slide.eventName, data.event.name)
+})
+
 test('Event-at-a-Glance: three rounds sums holes correctly and lists course names in chronological round order, not insertion order', () => {
   const data = baseData({
     rounds: [

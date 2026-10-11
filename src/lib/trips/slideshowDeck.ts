@@ -193,7 +193,11 @@ export type Slide =
   // slide itself already use) -- 0 for an event with no confirmed
   // champion yet, 1 for a sole winner, 2+ for a genuine tie. Never
   // fabricated and never silently collapsed to 1 when there's a tie.
-  | { kind: 'eventAtAGlance'; roundCount: number; courseNames: string[]; totalHoles: number; sideGameCount: number; championCount: number }
+  // Phase E (11 Oct) -- `eventName` added per the approved "EVENT
+  // SNAPSHOT" reference design, which shows the event's own name as
+  // part of the slide (the opening slide's eventName field, reused
+  // verbatim here too -- never a second lookup of the trip's name).
+  | { kind: 'eventAtAGlance'; eventName: string; roundCount: number; courseNames: string[]; totalHoles: number; sideGameCount: number; championCount: number }
   // Bloopers chapter divider -- only emitted when at least one
   // blooper clip genuinely exists, matching every other divider's
   // "no empty chapter" rule.
@@ -962,7 +966,7 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     // collapsing it to 1.
     const championCount = data.results.champion?.champions.length ?? 0
     slides.push({
-      kind: 'eventAtAGlance', roundCount: roundsInOrder.length, courseNames,
+      kind: 'eventAtAGlance', eventName: data.event.name, roundCount: roundsInOrder.length, courseNames,
       totalHoles, sideGameCount: data.sideGameCount, championCount,
     })
   }

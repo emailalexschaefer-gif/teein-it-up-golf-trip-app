@@ -37,10 +37,50 @@ interface GroupRow { groupId: string | null; groupName: string; players: PlayerR
 // card mid-round.
 const REASONS = ['Incorrect entry', 'Scoring dispute', 'Phone issue', 'Technical issue', 'Paper/manual scorecard', 'Other']
 
-export default function AdminScoreOverridePanel({ tripId, rounds }: { tripId: string; rounds: RoundOption[] }) {
+export default function AdminScoreOverridePanel({ tripId, rounds, myHqRoundId }: {
+  tripId: string
+  rounds: RoundOption[]
+  /**
+   * Phase E (11 Oct) — this panel used to pick its OWN default round
+   * independently (`rounds.find(active) ?? sort-by-play_date-desc`,
+   * with no tiebreaker beyond that, unlike the canonical
+   * sortRoundsChronologically/resolveFocusRound helpers used everywhere
+   * else) — confirmed as the actual cause of the reported "Score
+   * Management defaults to Round 1 while My HQ shows Round 3"
+   * inconsistency. `myHqRoundId` is My HQ's own currently-selected
+   * round (MyHQClient's `selected.id`), now mounted as a child of that
+   * same tree so it can be passed straight through, no new fetch. When
+   * provided, it is the INITIAL default AND is live-followed on every
+   * change — see the sync effect below — for as long as the organiser
+   * hasn't manually chosen a different round in this panel's own
+   * selector. A manual choice here is a deliberate, clearly-labelled
+   * independent selection (the dropdown itself is the label) and is
+   * preserved, not silently overridden back — the organiser can
+   * legitimately want to fix an old round's score while a different
+   * round is selected above. Optional/nullable so this component still
+   * works standalone (e.g. in a context with no My HQ selection to
+   * follow) with its old self-resolving fallback.
+   */
+  myHqRoundId?: string | null
+}) {
   const [selectedRoundId, setSelectedRoundId] = useState<string>(
-    rounds.find(r => r.status === 'active')?.id ?? [...rounds].sort((a, b) => b.play_date.localeCompare(a.play_date))[0]?.id ?? ''
+    myHqRoundId ?? rounds.find(r => r.status === 'active')?.id ?? [...rounds].sort((a, b) => b.play_date.localeCompare(a.play_date))[0]?.id ?? ''
   )
+  // Tracks whether the organiser has deliberately picked a round here
+  // that differs from My HQ's own selection — once true, this panel
+  // stops auto-following `myHqRoundId` changes, so their choice isn't
+  // silently clobbered the next time they click a different round in
+  // Event Schedule above. Reset to false whenever they pick the round
+  // that already matches `myHqRoundId` again (so switching back
+  // re-arms auto-follow, rather than staying permanently "stuck").
+  const [manuallyOverridden, setManuallyOverridden] = useState(false)
+
+  useEffect(() => {
+    if (myHqRoundId && !manuallyOverridden && myHqRoundId !== selectedRoundId) {
+      setSelectedRoundId(myHqRoundId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myHqRoundId, manuallyOverridden])
   const [groups, setGroups] = useState<GroupRow[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -95,15 +135,29 @@ export default function AdminScoreOverridePanel({ tripId, rounds }: { tripId: st
       </div>
 
       {rounds.length > 1 && (
-        <select
-          value={selectedRoundId}
-          onChange={e => setSelectedRoundId(e.target.value)}
-          style={{ width: '100%', marginBottom: 10, padding: '9px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontFamily: 'var(--font-body)', fontSize: 13, background: '#fff' }}
-        >
-          {[...rounds].sort((a, b) => a.play_date.localeCompare(b.play_date)).map(r => (
-            <option key={r.id} value={r.id}>{r.name} {r.status === 'active' ? '· LIVE' : '· Complete'}</option>
-          ))}
-        </select>
+        <>
+          <select
+            value={selectedRoundId}
+            onChange={e => {
+              const next = e.target.value
+              setSelectedRoundId(next)
+              // A manual pick that lands back on My HQ's own round
+              // re-arms auto-follow rather than leaving this panel
+              // permanently "stuck" on a one-off manual choice.
+              setManuallyOverridden(!!myHqRoundId && next !== myHqRoundId)
+            }}
+            style={{ width: '100%', marginBottom: 4, padding: '9px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontFamily: 'var(--font-body)', fontSize: 13, background: '#fff' }}
+          >
+            {[...rounds].sort((a, b) => a.play_date.localeCompare(b.play_date)).map(r => (
+              <option key={r.id} value={r.id}>{r.name} {r.status === 'active' ? '· LIVE' : '· Complete'}</option>
+            ))}
+          </select>
+          {myHqRoundId && (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 0, marginBottom: 10 }}>
+              {manuallyOverridden ? 'Viewing a different round from My HQ above.' : 'Following the round selected in My HQ above.'}
+            </p>
+          )}
+        </>
       )}
 
       {/* Package 3 final, item 2 — "two clearly separated organiser

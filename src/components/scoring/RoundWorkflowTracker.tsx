@@ -1,6 +1,6 @@
 'use client'
 
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { WorkflowStage, WorkflowStageId } from '@/lib/scoring/roundWorkflow'
 
 /**
@@ -16,6 +16,22 @@ import type { WorkflowStage, WorkflowStageId } from '@/lib/scoring/roundWorkflow
  * wizard, scroll to the live dashboard, open Close Round's own
  * confirmation, open Makers & Breakers, jump to Review & Present) —
  * this component only decides what to show, never what happens.
+ *
+ * Phase E (11 Oct), Task #55 — "Organiser Control Centre
+ * Consolidation." Renamed from "Guided Workflow" to "Round Control
+ * Centre" (dynamic per round name, per the approved brief), and every
+ * stage row is now independently expandable/collapsible via a chevron
+ * on the row header. `expandedStages`/`onToggleStage` are CONTROLLED
+ * from the caller (MyHQClient) rather than owned here, specifically so
+ * the caller can auto-expand the current actionable stage once per
+ * round selection and can also expand a stage programmatically when
+ * its own primary action is pressed (e.g. "Close Round" expanding
+ * Stage 2/3 before scrolling to the embedded Close Round control) —
+ * this component stays a pure, controlled renderer, same as before.
+ * `renderBody`, when supplied, renders the caller's real embedded
+ * content for a stage directly beneath its detail text whenever that
+ * stage is expanded — still never anything this component invents or
+ * owns itself.
  *
  * Visual language, per the approved brief:
  *   - green  = genuinely complete
@@ -59,23 +75,31 @@ const containerStyle: CSSProperties = {
 }
 
 export default function RoundWorkflowTracker({
-  roundName, stages, primaryStageId, onAction,
+  roundName, stages, primaryStageId, onAction, expandedStages, onToggleStage, renderBody,
 }: {
   roundName: string
   stages: WorkflowStage[]
   primaryStageId: WorkflowStageId | null
   /** Caller's existing handler for a stage's action button — this component owns no mutation logic. */
   onAction: (stageId: WorkflowStageId) => void
+  /** Which stages are currently expanded — controlled by the caller. */
+  expandedStages: Set<WorkflowStageId>
+  /** Toggle a stage's own expand/collapse — never touches any other stage's state. */
+  onToggleStage: (stageId: WorkflowStageId) => void
+  /** The caller's real embedded content for a stage, shown only while that stage is expanded. */
+  renderBody?: (stageId: WorkflowStageId) => ReactNode
 }) {
   return (
     <div style={containerStyle}>
       <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-        {roundName} — Guided Workflow
+        {roundName} — Round Control Centre
       </div>
       {stages.map((stage, index) => {
         const state = visualState(stage, primaryStageId)
         const meta = STATE_META[state]
         const isLast = index === stages.length - 1
+        const isExpanded = expandedStages.has(stage.id)
+        const body = renderBody?.(stage.id)
         return (
           <div key={stage.id} style={{ display: 'flex', gap: 10 }}>
             {/* Connector rail */}
@@ -95,15 +119,30 @@ export default function RoundWorkflowTracker({
             </div>
 
             <div style={{ flex: 1, minWidth: 0, paddingBottom: isLast ? 0 : 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: state === 'upcoming' ? '#9ca3af' : '#1a1a16' }}>
-                  {stage.label}
+              {/* Row header is its own button (not the whole row) so the
+                  existing primary/accessible action buttons below keep
+                  working as independent click targets, un-nested inside
+                  another button (which the DOM disallows) and un-changed
+                  in behaviour. */}
+              <button
+                onClick={() => onToggleStage(stage.id)}
+                aria-expanded={isExpanded}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                  background: 'none', border: 'none', padding: 0, margin: 0, cursor: 'pointer', textAlign: 'left',
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+                  <span style={{ color: '#c4c0b4', fontSize: 11, flexShrink: 0, transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s ease' }}>▸</span>
+                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: state === 'upcoming' ? '#9ca3af' : '#1a1a16' }}>
+                    {stage.label}
+                  </span>
                 </span>
                 <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 800, color: meta.text, textTransform: 'uppercase', letterSpacing: 0.4, flexShrink: 0 }}>
                   {meta.badge}
                 </span>
-              </div>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: state === 'upcoming' ? '#c4c0b4' : '#7a7260', marginTop: 2 }}>
+              </button>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: state === 'upcoming' ? '#c4c0b4' : '#7a7260', marginTop: 2, paddingLeft: 17 }}>
                 {stage.detail}
               </div>
 
@@ -144,6 +183,12 @@ export default function RoundWorkflowTracker({
                 >
                   Review again →
                 </button>
+              )}
+
+              {isExpanded && body != null && (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #f0eee6' }}>
+                  {body}
+                </div>
               )}
             </div>
           </div>

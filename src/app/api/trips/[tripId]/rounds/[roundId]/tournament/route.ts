@@ -16,6 +16,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { detectSharedDeviceGroup } from '@/lib/scoring/sharedDeviceScoring'
 import { computeHolePlayOrder } from '@/lib/scoring/holeSequence'
+import { describeRoundWinner } from '@/lib/scoring/roundWinnerAnnouncement'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -677,10 +678,17 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   // the "do not fabricate" violation the brief explicitly warns against.
   const highlights: string[] = []
   if (roundRes.data.status === 'completed' && ranked.length > 0) {
-    const winner = ranked[0]
-    const runnerUp = ranked[1]
-    if (runnerUp) highlights.push(`🏆 ${winner.name} wins by ${winner.totalPts - runnerUp.totalPts} Stableford point${winner.totalPts - runnerUp.totalPts === 1 ? '' : 's'}`)
-    else if (winner) highlights.push(`🏆 ${winner.name} wins`)
+    // Phase E (11 Oct) -- results-integrity fix, extracted to
+    // describeRoundWinner() (src/lib/scoring/roundWinnerAnnouncement.ts)
+    // so it's independently unit-tested rather than only exercisable
+    // through a live round. See that file's own header comment for the
+    // full root-cause explanation. This is copy-only: `ranked`'s own
+    // ordering (above), the leaderboard snapshot, and the authoritative
+    // champion-determination path (determineChampions(), which already
+    // correctly returns every player tied at position 1) are all
+    // untouched -- only how a tie at the top is WORDED here changes.
+    const winnerLine = describeRoundWinner(ranked)
+    if (winnerLine) highlights.push(winnerLine)
     if (birdies > 0) highlights.push(`⛳ ${birdies} birdie${birdies === 1 ? '' : 's'} recorded today`)
     if (eagles > 0) highlights.push(`🦅 ${eagles} eagle${eagles === 1 ? '' : 's'} recorded today`)
     if (holeInOnes > 0) highlights.push(`⛳ ${holeInOnes} hole-in-one${holeInOnes === 1 ? '' : 's'} recorded today`)
