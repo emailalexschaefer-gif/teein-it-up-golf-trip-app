@@ -211,7 +211,11 @@ export type Slide =
   // independent (migration 090): a Blooper can now be a photo as
   // honestly as a video. mediaType tells the player which way to
   // render it; durationSeconds is only ever meaningful for video.
-  | { kind: 'blooper'; momentId: string; mediaType: 'photo' | 'video'; imageUrl: string | null; durationSeconds: number | null; playerName: string | null; caption: string | null }
+  // `isBlooper` (12 Oct) -- display-only, additive and optional: lets the
+  // player label a true Blooper "BLOOPERS" and an unassigned event Moment
+  // that rides in the same "Moments & Bloopers" chapter "EVENT MOMENTS".
+  // It does not feed selection, ordering or inclusion in any way.
+  | { kind: 'blooper'; momentId: string; mediaType: 'photo' | 'video'; imageUrl: string | null; durationSeconds: number | null; playerName: string | null; caption: string | null; isBlooper?: boolean }
   // Round Winner -- V1.5 (15 Sep). Derived from existing round-scoped
   // scoring (eventMemoryData.ts's own round.winners, itself from
   // determineRoundWinners -- never fabricated, never conflated with
@@ -518,7 +522,7 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], gro
     for (const b of bloopers) {
       slides.push({
         kind: 'blooper', momentId: b.momentId, mediaType: b.mediaType as 'photo' | 'video', imageUrl: b.imageUrl,
-        durationSeconds: b.durationSeconds, playerName: b.playerName, caption: b.caption,
+        durationSeconds: b.durationSeconds, playerName: b.playerName, caption: b.caption, isBlooper: b.isBlooper,
       })
     }
   }

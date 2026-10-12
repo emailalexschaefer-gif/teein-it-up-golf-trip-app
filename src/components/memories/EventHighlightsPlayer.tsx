@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import type { Slide } from '@/lib/trips/slideshowDeck'
+import { snapshotTitleCqw, splitCourseName, pillarboxCqw, momentsLabelPlacement, momentsLabelHeading } from '@/lib/trips/presentationLayout'
 
 /**
  * Event Memories V1.2 (12 Sep) -- the Event Highlights fullscreen
@@ -145,6 +146,14 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
   const [playing, setPlaying] = useState(true)
   const [controlsVisible, setControlsVisible] = useState(true)
   const [failedUrls, setFailedUrls] = useState<Set<string>>(new Set())
+  // Presentation UX polish (12 Oct) -- the current photo/video's natural
+  // size, keyed by momentId, so the "Relive it in My Golf" label can sit
+  // in real pillarbox space (or fall back to a small corner pill) instead
+  // of guessing. Nothing is rendered until the size is known.
+  const [mediaSize, setMediaSize] = useState<{ key: string; w: number; h: number } | null>(null)
+  const reportMediaSize = useCallback((key: string, w: number, h: number) => {
+    if (w > 0 && h > 0) setMediaSize(prev => (prev && prev.key === key && prev.w === w && prev.h === h) ? prev : { key, w, h })
+  }, [])
   // V1.18 (10 Oct), Package 5.2 -- "Audio = Muted" is the aftershow's
   // own explicit default setting (an ambient, background-slideshow
   // chapter playing while guests socialise, not a sudden burst of
@@ -388,6 +397,7 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
             <img
               src={slide.imageUrl} alt={slide.caption ?? 'Event memory'}
               style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+              onLoad={visible ? (e) => reportMediaSize(slide.momentId, e.currentTarget.naturalWidth, e.currentTarget.naturalHeight) : undefined}
               onError={() => setFailedUrls(prev => new Set(prev).add(slide.imageUrl!))}
             />
           </>
@@ -416,6 +426,12 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
         position: 'relative', background: '#000', overflow: 'hidden',
         width: 'min(100vw, calc(100vh * 16 / 9))',
         height: 'min(100vh, calc(100vw * 9 / 16))',
+        // Presentation UX polish (12 Oct) -- makes this canvas a size
+        // container so slides can size type in `cqw` (1% of the CANVAS
+        // width) instead of `vw` (1% of the device viewport). On a
+        // letterboxed phone the two differ a lot, which is why vw-sized
+        // Event Snapshot text overflowed the slide in real testing.
+        containerType: 'inline-size',
       }}>
         {/* Preload current + adjacent photo slides only -- never the whole deck. */}
         {renderPhoto(isPhoto(slides[index - 1]) ? slides[index - 1] as Extract<Slide, { kind: 'photo' }> : undefined, false)}
@@ -428,6 +444,18 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
             videoRef={videoRef}
             videoMuted={videoMuted}
             onVideoFailed={() => advance()}
+            onMediaSize={reportMediaSize}
+          />
+        )}
+
+        {/* "Relive it in My Golf -> Moments" source label -- photo Moments
+            and Blooper photos/videos only (never group photo, winner,
+            champion or any other slide). Sits above the media, below the
+            controls layer, and never intercepts a tap. */}
+        {(isPhoto(current) || isBlooper(current)) && mediaSize && mediaSize.key === current.momentId && (
+          <MomentsSourceLabel
+            heading={momentsLabelHeading(isBlooper(current) ? current.isBlooper : undefined)}
+            aspect={mediaSize.w / mediaSize.h}
           />
         )}
 
@@ -572,11 +600,12 @@ function PresentationPhoto({ imageUrl, overlay, children }: { imageUrl: string |
   )
 }
 
-function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
+function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize }: {
   slide: Slide
   videoRef: React.RefObject<HTMLVideoElement | null>
   videoMuted: boolean
   onVideoFailed: () => void
+  onMediaSize?: (momentId: string, w: number, h: number) => void
 }) {
   if (slide.kind === 'opening') {
     // V1.4 completion patch (14 Sep) -- the supplied 16:9 golf-course
@@ -663,6 +692,30 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
     // (slideshowDeck.ts's championCount, sourced from the same
     // authoritative champions array the Champion slide itself uses).
     // No date is shown anywhere on this slide, per the approved brief.
+    // Presentation UX polish (12 Oct) -- layout rebuilt as ONE 16:9
+    // composition sized in `cqw` (1% of the canvas width), designed
+    // against the approved 1672x941 reference, instead of independent
+    // vw-clamped elements. Real Samsung testing showed vw-sized text
+    // overflowing the letterboxed canvas: the long title wrapped to two
+    // huge lines, crowding the stats, and the Rounds column (centred at
+    // 18% of width, over the golf ball) put the course names on top of
+    // the ball. Columns now sit where the reference puts them: Rounds
+    // 19-35.89% (clear of the ball, which ends ~18%), then the three
+    // columns bounded by the artwork's own measured dividers.
+    // Reference title is ~5.2cqw for a ~22-character name; longer names
+    // scale down proportionally (see snapshotTitleCqw).
+    const titleCqw = snapshotTitleCqw(slide.eventName)
+    const courseCqw = slide.courseNames.length > 4 ? 1.3 : 1.6
+    const ICON = '2.5cqw'
+    const statCols: { left: number; width: number; value: number; label: React.ReactNode; icon: React.ReactNode; courses?: boolean }[] = [
+      { left: 19, width: 16.89, value: slide.roundCount, label: `Round${slide.roundCount === 1 ? '' : 's'}`, icon: <GoldFlagIcon size={ICON} />, courses: true },
+      { left: 35.89, width: 14.62, value: slide.totalHoles, label: `Hole${slide.totalHoles === 1 ? '' : 's'}`, icon: <GoldFlagIcon size={ICON} /> },
+      { left: 50.51, width: 14.44, value: slide.sideGameCount, label: `Side Game${slide.sideGameCount === 1 ? '' : 's'}`, icon: <GoldClubsIcon size={ICON} /> },
+      // Live championCount -- never hardcoded; correctly shows 0 (no
+      // confirmed champion yet) or 2+ (a genuine tie).
+      { left: 64.95, width: 16.65, value: slide.championCount, label: 'Event Champion', icon: <GoldCrownIcon size={ICON} /> },
+    ]
+    const ruleStyle = (dir: 'l' | 'r'): React.CSSProperties => ({ flex: '0 0 16cqw', height: 1, background: `linear-gradient(to ${dir === 'l' ? 'right' : 'left'}, transparent, #e8c96a)` })
     return (
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
         {/* eslint-disable-next-line @next/next/no-img-element -- the approved photographic background; decorative, all real content is the DOM text below */}
@@ -673,53 +726,47 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
         />
 
-        {/* Top zone -- the mandatory "EVENT SNAPSHOT" heading, then the
-            event's own (dynamic) name beneath it. No logo here -- it's
-            already part of the artwork, bottom-right. */}
-        <div style={{ position: 'absolute', left: 0, right: 0, top: '6%', textAlign: 'center', padding: '0 6%' }}>
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 4.2vw, 40px)', fontWeight: 800, color: '#fff', letterSpacing: 1, textShadow: '0 2px 10px rgba(0,0,0,0.6)' }}>{slide.eventName}</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(14px, 2.1vw, 22px)', color: '#fbbf24', marginTop: 8, fontWeight: 700, letterSpacing: 3, textShadow: '0 2px 10px rgba(0,0,0,0.6)' }}>EVENT SNAPSHOT</p>
+        {/* Title block -- the event's own (dynamic) name, then the
+            mandatory "EVENT SNAPSHOT" heading directly beneath it. No
+            logo here: it is part of the artwork, bottom-right. */}
+        <div style={{ position: 'absolute', left: '6%', right: '6%', top: '5.5%', textAlign: 'center' }}>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: `${titleCqw}cqw`, fontWeight: 800, color: '#fff', lineHeight: 1.08, letterSpacing: '0.01em', overflowWrap: 'anywhere', textShadow: '0 0.2cqw 1cqw rgba(0,0,0,0.65), 0 0.05cqw 0.2cqw rgba(0,0,0,0.9)' }}>{slide.eventName}</p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1.6cqw', marginTop: '0.9cqw' }}>
+            <span style={ruleStyle('l')} />
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: '2cqw', fontWeight: 700, color: '#fbbf24', letterSpacing: '0.32em', paddingLeft: '0.32em', whiteSpace: 'nowrap', textShadow: '0 0.1cqw 0.6cqw rgba(0,0,0,0.7)' }}>EVENT SNAPSHOT</p>
+            <span style={ruleStyle('r')} />
+          </div>
         </div>
 
-        {/* Statistics band -- vertically centred between the heading
-            block above and the bottom edge, aligned to this image's own
-            baked divider lines. */}
-        <div style={{ position: 'absolute', left: 0, right: 0, top: '38%', bottom: '8%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', width: '100%', height: '100%', position: 'relative' }}>
-            {/* Column 1 -- Rounds, 0-35.89% of width (matches the
-                artwork's first baked divider line). */}
-            <div style={{ width: '35.89%', textAlign: 'center', minWidth: 0, padding: '0 clamp(4px, 1.2vw, 14px)' }}>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 6.2vw, 60px)', fontWeight: 800, color: '#fff', lineHeight: 1, ...numeralShadow }}>{slide.roundCount}</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9.5px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 5, ...labelShadow }}>Round{slide.roundCount === 1 ? '' : 's'}</p>
-              {slide.courseNames.length > 0 && (
-                <div style={{ marginTop: 6 }}>
-                  {slide.courseNames.map((name, i) => (
-                    <p key={i} style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(7.5px, 0.9vw, 11px)', color: '#e5e7eb', lineHeight: 1.35, overflowWrap: 'break-word', marginTop: i === 0 ? 0 : 2, textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{name}</p>
-                  ))}
+        {/* Statistics -- four equally prominent columns on one row, each
+            positioned against the artwork's own baked divider lines
+            (35.89% / 50.51% / 64.95%). */}
+        <div style={{ position: 'absolute', left: 0, right: 0, top: '29.5%' }}>
+          {statCols.map(col => (
+            <div key={col.left} style={{ position: 'absolute', top: 0, left: `${col.left}%`, width: `${col.width}%`, textAlign: 'center', minWidth: 0 }}>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: '4.9cqw', fontWeight: 800, color: '#fff', lineHeight: 1, ...numeralShadow }}>{col.value}</p>
+              <div style={{ marginTop: '0.6cqw', display: 'flex', justifyContent: 'center' }}>{col.icon}</div>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: '1.45cqw', letterSpacing: '0.07em', color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: '0.5cqw', whiteSpace: 'nowrap', ...labelShadow }}>{col.label}</p>
+              {col.courses && slide.courseNames.length > 0 && (
+                // Wider than the column on purpose (the reference lets
+                // the longest line run past the divider's lower end) and
+                // left-aligned from just right of the golf ball, with
+                // "Club — Course" split onto two lines as in the
+                // reference so long names never need to wrap mid-name.
+                <div style={{ marginTop: '1.3cqw', marginLeft: '1.9cqw', width: '23cqw', textAlign: 'left' }}>
+                  {slide.courseNames.map((name, i) => {
+                    const { club, course } = splitCourseName(name)
+                    return (
+                      <p key={i} style={{ fontFamily: 'var(--font-display)', fontSize: `${courseCqw}cqw`, fontWeight: 500, color: '#f3f4f6', lineHeight: 1.25, overflowWrap: 'anywhere', marginTop: i === 0 ? 0 : '0.8cqw', textShadow: '0 0.1cqw 0.5cqw rgba(0,0,0,0.95), 0 0 0.2cqw rgba(0,0,0,0.9)' }}>
+                        {club}
+                        {course !== null && (<><br />{course}</>)}
+                      </p>
+                    )
+                  })}
                 </div>
               )}
             </div>
-            {/* Column 2 -- Holes, 35.89%-50.51% of width (14.62%). */}
-            <div style={{ width: '14.62%', textAlign: 'center', minWidth: 0, padding: '0 clamp(2px, 0.8vw, 10px)' }}>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 6.2vw, 60px)', fontWeight: 800, color: '#fff', lineHeight: 1, ...numeralShadow }}>{slide.totalHoles}</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9.5px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 5, ...labelShadow }}>Hole{slide.totalHoles === 1 ? '' : 's'}</p>
-              <div style={{ marginTop: 7, display: 'flex', justifyContent: 'center' }}><GoldFlagIcon size="clamp(12px, 1.8vw, 20px)" /></div>
-            </div>
-            {/* Column 3 -- Side Games, 50.51%-64.95% of width (14.44%). */}
-            <div style={{ width: '14.44%', textAlign: 'center', minWidth: 0, padding: '0 clamp(2px, 0.8vw, 10px)' }}>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 6.2vw, 60px)', fontWeight: 800, color: '#fff', lineHeight: 1, ...numeralShadow }}>{slide.sideGameCount}</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9.5px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 5, ...labelShadow }}>Side Game{slide.sideGameCount === 1 ? '' : 's'}</p>
-              <div style={{ marginTop: 7, display: 'flex', justifyContent: 'center' }}><GoldClubsIcon size="clamp(12px, 1.8vw, 20px)" /></div>
-            </div>
-            {/* Column 4 -- Event Champion, 64.95%-100% of width (35.05%).
-                Live championCount -- never hardcoded, correctly shows
-                0 (no confirmed champion yet) or 2+ (a genuine tie). */}
-            <div style={{ width: '35.05%', textAlign: 'center', minWidth: 0, padding: '0 clamp(4px, 1.2vw, 14px)' }}>
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 6.2vw, 60px)', fontWeight: 800, color: '#fbbf24', lineHeight: 1, ...numeralShadow }}>{slide.championCount}</p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(9.5px, 1.3vw, 14px)', letterSpacing: 1.3, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, marginTop: 5, lineHeight: 1.25, ...labelShadow }}>Event<br />Champion</p>
-              <div style={{ marginTop: 7, display: 'flex', justifyContent: 'center' }}><GoldCrownIcon size="clamp(12px, 1.8vw, 20px)" /></div>
-            </div>
-          </div>
+          ))}
         </div>
       </div>
     )
@@ -1030,6 +1077,7 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
               muted={videoMuted}
               playsInline
               style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+              onLoadedMetadata={(e) => onMediaSize?.(slide.momentId, e.currentTarget.videoWidth, e.currentTarget.videoHeight)}
               onError={onVideoFailed}
             />
           ) : (
@@ -1038,7 +1086,7 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
         ) : (
           slide.imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={slide.imageUrl} alt={slide.caption ?? 'Blooper'} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+            <img src={slide.imageUrl} alt={slide.caption ?? 'Blooper'} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} onLoad={(e) => onMediaSize?.(slide.momentId, e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)} />
           ) : (
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#9ca3af' }}>Photo unavailable</p>
           )
@@ -1073,6 +1121,61 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed }: {
         alt="What a great event! Check out all your event memories and stats in My Golf. See you at the next one! Run your golf event like a pro."
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
       />
+    </div>
+  )
+}
+
+/**
+ * MomentsSourceLabel -- Presentation UX polish (12 Oct). A small, branded
+ * "this lives in My Golf" signature for Moment and Blooper slides, so
+ * players learn where to find the photo afterwards.
+ *
+ * Placement is decided by the media's real aspect ratio against the 16:9
+ * canvas (all sizes in `cqw`, 1% of canvas width; the canvas is 56.25cqw
+ * tall):
+ *  - Portrait/squarish media leaves pillarbox space either side. If that
+ *    space is wide enough, a branded green/gold card sits in the RIGHT
+ *    pillarbox, vertically centred -- clear of the photo, the close
+ *    button (top-right) and the mute button (bottom-right).
+ *  - Landscape media fills the frame, so a small translucent pill sits in
+ *    the top-left corner instead -- the lightest overlay possible, in the
+ *    area least likely to hold faces.
+ * The photo/video itself is never cropped, scaled or moved: this is an
+ * extra layer only. pointer-events are off so taps/seeks pass through.
+ */
+function MomentsSourceLabel({ heading, aspect }: { heading: string; aspect: number }) {
+  const placement = momentsLabelPlacement(aspect)
+  const sideSpace = pillarboxCqw(aspect)
+  const gold = '#fbbf24'
+  const card: React.CSSProperties = {
+    background: 'linear-gradient(160deg, rgba(10,43,26,0.86), rgba(20,83,45,0.78))',
+    border: '1px solid rgba(232,201,106,0.55)',
+    boxShadow: '0 0.3cqw 1.4cqw rgba(0,0,0,0.45)',
+  }
+  // Only genuinely portrait/square media gets the side card; squarer-than-
+  // that leaves too little pillarbox to read on a phone, so it uses the
+  // corner pill (see momentsLabelPlacement).
+  if (placement.mode === 'side') {
+    const font = Math.min(1.7, Math.max(1.2, (sideSpace - 3) / 9.2))
+    return (
+      <div aria-hidden style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: `${sideSpace}cqw`, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+        <div style={{ ...card, boxSizing: 'border-box', width: `${sideSpace - 2.4}cqw`, borderRadius: '1cqw', padding: '1.4cqw 1cqw', textAlign: 'center' }}>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: `${font}cqw`, fontWeight: 800, letterSpacing: '0.12em', color: gold }}>{heading}</p>
+          <div style={{ width: '40%', height: 1, background: 'rgba(232,201,106,0.7)', margin: '0.9cqw auto' }} />
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: `${font * 0.82}cqw`, lineHeight: 1.35, color: '#fff', fontWeight: 600 }}>
+            Relive it in<br /><span style={{ color: gold, fontWeight: 800 }}>My Golf &rarr; Moments</span>
+          </p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: `${font * 0.6}cqw`, letterSpacing: '0.18em', color: 'rgba(255,255,255,0.7)', fontWeight: 700, marginTop: '1cqw' }}>TEEIN&rsquo; IT UP</p>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div aria-hidden style={{ position: 'absolute', top: '2cqw', left: '2cqw', pointerEvents: 'none', ...card, borderRadius: '0.8cqw', padding: '0.7cqw 1.3cqw' }}>
+      <p style={{ fontFamily: 'var(--font-display)', fontSize: '1.5cqw', fontWeight: 800, letterSpacing: '0.12em', color: gold }}>{heading}</p>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: '1.4cqw', color: '#fff', fontWeight: 600, marginTop: '0.2cqw' }}>
+        Relive it in <span style={{ color: gold, fontWeight: 800 }}>My Golf &rarr; Moments</span>
+      </p>
     </div>
   )
 }

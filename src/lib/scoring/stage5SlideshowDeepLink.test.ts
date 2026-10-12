@@ -31,11 +31,13 @@ test('Memories page reads the startSlideshow/roundId query params via useSearchP
   assert.match(memoriesPageSrc, /searchParams\.get\('roundId'\)/)
 })
 
-test('the deep link calls chooseScope() -- the same function a manual round/Full-Event tap already calls -- never a second config path', () => {
+test('the deep link only PRE-SELECTS a scope (12 Oct UX polish) -- the popup opens later, via Create Slideshow calling the same chooseScope() a manual pick calls, never a second config path', () => {
   const deepLinkEffect = memoriesPageSrc.match(/useEffect\(\(\) => \{\s*if \(deepLinkHandled[\s\S]*?\n {2}\}, \[manifest, deepLinkHandled\]\)/)
   assert.ok(deepLinkEffect, 'expected to find the deep-link effect')
-  assert.match(deepLinkEffect![0], /chooseScope\(\{ kind: 'fullEvent' \}\)/)
-  assert.match(deepLinkEffect![0], /chooseScope\(\{ kind: 'round', roundId: roundId! \}\)/)
+  assert.match(deepLinkEffect![0], /setPendingScope\(\{ kind: 'fullEvent' \}\)/)
+  assert.match(deepLinkEffect![0], /setPendingScope\(\{ kind: 'round', roundId: roundId! \}\)/)
+  assert.ok(!/chooseScope\(/.test(deepLinkEffect![0]), 'the deep link must not open the memories popup itself')
+  assert.match(memoriesPageSrc, /if \(pendingScope\) chooseScope\(pendingScope\); else setSlideshowStep\('scope'\)/)
 })
 
 test('an unknown/mismatched round id is handled safely -- chooseScope is only called once roundExists is confirmed against the loaded manifest', () => {

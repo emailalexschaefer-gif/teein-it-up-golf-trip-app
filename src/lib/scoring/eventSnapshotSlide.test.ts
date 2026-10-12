@@ -56,20 +56,23 @@ test('no separate logo <img> is layered on top -- the logo and tagline are part 
 })
 
 test('the four live data columns (rounds/holes/side games/champion) are preserved unchanged, including live championCount (never hardcoded)', () => {
-  assert.match(glanceBranch, /\{slide\.roundCount\}/)
-  assert.match(glanceBranch, /\{slide\.totalHoles\}/)
-  assert.match(glanceBranch, /\{slide\.sideGameCount\}/)
-  assert.match(glanceBranch, /\{slide\.championCount\}/)
+  // 12 Oct layout rebuild: the four values feed one statCols array (one
+  // shared numeral style) rather than four hand-written JSX blocks.
+  assert.match(glanceBranch, /value: slide\.roundCount/)
+  assert.match(glanceBranch, /value: slide\.totalHoles/)
+  assert.match(glanceBranch, /value: slide\.sideGameCount/)
+  assert.match(glanceBranch, /value: slide\.championCount/)
 })
 
-test('no column divider lines are drawn in CSS -- they are baked into the supplied artwork, and the stat columns are measured to align with them', () => {
+test('no column divider lines are drawn in CSS -- they are baked into the supplied artwork, and the stat columns are positioned against the dividers measured from it', () => {
   assert.ok(!/\[34\.2, 50\.2, 66\.6\]\.map/.test(glanceBranch), 'CSS-drawn divider lines should be gone now that the artwork has its own')
-  // Column widths sum to 100% and match the positions measured
-  // directly from this specific image's own baked divider lines.
-  assert.match(glanceBranch, /width: '35\.89%'/)
-  assert.match(glanceBranch, /width: '14\.62%'/)
-  assert.match(glanceBranch, /width: '14\.44%'/)
-  assert.match(glanceBranch, /width: '35\.05%'/)
-  const total = 35.89 + 14.62 + 14.44 + 35.05
-  assert.ok(Math.abs(total - 100) < 0.01, `column widths should sum to 100%, got ${total}`)
+  // 12 Oct layout rebuild: columns are absolutely positioned. The three
+  // inner column edges are the artwork's measured divider x-positions
+  // (35.89 / 50.51 / 64.95%); the Rounds column starts at 19% so its
+  // course list stays clear of the golf ball (which ends ~18%).
+  assert.match(glanceBranch, /left: 19, width: 16\.89/)
+  assert.match(glanceBranch, /left: 35\.89, width: 14\.62/)
+  assert.match(glanceBranch, /left: 50\.51, width: 14\.44/)
+  assert.match(glanceBranch, /left: 64\.95, width: 16\.65/)
+  assert.ok(Math.abs(19 + 16.89 - 35.89) < 0.001 && Math.abs(35.89 + 14.62 - 50.51) < 0.001 && Math.abs(50.51 + 14.44 - 64.95) < 0.001, 'each column should end exactly where the next divider begins')
 })

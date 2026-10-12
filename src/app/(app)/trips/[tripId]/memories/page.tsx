@@ -217,6 +217,17 @@ export default function EventMemoriesPage() {
   const router = useRouter()
   const pathname = usePathname()
   const [deepLinkHandled, setDeepLinkHandled] = useState(false)
+  // Presentation UX polish (12 Oct) -- real Samsung testing showed the
+  // deep link above landing the organiser straight inside the "Which
+  // Memories should we include?" popup, skipping this Event Memories
+  // home (group photo, Upload Moments, gallery) entirely. The deep link
+  // now only PRE-SELECTS the scope it was always going to use (and
+  // highlights the matching round chip) and leaves the popup closed; the
+  // organiser taps Create Slideshow, which reuses that scope via the
+  // very same chooseScope() a manual pick calls. Tapping a different
+  // round chip clears it, so Create Slideshow falls back to the normal
+  // scope picker rather than launching a stale scope.
+  const [pendingScope, setPendingScope] = useState<PresentationScope | null>(null)
   useEffect(() => {
     if (deepLinkHandled || !manifest) return
     const startSlideshow = searchParams.get('startSlideshow')
@@ -238,11 +249,15 @@ export default function EventMemoriesPage() {
     // only the URL is cleaned up.
     router.replace(pathname, { scroll: false })
     if (startSlideshow === 'event') {
-      chooseScope({ kind: 'fullEvent' })
+      setPendingScope({ kind: 'fullEvent' })
+      setFilterRoundId('all')
     } else {
       const roundId = searchParams.get('roundId')
       const roundExists = !!roundId && manifest.rounds.some(r => r.id === roundId)
-      if (roundExists) chooseScope({ kind: 'round', roundId: roundId! })
+      if (roundExists) {
+        setPendingScope({ kind: 'round', roundId: roundId! })
+        setFilterRoundId(roundId!)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [manifest, deepLinkHandled])
@@ -367,9 +382,24 @@ export default function EventMemoriesPage() {
       <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151', marginBottom: 4 }}>{manifest.event.name}</p>
 
       {photoCount === 0 ? (
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#9ca3af', marginTop: 20, textAlign: 'center' }}>
-          No event photos yet.<br />Photos and Moments captured during the event will appear here.
-        </p>
+        <>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#9ca3af', marginTop: 20, textAlign: 'center' }}>
+            No event photos yet.<br />Photos and Moments captured during the event will appear here.
+          </p>
+          {/* A slideshow never needed photos (scores/results slides), and
+              the My HQ deep link used to open it directly even at zero
+              photos. Now that the deep link only pre-selects scope, keep
+              that route alive here rather than leaving the organiser
+              with no way to create a presentation. */}
+          {isOrganiser && pendingScope && (
+            <button
+              onClick={() => chooseScope(pendingScope)}
+              style={{ display: 'block', width: '100%', marginTop: 16, padding: '10px 0', borderRadius: 8, border: 'none', background: '#1a4731', color: '#fff', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+            >
+              ▶ Create Slideshow
+            </button>
+          )}
+        </>
       ) : (
         <>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', marginBottom: 14 }}>
@@ -380,9 +410,9 @@ export default function EventMemoriesPage() {
 
           {/* Filter tabs */}
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 12, paddingBottom: 2 }}>
-            <button onClick={() => setFilterRoundId('all')} style={tabStyle(filterRoundId === 'all')}>All</button>
+            <button onClick={() => { setPendingScope(null); setFilterRoundId('all') }} style={tabStyle(filterRoundId === 'all')}>All</button>
             {manifest.rounds.map((r, i) => (
-              <button key={r.id} onClick={() => setFilterRoundId(r.id)} style={tabStyle(filterRoundId === r.id)}>R{i + 1}</button>
+              <button key={r.id} onClick={() => { setPendingScope(null); setFilterRoundId(r.id) }} style={tabStyle(filterRoundId === r.id)}>R{i + 1}</button>
             ))}
           </div>
 
@@ -398,7 +428,7 @@ export default function EventMemoriesPage() {
                 📷 {manifest.event.groupPhotoMomentId ? 'Group Photo ✓' : 'Group Photo'}
               </button>
               <button
-                onClick={() => setSlideshowStep('scope')}
+                onClick={() => { if (pendingScope) chooseScope(pendingScope); else setSlideshowStep('scope') }}
                 style={{
                   flex: 2, padding: '10px 0', borderRadius: 8, border: 'none',
                   background: '#1a4731', color: '#fff', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, cursor: 'pointer',

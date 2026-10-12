@@ -63,11 +63,14 @@ test('Slideshow deep link: deepLinkHandled is set exactly once, unconditionally,
   assert.equal(occurrences, 1, 'expected setDeepLinkHandled(true) exactly once')
   assert.match(deepLinkEffect![0], /if \(startSlideshow !== 'event' && startSlideshow !== 'round'\) return\s*\n\s*setDeepLinkHandled\(true\)/)
 })
-test('Slideshow deep link: an invalid/unmatched roundId never calls chooseScope at all -- it is still marked handled and the URL still cleaned up, so it degrades to the ordinary picker rather than retrying or erroring on every render', () => {
+test('Slideshow deep link: an invalid/unmatched roundId never sets a pending scope at all -- it is still marked handled and the URL still cleaned up, so it degrades to the ordinary picker rather than retrying or erroring on every render', () => {
   assert.match(memoriesPageSrc, /const roundExists = !!roundId && manifest\.rounds\.some\(r => r\.id === roundId\)/)
   const deepLinkEffect = memoriesPageSrc.match(/useEffect\(\(\) => \{\s*if \(deepLinkHandled[\s\S]*?\n {2}\}, \[manifest, deepLinkHandled\]\)/)
   assert.ok(deepLinkEffect)
-  assert.match(deepLinkEffect![0], /if \(roundExists\) chooseScope\(\{ kind: 'round', roundId: roundId! \}\)/)
+  // 12 Oct presentation UX polish: the deep link now only PRE-SELECTS the
+  // scope (the organiser lands on the Event Memories home and taps Create
+  // Slideshow) instead of opening the popup itself.
+  assert.match(deepLinkEffect![0], /if \(roundExists\) \{\s*setPendingScope\(\{ kind: 'round', roundId: roundId! \}\)/)
 })
 test('Slideshow deep link: once consumed, the startSlideshow/roundId params are stripped from the URL via router.replace -- so a later page refresh or restored tab on the same URL never silently re-launches the slideshow again', () => {
   const deepLinkEffect = memoriesPageSrc.match(/useEffect\(\(\) => \{\s*if \(deepLinkHandled[\s\S]*?\n {2}\}, \[manifest, deepLinkHandled\]\)/)
@@ -78,7 +81,7 @@ test('Slideshow deep link: once consumed, the startSlideshow/roundId params are 
   // opens the slideshow or silently falls through on an invalid round.
   const handledIdx = deepLinkEffect![0].indexOf('setDeepLinkHandled(true)')
   const cleanupIdx = deepLinkEffect![0].indexOf('router.replace(pathname')
-  const eventBranchIdx = deepLinkEffect![0].indexOf("chooseScope({ kind: 'fullEvent' })")
+  const eventBranchIdx = deepLinkEffect![0].indexOf("setPendingScope({ kind: 'fullEvent' })")
   assert.ok(handledIdx < cleanupIdx && cleanupIdx < eventBranchIdx, 'expected: set handled -> clean URL -> branch logic, in that order')
 })
 test('Slideshow deep link: router.replace is used, never router.push, so consuming the deep link does not add its own extra browser-back entry', () => {

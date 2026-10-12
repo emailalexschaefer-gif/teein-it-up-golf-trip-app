@@ -30,7 +30,7 @@ const src = readFileSync(resolve(here, '../../components/memories/EventHighlight
 // its own distinctive comment marker through the end of NonPhotoSlide.
 // (A bare "// closing" also appears inside an unrelated, earlier
 // comment elsewhere in this file, so anchor on the more specific line.)
-const closingBranch = src.slice(src.indexOf('// closing\n  // Phase E (11 Oct) verification pass'), src.indexOf('function navButtonStyle'))
+const closingBranch = src.slice(src.indexOf('// closing\n  // Phase E (11 Oct) verification pass'), src.indexOf('/**\n * MomentsSourceLabel'))
 assert.ok(closingBranch.length > 50, 'expected to find the closing-slide branch')
 
 test('the closing slide renders the corrected static artwork, full-bleed', () => {
