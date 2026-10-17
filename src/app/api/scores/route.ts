@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isCaptureAllowed } from '@/lib/scoring/captureMode'
+import { decideScoreWrite } from '@/lib/scoring/scoreWriteDecision'
 import { z } from 'zod'
 
 const ScoreSchema = z.object({
@@ -15,6 +16,8 @@ const ScoreSchema = z.object({
   (v) => (v.is_no_return && v.gross_score === null) || (!v.is_no_return && v.gross_score !== null),
   { message: 'gross_score must be null for a pick-up, and a number 1-20 otherwise' }
 )
+
+const LOCKED_MESSAGE = 'This score was set by the organiser and is locked'
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -132,57 +135,112 @@ export async function POST(request: Request) {
 
   if (!holeResult?.data) return NextResponse.json({ error: 'Hole not found in this round' }, { status: 422 })
 
-  // ── Idempotency: has this exact submission (by client_id) already landed? ──
+  // ── Ordering-safe write (Phase B, D1) ────────────────────────────────────
+  // The (scorecard, hole, role) row is the real target. The value with the
+  // LATEST entered_at wins, regardless of the order requests reach the
+  // server (see decideScoreWrite). That makes a retry after a timeout, a
+  // lost acknowledgement, or a late-arriving old request all safe: an
+  // identical resend is a no-op, an older value can never overwrite a newer
+  // correction, and a newer correction is never silently discarded.
+  const ROW_COLUMNS = 'id, scorecard_id, hole_id, capture_role, gross_score, is_no_return, client_id, entered_at, admin_overridden'
+  const incomingEnteredAt = entered_at ?? new Date().toISOString()
+
+  // client_id is globally UNIQUE. If it already belongs to a DIFFERENT
+  // record, this request can never be satisfied — reject it rather than
+  // let the unique constraint surface as a generic 500 the client would
+  // retry forever.
   const existingByClientId = await db
     .from('score_entries')
-    .select('id')
+    .select('id, scorecard_id, hole_id, capture_role')
     .eq('client_id', client_id)
     .maybeSingle()
 
-  if (existingByClientId?.data) {
-    return NextResponse.json({ message: 'Already recorded', conflict: true }, { status: 200 })
+  if (
+    existingByClientId?.data &&
+    (existingByClientId.data.scorecard_id !== scorecard_id ||
+      existingByClientId.data.hole_id !== hole_id ||
+      existingByClientId.data.capture_role !== capture_role)
+  ) {
+    return NextResponse.json({ error: 'client_id already used for a different score' }, { status: 409 })
   }
 
-  // ── Real upsert target: (scorecard_id, hole_id, capture_role) ────────────
-  // A self entry and a marker entry for the same hole are independent
-  // records — this is what makes them never collide with each other, while
-  // re-scoring the SAME role for the same hole still correctly updates
-  // rather than duplicating.
   const existingForRole = await db
     .from('score_entries')
-    .select('id')
+    .select(ROW_COLUMNS)
     .eq('scorecard_id', scorecard_id)
     .eq('hole_id', hole_id)
     .eq('capture_role', capture_role)
     .maybeSingle()
 
+  const decision = decideScoreWrite(existingForRole?.data ?? null, {
+    client_id, entered_at: incomingEnteredAt, gross_score, is_no_return,
+  })
+
+  // Acknowledge without writing. The body always carries the stored row so
+  // the client can verify WHAT is on the server before it marks anything
+  // synced (see src/lib/db/scoreAck.ts). `conflict: true` is kept on
+  // duplicates for clients that predate Phase B.
+  if (decision.action === 'duplicate') {
+    return NextResponse.json({ ...existingForRole.data, message: 'Already recorded', conflict: true, duplicate: true }, { status: 200 })
+  }
+  if (decision.action === 'stale') {
+    return NextResponse.json({ ...existingForRole.data, message: 'A newer score is already recorded', stale: true }, { status: 200 })
+  }
+  // Organiser-verified score: authoritative, never overwritten from here —
+  // not by a delayed offline submission, not by the organiser's own normal
+  // scoring screen. `stale: true` is kept so the client treats it as
+  // superseded; `locked: true` says why.
+  if (decision.action === 'locked') {
+    return NextResponse.json({ ...existingForRole.data, message: LOCKED_MESSAGE, stale: true, locked: true }, { status: 200 })
+  }
+
   const payload = {
     scorecard_id, hole_id, capture_role, gross_score, is_no_return,
     entered_by: user.id,
-    entered_at: entered_at ?? new Date().toISOString(),
+    entered_at: incomingEnteredAt,
     client_id,
   }
 
-  let entry, dbError
-  if (existingForRole?.data) {
-    ({ data: entry, error: dbError } = await db
+  if (decision.action === 'update') {
+    // The `entered_at <= incoming` condition is part of the UPDATE itself, so
+    // two concurrent requests cannot both pass the check above and then
+    // apply out of order. Zero rows updated means a newer value won the race.
+    const updated = await db
       .from('score_entries')
       .update(payload)
-      .eq('id', existingForRole.data.id)
-      .select()
-      .single())
-  } else {
-    ({ data: entry, error: dbError } = await db
-      .from('score_entries')
-      .insert(payload)
-      .select()
-      .single())
+      .eq('id', decision.rowId)
+      .lte('entered_at', incomingEnteredAt)
+      // An organiser override landing between the read above and this write
+      // must win: the guard is part of the UPDATE, so it cannot be raced.
+      .eq('admin_overridden', false)
+      .select(ROW_COLUMNS)
+
+    if (updated.error) {
+      console.error('[score] save failed', updated.error)
+      return NextResponse.json({ error: 'Failed to save score' }, { status: 500 })
+    }
+    const updatedRow = Array.isArray(updated.data) ? updated.data[0] : null
+    if (!updatedRow) {
+      const current = await db.from('score_entries').select(ROW_COLUMNS).eq('id', decision.rowId).maybeSingle()
+      if (!current?.data) return NextResponse.json({ error: 'Failed to save score' }, { status: 500 })
+      if (current.data.admin_overridden === true) {
+        return NextResponse.json({ ...current.data, message: LOCKED_MESSAGE, stale: true, locked: true }, { status: 200 })
+      }
+      return NextResponse.json({ ...current.data, message: 'A newer score is already recorded', stale: true }, { status: 200 })
+    }
+    return NextResponse.json(updatedRow, { status: 201 })
   }
 
-  if (dbError) {
-    console.error('[score] save failed', dbError)
+  const inserted = await db
+    .from('score_entries')
+    .insert(payload)
+    .select(ROW_COLUMNS)
+    .single()
+
+  if (inserted.error || !inserted.data) {
+    console.error('[score] save failed', inserted.error)
     return NextResponse.json({ error: 'Failed to save score' }, { status: 500 })
   }
 
-  return NextResponse.json(entry, { status: 201 })
+  return NextResponse.json(inserted.data, { status: 201 })
 }

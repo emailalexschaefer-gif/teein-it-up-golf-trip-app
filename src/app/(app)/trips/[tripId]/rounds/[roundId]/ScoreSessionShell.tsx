@@ -5,9 +5,10 @@ import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import { calculateStableford } from '@/lib/scoring/stableford'
 import { getHandicapStrokesForHole } from '@/lib/scoring/strokeAllocation'
-import { queueScoreEntry, getPendingCount, getQueuedEntriesForScorecards } from '@/lib/db/dexie'
+import { queueScoreEntryBounded, getPendingCount, getQueuedEntriesForScorecards } from '@/lib/db/dexie'
 import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
-import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
+import { useSyncStore } from '@/store/syncStore'
+import { deriveSyncStatus } from '@/lib/db/syncStatus'
 import PendingVerificationCard from '@/components/scoring/PendingVerificationCard'
 import SideCompEntryPanel from '@/components/scoring/SideCompEntryPanel'
 import { trackEvent } from '@/lib/analytics/trackEvent'
@@ -330,7 +331,9 @@ export default function ScoreSessionShell({
 
   const syncState    = useSyncStore(s => s.syncState)
   const pendingCount = useSyncStore(s => s.pendingCount)
-  const syncLabel    = useSyncStore(selectSyncLabel)
+  const online       = useSyncStore(s => s.online)
+  const lastFailure  = useSyncStore(s => s.lastFailure)
+  const rejectedCount = useSyncStore(s => s.rejectedCount)
 
   // Swipe
   const swipeStartX = useRef<number | null>(null)
@@ -621,7 +624,7 @@ export default function ScoreSessionShell({
     // unsynced entry queued, it's replaced in place (same operation id)
     // rather than creating a second queued write.
     try {
-      const clientId = await queueScoreEntry({
+      const clientId = await queueScoreEntryBounded({
         scorecardId: scoredCardId,
         holeId: scoredHole.id,
         captureRole: 'self',
@@ -639,7 +642,8 @@ export default function ScoreSessionShell({
         trackEvent('scoring_started', { tripId, roundId: round.id })
       }
     } catch {
-      showToast('Score saved locally — will sync when online')
+      // Phase B (D5) — the local write did not complete, so NOTHING was saved.
+      showToast('Score NOT saved on this phone — write it on the paper scorecard')
     }
   }
 
@@ -679,10 +683,10 @@ export default function ScoreSessionShell({
     return { bg: ptsBackground(p), label: String(g), sub: `${p}pt`, color: ptsColor(p) }
   }
 
-  const displaySyncLabel = pendingCount > 0 || syncState === 'syncing'
-    ? `⏳ ${syncLabel}`
-    : syncState === 'error' ? `⚠ ${syncLabel}`
-    : syncState === 'synced' ? '✓ Saved'
+  // Offline-scoring Phase B — wording derived from the real queue state.
+  const syncStatusView = deriveSyncStatus({ online, syncState, pendingCount, rejectedCount, lastFailure })
+  const displaySyncLabel = syncStatusView.label
+    ? `${({ progress: '⏳', warn: '⚠', bad: '⚠', ok: '✓', neutral: '' } as Record<string, string>)[syncStatusView.tone]} ${syncStatusView.label}`.trim()
     : ''
 
   // ── Render ─────────────────────────────────────────────────────────────────

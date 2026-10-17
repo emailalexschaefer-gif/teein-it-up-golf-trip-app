@@ -565,8 +565,8 @@ export default function EventMemoriesPage() {
 
       {/* Detail lightbox */}
       {detailMoment && (
-        <div onClick={() => setDetailMoment(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 50, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 16 }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, overflow: 'hidden', maxWidth: 480, margin: '0 auto', width: '100%' }}>
+        <div onClick={() => setDetailMoment(null)} style={wizardLightboxStyle}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, overflowX: 'hidden', overflowY: 'auto', maxHeight: '100%', maxWidth: 480, margin: '0 auto', width: '100%' }}>
             {detailMoment.imageUrl && detailMoment.mediaType === 'video' ? (
               // V1.4 completion patch (14 Sep) -- same <img>-cannot-
               // show-video fix as the grid thumbnail above.
@@ -636,8 +636,8 @@ export default function EventMemoriesPage() {
       {/* Step 1 -- Choose Scope: a round, or Full Event. Dynamically
           generated from manifest.rounds -- never hard-coded to three. */}
       {slideshowStep === 'scope' && manifest && (
-        <div onClick={() => setSlideshowStep('closed')} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 60, display: 'flex', alignItems: 'flex-end' }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: 20, width: '100%' }}>
+        <div onClick={() => setSlideshowStep('closed')} style={wizardBackdropStyle}>
+          <div onClick={e => e.stopPropagation()} style={wizardSheetStyle}>
             <p style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#1a1a16', marginBottom: 4 }}>Create Slideshow</p>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 12 }}>What&apos;s this presentation for?</p>
             {[...manifest.rounds].sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0)).map(r => (
@@ -658,8 +658,8 @@ export default function EventMemoriesPage() {
           sees and confirms this, rather than it being an implicit
           default only visible as a subtitle on a later screen. */}
       {slideshowStep === 'memories' && presentationConfig && manifest && (
-        <div onClick={() => setSlideshowStep('scope')} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 60, display: 'flex', alignItems: 'flex-end' }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: 20, width: '100%' }}>
+        <div onClick={() => setSlideshowStep('scope')} style={wizardBackdropStyle}>
+          <div onClick={e => e.stopPropagation()} style={wizardSheetStyle}>
             <button onClick={() => setSlideshowStep('scope')} style={{ border: 'none', background: 'none', fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151', cursor: 'pointer', marginBottom: 8, padding: 0 }}>Back</button>
             <p style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#1a1a16', marginBottom: 4 }}>Which Memories should we include?</p>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 14 }}>You can fine-tune this later.</p>
@@ -683,13 +683,11 @@ export default function EventMemoriesPage() {
           the explicit "Choose Memories" option above -- never entered
           implicitly by interacting with a preview elsewhere. */}
       {slideshowStep === 'chooseMemories' && presentationConfig && manifest && (
-        <div style={{ position: 'fixed', inset: 0, background: '#fff', zIndex: 65, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: 16, borderBottom: '1px solid #eceae3', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <button onClick={() => setSlideshowStep('memories')} style={{ border: 'none', background: 'none', fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151', cursor: 'pointer' }}>Back</button>
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#1a1a16' }}>{(presentationConfig.selectedMomentIds ?? []).length} selected</p>
-            <button onClick={() => setSlideshowStep('sections')} style={{ border: 'none', background: '#1a4731', color: '#fff', borderRadius: 8, padding: '7px 14px', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Done</button>
+        <div style={wizardScreenStyle}>
+          <div style={wizardHeaderStyle}>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#1a1a16', margin: '0 auto' }}>{(presentationConfig.selectedMomentIds ?? []).length} selected</p>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+          <div style={wizardBodyStyle}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
               {manifest.memories.filter(m => m.mediaType === 'photo' && presentationConfig.rounds.some(r => r.bestMoments && r.roundId === m.roundId)).map(m => {
                 const included = (presentationConfig.selectedMomentIds ?? []).includes(m.momentId)
@@ -708,6 +706,10 @@ export default function EventMemoriesPage() {
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', textAlign: 'center', padding: '20px 0' }}>No photos available yet.</p>
             )}
           </div>
+          <div style={wizardFooterStyle}>
+            <button onClick={() => setSlideshowStep('memories')} style={wizardSecondaryBtn}>Back</button>
+            <button onClick={() => setSlideshowStep('sections')} style={wizardPrimaryBtn}>Done</button>
+          </div>
         </div>
       )}
 
@@ -718,13 +720,11 @@ export default function EventMemoriesPage() {
           getAvailableSections reports as genuinely available are ever
           shown, per "gracefully suppress unavailable content." */}
       {slideshowStep === 'sections' && presentationConfig && manifest && (
-        <div style={{ position: 'fixed', inset: 0, background: '#fff', zIndex: 60, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: 16, borderBottom: '1px solid #eceae3', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <button onClick={() => setSlideshowStep('closed')} style={{ border: 'none', background: 'none', fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151', cursor: 'pointer' }}>Cancel</button>
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#1a1a16' }}>Choose Sections</p>
-            <button onClick={() => setSlideshowStep('review')} style={{ border: 'none', background: '#1a4731', color: '#fff', borderRadius: 8, padding: '7px 14px', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Next</button>
+        <div style={wizardScreenStyle}>
+          <div style={wizardHeaderStyle}>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#1a1a16', margin: '0 auto' }}>Choose Sections</p>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+          <div style={wizardBodyStyle}>
             {presentationConfig.scope.kind === 'round' ? (
               <SectionToggleGroup
                 title={manifest.rounds.find(r => r.id === presentationConfig.rounds[0]?.roundId)?.name ?? 'This Round'}
@@ -800,6 +800,10 @@ export default function EventMemoriesPage() {
               </>
             )}
           </div>
+          <div style={wizardFooterStyle}>
+            <button onClick={() => setSlideshowStep('closed')} style={wizardSecondaryBtn}>Cancel</button>
+            <button onClick={() => setSlideshowStep('review')} style={wizardPrimaryBtn}>Next</button>
+          </div>
         </div>
       )}
 
@@ -816,11 +820,9 @@ export default function EventMemoriesPage() {
           rr: previewDeck.slides.filter(s => s.kind === 'roundResults').length,
         }
         return (
-          <div style={{ position: 'fixed', inset: 0, background: '#fff', zIndex: 60, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: 16, borderBottom: '1px solid #eceae3', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <button onClick={() => setSlideshowStep('sections')} style={{ border: 'none', background: 'none', fontFamily: 'var(--font-body)', fontSize: 13, color: '#374151', cursor: 'pointer' }}>Back</button>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#1a1a16' }}>{previewDeck.slides.length} Slides</p>
-              <button onClick={playPresentation} style={{ border: 'none', background: '#1a4731', color: '#fff', borderRadius: 8, padding: '7px 14px', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>▶ Play</button>
+          <div style={wizardScreenStyle}>
+            <div style={wizardHeaderStyle}>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#1a1a16', margin: '0 auto' }}>{previewDeck.slides.length} Slides</p>
             </div>
             <div style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #f3f4f1' }}>
               <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af' }}>Duration per photo:</span>
@@ -828,7 +830,7 @@ export default function EventMemoriesPage() {
                 <button key={d} onClick={() => setSlideshowDuration(d)} style={{ padding: '4px 10px', borderRadius: 14, border: slideshowDuration === d ? 'none' : '1px solid #d9c9a3', background: slideshowDuration === d ? '#1a4731' : '#fff', color: slideshowDuration === d ? '#fff' : '#374151', fontFamily: 'var(--font-body)', fontSize: 11.5, cursor: 'pointer' }}>{d}s</button>
               ))}
             </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+            <div style={wizardBodyStyle}>
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, letterSpacing: 1, color: '#9ca3af', textTransform: 'uppercase', marginBottom: 10 }}>What&apos;s included</p>
               <div style={{ background: '#f8f4eb', borderRadius: 10, padding: 14, marginBottom: 18 }}>
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151', marginBottom: 4 }}>{sectionCounts.photo} photo{sectionCounts.photo === 1 ? '' : 's'}</p>
@@ -869,6 +871,10 @@ export default function EventMemoriesPage() {
                 </>
               )}
             </div>
+            <div style={wizardFooterStyle}>
+              <button onClick={() => setSlideshowStep('sections')} style={wizardSecondaryBtn}>Back</button>
+              <button onClick={playPresentation} style={wizardPrimaryBtn}>▶ Play</button>
+            </div>
           </div>
         )
       })()}
@@ -907,16 +913,15 @@ export default function EventMemoriesPage() {
         const includedIds = resolveAftershowMomentIds(manifest)
         const eligible = manifest.memories.filter(m => m.mediaType === 'photo' || m.mediaType === 'video')
         return (
-          <div style={{ position: 'fixed', inset: 0, background: '#fff', zIndex: 65, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: 16, borderBottom: '1px solid #eceae3', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#1a1a16' }}>{includedIds.size} in Aftershow</p>
-              <button onClick={() => setShowAftershowPicker(false)} style={{ border: 'none', background: '#1a4731', color: '#fff', borderRadius: 8, padding: '7px 14px', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Done</button>
+          <div style={wizardScreenStyle}>
+            <div style={wizardHeaderStyle}>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#1a1a16', margin: '0 auto' }}>{includedIds.size} in Aftershow</p>
             </div>
             <div style={{ padding: '10px 16px', display: 'flex', gap: 8, borderBottom: '1px solid #f3f4f1' }}>
               <button onClick={async () => { for (const m of eligible) await setAftershowIncluded(m.momentId, true) }} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid #1a4731', background: '#fff', color: '#1a4731', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Select All</button>
               <button onClick={async () => { for (const m of eligible) await setAftershowIncluded(m.momentId, false) }} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid #d9c9a3', background: '#fff', color: '#7a7260', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Clear All</button>
             </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+            <div style={wizardBodyStyle}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
                 {eligible.map(m => {
                   const included = includedIds.has(m.momentId)
@@ -939,6 +944,10 @@ export default function EventMemoriesPage() {
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', textAlign: 'center', padding: '20px 0' }}>No photos or videos available yet.</p>
               )}
             </div>
+            <div style={wizardFooterStyle}>
+              <span />
+              <button onClick={() => setShowAftershowPicker(false)} style={wizardPrimaryBtn}>Done</button>
+            </div>
           </div>
         )
       })()}
@@ -948,8 +957,8 @@ export default function EventMemoriesPage() {
           re-validates this on save (see the group-photo route), so a
           stale client-side list is never trusted on its own. */}
       {showGroupPhotoPicker && (
-        <div onClick={() => setShowGroupPhotoPicker(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 70, display: 'flex', alignItems: 'flex-end' }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: 20, width: '100%', maxHeight: '75vh', display: 'flex', flexDirection: 'column' }}>
+        <div onClick={() => setShowGroupPhotoPicker(false)} style={wizardBackdropStyle}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: '20px 20px calc(20px + env(safe-area-inset-bottom, 0px))', width: '100%', boxSizing: 'border-box', maxHeight: '75dvh', display: 'flex', flexDirection: 'column' }}>
             <p style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#1a1a16', marginBottom: 4 }}>Select Group Photo</p>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginBottom: 12 }}>This photo opens your Event Highlights, right after the title slide.</p>
             {manifest.event.groupPhotoMomentId && (
@@ -1006,7 +1015,7 @@ export default function EventMemoriesPage() {
         const effectiveSelection = pendingChampionPhoto !== undefined ? pendingChampionPhoto : manifest.event.championPhotoMomentId
         const hasChanges = pendingChampionPhoto !== undefined && pendingChampionPhoto !== manifest.event.championPhotoMomentId
         return (
-          <div onClick={() => setShowChampionPhotoPicker(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 70, display: 'flex', alignItems: 'flex-end' }}>
+          <div onClick={() => setShowChampionPhotoPicker(false)} style={wizardBackdropStyle}>
             <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '16px 16px 0 0', width: '100%', maxHeight: 'min(560px, 85dvh)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <div style={{ padding: '20px 20px 12px', flexShrink: 0 }}>
                 <p style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#1a1a16', marginBottom: 4 }}>Select Champion Photo</p>
@@ -1033,7 +1042,7 @@ export default function EventMemoriesPage() {
                   <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', textAlign: 'center', padding: '20px 0' }}>No photos available yet.</p>
                 )}
               </div>
-              <div style={{ flexShrink: 0, display: 'flex', gap: 8, padding: '12px 20px', borderTop: '1px solid #f0efe9' }}>
+              <div style={{ flexShrink: 0, display: 'flex', gap: 8, padding: '12px 20px calc(12px + env(safe-area-inset-bottom, 0px))', borderTop: '1px solid #f0efe9' }}>
                 {effectiveSelection && (
                   <button onClick={() => setPendingChampionPhoto(null)} style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #d9c9a3', background: '#fff', fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#7a7260', cursor: 'pointer' }}>
                     Remove
@@ -1124,6 +1133,61 @@ const exportMenuItemStyle: React.CSSProperties = {
   display: 'block', width: '100%', textAlign: 'left', padding: '11px 14px', border: 'none', borderBottom: '1px solid #f3f4f1',
   background: '#fff', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 600, color: '#374151', cursor: 'pointer',
 }
+/**
+ * iPhone wizard layout (15 Oct). Shared by every Create Slideshow step.
+ *
+ * Root cause of "Next is hidden on iPhone": the wizard screens were
+ * `position: fixed; inset: 0` at z-index 60/65, with the primary action
+ * in a header that had no safe-area padding. layout.tsx sets
+ * viewportFit: 'cover' + a black-translucent status bar, so on an iPhone
+ * the header drew under the status bar / Dynamic Island, and the
+ * persistent mobile TripBottomNav (fixed, z-index 100) painted OVER the
+ * bottom of every wizard screen. Fixes: sit above the nav (z 110), size
+ * to the dynamic viewport (100dvh, with `bottom: 0` as the fallback),
+ * pad the header/footer/body with env(safe-area-inset-*), and keep the
+ * primary action in a footer that is always visible below a
+ * separately-scrolling body.
+ */
+const WIZARD_Z = 110
+const wizardScreenStyle: React.CSSProperties = {
+  position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, height: '100dvh',
+  background: '#fff', zIndex: WIZARD_Z, display: 'flex', flexDirection: 'column',
+}
+const wizardHeaderStyle: React.CSSProperties = {
+  flexShrink: 0, padding: 'calc(12px + env(safe-area-inset-top, 0px)) 16px 12px', borderBottom: '1px solid #eceae3',
+  display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 44,
+}
+const wizardBodyStyle: React.CSSProperties = {
+  flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', padding: 16,
+}
+const wizardFooterStyle: React.CSSProperties = {
+  flexShrink: 0, display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between',
+  padding: '10px 16px calc(10px + env(safe-area-inset-bottom, 0px))', borderTop: '1px solid #eceae3', background: '#fff',
+}
+const wizardBackdropStyle: React.CSSProperties = {
+  position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, height: '100dvh',
+  background: 'rgba(0,0,0,0.6)', zIndex: WIZARD_Z, display: 'flex', alignItems: 'flex-end',
+}
+// Photo lightbox: same layer, dynamic viewport and safe-area contract as the
+// wizard, so its Download / Add to Aftershow row is never under the bottom nav.
+const wizardLightboxStyle: React.CSSProperties = {
+  position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, height: '100dvh', boxSizing: 'border-box',
+  background: 'rgba(0,0,0,0.85)', zIndex: WIZARD_Z, display: 'flex', flexDirection: 'column', justifyContent: 'center',
+  padding: 'calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px))',
+}
+const wizardSheetStyle: React.CSSProperties = {
+  background: '#fff', borderRadius: '16px 16px 0 0', width: '100%', boxSizing: 'border-box',
+  padding: '20px 20px calc(20px + env(safe-area-inset-bottom, 0px))',
+  maxHeight: '85dvh', overflowY: 'auto', overscrollBehavior: 'contain',
+}
+const wizardSecondaryBtn: React.CSSProperties = {
+  border: 'none', background: 'none', fontFamily: 'var(--font-body)', fontSize: 14, color: '#374151', cursor: 'pointer', minHeight: 44, padding: '0 8px',
+}
+const wizardPrimaryBtn: React.CSSProperties = {
+  border: 'none', background: '#1a4731', color: '#fff', borderRadius: 10, padding: '0 22px', minHeight: 46, minWidth: 120,
+  fontFamily: 'var(--font-body)', fontSize: 14.5, fontWeight: 700, cursor: 'pointer',
+}
+
 const sourceOptionStyle: React.CSSProperties = {
   display: 'flex', justifyContent: 'space-between', width: '100%', padding: '13px 14px', marginBottom: 6, borderRadius: 10,
   border: '1.5px solid #d9c9a3', background: '#fff', fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 600, color: '#1a1a16', cursor: 'pointer',

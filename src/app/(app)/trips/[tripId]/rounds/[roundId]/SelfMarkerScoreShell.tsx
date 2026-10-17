@@ -7,9 +7,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { calculateStableford } from '@/lib/scoring/stableford'
 import { getHandicapStrokesForHole } from '@/lib/scoring/strokeAllocation'
 import { compareCaptures, COMPARISON_LABEL, isZeroPointsMismatch, type ComparisonStatus, type CaptureValue } from '@/lib/scoring/comparison'
-import { queueScoreEntry, getPendingCount, getQueuedEntriesForScorecards } from '@/lib/db/dexie'
+import { queueScoreEntryBounded, getPendingCount, getQueuedEntriesForScorecards } from '@/lib/db/dexie'
 import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
-import { useSyncStore, selectSyncLabel } from '@/store/syncStore'
+import { useSyncStore } from '@/store/syncStore'
+import { deriveSyncStatus, canConfirmRound } from '@/lib/db/syncStatus'
+import SyncStatusBanner from '@/components/scoring/SyncStatusBanner'
+import { interpretSharedDeviceSave, type SharedDeviceSaveResult } from '@/lib/db/sharedDeviceSave'
 import { useScoringFocusStore } from '@/store/scoringFocusStore'
 import { trackEvent } from '@/lib/analytics/trackEvent'
 import LiveLeaderboard from '@/components/scoring/LiveLeaderboard'
@@ -184,6 +187,21 @@ async function fetchLiveScores(tripId: string, roundId: string): Promise<LiveSco
   if (!res.ok) throw new Error('Failed to refresh scores')
   return res.json()
 }
+
+// Offline-scoring Phase B — result of saving the current hole (see saveCurrentHoleData).
+type SaveOutcome = { ok: true } | { ok: false; kind: 'local' | 'partner'; message: string }
+
+// Everything the debounced draft auto-save needs, read at fire time (never
+// from a stale closure) so it always acts on the hole and values on screen NOW.
+interface DraftSnapshot {
+  holeId: string | null; holeNum: number
+  myCardId: string | null; markedCardId: string | null
+  mySelf: CaptureMap; partnerMarker: CaptureMap
+  draftMyGross: number | null; draftMyPickedUp: boolean
+  draftPartnerGross: number | null; draftPartnerPickedUp: boolean
+  lockedMine: boolean; lockedPartner: boolean; markerMode: boolean; sharedDevice: boolean
+}
+const DRAFT_AUTOSAVE_MS = 800
 
 function splitByRole(entries: ScoreEntryRow[], holes: Hole[]): { self: CaptureMap; marker: CaptureMap } {
   const holeNumberById = new Map(holes.map(h => [h.id, h.hole_number]))
@@ -392,6 +410,13 @@ export default function SelfMarkerScoreShell({
       setSubmitFinalError('Still saving your scores — please wait a moment and try again.')
       return
     }
+    {
+      const ids = [myScorecard?.id, markedScorecard?.id].filter((x): x is string => !!x)
+      if (useSyncStore.getState().rejectedEntries.some(e => ids.includes(e.scorecardId))) {
+        setSubmitFinalError('One or more of your scores was not accepted by the server and is still only on this phone. Open the banner above the scorecard to review it, or ask the organiser.')
+        return
+      }
+    }
     setSubmittingFinal(true)
     setSubmitFinalError('')
     try {
@@ -533,10 +558,17 @@ export default function SelfMarkerScoreShell({
   const confirmingRef = useRef(false)
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Phase B (D4/D5) — set when a hole's score could NOT be persisted; drives the blocking notice.
+  const [saveFailure, setSaveFailure] = useState<{ message: string; direction: 'forward' | 'backward' } | null>(null)
 
   const syncState = useSyncStore(s => s.syncState)
   const pendingCount = useSyncStore(s => s.pendingCount)
-  const syncLabel = useSyncStore(selectSyncLabel)
+  // Offline-scoring Phase B — everything the player is told about saving and
+  // syncing comes from the real queue state via deriveSyncStatus.
+  const online = useSyncStore(s => s.online)
+  const lastFailure = useSyncStore(s => s.lastFailure)
+  const rejectedCount = useSyncStore(s => s.rejectedCount)
+  const rejectedEntries = useSyncStore(s => s.rejectedEntries)
 
   const swipeStartX = useRef<number | null>(null)
   const swipeStartY = useRef<number | null>(null)
@@ -1000,85 +1032,104 @@ export default function SelfMarkerScoreShell({
   // (a) these calls are no longer gated behind canConfirm requiring
   // BOTH players' data to be complete before anything saves at all, and
   // (b) they're driven by navigation instead of a button press.
-  async function saveCurrentHoleData() {
-    if (!hole || !currentMy) return
+  // Offline-scoring Phase B (D4, D5) — this now REPORTS whether the score was
+  // really persisted, instead of swallowing every failure behind a
+  // misleading local-save toast.
+  //   - Own score and marker-partner score: written to IndexedDB through
+  //     queueScoreEntryBounded. The on-screen "saved" value (mySelf /
+  //     partnerMarker) is updated only AFTER IndexedDB has committed, and a
+  //     rejected or hung write is reported as NOT saved.
+  //   - Shared-device partner (paper player) score: still a direct request
+  //     (it is deliberately not part of the offline queue in this package),
+  //     so offline it genuinely is NOT saved. It is reported as such, the
+  //     partner's value is never shown as saved, and the caller does not
+  //     advance as though it had succeeded.
+  async function saveCurrentHoleData(): Promise<SaveOutcome> {
+    if (!hole || !currentMy) return { ok: true }
     const hasMyData = (draftMyGross !== null || draftMyPickedUp) && !isLocked
     const hasPartnerData = requiresMarker && currentMarked && (draftPartnerGross !== null || draftPartnerPickedUp) && !isPartnerLocked
-    if (!hasMyData && !hasPartnerData) return // blank hole — nothing to persist, navigation proceeds regardless
+    if (!hasMyData && !hasPartnerData) return { ok: true } // blank hole — nothing to persist, navigation proceeds regardless
 
+    let savedMine = false
     try {
       if (hasMyData) {
-        // P0 regression fix — same bug class as myDraftCapture: this
-        // optimistic local update previously rebuilt the hole's entry
-        // without adminOverridden, which would silently drop the flag
-        // from mySelf state for this specific hole. Preserved from the
-        // existing prev state rather than re-derived.
+        // P0 regression fix (kept) — adminOverridden is preserved from the
+        // existing state rather than re-derived.
         const myValue: CaptureValue = { grossScore: draftMyPickedUp ? null : draftMyGross, pickedUp: draftMyPickedUp, adminOverridden: mySelf[holeNum]?.adminOverridden }
-        setMySelf(prev => ({ ...prev, [holeNum]: myValue }))
-        await queueScoreEntry({
+        await queueScoreEntryBounded({
           scorecardId: currentMy.id, holeId: hole.id, captureRole: 'self',
           grossScore: myValue.grossScore, isNoReturn: myValue.pickedUp,
           enteredAt: new Date().toISOString(),
         })
+        savedMine = true
+        setMySelf(prev => ({ ...prev, [holeNum]: myValue }))
       }
-      if (hasPartnerData) {
+      if (hasPartnerData && !isSharedDeviceScoring) {
         const partnerValue: CaptureValue = { grossScore: draftPartnerPickedUp ? null : draftPartnerGross, pickedUp: draftPartnerPickedUp }
+        await queueScoreEntryBounded({
+          scorecardId: currentMarked!.id, holeId: hole.id, captureRole: 'marker',
+          grossScore: partnerValue.grossScore, isNoReturn: partnerValue.pickedUp,
+          enteredAt: new Date().toISOString(),
+        })
         setPartnerMarker(prev => ({ ...prev, [holeNum]: partnerValue }))
-        if (isSharedDeviceScoring) {
-          // Add-on 1 (corrected architecture) — Marnie's OFFICIAL score,
-          // written via applyHoleOverride (through this endpoint) as
-          // capture_role='self' directly on her own scorecard. This is
-          // deliberately NOT the normal queueScoreEntry(captureRole=
-          // 'marker') call below — a marker write would need a
-          // corresponding self entry from Marnie to ever reconcile
-          // against, which never comes, since she isn't digitally
-          // scoring at all. This IS what makes "no reconciliation
-          // required" true, by construction rather than a suppressed
-          // check.
-          const res = await fetch(`/api/trips/${tripId}/rounds/${round.id}/shared-device-score`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ holeNumber: hole.hole_number, grossScore: draftPartnerPickedUp ? null : draftPartnerGross, isNoReturn: draftPartnerPickedUp }),
-          })
-          if (!res.ok) {
-            const body = await res.json().catch(() => ({}))
-            showToast(body.error ?? `Couldn't save ${partnerName ?? 'their'} score. Please try again.`)
-          }
-        } else {
-          await queueScoreEntry({
-            scorecardId: currentMarked!.id, holeId: hole.id, captureRole: 'marker',
-            grossScore: draftPartnerPickedUp ? null : draftPartnerGross, isNoReturn: draftPartnerPickedUp,
-            enteredAt: new Date().toISOString(),
-          })
-        }
       }
-      useSyncStore.getState().setPendingCount(await getPendingCount())
-      void syncScoreQueue()
-      // GA4 / Product Analytics brief — "scoring engagement," a
-      // meaningful completed action (a score was actually saved), not
-      // every keystroke/tap while adjusting it before save. Fires
-      // after the queue write above succeeds, same success boundary
-      // the sync-status UI itself relies on.
-      trackEvent('score_confirmed', { tripId, roundId: round.id })
-      if (!scoringStartedRef.current) {
-        scoringStartedRef.current = true
-        trackEvent('scoring_started', { tripId, roundId: round.id })
-      }
-      // Immediate refresh, not waiting for the next poll — matters most
-      // when the person confirming is also the organiser (a common setup
-      // in this app), so their own My HQ/leaderboard reflect the change
-      // right away rather than up to 8s later.
-      void queryClient.invalidateQueries({ queryKey: ['tournament', tripId, round.id] })
-      void queryClient.invalidateQueries({ queryKey: ['leaderboard', tripId, round.id] })
     } catch {
-      // "If persistence genuinely fails, surface the appropriate
-      // failure state rather than pretending the data was saved" — this
-      // is that surfacing. queueScoreEntry itself writes to the local
-      // offline queue first (Dexie), so this catch only fires for a
-      // genuine failure of that local write, not a normal "offline
-      // right now, will sync later" case — those succeed locally and
-      // sync in the background exactly as before.
-      showToast('Saved locally — will sync when online')
+      // IndexedDB rejected (or never answered) — nothing was stored for the
+      // score(s) that did not complete. Never claim otherwise.
+      return {
+        ok: false, kind: 'local',
+        message: savedMine
+          ? `Your score is saved on this device, but ${partnerName ?? 'your playing partner'}'s score could NOT be saved. Write it on the paper scorecard.`
+          : "This score could NOT be saved on your phone. Write it on the paper scorecard before moving on.",
+      }
     }
+
+    if (hasPartnerData && isSharedDeviceScoring) {
+      const partnerValue: CaptureValue = { grossScore: draftPartnerPickedUp ? null : draftPartnerGross, pickedUp: draftPartnerPickedUp }
+      // Add-on 1 (corrected architecture, kept) — the paper player's OFFICIAL
+      // score is written as capture_role='self' on her own scorecard via
+      // applyHoleOverride, so "no reconciliation required" is true by
+      // construction. A hung request is bounded, and only a JSON { ok: true }
+      // answer counts as saved.
+      const who = partnerName ?? 'Your paper partner'
+      const failed = (why: string): SaveOutcome => ({
+        ok: false, kind: 'partner',
+        message: `${who}'s score for this hole was NOT saved (${why}). ${savedMine ? 'Your own score is saved on this device. ' : ''}Record ${who}'s score on the paper scorecard.`,
+      })
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 12000)
+      let verdict: SharedDeviceSaveResult
+      try {
+        const res = await fetch(`/api/trips/${tripId}/rounds/${round.id}/shared-device-score`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
+          body: JSON.stringify({ holeNumber: hole.hole_number, grossScore: draftPartnerPickedUp ? null : draftPartnerGross, isNoReturn: draftPartnerPickedUp }),
+        })
+        const body = await res.json().catch(() => null)
+        verdict = interpretSharedDeviceSave({ threw: false, status: res.status, redirected: res.redirected, body })
+      } catch {
+        verdict = interpretSharedDeviceSave({ threw: true })
+      } finally {
+        clearTimeout(timer)
+      }
+      if (!verdict.saved) return failed(verdict.reason)
+      setPartnerMarker(prev => ({ ...prev, [holeNum]: partnerValue }))
+    }
+
+    // The queue write has committed; refreshing the pending count must not be
+    // mistaken for a failed save.
+    try { useSyncStore.getState().setPendingCount(await getPendingCount()) } catch { /* label only */ }
+    void syncScoreQueue()
+    // GA4 / Product Analytics brief — "scoring engagement," fired only after
+    // persistence succeeded.
+    trackEvent('score_confirmed', { tripId, roundId: round.id })
+    if (!scoringStartedRef.current) {
+      scoringStartedRef.current = true
+      trackEvent('scoring_started', { tripId, roundId: round.id })
+    }
+    // Immediate refresh, not waiting for the next poll.
+    void queryClient.invalidateQueries({ queryKey: ['tournament', tripId, round.id] })
+    void queryClient.invalidateQueries({ queryKey: ['leaderboard', tripId, round.id] })
+    return { ok: true }
   }
 
   // The single shared navigation/save function every trigger (Next
@@ -1092,13 +1143,28 @@ export default function SelfMarkerScoreShell({
     if (confirmingRef.current) return
     confirmingRef.current = true
     setFlash(true)
+    let outcome: SaveOutcome = { ok: true }
     try {
-      await saveCurrentHoleData()
+      outcome = await saveCurrentHoleData()
     } finally {
       setFlash(false)
       confirmingRef.current = false
     }
 
+    // Phase B (D4, D5) — a failed save must not be navigated away from as if
+    // it had worked. The player sees exactly what was and was not saved and
+    // chooses: try again, or move on having written the score on paper.
+    if (!outcome.ok) {
+      setSaveFailure({ message: outcome.message, direction })
+      return
+    }
+    setSaveFailure(null)
+    navigateHole(direction)
+  }
+
+  // The navigation half of saveAndAdvance, unchanged in behaviour. Also used
+  // by "Continue — I've written it on paper" after an explicit save failure.
+  function navigateHole(direction: 'forward' | 'backward') {
     // Shotgun Start — circular wrap, unchanged from before. Round
     // Summary for a shotgun round is triggered separately by the
     // existing allDone check (watches captured scores directly,
@@ -1138,6 +1204,61 @@ export default function SelfMarkerScoreShell({
     }
   }
 
+  // ── Draft auto-save (Phase B, D9) ──────────────────────────────────────────
+  // Until now a score typed on the hole screen lived only in React state until
+  // the player navigated; locking the phone or the app being killed first lost
+  // it. Now a settled draft (no change for DRAFT_AUTOSAVE_MS) is written to the
+  // same durable queue the navigation save uses. It writes the QUEUE ONLY and
+  // deliberately does not touch mySelf/partnerMarker: updating those would
+  // re-seed the drafts (see the hole-change effect) and could overwrite a
+  // value the player typed a moment later. Navigation still runs the full
+  // save, and planQueueWrite makes an unchanged value a no-op, so this can
+  // never create a duplicate submission. Shared-device partner scores are not
+  // queueable and are saved on navigation only. Failures here are silent by
+  // design — the navigation save reports them.
+  const latestDraftRef = useRef<DraftSnapshot | null>(null)
+  latestDraftRef.current = {
+    holeId: hole?.id ?? null, holeNum,
+    myCardId: currentMy?.id ?? null, markedCardId: currentMarked?.id ?? null,
+    mySelf, partnerMarker,
+    draftMyGross, draftMyPickedUp, draftPartnerGross, draftPartnerPickedUp,
+    lockedMine: isLocked, lockedPartner: isPartnerLocked, markerMode: !!requiresMarker, sharedDevice: isSharedDeviceScoring,
+  }
+  async function autosaveDrafts() {
+    if (confirmingRef.current) return
+    const d = latestDraftRef.current
+    if (!d || !d.holeId || !d.myCardId) return
+    try {
+      let queued = false
+      if ((d.draftMyGross !== null || d.draftMyPickedUp) && !d.lockedMine) {
+        const gross = d.draftMyPickedUp ? null : d.draftMyGross
+        const saved = d.mySelf[d.holeNum]
+        if (!saved || saved.grossScore !== gross || saved.pickedUp !== d.draftMyPickedUp) {
+          await queueScoreEntryBounded({ scorecardId: d.myCardId, holeId: d.holeId, captureRole: 'self', grossScore: gross, isNoReturn: d.draftMyPickedUp, enteredAt: new Date().toISOString() })
+          queued = true
+        }
+      }
+      if (d.markerMode && d.markedCardId && !d.sharedDevice && (d.draftPartnerGross !== null || d.draftPartnerPickedUp) && !d.lockedPartner) {
+        const gross = d.draftPartnerPickedUp ? null : d.draftPartnerGross
+        const saved = d.partnerMarker[d.holeNum]
+        if (!saved || saved.grossScore !== gross || saved.pickedUp !== d.draftPartnerPickedUp) {
+          await queueScoreEntryBounded({ scorecardId: d.markedCardId, holeId: d.holeId, captureRole: 'marker', grossScore: gross, isNoReturn: d.draftPartnerPickedUp, enteredAt: new Date().toISOString() })
+          queued = true
+        }
+      }
+      if (queued) {
+        useSyncStore.getState().setPendingCount(await getPendingCount())
+        void syncScoreQueue()
+      }
+    } catch { /* navigation save will surface a real failure */ }
+  }
+  useEffect(() => {
+    if (!currentMy) return
+    const t = setTimeout(() => { void autosaveDrafts() }, DRAFT_AUTOSAVE_MS)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftMyGross, draftMyPickedUp, draftPartnerGross, draftPartnerPickedUp, holeNum])
+
   function onTouchStart(e: React.TouchEvent) { swipeStartX.current = e.touches[0].clientX; swipeStartY.current = e.touches[0].clientY }
   // Darren field-test fix (Release 1, item 3) — swipe now calls the
   // exact same saveAndAdvance() the Next/Previous buttons call below,
@@ -1156,8 +1277,13 @@ export default function SelfMarkerScoreShell({
     if (dx > 0) void saveAndAdvance('backward')
   }
 
-  const displaySyncLabel = pendingCount > 0 || syncState === 'syncing' ? `⏳ ${syncLabel}`
-    : syncState === 'error' ? `⚠ ${syncLabel}` : syncState === 'synced' ? '✓ Saved' : ''
+  const syncStatus = deriveSyncStatus({ online, syncState, pendingCount, rejectedCount, lastFailure })
+  const syncTonePrefix: Record<string, string> = { progress: '⏳', warn: '⚠', bad: '⚠', ok: '✓', neutral: '' }
+  const syncToneColor: Record<string, string> = { progress: '#9ca3af', warn: '#a1791f', bad: '#b91c1c', ok: '#16a34a', neutral: '#9ca3af' }
+  const displaySyncLabel = syncStatus.label ? `${syncTonePrefix[syncStatus.tone]} ${syncStatus.label}`.trim() : ''
+  const roundCardIds = [currentMy?.id, currentMarked?.id].filter((x): x is string => !!x)
+  const rejectedHere = rejectedEntries.filter(e => roundCardIds.includes(e.scorecardId)).length
+  const holeNumberById: Record<string, number> = Object.fromEntries(holes.map(h => [h.id, h.hole_number]))
 
   // ── Empty / loading / data-problem states ──────────────────────────────────
   if (loadingHoles || holes.length === 0 || !myScorecard) {
@@ -1479,7 +1605,7 @@ export default function SelfMarkerScoreShell({
     // showing "ready." Folding pendingCount into this one readiness
     // value is what makes the summary, the button, and the server check
     // agree: the client cannot claim ready while sync is still pending.
-    const isReadyToConfirm = allMatched && pendingCount === 0
+    const isReadyToConfirm = canConfirmRound({ allMatched, pendingCount, rejectedForThisRound: rejectedHere })
     const STATUS_ICON: Record<string, { icon: string; color: string }> = {
       matched:      { icon: '🟢', color: '#16a34a' },
       mismatch:     { icon: '🔴', color: '#dc2626' },
@@ -1554,6 +1680,7 @@ export default function SelfMarkerScoreShell({
 
     return (
       <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '12px 16px 90px' }}>
+        <SyncStatusBanner roundScorecardIds={roundCardIds} holeNumberById={holeNumberById} isOrganiser={isOrganiser} />
         <div style={{ textAlign: 'center', marginBottom: 2 }}>
           <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 17, fontWeight: 800 }}>Round Summary</div>
           {/* Darren field-test fix (Release 1, item 5) — the headline is
@@ -1760,10 +1887,12 @@ export default function SelfMarkerScoreShell({
         {allMatched && !isReadyToConfirm && !isLocked && (
           <div style={{ background: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: 12, padding: 14, marginTop: 10, marginBottom: 16, textAlign: 'center' }}>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: '#a1791f', marginBottom: 4 }}>
-              Saving your scores…
+              {rejectedHere > 0 && pendingCount === 0 ? 'Some scores need attention' : 'Saving your scores…'}
             </div>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
-              {pendingCount} score{pendingCount === 1 ? '' : 's'} still syncing. You&apos;ll be able to confirm once everything&apos;s saved.
+              {rejectedHere > 0
+                ? `${rejectedHere} score${rejectedHere === 1 ? ' was' : 's were'} not accepted by the server and ${rejectedHere === 1 ? 'is' : 'are'} only on this phone. Review ${rejectedHere === 1 ? 'it' : 'them'} in the banner at the top of this screen, or ask the organiser.`
+                : `${pendingCount} score${pendingCount === 1 ? '' : 's'} still syncing. You'll be able to confirm once everything's saved.`}
             </div>
             {/* 3 Sep field-test package, item 5 — the explicit manual
                 fail-safe, alongside (not instead of) the automatic
@@ -2186,6 +2315,32 @@ export default function SelfMarkerScoreShell({
         </div>
       )}
 
+      {/* Phase B (D4/D5) — a score could NOT be persisted. Never navigates on
+          its own; the player decides. "Try again" re-runs the same save;
+          "Continue" is an explicit acknowledgement that it is on paper. */}
+      {saveFailure && (
+        <div role="alertdialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 210, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 18, maxWidth: 360, width: '100%', border: '2px solid #b91c1c' }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#991b1b', marginBottom: 8 }}>Score not saved</div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#1a1a16', lineHeight: 1.45, marginBottom: 14 }}>{saveFailure.message}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button
+                onClick={() => { const d = saveFailure.direction; setSaveFailure(null); void saveAndAdvance(d) }}
+                style={{ border: 'none', background: '#14532d', color: '#fff', borderRadius: 10, minHeight: 46, fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+              >Try saving again</button>
+              <button
+                onClick={() => { const d = saveFailure.direction; setSaveFailure(null); navigateHole(d) }}
+                style={{ border: '1px solid #d1d5db', background: '#fff', color: '#374151', borderRadius: 10, minHeight: 46, fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+              >Continue — I&apos;ve written it on the paper card</button>
+              <button
+                onClick={() => setSaveFailure(null)}
+                style={{ border: 'none', background: 'none', color: '#6b7280', minHeight: 36, fontFamily: 'var(--font-body)', fontSize: 12.5, cursor: 'pointer' }}
+              >Stay on this hole</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Compact-spacing aids on short viewports — no longer paired with
           any position/overflow override, since the page is now always in
           normal document flow regardless of viewport height. */}
@@ -2236,6 +2391,8 @@ export default function SelfMarkerScoreShell({
           background: '#faf9f6',
         }}
       >
+        <SyncStatusBanner roundScorecardIds={roundCardIds} holeNumberById={holeNumberById} isOrganiser={isOrganiser} />
+
         {/* ── Compact score strip — collapsible (QA fix): collapsed by
             default on entering active scoring so it never competes with
             the scoring workspace for space; expands on request via the
@@ -2776,7 +2933,7 @@ export default function SelfMarkerScoreShell({
         borderTop: '1px solid #eceae3', zIndex: 20,
       }}>
         {displaySyncLabel && (
-          <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#9ca3af', marginBottom: 4 }}>
+          <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 10.5, color: syncToneColor[syncStatus.tone], fontWeight: syncStatus.tone === 'bad' || syncStatus.tone === 'warn' ? 700 : 400, marginBottom: 4 }}>
             {displaySyncLabel}
           </div>
         )}

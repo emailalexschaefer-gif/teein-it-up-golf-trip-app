@@ -1,5 +1,7 @@
 import Dexie, { type Table } from 'dexie'
 import type { OfflineScoreEntry } from '@/types/app'
+import { planQueueWrite, isInterruptedSyncing, latestPerKey, withTimeout, planConflictResolution, type ConflictAction } from './queueRules'
+import type { ServerScoreSnapshot } from './scoreAck'
 
 class TeeInItUpDB extends Dexie {
   scoreQueue!: Table<OfflineScoreEntry, string>
@@ -31,54 +33,99 @@ export const db = new TeeInItUpDB()
 /**
  * Queue a score for offline-first sync.
  *
- * If there is already an entry queued for the same (scorecardId, holeId,
- * captureRole) that hasn't finished syncing yet, this REPLACES it in place
- * (same clientId, status reset to 'pending', retryCount reset) instead of
- * adding a second queued row. This is what makes "editing an unsynced score
- * replaces the queued version" true — without this, two rapid edits to the
- * same hole+role before either syncs would both eventually hit the server
- * as separate requests.
+ * Phase B (D1): what actually gets written is decided by the pure
+ * planQueueWrite (queueRules.ts). In short:
+ *  - the same value as the latest live entry is a no-op;
+ *  - an edit to an entry that has provably never left the device replaces
+ *    it in place;
+ *  - an edit to an entry that may already have reached the server gets a
+ *    NEW clientId (and the old one is retired) — a clientId the server may
+ *    have recorded is never reused for a different value;
+ *  - enteredAt is forced strictly increasing per (scorecard, hole, role),
+ *    which is the revision number the server orders writes by.
  *
- * captureRole is part of the identity here deliberately: a self entry and a
+ * captureRole is part of the identity deliberately: a self entry and a
  * marker entry for the same scorecard+hole are NOT the same logical record
- * and must never be deduped against each other (point 10 of the marker
- * scoring update).
+ * and are never merged.
  *
- * Returns the clientId that was actually used (new or reused), so callers
- * don't need to generate/track their own.
+ * Read + decide + write happen in ONE Dexie transaction so two rapid saves
+ * cannot interleave. Resolves only after IndexedDB has committed, and
+ * rejects if the write fails — callers must treat a rejection as "NOT saved".
+ *
+ * Returns the clientId that now represents the score.
  */
 export async function queueScoreEntry(
   entry: Omit<OfflineScoreEntry, 'clientId' | 'syncStatus' | 'retryCount'> & { clientId?: string }
 ): Promise<string> {
-  const existing = await db.scoreQueue
-    .where('scorecardId').equals(entry.scorecardId)
-    .filter(e => e.holeId === entry.holeId && e.captureRole === entry.captureRole && e.syncStatus !== 'synced')
-    .first()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anyDb = db as any
+  return anyDb.transaction('rw', db.scoreQueue, async () => {
+    const rows = await db.scoreQueue
+      .where('scorecardId').equals(entry.scorecardId)
+      .filter(e => e.holeId === entry.holeId && e.captureRole === entry.captureRole)
+      .toArray()
 
-  const clientId = existing?.clientId ?? entry.clientId ?? crypto.randomUUID()
+    const plan = planQueueWrite(rows, {
+      scorecardId: entry.scorecardId, holeId: entry.holeId, captureRole: entry.captureRole,
+      grossScore: entry.grossScore, isNoReturn: entry.isNoReturn,
+      enteredAt: entry.enteredAt, clientId: entry.clientId,
+    }, Date.now(), () => crypto.randomUUID())
 
-  await db.scoreQueue.put({
-    ...entry,
-    clientId,
-    syncStatus: 'pending',
-    retryCount: 0,
-    lastError: undefined,
-  })
+    if (plan.action === 'noop') return plan.clientId
 
-  return clientId
+    await db.scoreQueue.put(plan.row)
+    for (const id of plan.deleteClientIds) {
+      if (id !== plan.row.clientId) await db.scoreQueue.delete(id)
+    }
+    return plan.row.clientId
+  }) as Promise<string>
 }
 
+/**
+ * queueScoreEntry with a ceiling on how long we wait for IndexedDB.
+ * Safari can leave an IndexedDB request pending indefinitely; waiting
+ * forever would freeze hole navigation. A timeout is reported to the
+ * caller as a FAILED local save — never as success — so the player is told
+ * to use the paper card. (If the write does later complete, the score is
+ * simply queued; nothing is claimed that is not true.)
+ */
+export function queueScoreEntryBounded(
+  entry: Parameters<typeof queueScoreEntry>[0],
+  timeoutMs = 5000,
+): Promise<string> {
+  return withTimeout(queueScoreEntry(entry), timeoutMs)
+}
+
+/** pending + error entries ready to upload. Interrupted ('syncing') ones
+ * are reset to pending by recoverInterruptedEntries() first. */
 export async function getPendingEntries(): Promise<OfflineScoreEntry[]> {
   return db.scoreQueue.where('syncStatus').anyOf(['pending', 'error']).sortBy('enteredAt')
 }
 
 /**
+ * Reset entries abandoned in 'syncing' (page killed mid-request) back to
+ * 'pending' so they are retried. Phase B (D2). The value, enteredAt and
+ * clientId are untouched, so the retry is the same idempotent request and
+ * cannot duplicate or overwrite a newer score (the server orders by
+ * enteredAt). `force` is used once at startup, before this page has
+ * started any upload of its own.
+ */
+export async function recoverInterruptedEntries(force = false): Promise<number> {
+  const now = Date.now()
+  const syncing = await db.scoreQueue.where('syncStatus').equals('syncing').toArray()
+  const stuck = syncing.filter(e => isInterruptedSyncing(e, now, force))
+  for (const e of stuck) {
+    await db.scoreQueue.update(e.clientId, { syncStatus: 'pending', lastError: 'Interrupted — will retry', syncStartedAt: undefined })
+  }
+  return stuck.length
+}
+
+/**
  * Mark a queued entry as synced — but only if its gross score and pick-up
- * state still match what was actually sent to the server. If the person
- * edited the same hole+role again while the request was in flight, this
- * won't match the (already-overwritten) queued record, and we deliberately
- * leave it 'pending' so the newer value goes out on the next sync pass
- * instead of being falsely marked complete.
+ * state still match what was actually sent to the server. If the row was
+ * edited in place while the request was in flight, it won't match, and we
+ * deliberately leave it pending so the newer value goes out on the next
+ * pass instead of being falsely marked complete.
  */
 export async function markEntrySynced(
   clientId: string,
@@ -89,7 +136,7 @@ export async function markEntrySynced(
   if (sent !== undefined && (current.grossScore !== sent.grossScore || current.isNoReturn !== sent.isNoReturn)) {
     return
   }
-  await db.scoreQueue.update(clientId, { syncStatus: 'synced', lastError: undefined })
+  await db.scoreQueue.update(clientId, { syncStatus: 'synced', lastError: undefined, syncStartedAt: undefined })
 }
 
 export async function markEntryError(clientId: string, error: string) {
@@ -99,15 +146,97 @@ export async function markEntryError(clientId: string, error: string) {
     syncStatus: 'error',
     retryCount: entry.retryCount + 1,
     lastError: error,
+    syncStartedAt: undefined,
   })
 }
 
-export async function markEntrySyncing(clientId: string) {
-  await db.scoreQueue.update(clientId, { syncStatus: 'syncing' })
+/** Phase B (D7): the server permanently refused this entry. It is KEPT. */
+export async function markEntryRejected(clientId: string, reason: string) {
+  const entry = await db.scoreQueue.get(clientId)
+  if (!entry) return
+  await db.scoreQueue.update(clientId, { syncStatus: 'rejected', lastError: reason, syncStartedAt: undefined })
 }
 
+/**
+ * The server holds a DIFFERENT, newer value than this entry. Keep the entry
+ * (status 'rejected' so it is never retried or counted as pending) and record
+ * what the server holds so both values can be shown for review. Like
+ * markEntrySynced, it only applies if the row still holds the value that was
+ * actually sent.
+ */
+export async function markEntryConflict(
+  clientId: string,
+  sent: { grossScore: number | null; isNoReturn: boolean },
+  server: ServerScoreSnapshot,
+) {
+  const current = await db.scoreQueue.get(clientId)
+  if (!current) return
+  if (current.grossScore !== sent.grossScore || current.isNoReturn !== sent.isNoReturn) return
+  await db.scoreQueue.update(clientId, {
+    syncStatus: 'rejected',
+    lastError: 'A different score is already recorded on the server',
+    syncStartedAt: undefined,
+    conflict: { serverGross: server.grossScore, serverNoReturn: server.isNoReturn, serverEnteredAt: server.enteredAt },
+  })
+}
+
+/**
+ * Explicit user choice for a conflicting entry (see planConflictResolution).
+ * Returns a human-readable refusal reason, or null when applied.
+ */
+export async function resolveConflictEntry(clientId: string, action: ConflictAction, isOrganiser: boolean): Promise<string | null> {
+  const current = await db.scoreQueue.get(clientId)
+  const plan = planConflictResolution(current, action, isOrganiser, Date.now())
+  if (!plan.ok) return plan.reason
+  await db.scoreQueue.update(clientId, plan.patch)
+  return null
+}
+
+export async function markEntrySyncing(clientId: string) {
+  const entry = await db.scoreQueue.get(clientId)
+  if (!entry) return
+  await db.scoreQueue.update(clientId, {
+    syncStatus: 'syncing',
+    syncStartedAt: new Date().toISOString(),
+    sendAttempts: (entry.sendAttempts ?? 0) + 1,
+  })
+}
+
+/** Everything still owed to the server: pending, error AND in-flight
+ * ('syncing'). Rejected entries are deliberately NOT counted — see
+ * getRejectedEntries. */
 export async function getPendingCount(): Promise<number> {
-  return db.scoreQueue.where('syncStatus').anyOf(['pending', 'error']).count()
+  return db.scoreQueue.where('syncStatus').anyOf(['pending', 'error', 'syncing']).count()
+}
+
+export async function getRejectedEntries(): Promise<OfflineScoreEntry[]> {
+  return db.scoreQueue.where('syncStatus').equals('rejected').sortBy('enteredAt')
+}
+
+export async function getRejectedCount(): Promise<number> {
+  return db.scoreQueue.where('syncStatus').equals('rejected').count()
+}
+
+/** Explicit user action: try a refused entry again (e.g. the organiser has
+ * since unlocked the card). Only ever applies to a 'rejected' row. */
+export async function requeueRejectedEntry(clientId: string): Promise<boolean> {
+  const e = await db.scoreQueue.get(clientId)
+  if (!e || e.syncStatus !== 'rejected') return false
+  // A conflict is never retried blindly - that could force an old local
+  // value over a legitimate server correction. See resolveConflictEntry.
+  if (e.conflict) return false
+  await db.scoreQueue.update(clientId, { syncStatus: 'pending', retryCount: 0, lastError: undefined })
+  return true
+}
+
+/** Explicit, confirmed user action: permanently remove a refused entry
+ * from this device. Refuses to touch anything that is not 'rejected', so
+ * an unresolved or synced score can never be removed through this path. */
+export async function discardRejectedEntry(clientId: string): Promise<boolean> {
+  const e = await db.scoreQueue.get(clientId)
+  if (!e || e.syncStatus !== 'rejected') return false
+  await db.scoreQueue.delete(clientId)
+  return true
 }
 
 /**
@@ -115,16 +244,20 @@ export async function getPendingCount(): Promise<number> {
  * set of scorecard ids, keyed by `${scorecardId}:${holeId}:${captureRole}`.
  * Used on load to overlay local unsynced edits on top of server-hydrated
  * data, so a refresh never shows stale server data where a newer local edit
- * exists — and self/marker entries never collide under this key.
+ * exists — and self/marker entries never collide under this key. When a key
+ * has more than one row (e.g. a refused one and a newer edit), the newest
+ * wins deterministically.
  */
 export async function getQueuedEntriesForScorecards(
   scorecardIds: string[]
 ): Promise<Map<string, OfflineScoreEntry>> {
-  const all = await db.scoreQueue
-    .where('scorecardId').anyOf(scorecardIds)
-    .filter(e => e.syncStatus !== 'synced')
-    .toArray()
-  const map = new Map<string, OfflineScoreEntry>()
-  for (const e of all) map.set(`${e.scorecardId}:${e.holeId}:${e.captureRole}`, e)
-  return map
+  // Newest row per key across ALL statuses first, THEN drop the ones that are
+  // already confirmed — otherwise an older refused row could resurface behind
+  // a newer synced one.
+  const all = await db.scoreQueue.where('scorecardId').anyOf(scorecardIds).toArray()
+  const latest = latestPerKey(all)
+  // A conflicting entry is not shown as the score: the server's value is,
+  // and the disagreement is reviewed in the sync banner.
+  for (const [k, e] of latest) if (e.syncStatus === 'synced' || (e.syncStatus === 'rejected' && e.conflict)) latest.delete(k)
+  return latest
 }

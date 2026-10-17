@@ -167,7 +167,11 @@ export interface WizardRound {
 
 // ─── Offline queue ────────────────────────────────────────────────────────────
 
-export type SyncStatus = 'pending' | 'syncing' | 'synced' | 'error'
+// 'rejected' (offline-scoring Phase B, D7): the server permanently refused
+// this entry (e.g. the round is no longer active). It is KEPT on the device
+// — never auto-deleted — but is not retried automatically and does not count
+// as "pending", so one dead entry cannot block unrelated rounds.
+export type SyncStatus = 'pending' | 'syncing' | 'synced' | 'error' | 'rejected'
 
 export type ScoreCaptureRole = 'self' | 'marker'
 
@@ -184,6 +188,21 @@ export interface OfflineScoreEntry {
   syncStatus: SyncStatus
   retryCount: number
   lastError?: string
+  /** Phase B — how many times a request for THIS clientId has been started.
+   * 0 (explicitly) means the value has provably never left the device, so an
+   * edit may safely replace it in place. Anything else (including a legacy
+   * row where this is undefined) may already have reached the server, so an
+   * edit gets a NEW clientId instead of reusing one the server may have
+   * already recorded with the older value. */
+  sendAttempts?: number
+  /** Set when the server holds a DIFFERENT, newer value than this entry and
+   * the disagreement needs a human decision. The entry is kept (status
+   * 'rejected'), never retried automatically, and never overwrites the
+   * server value unless an authorised person explicitly chooses to. */
+  conflict?: { serverGross: number | null; serverNoReturn: boolean; serverEnteredAt: string | null }
+  /** Phase B — ISO time the current in-flight request started; used to
+   * recognise an interrupted ('syncing' forever) entry. */
+  syncStartedAt?: string
 }
 
 // ─── Scoring ──────────────────────────────────────────────────────────────────

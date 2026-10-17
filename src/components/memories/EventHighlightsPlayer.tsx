@@ -83,6 +83,10 @@ export interface EventHighlightsPlayerProps {
   aftershowLoop?: boolean
 }
 
+// Must stay ABOVE the mobile TripBottomNav (z-index 100). The nav is rendered
+// after the page content, so an equal z-index would paint it over the player's
+// bottom controls on a phone (e.g. a small iPhone held in landscape).
+const PLAYER_Z = 110
 const CONTROLS_SAFE_AREA_PX = 96
 
 // Real-device polish pass (10 Oct) -- Event-at-a-Glance legibility fix.
@@ -413,7 +417,7 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
       ref={containerRef}
       onClick={bumpControls}
       onTouchStart={bumpControls}
-      style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 100, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      style={{ position: 'fixed', inset: 0, background: '#000', zIndex: PLAYER_Z, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >
       {/* V1.18 (10 Oct), Package 5.2 -- the aftershow's "gentle fade"
           transition keyframe, defined once here rather than per-slide. */}
