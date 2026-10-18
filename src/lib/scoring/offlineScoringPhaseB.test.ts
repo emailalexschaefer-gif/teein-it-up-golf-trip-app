@@ -54,21 +54,20 @@ class FakeQueue {
   get(id: string) { return this.rows.get(id)! }
 
   deps(over: Partial<SyncDeps> & { fetchFn: SyncDeps['fetchFn'] }, reports: Reports): SyncDeps {
-    const q = this
     return {
-      getPendingEntries: async () => [...q.rows.values()].filter(r => r.syncStatus === 'pending' || r.syncStatus === 'error').sort((a, b) => Date.parse(a.enteredAt) - Date.parse(b.enteredAt)),
+      getPendingEntries: async () => [...this.rows.values()].filter(r => r.syncStatus === 'pending' || r.syncStatus === 'error').sort((a, b) => Date.parse(a.enteredAt) - Date.parse(b.enteredAt)),
       recoverInterrupted: async () => {
         let n = 0
-        for (const r of q.rows.values()) if (isInterruptedSyncing(r, q.clock)) { r.syncStatus = 'pending'; r.syncStartedAt = undefined; n++ }
+        for (const r of this.rows.values()) if (isInterruptedSyncing(r, this.clock)) { r.syncStatus = 'pending'; r.syncStartedAt = undefined; n++ }
         return n
       },
-      markSyncing: async id => { const r = q.rows.get(id); if (r) { r.syncStatus = 'syncing'; r.syncStartedAt = new Date(q.clock).toISOString(); r.sendAttempts = (r.sendAttempts ?? 0) + 1 } },
-      markSynced: async (id, sent) => { const r = q.rows.get(id); if (r && r.grossScore === sent.grossScore && r.isNoReturn === sent.isNoReturn) r.syncStatus = 'synced' },
-      markError: async (id, m) => { const r = q.rows.get(id); if (r) { r.syncStatus = 'error'; r.retryCount++; r.lastError = m } },
-      markRejected: async (id, m) => { const r = q.rows.get(id); if (r) { r.syncStatus = 'rejected'; r.lastError = m } },
-      markConflict: async (id, sent, server) => { const r = q.rows.get(id); if (r && r.grossScore === sent.grossScore && r.isNoReturn === sent.isNoReturn) { r.syncStatus = 'rejected'; r.conflict = { serverGross: server.grossScore, serverNoReturn: server.isNoReturn, serverEnteredAt: server.enteredAt } } },
-      getPendingCount: async () => [...q.rows.values()].filter(r => ['pending', 'error', 'syncing'].includes(r.syncStatus)).length,
-      getRejectedCount: async () => q.count('rejected'),
+      markSyncing: async id => { const r = this.rows.get(id); if (r) { r.syncStatus = 'syncing'; r.syncStartedAt = new Date(this.clock).toISOString(); r.sendAttempts = (r.sendAttempts ?? 0) + 1 } },
+      markSynced: async (id, sent) => { const r = this.rows.get(id); if (r && r.grossScore === sent.grossScore && r.isNoReturn === sent.isNoReturn) r.syncStatus = 'synced' },
+      markError: async (id, m) => { const r = this.rows.get(id); if (r) { r.syncStatus = 'error'; r.retryCount++; r.lastError = m } },
+      markRejected: async (id, m) => { const r = this.rows.get(id); if (r) { r.syncStatus = 'rejected'; r.lastError = m } },
+      markConflict: async (id, sent, server) => { const r = this.rows.get(id); if (r && r.grossScore === sent.grossScore && r.isNoReturn === sent.isNoReturn) { r.syncStatus = 'rejected'; r.conflict = { serverGross: server.grossScore, serverNoReturn: server.isNoReturn, serverEnteredAt: server.enteredAt } } },
+      getPendingCount: async () => [...this.rows.values()].filter(r => ['pending', 'error', 'syncing'].includes(r.syncStatus)).length,
+      getRejectedCount: async () => this.count('rejected'),
       report: reports.api,
       timeoutMs: 40,
       ...over,
