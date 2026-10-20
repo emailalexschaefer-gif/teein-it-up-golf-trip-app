@@ -18,11 +18,15 @@ import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useScoringFocusStore } from '@/store/scoringFocusStore'
 
-interface NavItem { href: string; label: string; icon: string; match: (path: string) => boolean }
+interface NavItem { href: string; label: string; icon: string; match: (path: string) => boolean; noPrefetch?: boolean }
 
 function buildItems(tripId: string, isOrganiser: boolean, activeRoundId: string | null, isPractice: boolean): NavItem[] {
   const base = `/trips/${tripId}`
-  const scorecardHref = activeRoundId ? `${base}/rounds/${activeRoundId}` : base
+  // 18 Oct field test -- resolved at tap time by /scorecard (see that page):
+  // activeRoundId comes from the layout, which Next keeps mounted between
+  // pages, so it can name a round that has since finished. The layout's value
+  // is now only used by the My Stats link below.
+  const scorecardHref = `${base}/scorecard`
 
   // Practice V2 (8 Sep), items 5/6 — Practice gets its own, simplified
   // item set entirely, reusing this same shell/component rather than
@@ -36,7 +40,7 @@ function buildItems(tripId: string, isOrganiser: boolean, activeRoundId: string 
   if (isPractice) {
     return [
       { href: base, label: 'Home', icon: '🏠', match: (p) => p === base },
-      { href: scorecardHref, label: 'Scorecard', icon: '⛳', match: (p) => p.startsWith(`${base}/rounds`) && !p.includes('/my-stats') },
+      { href: scorecardHref, label: 'Scorecard', icon: '⛳', match: (p) => p.startsWith(`${base}/rounds`) && !p.includes('/my-stats'), noPrefetch: true },
       {
         href: activeRoundId ? `${base}/rounds/${activeRoundId}/my-stats` : base,
         label: 'My Stats', icon: '📊', match: (p) => p.includes('/my-stats'),
@@ -62,7 +66,7 @@ function buildItems(tripId: string, isOrganiser: boolean, activeRoundId: string 
     // for every hole, every round — far more often than any other
     // destination), so it sits right after Home rather than being buried
     // further down the bar.
-    { href: scorecardHref, label: 'Scorecard', icon: '⛳', match: (p) => p.startsWith(`${base}/rounds`) },
+    { href: scorecardHref, label: 'Scorecard', icon: '⛳', match: (p) => p.startsWith(`${base}/rounds`), noPrefetch: true },
     { href: `${base}/leaderboard`, label: 'Leaderboard', icon: '🏆', match: (p) => p.startsWith(`${base}/leaderboard`) },
     { href: `${base}/sidegames`, label: 'Side Games', icon: '🎯', match: (p) => p.startsWith(`${base}/sidegames`) },
   ]
@@ -126,6 +130,7 @@ export function TripBottomNav({ tripId, isOrganiser, activeRoundId, isPractice =
             <Link
               key={item.href}
               href={item.href}
+              prefetch={item.noPrefetch ? false : undefined}
               style={{
                 flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
                 gap: 2, padding: '8px 4px 6px', textDecoration: 'none',
@@ -172,6 +177,7 @@ export function DesktopTripNav({ tripId, isOrganiser, activeRoundId, isPractice 
           <Link
             key={item.href}
             href={item.href}
+            prefetch={item.noPrefetch ? false : undefined}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
               padding: '6px 14px', borderRadius: 20, textDecoration: 'none',

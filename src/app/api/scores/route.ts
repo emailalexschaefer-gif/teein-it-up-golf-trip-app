@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isCaptureAllowed } from '@/lib/scoring/captureMode'
 import { decideScoreWrite } from '@/lib/scoring/scoreWriteDecision'
+import { isIdenticalRecordedResend } from '@/lib/scoring/recordedResend'
 import { z } from 'zod'
 
 const ScoreSchema = z.object({
@@ -18,6 +19,39 @@ const ScoreSchema = z.object({
 )
 
 const LOCKED_MESSAGE = 'This score was set by the organiser and is locked'
+const ROW_COLUMNS = 'id, scorecard_id, hole_id, capture_role, gross_score, is_no_return, client_id, entered_at, admin_overridden'
+
+/**
+ * 18 Oct field test -- a score the server ALREADY holds, re-sent by the same
+ * user after its scorecard/round has closed.
+ *
+ * Root cause of the "Scorecard not active" refusals kept on players' phones:
+ * if a phone loses the acknowledgement for a save that did land (the airplane
+ * -mode tests do exactly this) it re-sends later. The active-card / active-
+ * round gates run BEFORE the duplicate check, so once the card was submitted
+ * or the round closed, the harmless re-send was answered 422 and parked as
+ * "needs review" although the server holds that exact score.
+ *
+ * Only an IDENTICAL record is acknowledged: same client_id, same card / hole /
+ * role, same value, entered by this user. It writes nothing. Any other write
+ * to a closed card is still refused.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function findAlreadyRecordedResend(db: any, userId: string, req: {
+  client_id: string; scorecard_id: string; hole_id: string; capture_role: 'self' | 'marker'
+  gross_score: number | null; is_no_return: boolean
+}) {
+  const res = await db
+    .from('score_entries')
+    .select(`${ROW_COLUMNS}, entered_by`)
+    .eq('client_id', req.client_id)
+    .maybeSingle()
+  const row = res?.data
+  if (!isIdenticalRecordedResend(row, req, userId)) return null
+  const { entered_by: _enteredBy, ...ack } = row
+  void _enteredBy
+  return ack
+}
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -49,7 +83,11 @@ export async function POST(request: Request) {
 
   const scorecard = scorecardResult?.data ?? null
   if (!scorecard) return NextResponse.json({ error: 'Scorecard not found' }, { status: 422 })
-  if (scorecard.status !== 'active') return NextResponse.json({ error: 'Scorecard not active' }, { status: 422 })
+  if (scorecard.status !== 'active') {
+    const already = await findAlreadyRecordedResend(db, user.id, { client_id, scorecard_id, hole_id, capture_role, gross_score, is_no_return })
+    if (already) return NextResponse.json({ ...already, message: 'Already recorded', conflict: true, duplicate: true }, { status: 200 })
+    return NextResponse.json({ error: 'Scorecard not active' }, { status: 422 })
+  }
 
   const roundResult = await db
     .from('rounds')
@@ -59,6 +97,8 @@ export async function POST(request: Request) {
 
   const round = roundResult?.data ?? null
   if (!round || round.status !== 'active') {
+    const already = await findAlreadyRecordedResend(db, user.id, { client_id, scorecard_id, hole_id, capture_role, gross_score, is_no_return })
+    if (already) return NextResponse.json({ ...already, message: 'Already recorded', conflict: true, duplicate: true }, { status: 200 })
     return NextResponse.json({ error: 'Round is not active' }, { status: 422 })
   }
 
@@ -142,7 +182,6 @@ export async function POST(request: Request) {
   // lost acknowledgement, or a late-arriving old request all safe: an
   // identical resend is a no-op, an older value can never overwrite a newer
   // correction, and a newer correction is never silently discarded.
-  const ROW_COLUMNS = 'id, scorecard_id, hole_id, capture_role, gross_score, is_no_return, client_id, entered_at, admin_overridden'
   const incomingEnteredAt = entered_at ?? new Date().toISOString()
 
   // client_id is globally UNIQUE. If it already belongs to a DIFFERENT

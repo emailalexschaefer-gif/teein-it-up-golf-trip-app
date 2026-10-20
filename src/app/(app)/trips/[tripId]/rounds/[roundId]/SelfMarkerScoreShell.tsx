@@ -22,6 +22,7 @@ import type { NewLeaderContext } from '@/components/scoring/NewLeaderPrompt'
 import PendingVerificationCard from '@/components/scoring/PendingVerificationCard'
 import ExpandableRoundScorecard from '@/components/scoring/ExpandableRoundScorecard'
 import PracticeHoleStatsPanel from '@/components/scoring/PracticeHoleStatsPanel'
+import { computeResumeIndex } from '@/lib/scoring/resumeHole'
 
 // P0 live-scoring crash investigation — the one recent, genuinely
 // unverified change reachable from this file's own import chain.
@@ -318,6 +319,9 @@ export default function SelfMarkerScoreShell({
   const [startInfo, setStartInfo] = useState<{ startType: 'standard' | 'shotgun'; startingHole: number | null } | null>(null)
   const [pendingStartHolePick, setPendingStartHolePick] = useState<number | null>(null)
   const holeIdxSeededRef = useRef(false)
+  // Set when the resume logic has put the player on their last scored hole, so
+  // the (later, async) shotgun starting-hole seeding never moves them back.
+  const resumePositionedRef = useRef(false)
   useEffect(() => {
     let cancelled = false
     fetch(`/api/trips/${tripId}/rounds/${round.id}/my-starting-hole`)
@@ -590,6 +594,12 @@ export default function SelfMarkerScoreShell({
       myScorecard, markedScorecard, markedByName,
     },
     staleTime: 0, // always eligible for a window-focus/reconnect refetch
+    // 18 Oct field test -- do NOT keep this entry after the screen unmounts.
+    // React Query ignores `initialData` when a cached entry exists, so with
+    // the default 5-minute gcTime a player who left and came back via
+    // "Scorecard" was shown the PREVIOUS visit's scores (and resumed from
+    // them) instead of the fresh server render passed in as props.
+    gcTime: 0,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     // Poll only while there's actually something to wait on. Stops
@@ -734,7 +744,7 @@ export default function SelfMarkerScoreShell({
     const resolvedStartHole = startInfo.startType === 'shotgun' ? (startInfo.startingHole ?? pendingStartHolePick) : null
     if (startInfo.startType === 'shotgun' && resolvedStartHole === null) return // waiting on the fallback picker below
     holeIdxSeededRef.current = true
-    if (resolvedStartHole !== null) {
+    if (resolvedStartHole !== null && !resumePositionedRef.current) {
       const idx = holes.findIndex(h => h.hole_number === resolvedStartHole)
       if (idx >= 0) setHoleIdx(idx)
     }
@@ -778,24 +788,33 @@ export default function SelfMarkerScoreShell({
       // current hole and any in-progress draft are preserved across refreshes.
       if (!resumed) {
         setResumed(true)
-        let target = holes.length - 1
-        for (let i = 0; i < holes.length; i++) {
-          const hn = holes[i].hole_number
-          const myDone = mine.self[hn] !== undefined
-          const partnerDone = !requiresMarker || !currentMarked || theirs.marker[hn] !== undefined
-          if (!myDone || !partnerDone) { target = i; break }
+        // 18 Oct field test -- reopen at the LAST scored hole (or the next
+        // hole to score once that one is complete), not the first gap; see
+        // resumeHole.ts. Server scores + valid pending local entries are
+        // already merged into mine/theirs above. A ?hole= deep link wins,
+        // and with nothing scored yet the existing default (Hole 1 / the
+        // group's starting hole) is left alone.
+        const shotgunStart = startInfo?.startType === 'shotgun' ? startInfo.startingHole : null
+        const startIndex = shotgunStart !== null && shotgunStart !== undefined ? Math.max(0, holes.findIndex(h => h.hole_number === shotgunStart)) : 0
+        const r = computeResumeIndex({
+          holeNumbers: holes.map(h => h.hole_number),
+          startIndex,
+          ownDone: hn => mine.self[hn] !== undefined,
+          partnerRequired: requiresMarker && !!currentMarked,
+          partnerDone: hn => theirs.marker[hn] !== undefined,
+        })
+        const deepLinked = Number(searchParams?.get('hole')) > 0
+        if (r.anyScored && !deepLinked) {
+          resumePositionedRef.current = true
+          setHoleIdx(r.index)
         }
-        setHoleIdx(target)
-        if (target >= holes.length - 1) {
-          const allDone = holes.every(h => mine.self[h.hole_number] && (!requiresMarker || !currentMarked || theirs.marker[h.hole_number]))
-          if (allDone && requiresMarker) setShowReconciliation(true)
-        }
+        if (r.allDone && requiresMarker) setShowReconciliation(true)
       }
     }
     void hydrate()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [holes, liveData])
+  }, [holes, liveData, startInfo])
 
   useEffect(() => {
     const cleanup = initSyncListeners()

@@ -88,6 +88,8 @@ export interface EventHighlightsPlayerProps {
 // bottom controls on a phone (e.g. a small iPhone held in landscape).
 const PLAYER_Z = 110
 const CONTROLS_SAFE_AREA_PX = 96
+// How long revealed controls stay up with no interaction.
+const CONTROLS_IDLE_MS = 3500
 
 // Real-device polish pass (10 Oct) -- Event-at-a-Glance legibility fix.
 // Shared across all four statistic columns so the numeral and its
@@ -148,7 +150,9 @@ function GoldCrownIcon({ size }: { size: string }) {
 export default function EventHighlightsPlayer({ slides, durationSeconds, onExit, aftershowStartIndex, aftershowLoop }: EventHighlightsPlayerProps) {
   const [index, setIndex] = useState(0)
   const [playing, setPlaying] = useState(true)
-  const [controlsVisible, setControlsVisible] = useState(true)
+  // 18 Oct field test: controls start HIDDEN and are shown only by a tap /
+  // click / focus. A slide change never reveals them (see bumpControls).
+  const [controlsVisible, setControlsVisible] = useState(false)
   const [failedUrls, setFailedUrls] = useState<Set<string>>(new Set())
   // Presentation UX polish (12 Oct) -- the current photo/video's natural
   // size, keyed by momentId, so the "Relive it in My Golf" label can sit
@@ -359,25 +363,32 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
     }
   }, [])
 
-  // Controls auto-hide during playback, reappear on interaction.
+  // Controls are hidden when the presentation starts. A deliberate user
+  // action (tap/click, or keyboard focus landing on a control) reveals them,
+  // and they hide again after a short period of inactivity -- whether
+  // playing or paused. Nothing else reveals them: in particular a slide
+  // change (automatic or manual) and a play/pause toggle do NOT, because
+  // visibility is deliberately independent of playback state and index.
+  // (Root cause of the 18 Oct report: an effect re-ran bumpControls on every
+  // change of `index`, so the controls reappeared on every slide.)
   const bumpControls = useCallback(() => {
     setControlsVisible(true)
     if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current)
-    if (playing) hideControlsTimer.current = setTimeout(() => setControlsVisible(false), 2500)
-  }, [playing])
-  useEffect(() => { bumpControls() }, [index, playing, bumpControls])
+    hideControlsTimer.current = setTimeout(() => setControlsVisible(false), CONTROLS_IDLE_MS)
+  }, [])
+  useEffect(() => () => { if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current) }, [])
 
   // Keyboard controls (desktop).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'ArrowRight') { goTo(index + 1); bumpControls() }
-      else if (e.key === 'ArrowLeft') { goTo(index - 1); bumpControls() }
-      else if (e.key === ' ') { e.preventDefault(); setPlaying(p => !p); bumpControls() }
+      if (e.key === 'ArrowRight') { goTo(index + 1) }
+      else if (e.key === 'ArrowLeft') { goTo(index - 1) }
+      else if (e.key === ' ') { e.preventDefault(); setPlaying(p => !p) }
       else if (e.key === 'Escape') { onExit() }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [index, goTo, bumpControls, onExit])
+  }, [index, goTo, onExit])
 
   function renderPhoto(slide: Extract<Slide, { kind: 'photo' }> | undefined, visible: boolean) {
     if (!slide || !slide.imageUrl) return null
@@ -511,7 +522,7 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
         {/* Controls -- fade during playback, reappear on interaction.
             Occupy exactly the reserved CONTROLS_SAFE_AREA_PX strip, so
             no slide content can ever render underneath them. */}
-        <div style={{ position: 'absolute', inset: 0, opacity: controlsVisible ? 1 : 0, transition: 'opacity 0.3s', pointerEvents: controlsVisible ? 'auto' : 'none' }}>
+        <div onFocusCapture={bumpControls} style={{ position: 'absolute', inset: 0, opacity: controlsVisible ? 1 : 0, transition: 'opacity 0.3s', pointerEvents: controlsVisible ? 'auto' : 'none' }}>
           <button onClick={onExit} style={{ position: 'absolute', top: 12, right: 12, width: 34, height: 34, borderRadius: 17, border: 'none', background: 'rgba(0,0,0,0.5)', color: '#fff', fontSize: 15, cursor: 'pointer' }}>
             ✕
           </button>
@@ -1036,6 +1047,37 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize
             )
           })}
         </div>
+      </GenericTemplateSlide>
+    )
+  }
+  if (slide.kind === 'cumulativeResults') {
+    // 18 Oct field test -- "Total Scores after Round N": cumulative standings
+    // through this round, shown right after that round's own (unchanged)
+    // Results slide. Same premium template and row styling as Results; the
+    // leader is highlighted but is NOT called the round winner.
+    return (
+      <GenericTemplateSlide>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2.5, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 4 }}>After {slide.roundName}</p>
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(18px, 3vw, 26px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 16, textAlign: 'center' }}>Total Scores</p>
+        <div style={{ width: '100%', maxWidth: 460, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {slide.standings.map(s => {
+            const isLeader = s.position === 1
+            return (
+              <div key={s.playerId} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: isLeader ? '10px 16px' : '6px 14px',
+                borderRadius: isLeader ? 12 : 8,
+                background: isLeader ? 'linear-gradient(135deg, rgba(251,191,36,0.28), rgba(251,191,36,0.08))' : 'rgba(255,255,255,0.06)',
+                border: isLeader ? '1.5px solid rgba(251,191,36,0.55)' : 'none',
+              }}>
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: isLeader ? 20 : 15, fontWeight: 800, color: isLeader ? '#fbbf24' : '#d9c9a3', width: 24, flexShrink: 0, textAlign: 'center' }}>{s.position}</span>
+                <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: isLeader ? 17 : 13.5, fontWeight: isLeader ? 800 : 500, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.playerName}</span>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: isLeader ? 17 : 13.5, fontWeight: 700, color: isLeader ? '#fbbf24' : '#e5e7eb', flexShrink: 0 }}>{s.totalPoints} pts</span>
+              </div>
+            )
+          })}
+        </div>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginTop: 12, textAlign: 'center' }}>Combined Stableford points, {slide.roundsIncluded} rounds</p>
       </GenericTemplateSlide>
     )
   }

@@ -30,7 +30,8 @@
  */
 import { createAdminClient } from '@/lib/supabase/admin'
 import { computeFinalResults, type FinalResultsResult } from './finalResults'
-import { determineRoundWinners, determineRoundStandings } from '@/lib/scoring/multiRound'
+import { determineRoundWinners, determineRoundStandings, type RoundPlayerResult } from '@/lib/scoring/multiRound'
+import { cumulativeThroughRounds } from './cumulativeThroughRound'
 import { computeRoundSideGames } from '@/lib/sideGames/computeRoundSideGames'
 import { resolveSideGameWinner, type SideCompForResolution } from './resolveSideGameWinner'
 
@@ -61,6 +62,11 @@ export interface EventMemoryData {
     // slide. Same null-when-not-completed convention as winners above
     // -- never a mid-round snapshot presented as a result.
     standings: { playerId: string; playerName: string; roundPoints: number; position: number }[] | null
+    // 18 Oct field test -- cumulative Top-5 AFTER this round (completed
+    // rounds up to and including it). null when this round is not completed.
+    // Optional so existing fixtures stay valid.
+    cumulativeStandings?: { playerId: string; playerName: string; totalPoints: number; position: number }[] | null
+    cumulativeRoundsIncluded?: number | null
   }[]
   memories: {
     momentId: string; roundId: string | null; roundOrdinal: number | null; holeNumber: number | null
@@ -145,6 +151,7 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
   // (multiRound.ts) as well -- no second query, no recomputed points,
   // just a second, ranked view of the same already-derived data.
   const roundStandingsByRoundId = new Map<string, { playerId: string; playerName: string; roundPoints: number; position: number }[]>()
+  const roundPlayerResultsByRoundId = new Map<string, RoundPlayerResult[]>()
   if (completedRoundIds.length > 0) {
     const roundResultsArrays = await Promise.all(completedRoundIds.map(async (roundId: string) => {
       const scorecardsRes = await admin.from('scorecards')
@@ -156,13 +163,21 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
           roundPoints: (sc.score_entries ?? []).filter(e => e.capture_role === 'self').reduce((sum, e) => sum + (e.stableford_pts ?? 0), 0),
           holePoints: [],
         }))
-      return { roundId, winners: determineRoundWinners(playerResults), standings: determineRoundStandings(playerResults) }
+      return { roundId, playerResults, winners: determineRoundWinners(playerResults), standings: determineRoundStandings(playerResults) }
     }))
     for (const r of roundResultsArrays) {
       roundWinnersByRoundId.set(r.roundId, r.winners)
       roundStandingsByRoundId.set(r.roundId, r.standings)
+      roundPlayerResultsByRoundId.set(r.roundId, r.playerResults)
     }
   }
+  // 18 Oct field test -- cumulative standings after each completed round,
+  // from the very same per-round results (no second query, no second
+  // scoring implementation). See cumulativeThroughRound.ts.
+  const cumulativeByRoundId = cumulativeThroughRounds(
+    rounds.map((r: { id: string; status: string }) => ({ id: r.id, status: r.status })),
+    roundPlayerResultsByRoundId,
+  )
 
   const membersRes = await admin.from('trip_members').select('profile_id').eq('trip_id', tripId)
   const playerCount = new Set(((membersRes.data ?? []) as { profile_id: string }[]).map(m => m.profile_id)).size
@@ -344,6 +359,8 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
       publishedHighlights: highlightsByRoundId.get(r.id)?.highlights ?? null,
       winners: r.status === 'completed' ? (roundWinnersByRoundId.get(r.id) ?? []) : null,
       standings: r.status === 'completed' ? (roundStandingsByRoundId.get(r.id) ?? []) : null,
+      cumulativeStandings: r.status === 'completed' ? (cumulativeByRoundId.get(r.id)?.standings ?? []) : null,
+      cumulativeRoundsIncluded: r.status === 'completed' ? (cumulativeByRoundId.get(r.id)?.roundsIncluded ?? 0) : null,
     })),
     memories: moments.map((m: {
       id: string; round_id: string | null; hole_number: number | null; player_id: string | null; captured_by: string | null

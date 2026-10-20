@@ -5,6 +5,7 @@ import { useSyncStore } from '@/store/syncStore'
 import { deriveSyncStatus } from '@/lib/db/syncStatus'
 import { requeueRejectedEntry, discardRejectedEntry, resolveConflictEntry } from '@/lib/db/dexie'
 import { refreshQueueCounts, syncScoreQueue } from '@/lib/db/sync'
+import type { OfflineScoreEntry } from '@/types/app'
 
 /**
  * Offline-scoring Phase B — in-flow connectivity banner for the scoring
@@ -48,10 +49,24 @@ export default function SyncStatusBanner({ roundScorecardIds, holeNumberById, is
   const [busy, setBusy] = useState(false)
   const [replaceId, setReplaceId] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [otherOpen, setOtherOpen] = useState(false)
 
-  const status = deriveSyncStatus({ online, syncState, pendingCount, rejectedCount, lastFailure })
-  const show = status.kind === 'offline' || status.kind === 'unreachable' || status.kind === 'failed' || status.kind === 'rejected' || !!message
-  if (!show) return null
+  // 18 Oct field test -- the device queue is shared by every round and event,
+  // so refused scores left over from OTHER rounds used to be reported here as
+  // this round's red "need review" error (and counted in it). Split them: only
+  // refusals on THIS round's scorecards drive the red status; older ones get a
+  // calm, separate notice. Nothing is deleted or hidden -- they stay on the
+  // device and remain reviewable. If the entry details could not be read, fall
+  // back to the total so a refusal is never hidden.
+  const detailKnown = rejectedEntries.length > 0
+  const hereEntries = detailKnown ? rejectedEntries.filter(e => roundScorecardIds.includes(e.scorecardId)) : []
+  const otherEntries = detailKnown ? rejectedEntries.filter(e => !roundScorecardIds.includes(e.scorecardId)) : []
+  const rejectedHere = detailKnown ? hereEntries.length : rejectedCount
+
+  const status = deriveSyncStatus({ online, syncState, pendingCount, rejectedCount: rejectedHere, lastFailure })
+  const showMain = status.kind === 'offline' || status.kind === 'unreachable' || status.kind === 'failed' || status.kind === 'rejected' || !!message
+  const showOther = otherEntries.length > 0
+  if (!showMain && !showOther) return null
   const tone = TONE[status.tone] ?? TONE.warn
 
   async function retry(clientId: string) {
@@ -90,7 +105,82 @@ export default function SyncStatusBanner({ roundScorecardIds, holeNumberById, is
     padding: '6px 12px', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, cursor: 'pointer', minHeight: 32,
   }
 
+  function renderEntry(e: OfflineScoreEntry) {
+    const inThisRound = roundScorecardIds.includes(e.scorecardId)
+    const holeNo = holeNumberById[e.holeId]
+    const where = inThisRound && holeNo ? `Hole ${holeNo}` : 'Another round'
+    const mine = e.isNoReturn ? 'Pick-up' : String(e.grossScore ?? '—')
+    const theirs = e.conflict ? (e.conflict.serverNoReturn ? 'Pick-up' : String(e.conflict.serverGross ?? '—')) : ''
+    if (e.conflict) {
+      return (
+        <div key={e.clientId} style={{ background: '#fff', border: `1px solid ${tone.border}`, borderRadius: 8, padding: 10 }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#1a1a16', fontWeight: 700 }}>
+            {where} · {e.captureRole === 'marker' ? 'playing partner' : 'own'} score — two different scores
+          </div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#1a1a16', marginTop: 4 }}>
+            On this phone: <strong>{mine}</strong> · Recorded on the server: <strong>{theirs}</strong>
+          </div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+            The server already holds a newer score for this hole, so yours was not applied. Your score is still kept here until you decide.
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <button style={btn} disabled={busy} onClick={() => void resolve(e.clientId, 'accept_server')}>Keep the server&apos;s score ({theirs})</button>
+            {isOrganiser && replaceId !== e.clientId && (
+              <button style={btn} disabled={busy} onClick={() => setReplaceId(e.clientId)}>Use this phone&apos;s score ({mine})…</button>
+            )}
+          </div>
+          {isOrganiser && replaceId === e.clientId && (
+            <div style={{ marginTop: 8, fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#991b1b' }}>
+              Replace the recorded score ({theirs}) with this phone&apos;s score ({mine})? Check the paper scorecard first. A score you have overridden as organiser stays locked.
+              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                <button style={btn} disabled={busy} onClick={() => setReplaceId(null)}>Cancel</button>
+                <button style={{ ...btn, background: '#991b1b', color: '#fff', border: '1px solid #991b1b' }} disabled={busy} onClick={() => void resolve(e.clientId, 'replace_with_mine')}>Yes, replace it</button>
+              </div>
+            </div>
+          )}
+          {!isOrganiser && (
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#6b7280', marginTop: 6 }}>
+              If this phone&apos;s score is the right one, ask the organiser to correct it from My HQ.
+            </div>
+          )}
+        </div>
+      )
+    }
+    return (
+      <div key={e.clientId} style={{ background: '#fff', border: `1px solid ${tone.border}`, borderRadius: 8, padding: 10 }}>
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#1a1a16', fontWeight: 700 }}>
+          {where} · {e.captureRole === 'marker' ? 'playing partner' : 'own'} score {mine}
+        </div>
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+          Refused by the server: {e.lastError ?? 'unknown reason'}. Kept on this device.
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+          <button style={btn} disabled={busy} onClick={() => void retry(e.clientId)}>Try again</button>
+          {isOrganiser && confirmId !== e.clientId && (
+            <button style={btn} disabled={busy} onClick={() => setConfirmId(e.clientId)}>Discard…</button>
+          )}
+        </div>
+        {isOrganiser && confirmId === e.clientId && (
+          <div style={{ marginTop: 8, fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#991b1b' }}>
+            Remove this score from this phone permanently? It was never accepted by the server, so it will be lost.
+            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+              <button style={btn} disabled={busy} onClick={() => setConfirmId(null)}>Keep it</button>
+              <button style={{ ...btn, background: '#991b1b', color: '#fff', border: '1px solid #991b1b' }} disabled={busy} onClick={() => void discard(e.clientId)}>Yes, discard</button>
+            </div>
+          </div>
+        )}
+        {!isOrganiser && (
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#6b7280', marginTop: 6 }}>
+            Ask the organiser to resolve this score; they can enter it from My HQ.
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
+    <>
+    {showMain && (
     <div role="status" style={{ background: tone.bg, border: `1px solid ${tone.border}`, borderRadius: 10, padding: '8px 12px', marginBottom: 10 }}>
       {status.label && (
         <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: tone.text }}>{status.label}</div>
@@ -113,82 +203,35 @@ export default function SyncStatusBanner({ roundScorecardIds, holeNumberById, is
           </div>
           {open && (
             <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
-              {rejectedEntries.map(e => {
-                const inThisRound = roundScorecardIds.includes(e.scorecardId)
-                const holeNo = holeNumberById[e.holeId]
-                const where = inThisRound && holeNo ? `Hole ${holeNo}` : 'Another round'
-                const mine = e.isNoReturn ? 'Pick-up' : String(e.grossScore ?? '—')
-                const theirs = e.conflict ? (e.conflict.serverNoReturn ? 'Pick-up' : String(e.conflict.serverGross ?? '—')) : ''
-                if (e.conflict) {
-                  return (
-                    <div key={e.clientId} style={{ background: '#fff', border: `1px solid ${tone.border}`, borderRadius: 8, padding: 10 }}>
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#1a1a16', fontWeight: 700 }}>
-                        {where} · {e.captureRole === 'marker' ? 'playing partner' : 'own'} score — two different scores
-                      </div>
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#1a1a16', marginTop: 4 }}>
-                        On this phone: <strong>{mine}</strong> · Recorded on the server: <strong>{theirs}</strong>
-                      </div>
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                        The server already holds a newer score for this hole, so yours was not applied. Your score is still kept here until you decide.
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                        <button style={btn} disabled={busy} onClick={() => void resolve(e.clientId, 'accept_server')}>Keep the server&apos;s score ({theirs})</button>
-                        {isOrganiser && replaceId !== e.clientId && (
-                          <button style={btn} disabled={busy} onClick={() => setReplaceId(e.clientId)}>Use this phone&apos;s score ({mine})…</button>
-                        )}
-                      </div>
-                      {isOrganiser && replaceId === e.clientId && (
-                        <div style={{ marginTop: 8, fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#991b1b' }}>
-                          Replace the recorded score ({theirs}) with this phone&apos;s score ({mine})? Check the paper scorecard first. A score you have overridden as organiser stays locked.
-                          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                            <button style={btn} disabled={busy} onClick={() => setReplaceId(null)}>Cancel</button>
-                            <button style={{ ...btn, background: '#991b1b', color: '#fff', border: '1px solid #991b1b' }} disabled={busy} onClick={() => void resolve(e.clientId, 'replace_with_mine')}>Yes, replace it</button>
-                          </div>
-                        </div>
-                      )}
-                      {!isOrganiser && (
-                        <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#6b7280', marginTop: 6 }}>
-                          If this phone&apos;s score is the right one, ask the organiser to correct it from My HQ.
-                        </div>
-                      )}
-                    </div>
-                  )
-                }
-                return (
-                  <div key={e.clientId} style={{ background: '#fff', border: `1px solid ${tone.border}`, borderRadius: 8, padding: 10 }}>
-                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#1a1a16', fontWeight: 700 }}>
-                      {where} · {e.captureRole === 'marker' ? 'playing partner' : 'own'} score {mine}
-                    </div>
-                    <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                      Refused by the server: {e.lastError ?? 'unknown reason'}. Kept on this device.
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                      <button style={btn} disabled={busy} onClick={() => void retry(e.clientId)}>Try again</button>
-                      {isOrganiser && confirmId !== e.clientId && (
-                        <button style={btn} disabled={busy} onClick={() => setConfirmId(e.clientId)}>Discard…</button>
-                      )}
-                    </div>
-                    {isOrganiser && confirmId === e.clientId && (
-                      <div style={{ marginTop: 8, fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#991b1b' }}>
-                        Remove this score from this phone permanently? It was never accepted by the server, so it will be lost.
-                        <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                          <button style={btn} disabled={busy} onClick={() => setConfirmId(null)}>Keep it</button>
-                          <button style={{ ...btn, background: '#991b1b', color: '#fff', border: '1px solid #991b1b' }} disabled={busy} onClick={() => void discard(e.clientId)}>Yes, discard</button>
-                        </div>
-                      </div>
-                    )}
-                    {!isOrganiser && (
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#6b7280', marginTop: 6 }}>
-                        Ask the organiser to resolve this score; they can enter it from My HQ.
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+              {hereEntries.map(renderEntry)}
             </div>
           )}
         </>
       )}
     </div>
+    )}
+
+    {/* Refused scores from OTHER rounds: informational, not a problem with
+        this round. Kept on the device; reviewable and, for the organiser,
+        discardable with a confirmation (same actions as above). */}
+    {showOther && (
+      <div role="status" style={{ background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 10, padding: '8px 12px', marginBottom: 10 }}>
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#374151' }}>
+          {otherEntries.length === 1 ? '1 older score from another round was' : `${otherEntries.length} older scores from other rounds were`} not accepted by the server — kept on this device.
+        </div>
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+          This doesn&apos;t affect the round you&apos;re scoring.
+        </div>
+        <div style={{ marginTop: 6 }}>
+          <button style={btn} onClick={() => setOtherOpen(o => !o)}>{otherOpen ? 'Hide' : 'Review'}</button>
+        </div>
+        {otherOpen && (
+          <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
+            {otherEntries.map(renderEntry)}
+          </div>
+        )}
+      </div>
+    )}
+    </>
   )
 }

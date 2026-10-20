@@ -234,6 +234,10 @@ export type Slide =
   // determineRoundStandings -- position 1 is this round's winner,
   // displayed distinctly by the renderer, never a separate field here.
   | { kind: 'roundResults'; roundId: string; roundName: string; standings: { playerId: string; playerName: string; roundPoints: number; position: number }[] }
+  // 18 Oct field test -- cumulative standings AFTER a round (Round 2 onwards),
+  // shown directly after that round's own Results slide, which is unchanged.
+  // `roundsIncluded` is how many completed rounds feed the totals.
+  | { kind: 'cumulativeResults'; roundId: string; roundName: string; roundsIncluded: number; standings: { playerId: string; playerName: string; totalPoints: number; position: number }[] }
 
 export interface SlideshowDeck {
   slides: Slide[]
@@ -908,6 +912,23 @@ function resolveBestMoments(data: EventMemoryData, roundId: string | null, confi
 }
 
 /**
+ * 18 Oct field test -- true for a Moment submitted to a Side Game that has an
+ * official winner, by someone other than that winner. Such a Moment is not
+ * presentation content (see buildPresentationDeck). A Side Game with no
+ * decided winner, a Moment by the winner, and a Moment with no Side Game
+ * are all NOT matched.
+ */
+export function isNonWinnerSideGameMoment(
+  m: { sideCompId?: string | null; playerId?: string | null },
+  decidedWinners: { sideCompId: string; winnerPlayerId: string | null }[],
+): boolean {
+  if (!m.sideCompId) return false
+  const comp = decidedWinners.filter(w => w.sideCompId === m.sideCompId)
+  if (comp.length === 0) return false
+  return !comp.some(w => w.winnerPlayerId === (m.playerId ?? null))
+}
+
+/**
  * buildPresentationDeck -- the new entry point for the flexible,
  * section-based builder. Deterministic: the exact same config always
  * produces the exact same deck. Reuses sortMemoriesChronologically,
@@ -944,6 +965,16 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     })
   }
 
+  // 18 Oct field test -- the selected Group Photo is the SECOND slide of a
+  // full-event presentation: Opening, Group Photo, Event by the Numbers
+  // (Event-at-a-Glance), then the rounds. It previously came after
+  // Event-at-a-Glance, so the organiser's photo appeared as slide 3.
+  // Still shown only from the explicit selection, never substituted.
+  if (config.groupPhoto && data.event.groupPhotoMomentId) {
+    const groupPhoto = data.memories.find(m => m.momentId === data.event.groupPhotoMomentId && m.mediaType === 'photo')
+    if (groupPhoto) slides.push({ kind: 'groupPhoto', momentId: groupPhoto.momentId, imageUrl: groupPhoto.imageUrl, caption: groupPhoto.caption })
+  }
+
   // V1.17 (10 Oct) -- defensive scope guard added: Event-at-a-Glance
   // summarises the WHOLE event (every round in data.rounds), by
   // design, matching how Opening/Group Photo are also always event-
@@ -975,11 +1006,6 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     })
   }
 
-  if (config.groupPhoto && data.event.groupPhotoMomentId) {
-    const groupPhoto = data.memories.find(m => m.momentId === data.event.groupPhotoMomentId && m.mediaType === 'photo')
-    if (groupPhoto) slides.push({ kind: 'groupPhoto', momentId: groupPhoto.momentId, imageUrl: groupPhoto.imageUrl, caption: groupPhoto.caption })
-  }
-
   for (const roundConfig of config.rounds) {
     const round = roundsById.get(roundConfig.roundId)
     if (!round) continue // a stale/removed round id in a saved config is silently skipped, never fabricated
@@ -1004,7 +1030,22 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
       if (photo) winnerPhotoIds.add(photo.momentId)
       return { winner: w, photo }
     })
-    const bestMomentsExcludingWinners = bestMoments.filter(m => !winnerPhotoIds.has(m.momentId))
+    // 18 Oct field test -- a Moment submitted to a Side Game (Nearest the
+    // Pin etc.) by a player who did NOT win it is not presentation content:
+    // it would play as an ordinary photo captioned with the Side Game name
+    // and that player's name, right beside the official winner slide, so a
+    // single-winner Side Game looked like it had several winners. The
+    // official winner slide (above) is the only Side Game presentation
+    // slide. The Moment itself is untouched -- still in chat and Event
+    // Memories. An explicit hand-picked selection is the organiser's own
+    // choice and is left alone.
+    const dropNonWinnerSideGamePhotos = config.bestMomentsSource !== 'selected'
+    const decidedWinners = (winnersByRoundId.get(round.id) ?? []).filter(w => w.winnerPlayerId !== null)
+    const bestMomentsExcludingWinners = bestMoments.filter(m => {
+      if (winnerPhotoIds.has(m.momentId)) return false
+      if (dropNonWinnerSideGamePhotos && isNonWinnerSideGameMoment(m, decidedWinners)) return false
+      return true
+    })
 
     slides.push({ kind: 'roundDivider', roundId: round.id, roundName: round.name, courseName: round.courseName, playDate: round.playDate })
     for (const m of bestMomentsExcludingWinners) { slides.push(toPhotoSlide(m, round.name)); memoryCount += 1 }
@@ -1024,6 +1065,17 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     // template owns this slide's presentation entirely.
     if (roundStandingsResult.length > 0) {
       slides.push({ kind: 'roundResults', roundId: round.id, roundName: round.name, standings: roundStandingsResult })
+      // 18 Oct field test -- "Total Scores after Round N", directly after that
+      // round's own (unchanged) Results slide. Round 1 has no cumulative
+      // slide (it would just repeat Round 1). Standings come from
+      // eventMemoryData, computed by computeCumulativeStandings over the
+      // completed rounds up to and including this one; absent -> no slide,
+      // never an invented table.
+      const cum = round.cumulativeStandings ?? null
+      const included = round.cumulativeRoundsIncluded ?? 0
+      if (cum && cum.length > 0 && included >= 2) {
+        slides.push({ kind: 'cumulativeResults', roundId: round.id, roundName: round.name, roundsIncluded: included, standings: cum })
+      }
     }
   }
 

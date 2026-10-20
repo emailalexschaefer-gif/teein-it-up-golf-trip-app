@@ -7,6 +7,7 @@ import { generateUUID } from '@/lib/utils'
 import CourseLibrarySearch from './CourseLibrarySearch'
 import type { WizardRound, WizardTripDetails, WizardSideComp } from '@/types/app'
 import { computeHolePlayOrder } from '@/lib/scoring/holeSequence'
+import { holeOptionLabel } from '@/lib/sideGames/holeOptionLabel'
 
 interface Props {
   tripDetails: WizardTripDetails
@@ -125,7 +126,7 @@ function SideCompsConfig({ round, onUpdate }: { round: WizardRound; onUpdate: (r
           </Field>
           <Field label="Hole">
             <Select value={newHole} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNewHole(Number(e.target.value))}>
-              {holeOptions.map(h => <option key={h} value={h}>Hole {h}</option>)}
+              {holeOptions.map(h => <option key={h} value={h}>{holeOptionLabel(h, round.library_holes_snapshot)}</option>)}
             </Select>
           </Field>
           {newType === 'powerplay' && (
