@@ -23,11 +23,20 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { SignedUrlCache, SIGN_TTL_SECONDS } from '@/lib/chat/stableSignedUrls'
+import { withServerTiming } from '@/lib/perf/withServerTiming'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 interface RouteProps { params: Promise<{ tripId: string }> }
+
+// Phase A-6 — per-instance cache of signed Moment-image URLs, keyed by
+// (user id, storage path). See src/lib/chat/stableSignedUrls.ts for the
+// root cause (a new signed URL on every 4 s poll) and the safety rules.
+// It only skips the *signing* call: the RLS-checked message query still
+// runs on every request, so access and revocation are unchanged.
+const signedUrlCache = new SignedUrlCache()
 
 interface SupabaseErrorLike { code?: string; message: string; details?: string; hint?: string }
 
@@ -47,7 +56,7 @@ function logAndMaskError(context: string, error: SupabaseErrorLike, extra?: Reco
   }
 }
 
-export async function GET(_req: NextRequest, { params }: RouteProps) {
+async function getHandler(_req: NextRequest, { params }: RouteProps) {
   const { tripId } = await params
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -154,9 +163,17 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   // Signed URLs for any moment images — the bucket is private (trip-
   // scoped, not public), so a plain public URL wouldn't work.
   const signedUrlById = new Map<string, string | null>()
+  const nowMs = Date.now()
   await Promise.all([...momentById.entries()].map(async ([id, mo]) => {
-    const { data: signed } = await supabase.storage.from('event-moments').createSignedUrl(mo.image_path, 3600)
-    signedUrlById.set(id, signed?.signedUrl ?? null)
+    const cached = signedUrlCache.get(user.id, mo.image_path, nowMs)
+    if (cached) {
+      signedUrlById.set(id, cached)
+      return
+    }
+    const { data: signed } = await supabase.storage.from('event-moments').createSignedUrl(mo.image_path, SIGN_TTL_SECONDS)
+    const url = signed?.signedUrl ?? null
+    if (url) signedUrlCache.set(user.id, mo.image_path, url, nowMs, SIGN_TTL_SECONDS)
+    signedUrlById.set(id, url)
   }))
 
   const enriched = messages.map(m => {
@@ -309,3 +326,6 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
 
   return NextResponse.json({ ok: true, sentMessage: data })
 }
+
+// Phase A-7 — adds a Server-Timing header (no change to body/status).
+export const GET = withServerTiming('messages', getHandler)

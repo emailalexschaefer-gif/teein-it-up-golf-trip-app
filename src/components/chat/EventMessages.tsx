@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import dynamic from 'next/dynamic'
 import MomentViewer, { type MomentViewerData } from '@/components/moments/MomentViewer'
 import { trackEvent } from '@/lib/analytics/trackEvent'
+import { stabiliseUrls, type StableUrlMap } from '@/lib/chat/stableSignedUrls'
 
 // Same reasoning and same risk as SelfMarkerScoreShell.tsx's identical
 // change — MomentCapture's own import chain reaches the genuinely
@@ -27,6 +28,7 @@ interface EventMessage {
   sender: { full_name: string; role: string | null } | null
   recipient_group: { name: string } | null
   momentImageUrl?: string | null
+  moment_id?: string | null
   momentHoleNumber?: number | null
   // Item 4 — the Moment's actual subject (Marnie), distinct from
   // sender_user_id (Alex, the uploader/capturer). Only meaningful when
@@ -181,13 +183,31 @@ export default function EventMessages({
   const listTopRef = useRef<HTMLDivElement>(null)
   const previousFirstIdRef = useRef<string | null>(null)
   const isNearTopRef = useRef(true)
+  // Phase A-6 — keep showing the signed Moment-image URL already on
+  // screen while it's still valid, instead of swapping to a fresh
+  // (equivalent) URL on every 4 s poll, which made the browser re-download
+  // the image each time. See src/lib/chat/stableSignedUrls.ts.
+  const stableUrlsRef = useRef<StableUrlMap>(new Map())
+  const failedUrlIdsRef = useRef<Set<string>>(new Set())
+  const imageRetriesRef = useRef<Map<string, number>>(new Map())
 
   const { data, isLoading, error, refetch } = useQuery<{ messages: EventMessage[] }>({
     queryKey: ['event-messages', tripId],
     queryFn: async () => {
       const res = await fetch(`/api/trips/${tripId}/messages`)
       if (!res.ok) throw new Error('Could not load messages.')
-      return res.json()
+      const body = await res.json() as { messages: EventMessage[] }
+      const incoming: Record<string, string | null | undefined> = {}
+      for (const m of body.messages ?? []) {
+        if (m.moment_id) incoming[m.id] = m.momentImageUrl
+      }
+      const { map, urls } = stabiliseUrls(stableUrlsRef.current, incoming, Date.now(), failedUrlIdsRef.current)
+      stableUrlsRef.current = map
+      failedUrlIdsRef.current = new Set()
+      return {
+        ...body,
+        messages: (body.messages ?? []).map(m => (m.moment_id && urls[m.id] !== m.momentImageUrl ? { ...m, momentImageUrl: urls[m.id] } : m)),
+      }
     },
     // Chat should feel live while open — 4s sits in the requested 3-5s
     // range. React Query already pauses interval refetching when the tab
@@ -464,7 +484,24 @@ export default function EventMessages({
                   {/* eslint-disable-next-line @next/next/no-img-element -- a
                       signed Supabase Storage URL, not a static asset next/image
                       can optimize */}
-                  <img src={m.momentImageUrl} alt="Moment" style={{ width: '100%', maxHeight: 280, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
+                  <img
+                    src={m.momentImageUrl}
+                    alt="Moment"
+                    loading="lazy"
+                    decoding="async"
+                    // If the URL we kept on screen stops loading (expired
+                    // or revoked), fetch a fresh one straight away.
+                    onError={() => {
+                      // At most 2 refreshes per message, so a genuinely
+                      // missing image can never cause a refetch loop.
+                      const tries = imageRetriesRef.current.get(m.id) ?? 0
+                      if (tries >= 2) return
+                      imageRetriesRef.current.set(m.id, tries + 1)
+                      failedUrlIdsRef.current.add(m.id)
+                      void refetch()
+                    }}
+                    style={{ width: '100%', maxHeight: 280, objectFit: 'cover', borderRadius: 8, display: 'block' }}
+                  />
                 </button>
               )}
               {kind === 'moment' && m.momentHoleNumber && (

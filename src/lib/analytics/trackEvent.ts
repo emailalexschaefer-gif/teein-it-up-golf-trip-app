@@ -77,6 +77,10 @@ export type AnalyticsEvent =
   | 'my_golf_summary_collapsed'
   // Crucial MVP Onboarding Update
   | 'onboarding_intent_captured'
+  // Phase A-7 — performance measurement (src/lib/perf, PerformanceReporter)
+  | 'web_vital'
+  | 'api_timing'
+  | 'nav_timing'
 
 export interface AnalyticsEventProps {
   // Non-PII product/internal identifiers only — opaque UUIDs, enums,

@@ -75,7 +75,7 @@ export default function TheField({ tripId }: { tripId: string }) {
             }}
           >
             {m.profiles?.avatar_url ? (
-              <img src={m.profiles.avatar_url} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+              <img src={m.profiles.avatar_url} alt="" loading="lazy" decoding="async" width={32} height={32} style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
             ) : (
               <div style={{
                 width: 32, height: 32, borderRadius: '50%', flexShrink: 0,

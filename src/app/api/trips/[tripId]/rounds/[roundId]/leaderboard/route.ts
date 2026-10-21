@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { computeCumulativeStandings, sortRoundsChronologically, buildRoundsSummary } from '@/lib/scoring/multiRound'
 import { orderHolesByPlaySequence } from '@/lib/scoring/holeSequence'
+import { withServerTiming } from '@/lib/perf/withServerTiming'
 
 // This is a polling endpoint — never cache it. Without this, Next.js could
 // serve one stale response to every poll instead of hitting Supabase fresh
@@ -26,7 +27,7 @@ interface ScorecardRow {
 }
 interface HoleRow { id: string; hole_number: number; par: number; stroke_index: number }
 
-export async function GET(_req: NextRequest, { params }: RouteProps) {
+async function getHandler(_req: NextRequest, { params }: RouteProps) {
   const { tripId, roundId } = await params
   try {
     const supabase = await createClient()
@@ -313,3 +314,6 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     }, { status: 500 })
   }
 }
+
+// Phase A-7 — adds a Server-Timing header (no change to body/status).
+export const GET = withServerTiming('leaderboard', getHandler)

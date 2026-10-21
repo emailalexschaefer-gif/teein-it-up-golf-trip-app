@@ -1,14 +1,18 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { isPublicStaticPath } from '@/lib/auth/publicStaticPaths'
 
 export async function middleware(request: NextRequest) {
   const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   const { pathname }    = request.nextUrl
 
-  console.log('[middleware]', request.method, pathname, {
-    cookies: request.cookies.getAll().map((c: { name: string }) => c.name),
-  })
+  // Phase A-2 — public static files never need an auth round trip (and the
+  // per-request logging that used to run here, which also printed
+  // cookie NAMES for every request, is removed).
+  if (isPublicStaticPath(pathname)) {
+    return NextResponse.next({ request })
+  }
 
   if (!supabaseUrl || !supabaseAnonKey) {
     console.warn('[middleware] Missing Supabase env vars — passing through')
@@ -34,16 +38,7 @@ export async function middleware(request: NextRequest) {
     },
   })
 
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-
-  console.log('[middleware] getUser', {
-    pathname,
-    userId:       user?.id ?? null,
-    error:        userError?.message ?? null,
-    hasAuthCookie: request.cookies.getAll().some((c: { name: string }) =>
-      c.name.includes('auth') || c.name.startsWith('sb-')
-    ),
-  })
+  const { data: { user } } = await supabase.auth.getUser()
 
   // Routes that do not require authentication
   // 30 Aug field-test bundle — PWA installability. manifest.json,
@@ -71,7 +66,6 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/brand/')
 
   if (!user && !isPublic) {
-    console.log('[middleware] No user on protected route — redirecting to /login')
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     url.searchParams.set('redirectTo', pathname)
@@ -79,7 +73,6 @@ export async function middleware(request: NextRequest) {
   }
 
   if (user && (pathname === '/' || pathname === '/login')) {
-    console.log('[middleware] Authenticated user on auth page — redirecting to /dashboard')
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)
@@ -89,5 +82,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)'],
+  // Phase A-2 — also skip middleware entirely for /brand/*, /images/*,
+  // manifest.json and sw.js (public files, see publicStaticPaths.ts).
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|brand/|images/|manifest\\.json|sw\\.js).*)'],
 }

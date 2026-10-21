@@ -441,7 +441,7 @@ function LeaderboardRow({ row, movement, isLast, isExpanded, onToggle, totalHole
           >
             {row.avatarUrl ? (
               <img
-                src={row.avatarUrl} alt=""
+                src={row.avatarUrl} alt="" loading="lazy" decoding="async" width={32} height={32}
                 style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0, objectFit: 'cover', border: '1px solid rgba(0,0,0,0.06)' }}
               />
             ) : (
@@ -585,7 +585,7 @@ function MultiRoundRow({ row, isCurrentUser, isLast, isExpanded, onToggle, board
           >
             {boardRow?.avatarUrl ? (
               <img
-                src={boardRow.avatarUrl} alt=""
+                src={boardRow.avatarUrl} alt="" loading="lazy" decoding="async" width={24} height={24}
                 style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0, objectFit: 'cover', border: '1px solid rgba(0,0,0,0.06)' }}
               />
             ) : (

@@ -528,7 +528,7 @@ export default function EventMemoriesPage() {
                   <video src={m.imageUrl} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : m.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={m.imageUrl} alt={m.caption ?? 'Event memory'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <img src={m.imageUrl} alt={m.caption ?? 'Event memory'} loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : null}
                 {m.mediaType === 'video' && <span style={{ position: 'absolute', bottom: 4, left: 4, fontSize: 12, background: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>🎬 {m.durationSeconds ? `${Math.round(m.durationSeconds)}s` : ''}</span>}
                 {m.isBlooper && <span style={{ position: 'absolute', top: 4, left: 4, fontSize: 12, background: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>Blooper</span>}

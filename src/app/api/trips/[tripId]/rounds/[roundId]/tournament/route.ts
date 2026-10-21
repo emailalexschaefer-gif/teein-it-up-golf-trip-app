@@ -17,6 +17,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { detectSharedDeviceGroup } from '@/lib/scoring/sharedDeviceScoring'
 import { computeHolePlayOrder } from '@/lib/scoring/holeSequence'
 import { describeRoundWinner } from '@/lib/scoring/roundWinnerAnnouncement'
+import { withServerTiming } from '@/lib/perf/withServerTiming'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -35,7 +36,7 @@ interface ScorecardRow {
 }
 interface HoleRow { id: string; hole_number: number; par: number }
 
-export async function GET(_req: NextRequest, { params }: RouteProps) {
+async function getHandler(_req: NextRequest, { params }: RouteProps) {
   const { tripId, roundId } = await params
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -756,3 +757,6 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     },
   })
 }
+
+// Phase A-7 — adds a Server-Timing header (no change to body/status).
+export const GET = withServerTiming('tournament', getHandler)

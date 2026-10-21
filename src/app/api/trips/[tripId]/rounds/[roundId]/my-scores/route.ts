@@ -26,6 +26,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { detectSharedDeviceGroup, resolveMarkedPlayerId, type MarkerRelationshipRow } from '@/lib/scoring/sharedDeviceScoring'
+import { withServerTiming } from '@/lib/perf/withServerTiming'
 
 // This is a polling endpoint (SelfMarkerScoreShell hits it every ~7s while a
 // round is active) — it must never be cached. Without this, Next.js can
@@ -64,7 +65,7 @@ interface ScorecardRow {
   score_entries: ScoreEntryRow[]
 }
 
-export async function GET(_req: NextRequest, { params }: RouteProps) {
+async function getHandler(_req: NextRequest, { params }: RouteProps) {
   const { tripId, roundId } = await params
 
   const supabase = await createClient()
@@ -222,3 +223,6 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     markedOverrideAudit,
   })
 }
+
+// Phase A-7 — adds a Server-Timing header (no change to body/status).
+export const GET = withServerTiming('my-scores', getHandler)

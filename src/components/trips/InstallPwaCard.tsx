@@ -177,7 +177,7 @@ export default function InstallPwaCard({ onDismiss }: { onDismiss?: () => void }
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/icon-192.png" alt="" style={{ width: 40, height: 40, borderRadius: 10 }} />
+              <img src="/brand/icon-192.png" alt="" decoding="async" width={40} height={40} style={{ width: 40, height: 40, borderRadius: 10 }} />
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#14532d' }}>
                 Add Teein&apos; It Up to your Home Screen
               </div>

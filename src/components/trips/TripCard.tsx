@@ -54,6 +54,10 @@ export default function TripCard({ trip }: { trip: TripSummary }) {
               <img
                 src={trip.logo_url}
                 alt={trip.name}
+                loading="lazy"
+                decoding="async"
+                width={52}
+                height={52}
                 style={{ width: 52, height: 52, borderRadius: 13, objectFit: 'cover' }}
               />
             ) : (

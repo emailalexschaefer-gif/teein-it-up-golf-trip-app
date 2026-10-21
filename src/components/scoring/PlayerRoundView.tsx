@@ -326,7 +326,7 @@ function MyMoments({ tripId }: { tripId: string }) {
               >
                 {/* eslint-disable-next-line @next/next/no-img-element -- a
                     signed Supabase Storage URL, not a static asset */}
-                <img src={m.imageUrl} alt="Moment" style={{ width: '100%', height: 80, objectFit: 'cover', display: 'block' }} />
+                <img src={m.imageUrl} loading="lazy" decoding="async" alt="Moment" style={{ width: '100%', height: 80, objectFit: 'cover', display: 'block' }} />
               </button>
             )}
             <div style={{ padding: '5px 6px' }}>

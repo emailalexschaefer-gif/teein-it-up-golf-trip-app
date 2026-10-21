@@ -6,6 +6,7 @@ import InstallPromptCaptureInit from '@/components/pwa/InstallPromptCaptureInit'
 import ServiceWorkerInit from '@/components/pwa/ServiceWorkerInit'
 import GoogleAnalytics from '@/components/analytics/GoogleAnalytics'
 import RouteChangeTracker from '@/components/analytics/RouteChangeTracker'
+import PerformanceReporter from '@/components/analytics/PerformanceReporter'
 
 // Demo fonts: Playfair Display for display/headings, Lato for body
 const playfair = Playfair_Display({
@@ -64,6 +65,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             is the sole source of pageviews (see both files). */}
         <GoogleAnalytics />
         <RouteChangeTracker />
+        {/* Phase A-7 — passive, privacy-conscious Web Vitals / API-timing
+            reporting through the existing analytics layer. Renders nothing. */}
+        <PerformanceReporter />
         <ReactQueryProvider>{children}</ReactQueryProvider>
       </body>
     </html>

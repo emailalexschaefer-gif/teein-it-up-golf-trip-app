@@ -135,7 +135,7 @@ export default function StartingGrid({
                     }}
                   >
                     {m.profiles?.avatar_url ? (
-                      <img src={m.profiles.avatar_url} alt="" style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                      <img src={m.profiles.avatar_url} alt="" loading="lazy" decoding="async" width={30} height={30} style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
                     ) : (
                       <div style={{
                         width: 30, height: 30, borderRadius: '50%', flexShrink: 0,

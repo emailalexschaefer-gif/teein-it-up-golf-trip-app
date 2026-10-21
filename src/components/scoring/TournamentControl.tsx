@@ -1088,7 +1088,7 @@ function StoryTimelineList({ items, limit }: { items: TimelineItem[]; limit?: nu
                   style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element -- a signed Supabase Storage URL, not a static asset */}
-                  <img src={item.imageUrl} alt="Moment" style={{ width: '100%', maxHeight: 220, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
+                  <img src={item.imageUrl} loading="lazy" decoding="async" alt="Moment" style={{ width: '100%', maxHeight: 220, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
                 </button>
               )}
               {item.caption && (
@@ -1116,7 +1116,7 @@ function StoryTimelineList({ items, limit }: { items: TimelineItem[]; limit?: nu
                 style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'pointer', marginTop: 8 }}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element -- a signed Supabase Storage URL, not a static asset */}
-                <img src={item.imageUrl} alt="" style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
+                <img src={item.imageUrl} loading="lazy" decoding="async" alt="" style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
               </button>
             )}
           </div>

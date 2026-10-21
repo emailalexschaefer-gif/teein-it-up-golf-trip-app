@@ -46,8 +46,14 @@ interface BrandLogoProps {
   className?: string
 }
 
+// Phase A-4 — optimised crest files (new filenames, so neither the service
+// worker's cache-first /brand/ cache nor any HTTP cache can serve the old
+// 1.7 MB file under the same URL).
+const LOGO_FULL_WEBP = '/brand/logo-new-960.webp'
+const LOGO_FULL_PNG = '/brand/logo-new-720.png'
+
 const ASSET: Record<'full' | 'icon', { src: string; alt: string }> = {
-  full: { src: '/brand/logo-new.png', alt: "Teein' It Up — Golf Event App" },
+  full: { src: LOGO_FULL_PNG, alt: "Teein' It Up — Golf Event App" },
   icon: { src: '/brand/teein-it-up-icon.png', alt: "Teein' It Up" },
 }
 
@@ -65,6 +71,12 @@ const ASSET: Record<'full' | 'icon', { src: string; alt: string }> = {
  */
 export default function BrandLogo({ variant = 'full', size, priority = false, className }: BrandLogoProps) {
   const [failed, setFailed] = useState(false)
+  // Phase A-4 — if the WebP can't be loaded (file missing from a deploy, or
+  // an unusual browser), drop the <source> so the same <img> loads the PNG
+  // instead of going straight to the text fallback. A <picture> does NOT
+  // fall back on its own when a matching <source> 404s (verified in
+  // Chromium), hence this.
+  const [webpFailed, setWebpFailed] = useState(false)
   const { src, alt } = ASSET[variant]
 
   if (failed) {
@@ -121,19 +133,37 @@ export default function BrandLogo({ variant = 'full', size, priority = false, cl
   const displayWidth = size ?? 320
   return (
     // eslint-disable-next-line @next/next/no-img-element -- deliberate: see comment above, this is diagnostic/corrective, not a shortcut
-    <img
-      src={src}
-      alt={alt}
-      className={className}
-      loading={priority ? 'eager' : 'lazy'}
-      fetchPriority={priority ? 'high' : 'auto'}
-      style={{
-        display: 'block',
-        width: `clamp(220px, 70vw, ${displayWidth}px)`,
-        height: 'auto',
-        margin: '0 auto',
-      }}
-      onError={() => setFailed(true)}
-    />
+    // Phase A-4 (performance) — the original logo-new.png is 1.7 MB (1254px).
+    // The crest is shown at most 320 CSS px wide, so browsers that support
+    // WebP load a 960px, ~198 KB WebP (visually indistinguishable at this
+    // size — checked side by side); every other browser gets a 720px
+    // lossless PNG (~637 KB). The plain <img> below is still the element
+    // that renders, so the onError text fallback, sizing and priority
+    // behaviour are unchanged. width/height reserve the (square) aspect
+    // ratio so the logo can't cause layout shift. logo-new.png itself is
+    // left in /public/brand untouched.
+    <picture>
+      {!webpFailed && <source srcSet={LOGO_FULL_WEBP} type="image/webp" />}
+      <img
+        src={src}
+        alt={alt}
+        className={className}
+        width={720}
+        height={720}
+        decoding="async"
+        loading={priority ? 'eager' : 'lazy'}
+        fetchPriority={priority ? 'high' : 'auto'}
+        style={{
+          display: 'block',
+          width: `clamp(220px, 70vw, ${displayWidth}px)`,
+          height: 'auto',
+          margin: '0 auto',
+        }}
+        onError={(e) => {
+          if (!webpFailed && e.currentTarget.currentSrc.endsWith('.webp')) setWebpFailed(true)
+          else setFailed(true)
+        }}
+      />
+    </picture>
   )
 }
