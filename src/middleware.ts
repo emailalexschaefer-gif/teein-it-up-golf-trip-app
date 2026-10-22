@@ -73,5 +73,5 @@ export async function middleware(request: NextRequest) {
 export const config = {
   // Phase A-2 — also skip middleware entirely for /brand/*, /images/*,
   // manifest.json and sw.js (public files, see publicStaticPaths.ts).
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|brand/|images/|audio/|manifest\\.json|sw\\.js).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|brand/|images/|manifest\\.json|sw\\.js).*)'],
 }

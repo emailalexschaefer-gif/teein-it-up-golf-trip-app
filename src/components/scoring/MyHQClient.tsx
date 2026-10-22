@@ -485,7 +485,9 @@ export default function MyHQClient({
         <div style={{ marginBottom: 16 }}>
           <RoundWorkflowTracker
             roundName={selected.name}
-            stages={workflow.stages}
+            stages={eventProgress.allRoundsClosed
+              ? workflow.stages.map(st => st.id === 'reviewPresent' ? { ...st, actionLabel: 'Create & Share Event Presentation', detail: 'All rounds closed \u2014 build, publish and share the event presentation' } : st)
+              : workflow.stages}
             primaryStageId={workflow.primaryStageId}
             onAction={handleWorkflowAction}
             expandedStages={expandedStages}

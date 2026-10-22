@@ -393,6 +393,14 @@ export default function EventMemoriesPage() {
               photos. Now that the deep link only pre-selects scope, keep
               that route alive here rather than leaving the organiser
               with no way to create a presentation. */}
+          {isOrganiser && manifest.rounds.length > 0 && manifest.rounds.every(r => r.status === 'completed') && (
+            <button
+              onClick={() => { setPresentationConfig(defaultPresentationConfig(manifest, { kind: 'fullEvent' })); setShowPublishPanel(true) }}
+              style={{ display: 'block', width: '100%', marginTop: 12, padding: '12px 0', borderRadius: 8, border: 'none', background: '#c9a227', color: '#1a1a16', fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 800, cursor: 'pointer' }}
+            >
+              🔗 Share Event Presentation
+            </button>
+          )}
           {isOrganiser && pendingScope && (
             <button
               onClick={() => chooseScope(pendingScope)}
@@ -876,7 +884,7 @@ export default function EventMemoriesPage() {
             <div style={wizardFooterStyle}>
               <button onClick={() => setSlideshowStep('sections')} style={wizardSecondaryBtn}>Back</button>
               {isOrganiser && presentationConfig.scope.kind === 'fullEvent' && (
-                <button onClick={() => setShowPublishPanel(true)} style={wizardSecondaryBtn}>Publish</button>
+                <button onClick={() => setShowPublishPanel(true)} style={wizardSecondaryBtn}>Publish &amp; Share</button>
               )}
               <button onClick={playPresentation} style={wizardPrimaryBtn}>▶ Play</button>
             </div>
