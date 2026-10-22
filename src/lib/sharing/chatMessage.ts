@@ -1,7 +1,7 @@
 // Release 3S -- the automatic Event Chat post. The card is rendered from the
 // message text itself so the existing chat table and permission model are
 // unchanged (an ordinary organiser announcement to everyone).
-import { SHARE_TOKEN_LENGTH } from './token'
+import { SHARE_TOKEN_LENGTH } from './tokenShape'
 
 export const CHAT_TITLE = 'Relive the memories! ⛳🏆'
 export const CHAT_CTA = 'Watch our Event Presentation'
