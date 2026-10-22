@@ -77,23 +77,30 @@ async function getHandler(_req: NextRequest, { params }: RouteProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin: any = createAdminClient()
 
-  const memberCheck = await admin
-    .from('trip_members')
-    .select('id, role, group_id')
-    .eq('trip_id', tripId)
-    .eq('profile_id', user.id)
-    .maybeSingle()
+  // Release 3A (performance) — membership and the round lookup depend only
+  // on the URL ids and the authenticated user, not on each other, so they run
+  // together. The gates are still evaluated in the original order (403, then
+  // 404, then 400), and none of the score reads below start until all three
+  // have passed — an outsider or a wrong round never triggers a scorecards
+  // query.
+  const [memberCheck, roundRes] = await Promise.all([
+    admin
+      .from('trip_members')
+      .select('id, role, group_id')
+      .eq('trip_id', tripId)
+      .eq('profile_id', user.id)
+      .maybeSingle(),
+    admin
+      .from('rounds')
+      .select('id, status, score_capture_mode')
+      .eq('id', roundId)
+      .eq('trip_id', tripId)
+      .maybeSingle(),
+  ])
 
   if (!memberCheck.data) {
     return NextResponse.json({ error: 'Not a trip member.' }, { status: 403 })
   }
-
-  const roundRes = await admin
-    .from('rounds')
-    .select('id, status, score_capture_mode')
-    .eq('id', roundId)
-    .eq('trip_id', tripId)
-    .maybeSingle()
 
   if (!roundRes.data) {
     return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
@@ -110,15 +117,39 @@ async function getHandler(_req: NextRequest, { params }: RouteProps) {
   // Same PostgREST-embed pitfall as page.tsx: no FK from scorecards to
   // trip_members, so group membership is fetched separately and merged in
   // application code rather than embedded in the same query.
-  const allCardsRes = await admin
-    .from('scorecards')
-    .select(`
-      id, player_id, playing_handicap, status, submitted_at,
-      profiles:player_id ( id, full_name, avatar_url ),
-      score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_by, admin_overridden )
-    `)
-    .eq('round_id', roundId)
-    .neq('status', 'withdrawn')
+  //
+  // Release 3A — with the gates passed, the reads below that depend only on
+  // already-known values are issued together:
+  //   - every scorecard in the round (needs only roundId)
+  //   - the shared-device detection inputs: the round's scoring methods and
+  //     the caller's group membership (need roundId and the caller's
+  //     group_id from the membership row above; skipped when they have none)
+  //   - the round's marker pairings (needs the capture mode from the round
+  //     row above; skipped unless the round uses markers)
+  // Anything that depends on a RESULT of these (who the marked player is,
+  // and therefore which override audits to fetch) still waits for them.
+  const usesMarkers = round.score_capture_mode === 'self_and_marker'
+  const callerGroupId: string | null = memberCheck.data.group_id ?? null
+  const [allCardsRes, groupCardsRes, groupMembersRes, markersRes] = await Promise.all([
+    admin
+      .from('scorecards')
+      .select(`
+        id, player_id, playing_handicap, status, submitted_at,
+        profiles:player_id ( id, full_name, avatar_url ),
+        score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_by, admin_overridden )
+      `)
+      .eq('round_id', roundId)
+      .neq('status', 'withdrawn'),
+    callerGroupId
+      ? admin.from('scorecards').select('player_id, scoring_method').eq('round_id', roundId).neq('status', 'withdrawn')
+      : Promise.resolve({ data: null }),
+    callerGroupId
+      ? admin.from('trip_members').select('profile_id').eq('trip_id', tripId).eq('group_id', callerGroupId)
+      : Promise.resolve({ data: null }),
+    usesMarkers
+      ? admin.from('round_markers').select('player_id, marker_player_id').eq('round_id', roundId)
+      : Promise.resolve({ data: [] }),
+  ])
 
   if (allCardsRes.error) {
     console.error('[my-scores] scorecards query failed', { roundId, tripId, error: allCardsRes.error })
@@ -148,16 +179,13 @@ async function getHandler(_req: NextRequest, { params }: RouteProps) {
   // same query shape, same group-scoping — so this endpoint can no
   // longer produce a different answer than the initial server render.
   let sharedDeviceDetection: ReturnType<typeof detectSharedDeviceGroup> = { isSharedDevice: false, digitalPlayerId: null, paperPlayerId: null }
-  if (memberCheck.data.group_id) {
-    const groupCardsRes = await admin.from('scorecards').select('player_id, scoring_method').eq('round_id', roundId).neq('status', 'withdrawn')
-    const groupMembersRes = await admin.from('trip_members').select('profile_id').eq('trip_id', tripId).eq('group_id', memberCheck.data.group_id)
+  if (callerGroupId) {
     const groupProfileIds = new Set((groupMembersRes.data ?? []).map((m: { profile_id: string }) => m.profile_id))
     const relevantCards = (groupCardsRes.data ?? []).filter((c: { player_id: string }) => groupProfileIds.has(c.player_id))
     sharedDeviceDetection = detectSharedDeviceGroup(
       relevantCards.map((c: { player_id: string; scoring_method: string }) => ({ playerId: c.player_id, scoringMethod: c.scoring_method === 'paper' ? 'paper' : 'digital' }))
     )
   }
-  const usesMarkers = round.score_capture_mode === 'self_and_marker'
   let markedByProfile: ScorecardProfile | null = null
   let markedCard: ScorecardRow | null = null
 
@@ -167,9 +195,6 @@ async function getHandler(_req: NextRequest, { params }: RouteProps) {
   // priority order, now covered by sharedDeviceScoring.test.ts's
   // resolution-specific tests instead of only being correct by
   // inspection.
-  const markersRes = usesMarkers
-    ? await admin.from('round_markers').select('player_id, marker_player_id').eq('round_id', roundId)
-    : { data: [] }
   const markerRows: MarkerRelationshipRow[] = (markersRes.data ?? []).map(
     (r: { player_id: string; marker_player_id: string }) => ({ playerId: r.player_id, markerPlayerId: r.marker_player_id })
   )
@@ -211,8 +236,11 @@ async function getHandler(_req: NextRequest, { params }: RouteProps) {
     return ((auditRes.data ?? []) as unknown as { hole_id: string; old_gross_score: number | null; new_gross_score: number; reason: string; overridden_at: string; profiles: { full_name: string } | null }[])
       .map(a => ({ holeId: a.hole_id, oldGrossScore: a.old_gross_score, newGrossScore: a.new_gross_score, reason: a.reason, overriddenByName: a.profiles?.full_name ?? 'Organiser', overriddenAt: a.overridden_at }))
   }
-  const myOverrideAudit = myCard ? await fetchOverrideAudit(myCard.id) : []
-  const markedOverrideAudit = markedCard ? await fetchOverrideAudit(markedCard.id) : []
+  // Release 3A — the two audit lookups are independent of each other.
+  const [myOverrideAudit, markedOverrideAudit] = await Promise.all([
+    myCard ? fetchOverrideAudit(myCard.id) : Promise.resolve([]),
+    markedCard ? fetchOverrideAudit(markedCard.id) : Promise.resolve([]),
+  ])
 
   return NextResponse.json({
     round: { id: round.id, status: round.status },

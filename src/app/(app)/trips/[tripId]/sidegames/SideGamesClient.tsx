@@ -62,6 +62,12 @@ export default function SideGamesClient({ tripId }: { tripId: string }) {
     // actually be changing), just evaluated across the whole set rather
     // than a single round.
     refetchInterval: (query) => (query.state.data?.roundsData ?? []).some(r => r.status === 'active') ? 8000 : false,
+    // Release 3A — the app-wide default staleTime is 60 s, which meant a
+    // return to the screen inside that minute did not refetch. Match every
+    // other live query (leaderboard, tournament, my-round): fetch on return.
+    // react-query already pauses the interval while the page is hidden.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   })
 
   // P0 field-test fix — rounds with zero competitions used to be

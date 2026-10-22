@@ -1,0 +1,2063 @@
+{
+  "organiser on active round 2 (side comps, moment image)": {
+    "status": 200,
+    "body": {
+      "roundName": "Round 2",
+      "courseName": "Dunes",
+      "scoringFormat": "stableford",
+      "roundStatus": "active",
+      "totalHoles": 9,
+      "health": {
+        "level": "red",
+        "text": "1 score requires review",
+        "topMismatch": {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Pat One",
+          "groupName": "Group A",
+          "groupId": "grp-1",
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      },
+      "summary": {
+        "players": 5,
+        "groups": 2,
+        "scoringNow": 4,
+        "finishedCount": 0,
+        "awaitingReconciliation": 1,
+        "completionPct": 24
+      },
+      "groups": [
+        {
+          "groupId": "grp-1",
+          "groupName": "Group A",
+          "playerCount": 2,
+          "currentHole": 13,
+          "status": "reconciliation",
+          "players": [
+            {
+              "playerId": "u-p1",
+              "name": "Pat One",
+              "holesPlayed": 5,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": true,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            },
+            {
+              "playerId": "u-p2",
+              "name": "Sam Two",
+              "holesPlayed": 3,
+              "finished": false,
+              "hasMismatch": true,
+              "waitingForMarker": true,
+              "confirmationState": "review_required",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            }
+          ]
+        },
+        {
+          "groupId": "grp-2",
+          "groupName": "Group B",
+          "playerCount": 2,
+          "currentHole": 12,
+          "status": "scoring",
+          "players": [
+            {
+              "playerId": "u-p3",
+              "name": "Kim Three",
+              "holesPlayed": 2,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": true
+            },
+            {
+              "playerId": "u-p4",
+              "name": "Lee Four",
+              "holesPlayed": 0,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": true,
+              "paperCardOutstanding": true,
+              "isSharedDevicePlayer": true
+            }
+          ]
+        }
+      ],
+      "alerts": [],
+      "mismatchAlerts": [
+        {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Pat One",
+          "groupName": "Group A",
+          "groupId": "grp-1",
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "leaderboardSnapshot": [
+        {
+          "position": 1,
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false
+        },
+        {
+          "position": 2,
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false
+        },
+        {
+          "position": 3,
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false
+        },
+        {
+          "position": 4,
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false
+        },
+        {
+          "position": 5,
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false
+        }
+      ],
+      "story": [
+        {
+          "icon": "💥",
+          "text": "Pat One takes the Longest Drive lead on Hole 5",
+          "at": "2026-10-20T04:40:00.000Z"
+        },
+        {
+          "icon": "💥",
+          "text": "Kim Three takes the Longest Drive lead on Hole 5",
+          "at": "2026-10-20T04:30:00.000Z"
+        },
+        {
+          "icon": "🎯",
+          "text": "Sam Two takes the NTP lead — 4m on Hole 3",
+          "at": "2026-10-20T04:20:00.000Z",
+          "imageUrl": "https://signed.example/event-moments/trip-1/mo-1.jpg?ttl=3600"
+        },
+        {
+          "icon": "🎯",
+          "text": "Pat One takes the NTP lead — 6m on Hole 3",
+          "at": "2026-10-20T04:10:00.000Z",
+          "imageUrl": "https://signed.example/event-moments/trip-1/mo-1.jpg?ttl=3600"
+        },
+        {
+          "icon": "🟢",
+          "text": "Through 3 holes — Pat One leads",
+          "at": "2026-10-20T03:00:00.000Z"
+        },
+        {
+          "icon": "⚠️",
+          "text": "Score review required — Hole 1, Sam Two",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "highlights": [],
+      "stats": {
+        "birdies": 1,
+        "eagles": 0,
+        "pars": 2,
+        "bogeys": 4,
+        "holeInOnes": 0,
+        "avgStableford": 8,
+        "bestHole": {
+          "number": 2,
+          "avgPts": 4
+        },
+        "hardestHole": {
+          "number": 5,
+          "avgPts": 1
+        }
+      }
+    }
+  },
+  "organiser on completed round 1": {
+    "status": 200,
+    "body": {
+      "roundName": "Round 1",
+      "courseName": "Links",
+      "scoringFormat": "stableford",
+      "roundStatus": "completed",
+      "totalHoles": 9,
+      "health": {
+        "level": "green",
+        "text": "Everything on track"
+      },
+      "summary": {
+        "players": 3,
+        "groups": 2,
+        "scoringNow": 0,
+        "finishedCount": 3,
+        "awaitingReconciliation": 0,
+        "completionPct": 100
+      },
+      "groups": [
+        {
+          "groupId": "grp-1",
+          "groupName": "Group A",
+          "playerCount": 2,
+          "currentHole": 9,
+          "status": "finished",
+          "players": [
+            {
+              "playerId": "u-p1",
+              "name": "Pat One",
+              "holesPlayed": 9,
+              "finished": true,
+              "hasMismatch": false,
+              "waitingForMarker": true,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            },
+            {
+              "playerId": "u-p2",
+              "name": "Sam Two",
+              "holesPlayed": 9,
+              "finished": true,
+              "hasMismatch": false,
+              "waitingForMarker": true,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            }
+          ]
+        },
+        {
+          "groupId": "grp-2",
+          "groupName": "Group B",
+          "playerCount": 1,
+          "currentHole": 9,
+          "status": "finished",
+          "players": [
+            {
+              "playerId": "u-p3",
+              "name": "Kim Three",
+              "holesPlayed": 9,
+              "finished": true,
+              "hasMismatch": false,
+              "waitingForMarker": true,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            }
+          ]
+        }
+      ],
+      "alerts": [
+        {
+          "severity": "green",
+          "kind": "group",
+          "text": "Group A: finished, all scores matched"
+        },
+        {
+          "severity": "green",
+          "kind": "group",
+          "text": "Group B: finished, all scores matched"
+        }
+      ],
+      "mismatchAlerts": [],
+      "leaderboardSnapshot": [
+        {
+          "position": 1,
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "totalPts": 27,
+          "holesPlayed": 9,
+          "finished": true
+        },
+        {
+          "position": 2,
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "totalPts": 27,
+          "holesPlayed": 9,
+          "finished": true
+        },
+        {
+          "position": 3,
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "totalPts": 27,
+          "holesPlayed": 9,
+          "finished": true
+        }
+      ],
+      "story": [
+        {
+          "icon": "🏁",
+          "text": "Group A finished",
+          "at": "2026-10-20T08:00:00.000Z"
+        },
+        {
+          "icon": "🏁",
+          "text": "Group B finished",
+          "at": "2026-10-20T08:00:00.000Z"
+        },
+        {
+          "icon": "🏆",
+          "text": "Round completed",
+          "at": "2026-10-20T08:00:00.000Z"
+        },
+        {
+          "icon": "🟢",
+          "text": "Through 3 holes — Pat One leads",
+          "at": "2026-10-20T03:00:00.000Z"
+        }
+      ],
+      "highlights": [
+        "🤝 Pat One & Sam Two & Kim Three tied at the top with 27 Stableford points",
+        "⛳ 2 birdies recorded today"
+      ],
+      "stats": {
+        "birdies": 2,
+        "eagles": 0,
+        "pars": 9,
+        "bogeys": 8,
+        "holeInOnes": 0,
+        "avgStableford": 27,
+        "bestHole": {
+          "number": 2,
+          "avgPts": 4
+        },
+        "hardestHole": {
+          "number": 3,
+          "avgPts": 2
+        }
+      }
+    }
+  },
+  "player (not organiser) -> 403": {
+    "status": 403,
+    "body": {
+      "error": "Organiser only."
+    }
+  },
+  "not signed in -> 401": {
+    "status": 401,
+    "body": {
+      "error": "Not authenticated."
+    }
+  },
+  "unknown round -> 404": {
+    "status": 404,
+    "body": {
+      "error": "Round not found."
+    }
+  },
+  "scorecards error -> 500": {
+    "status": 500,
+    "body": {
+      "error": "Could not load tournament data."
+    }
+  },
+  "side-comps lookup error: rest of response intact": {
+    "status": 200,
+    "body": {
+      "roundName": "Round 2",
+      "courseName": "Dunes",
+      "scoringFormat": "stableford",
+      "roundStatus": "active",
+      "totalHoles": 9,
+      "health": {
+        "level": "red",
+        "text": "1 score requires review",
+        "topMismatch": {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Pat One",
+          "groupName": "Group A",
+          "groupId": "grp-1",
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      },
+      "summary": {
+        "players": 5,
+        "groups": 2,
+        "scoringNow": 4,
+        "finishedCount": 0,
+        "awaitingReconciliation": 1,
+        "completionPct": 24
+      },
+      "groups": [
+        {
+          "groupId": "grp-1",
+          "groupName": "Group A",
+          "playerCount": 2,
+          "currentHole": 13,
+          "status": "reconciliation",
+          "players": [
+            {
+              "playerId": "u-p1",
+              "name": "Pat One",
+              "holesPlayed": 5,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": true,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            },
+            {
+              "playerId": "u-p2",
+              "name": "Sam Two",
+              "holesPlayed": 3,
+              "finished": false,
+              "hasMismatch": true,
+              "waitingForMarker": true,
+              "confirmationState": "review_required",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            }
+          ]
+        },
+        {
+          "groupId": "grp-2",
+          "groupName": "Group B",
+          "playerCount": 2,
+          "currentHole": 12,
+          "status": "scoring",
+          "players": [
+            {
+              "playerId": "u-p3",
+              "name": "Kim Three",
+              "holesPlayed": 2,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": true
+            },
+            {
+              "playerId": "u-p4",
+              "name": "Lee Four",
+              "holesPlayed": 0,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": true,
+              "paperCardOutstanding": true,
+              "isSharedDevicePlayer": true
+            }
+          ]
+        }
+      ],
+      "alerts": [],
+      "mismatchAlerts": [
+        {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Pat One",
+          "groupName": "Group A",
+          "groupId": "grp-1",
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "leaderboardSnapshot": [
+        {
+          "position": 1,
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false
+        },
+        {
+          "position": 2,
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false
+        },
+        {
+          "position": 3,
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false
+        },
+        {
+          "position": 4,
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false
+        },
+        {
+          "position": 5,
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false
+        }
+      ],
+      "story": [
+        {
+          "icon": "🟢",
+          "text": "Through 3 holes — Pat One leads",
+          "at": "2026-10-20T03:00:00.000Z"
+        },
+        {
+          "icon": "⚠️",
+          "text": "Score review required — Hole 1, Sam Two",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "highlights": [],
+      "stats": {
+        "birdies": 1,
+        "eagles": 0,
+        "pars": 2,
+        "bogeys": 4,
+        "holeInOnes": 0,
+        "avgStableford": 8,
+        "bestHole": {
+          "number": 2,
+          "avgPts": 4
+        },
+        "hardestHole": {
+          "number": 5,
+          "avgPts": 1
+        }
+      }
+    }
+  },
+  "lead-changes lookup error": {
+    "status": 200,
+    "body": {
+      "roundName": "Round 2",
+      "courseName": "Dunes",
+      "scoringFormat": "stableford",
+      "roundStatus": "active",
+      "totalHoles": 9,
+      "health": {
+        "level": "red",
+        "text": "1 score requires review",
+        "topMismatch": {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Pat One",
+          "groupName": "Group A",
+          "groupId": "grp-1",
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      },
+      "summary": {
+        "players": 5,
+        "groups": 2,
+        "scoringNow": 4,
+        "finishedCount": 0,
+        "awaitingReconciliation": 1,
+        "completionPct": 24
+      },
+      "groups": [
+        {
+          "groupId": "grp-1",
+          "groupName": "Group A",
+          "playerCount": 2,
+          "currentHole": 13,
+          "status": "reconciliation",
+          "players": [
+            {
+              "playerId": "u-p1",
+              "name": "Pat One",
+              "holesPlayed": 5,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": true,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            },
+            {
+              "playerId": "u-p2",
+              "name": "Sam Two",
+              "holesPlayed": 3,
+              "finished": false,
+              "hasMismatch": true,
+              "waitingForMarker": true,
+              "confirmationState": "review_required",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            }
+          ]
+        },
+        {
+          "groupId": "grp-2",
+          "groupName": "Group B",
+          "playerCount": 2,
+          "currentHole": 12,
+          "status": "scoring",
+          "players": [
+            {
+              "playerId": "u-p3",
+              "name": "Kim Three",
+              "holesPlayed": 2,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": true
+            },
+            {
+              "playerId": "u-p4",
+              "name": "Lee Four",
+              "holesPlayed": 0,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": true,
+              "paperCardOutstanding": true,
+              "isSharedDevicePlayer": true
+            }
+          ]
+        }
+      ],
+      "alerts": [],
+      "mismatchAlerts": [
+        {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Pat One",
+          "groupName": "Group A",
+          "groupId": "grp-1",
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "leaderboardSnapshot": [
+        {
+          "position": 1,
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false
+        },
+        {
+          "position": 2,
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false
+        },
+        {
+          "position": 3,
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false
+        },
+        {
+          "position": 4,
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false
+        },
+        {
+          "position": 5,
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false
+        }
+      ],
+      "story": [
+        {
+          "icon": "🟢",
+          "text": "Through 3 holes — Pat One leads",
+          "at": "2026-10-20T03:00:00.000Z"
+        },
+        {
+          "icon": "⚠️",
+          "text": "Score review required — Hole 1, Sam Two",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "highlights": [],
+      "stats": {
+        "birdies": 1,
+        "eagles": 0,
+        "pars": 2,
+        "bogeys": 4,
+        "holeInOnes": 0,
+        "avgStableford": 8,
+        "bestHole": {
+          "number": 2,
+          "avgPts": 4
+        },
+        "hardestHole": {
+          "number": 5,
+          "avgPts": 1
+        }
+      }
+    }
+  },
+  "side-comp entries network failure is contained": {
+    "status": 200,
+    "body": {
+      "roundName": "Round 2",
+      "courseName": "Dunes",
+      "scoringFormat": "stableford",
+      "roundStatus": "active",
+      "totalHoles": 9,
+      "health": {
+        "level": "red",
+        "text": "1 score requires review",
+        "topMismatch": {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Pat One",
+          "groupName": "Group A",
+          "groupId": "grp-1",
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      },
+      "summary": {
+        "players": 5,
+        "groups": 2,
+        "scoringNow": 4,
+        "finishedCount": 0,
+        "awaitingReconciliation": 1,
+        "completionPct": 24
+      },
+      "groups": [
+        {
+          "groupId": "grp-1",
+          "groupName": "Group A",
+          "playerCount": 2,
+          "currentHole": 13,
+          "status": "reconciliation",
+          "players": [
+            {
+              "playerId": "u-p1",
+              "name": "Pat One",
+              "holesPlayed": 5,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": true,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            },
+            {
+              "playerId": "u-p2",
+              "name": "Sam Two",
+              "holesPlayed": 3,
+              "finished": false,
+              "hasMismatch": true,
+              "waitingForMarker": true,
+              "confirmationState": "review_required",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            }
+          ]
+        },
+        {
+          "groupId": "grp-2",
+          "groupName": "Group B",
+          "playerCount": 2,
+          "currentHole": 12,
+          "status": "scoring",
+          "players": [
+            {
+              "playerId": "u-p3",
+              "name": "Kim Three",
+              "holesPlayed": 2,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": true
+            },
+            {
+              "playerId": "u-p4",
+              "name": "Lee Four",
+              "holesPlayed": 0,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": true,
+              "paperCardOutstanding": true,
+              "isSharedDevicePlayer": true
+            }
+          ]
+        }
+      ],
+      "alerts": [],
+      "mismatchAlerts": [
+        {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Pat One",
+          "groupName": "Group A",
+          "groupId": "grp-1",
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "leaderboardSnapshot": [
+        {
+          "position": 1,
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false
+        },
+        {
+          "position": 2,
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false
+        },
+        {
+          "position": 3,
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false
+        },
+        {
+          "position": 4,
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false
+        },
+        {
+          "position": 5,
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false
+        }
+      ],
+      "story": [
+        {
+          "icon": "🟢",
+          "text": "Through 3 holes — Pat One leads",
+          "at": "2026-10-20T03:00:00.000Z"
+        },
+        {
+          "icon": "⚠️",
+          "text": "Score review required — Hole 1, Sam Two",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "highlights": [],
+      "stats": {
+        "birdies": 1,
+        "eagles": 0,
+        "pars": 2,
+        "bogeys": 4,
+        "holeInOnes": 0,
+        "avgStableford": 8,
+        "bestHole": {
+          "number": 2,
+          "avgPts": 4
+        },
+        "hardestHole": {
+          "number": 5,
+          "avgPts": 1
+        }
+      }
+    }
+  },
+  "moment lookup network failure is contained": {
+    "status": 200,
+    "body": {
+      "roundName": "Round 2",
+      "courseName": "Dunes",
+      "scoringFormat": "stableford",
+      "roundStatus": "active",
+      "totalHoles": 9,
+      "health": {
+        "level": "red",
+        "text": "1 score requires review",
+        "topMismatch": {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Pat One",
+          "groupName": "Group A",
+          "groupId": "grp-1",
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      },
+      "summary": {
+        "players": 5,
+        "groups": 2,
+        "scoringNow": 4,
+        "finishedCount": 0,
+        "awaitingReconciliation": 1,
+        "completionPct": 24
+      },
+      "groups": [
+        {
+          "groupId": "grp-1",
+          "groupName": "Group A",
+          "playerCount": 2,
+          "currentHole": 13,
+          "status": "reconciliation",
+          "players": [
+            {
+              "playerId": "u-p1",
+              "name": "Pat One",
+              "holesPlayed": 5,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": true,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            },
+            {
+              "playerId": "u-p2",
+              "name": "Sam Two",
+              "holesPlayed": 3,
+              "finished": false,
+              "hasMismatch": true,
+              "waitingForMarker": true,
+              "confirmationState": "review_required",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            }
+          ]
+        },
+        {
+          "groupId": "grp-2",
+          "groupName": "Group B",
+          "playerCount": 2,
+          "currentHole": 12,
+          "status": "scoring",
+          "players": [
+            {
+              "playerId": "u-p3",
+              "name": "Kim Three",
+              "holesPlayed": 2,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": true
+            },
+            {
+              "playerId": "u-p4",
+              "name": "Lee Four",
+              "holesPlayed": 0,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": true,
+              "paperCardOutstanding": true,
+              "isSharedDevicePlayer": true
+            }
+          ]
+        }
+      ],
+      "alerts": [],
+      "mismatchAlerts": [
+        {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Pat One",
+          "groupName": "Group A",
+          "groupId": "grp-1",
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "leaderboardSnapshot": [
+        {
+          "position": 1,
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false
+        },
+        {
+          "position": 2,
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false
+        },
+        {
+          "position": 3,
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false
+        },
+        {
+          "position": 4,
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false
+        },
+        {
+          "position": 5,
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false
+        }
+      ],
+      "story": [
+        {
+          "icon": "🟢",
+          "text": "Through 3 holes — Pat One leads",
+          "at": "2026-10-20T03:00:00.000Z"
+        },
+        {
+          "icon": "⚠️",
+          "text": "Score review required — Hole 1, Sam Two",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "highlights": [],
+      "stats": {
+        "birdies": 1,
+        "eagles": 0,
+        "pars": 2,
+        "bogeys": 4,
+        "holeInOnes": 0,
+        "avgStableford": 8,
+        "bestHole": {
+          "number": 2,
+          "avgPts": 4
+        },
+        "hardestHole": {
+          "number": 5,
+          "avgPts": 1
+        }
+      }
+    }
+  },
+  "markers lookup error is tolerated": {
+    "status": 200,
+    "body": {
+      "roundName": "Round 2",
+      "courseName": "Dunes",
+      "scoringFormat": "stableford",
+      "roundStatus": "active",
+      "totalHoles": 9,
+      "health": {
+        "level": "red",
+        "text": "1 score requires review",
+        "topMismatch": {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Marker",
+          "groupName": "Group A",
+          "groupId": "grp-1",
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      },
+      "summary": {
+        "players": 5,
+        "groups": 2,
+        "scoringNow": 4,
+        "finishedCount": 0,
+        "awaitingReconciliation": 1,
+        "completionPct": 24
+      },
+      "groups": [
+        {
+          "groupId": "grp-1",
+          "groupName": "Group A",
+          "playerCount": 2,
+          "currentHole": 13,
+          "status": "reconciliation",
+          "players": [
+            {
+              "playerId": "u-p1",
+              "name": "Pat One",
+              "holesPlayed": 5,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": true,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            },
+            {
+              "playerId": "u-p2",
+              "name": "Sam Two",
+              "holesPlayed": 3,
+              "finished": false,
+              "hasMismatch": true,
+              "waitingForMarker": true,
+              "confirmationState": "review_required",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            }
+          ]
+        },
+        {
+          "groupId": "grp-2",
+          "groupName": "Group B",
+          "playerCount": 2,
+          "currentHole": 12,
+          "status": "scoring",
+          "players": [
+            {
+              "playerId": "u-p3",
+              "name": "Kim Three",
+              "holesPlayed": 2,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": true
+            },
+            {
+              "playerId": "u-p4",
+              "name": "Lee Four",
+              "holesPlayed": 0,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": true,
+              "paperCardOutstanding": true,
+              "isSharedDevicePlayer": true
+            }
+          ]
+        }
+      ],
+      "alerts": [],
+      "mismatchAlerts": [
+        {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Marker",
+          "groupName": "Group A",
+          "groupId": "grp-1",
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "leaderboardSnapshot": [
+        {
+          "position": 1,
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false
+        },
+        {
+          "position": 2,
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false
+        },
+        {
+          "position": 3,
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false
+        },
+        {
+          "position": 4,
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false
+        },
+        {
+          "position": 5,
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false
+        }
+      ],
+      "story": [
+        {
+          "icon": "💥",
+          "text": "Pat One takes the Longest Drive lead on Hole 5",
+          "at": "2026-10-20T04:40:00.000Z"
+        },
+        {
+          "icon": "💥",
+          "text": "Kim Three takes the Longest Drive lead on Hole 5",
+          "at": "2026-10-20T04:30:00.000Z"
+        },
+        {
+          "icon": "🎯",
+          "text": "Sam Two takes the NTP lead — 4m on Hole 3",
+          "at": "2026-10-20T04:20:00.000Z",
+          "imageUrl": "https://signed.example/event-moments/trip-1/mo-1.jpg?ttl=3600"
+        },
+        {
+          "icon": "🎯",
+          "text": "Pat One takes the NTP lead — 6m on Hole 3",
+          "at": "2026-10-20T04:10:00.000Z",
+          "imageUrl": "https://signed.example/event-moments/trip-1/mo-1.jpg?ttl=3600"
+        },
+        {
+          "icon": "🟢",
+          "text": "Through 3 holes — Pat One leads",
+          "at": "2026-10-20T03:00:00.000Z"
+        },
+        {
+          "icon": "⚠️",
+          "text": "Score review required — Hole 1, Sam Two",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "highlights": [],
+      "stats": {
+        "birdies": 1,
+        "eagles": 0,
+        "pars": 2,
+        "bogeys": 4,
+        "holeInOnes": 0,
+        "avgStableford": 8,
+        "bestHole": {
+          "number": 2,
+          "avgPts": 4
+        },
+        "hardestHole": {
+          "number": 5,
+          "avgPts": 1
+        }
+      }
+    }
+  },
+  "groups lookup error is tolerated": {
+    "status": 200,
+    "body": {
+      "roundName": "Round 2",
+      "courseName": "Dunes",
+      "scoringFormat": "stableford",
+      "roundStatus": "active",
+      "totalHoles": 9,
+      "health": {
+        "level": "red",
+        "text": "1 score requires review",
+        "topMismatch": {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Pat One",
+          "groupName": "Unassigned",
+          "groupId": "grp-1",
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      },
+      "summary": {
+        "players": 5,
+        "groups": 0,
+        "scoringNow": 4,
+        "finishedCount": 0,
+        "awaitingReconciliation": 1,
+        "completionPct": 24
+      },
+      "groups": [],
+      "alerts": [],
+      "mismatchAlerts": [
+        {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Pat One",
+          "groupName": "Unassigned",
+          "groupId": "grp-1",
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "leaderboardSnapshot": [
+        {
+          "position": 1,
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false
+        },
+        {
+          "position": 2,
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false
+        },
+        {
+          "position": 3,
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false
+        },
+        {
+          "position": 4,
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false
+        },
+        {
+          "position": 5,
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false
+        }
+      ],
+      "story": [
+        {
+          "icon": "💥",
+          "text": "Pat One takes the Longest Drive lead on Hole 5",
+          "at": "2026-10-20T04:40:00.000Z"
+        },
+        {
+          "icon": "💥",
+          "text": "Kim Three takes the Longest Drive lead on Hole 5",
+          "at": "2026-10-20T04:30:00.000Z"
+        },
+        {
+          "icon": "🎯",
+          "text": "Sam Two takes the NTP lead — 4m on Hole 3",
+          "at": "2026-10-20T04:20:00.000Z",
+          "imageUrl": "https://signed.example/event-moments/trip-1/mo-1.jpg?ttl=3600"
+        },
+        {
+          "icon": "🎯",
+          "text": "Pat One takes the NTP lead — 6m on Hole 3",
+          "at": "2026-10-20T04:10:00.000Z",
+          "imageUrl": "https://signed.example/event-moments/trip-1/mo-1.jpg?ttl=3600"
+        },
+        {
+          "icon": "🟢",
+          "text": "Through 3 holes — Pat One leads",
+          "at": "2026-10-20T03:00:00.000Z"
+        },
+        {
+          "icon": "⚠️",
+          "text": "Score review required — Hole 1, Sam Two",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "highlights": [],
+      "stats": {
+        "birdies": 1,
+        "eagles": 0,
+        "pars": 2,
+        "bogeys": 4,
+        "holeInOnes": 0,
+        "avgStableford": 8,
+        "bestHole": {
+          "number": 2,
+          "avgPts": 4
+        },
+        "hardestHole": {
+          "number": 5,
+          "avgPts": 1
+        }
+      }
+    }
+  },
+  "members lookup error is tolerated": {
+    "status": 200,
+    "body": {
+      "roundName": "Round 2",
+      "courseName": "Dunes",
+      "scoringFormat": "stableford",
+      "roundStatus": "active",
+      "totalHoles": 9,
+      "health": {
+        "level": "red",
+        "text": "1 score requires review",
+        "topMismatch": {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Pat One",
+          "groupName": "Unassigned",
+          "groupId": null,
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      },
+      "summary": {
+        "players": 5,
+        "groups": 2,
+        "scoringNow": 4,
+        "finishedCount": 0,
+        "awaitingReconciliation": 1,
+        "completionPct": 24
+      },
+      "groups": [
+        {
+          "groupId": "grp-1",
+          "groupName": "Group A",
+          "playerCount": 0,
+          "currentHole": 18,
+          "status": "scoring",
+          "players": []
+        },
+        {
+          "groupId": "grp-2",
+          "groupName": "Group B",
+          "playerCount": 0,
+          "currentHole": 18,
+          "status": "scoring",
+          "players": []
+        }
+      ],
+      "alerts": [],
+      "mismatchAlerts": [
+        {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Pat One",
+          "groupName": "Unassigned",
+          "groupId": null,
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "leaderboardSnapshot": [
+        {
+          "position": 1,
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false
+        },
+        {
+          "position": 2,
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false
+        },
+        {
+          "position": 3,
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false
+        },
+        {
+          "position": 4,
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false
+        },
+        {
+          "position": 5,
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false
+        }
+      ],
+      "story": [
+        {
+          "icon": "💥",
+          "text": "Pat One takes the Longest Drive lead on Hole 5",
+          "at": "2026-10-20T04:40:00.000Z"
+        },
+        {
+          "icon": "💥",
+          "text": "Kim Three takes the Longest Drive lead on Hole 5",
+          "at": "2026-10-20T04:30:00.000Z"
+        },
+        {
+          "icon": "🎯",
+          "text": "Sam Two takes the NTP lead — 4m on Hole 3",
+          "at": "2026-10-20T04:20:00.000Z",
+          "imageUrl": "https://signed.example/event-moments/trip-1/mo-1.jpg?ttl=3600"
+        },
+        {
+          "icon": "🎯",
+          "text": "Pat One takes the NTP lead — 6m on Hole 3",
+          "at": "2026-10-20T04:10:00.000Z",
+          "imageUrl": "https://signed.example/event-moments/trip-1/mo-1.jpg?ttl=3600"
+        },
+        {
+          "icon": "🟢",
+          "text": "Through 3 holes — Pat One leads",
+          "at": "2026-10-20T03:00:00.000Z"
+        },
+        {
+          "icon": "⚠️",
+          "text": "Score review required — Hole 1, Sam Two",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "highlights": [],
+      "stats": {
+        "birdies": 1,
+        "eagles": 0,
+        "pars": 2,
+        "bogeys": 4,
+        "holeInOnes": 0,
+        "avgStableford": 8,
+        "bestHole": {
+          "number": 2,
+          "avgPts": 4
+        },
+        "hardestHole": {
+          "number": 5,
+          "avgPts": 1
+        }
+      }
+    }
+  },
+  "no side comps configured": {
+    "status": 200,
+    "body": {
+      "roundName": "Round 2",
+      "courseName": "Dunes",
+      "scoringFormat": "stableford",
+      "roundStatus": "active",
+      "totalHoles": 9,
+      "health": {
+        "level": "red",
+        "text": "1 score requires review",
+        "topMismatch": {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Pat One",
+          "groupName": "Group A",
+          "groupId": "grp-1",
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      },
+      "summary": {
+        "players": 5,
+        "groups": 2,
+        "scoringNow": 4,
+        "finishedCount": 0,
+        "awaitingReconciliation": 1,
+        "completionPct": 24
+      },
+      "groups": [
+        {
+          "groupId": "grp-1",
+          "groupName": "Group A",
+          "playerCount": 2,
+          "currentHole": 13,
+          "status": "reconciliation",
+          "players": [
+            {
+              "playerId": "u-p1",
+              "name": "Pat One",
+              "holesPlayed": 5,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": true,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            },
+            {
+              "playerId": "u-p2",
+              "name": "Sam Two",
+              "holesPlayed": 3,
+              "finished": false,
+              "hasMismatch": true,
+              "waitingForMarker": true,
+              "confirmationState": "review_required",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            }
+          ]
+        },
+        {
+          "groupId": "grp-2",
+          "groupName": "Group B",
+          "playerCount": 2,
+          "currentHole": 12,
+          "status": "scoring",
+          "players": [
+            {
+              "playerId": "u-p3",
+              "name": "Kim Three",
+              "holesPlayed": 2,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": true
+            },
+            {
+              "playerId": "u-p4",
+              "name": "Lee Four",
+              "holesPlayed": 0,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": true,
+              "paperCardOutstanding": true,
+              "isSharedDevicePlayer": true
+            }
+          ]
+        }
+      ],
+      "alerts": [],
+      "mismatchAlerts": [
+        {
+          "severity": "red",
+          "kind": "mismatch",
+          "playerName": "Sam Two",
+          "markerName": "Pat One",
+          "groupName": "Group A",
+          "groupId": "grp-1",
+          "hole": 1,
+          "playerScore": "6",
+          "markerScore": "4",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "leaderboardSnapshot": [
+        {
+          "position": 1,
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false
+        },
+        {
+          "position": 2,
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false
+        },
+        {
+          "position": 3,
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false
+        },
+        {
+          "position": 4,
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false
+        },
+        {
+          "position": 5,
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false
+        }
+      ],
+      "story": [
+        {
+          "icon": "🟢",
+          "text": "Through 3 holes — Pat One leads",
+          "at": "2026-10-20T03:00:00.000Z"
+        },
+        {
+          "icon": "⚠️",
+          "text": "Score review required — Hole 1, Sam Two",
+          "at": "2026-10-20T01:00:00.000Z"
+        }
+      ],
+      "highlights": [],
+      "stats": {
+        "birdies": 1,
+        "eagles": 0,
+        "pars": 2,
+        "bogeys": 4,
+        "holeInOnes": 0,
+        "avgStableford": 8,
+        "bestHole": {
+          "number": 2,
+          "avgPts": 4
+        },
+        "hardestHole": {
+          "number": 5,
+          "avgPts": 1
+        }
+      }
+    }
+  },
+  "no score entries yet": {
+    "status": 200,
+    "body": {
+      "roundName": "Round 2",
+      "courseName": "Dunes",
+      "scoringFormat": "stableford",
+      "roundStatus": "active",
+      "totalHoles": 9,
+      "health": {
+        "level": "gold",
+        "text": "2 groups need attention"
+      },
+      "summary": {
+        "players": 5,
+        "groups": 2,
+        "scoringNow": 0,
+        "finishedCount": 0,
+        "awaitingReconciliation": 0,
+        "completionPct": 0
+      },
+      "groups": [
+        {
+          "groupId": "grp-1",
+          "groupName": "Group A",
+          "playerCount": 2,
+          "currentHole": 10,
+          "status": "needs_attention",
+          "players": [
+            {
+              "playerId": "u-p1",
+              "name": "Pat One",
+              "holesPlayed": 0,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            },
+            {
+              "playerId": "u-p2",
+              "name": "Sam Two",
+              "holesPlayed": 0,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": false
+            }
+          ]
+        },
+        {
+          "groupId": "grp-2",
+          "groupName": "Group B",
+          "playerCount": 2,
+          "currentHole": 10,
+          "status": "needs_attention",
+          "players": [
+            {
+              "playerId": "u-p3",
+              "name": "Kim Three",
+              "holesPlayed": 0,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": false,
+              "paperCardOutstanding": false,
+              "isSharedDevicePlayer": true
+            },
+            {
+              "playerId": "u-p4",
+              "name": "Lee Four",
+              "holesPlayed": 0,
+              "finished": false,
+              "hasMismatch": false,
+              "waitingForMarker": false,
+              "confirmationState": "scoring",
+              "submittedAt": null,
+              "isPaper": true,
+              "paperCardOutstanding": true,
+              "isSharedDevicePlayer": true
+            }
+          ]
+        }
+      ],
+      "alerts": [
+        {
+          "severity": "red",
+          "kind": "group",
+          "text": "Group A: no scores entered yet"
+        },
+        {
+          "severity": "red",
+          "kind": "group",
+          "text": "Group B: no scores entered yet"
+        }
+      ],
+      "mismatchAlerts": [],
+      "leaderboardSnapshot": [
+        {
+          "position": 1,
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false
+        },
+        {
+          "position": 2,
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false
+        },
+        {
+          "position": 3,
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false
+        },
+        {
+          "position": 4,
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false
+        },
+        {
+          "position": 5,
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false
+        }
+      ],
+      "story": [
+        {
+          "icon": "💥",
+          "text": "Pat One takes the Longest Drive lead on Hole 5",
+          "at": "2026-10-20T04:40:00.000Z"
+        },
+        {
+          "icon": "💥",
+          "text": "Kim Three takes the Longest Drive lead on Hole 5",
+          "at": "2026-10-20T04:30:00.000Z"
+        },
+        {
+          "icon": "🎯",
+          "text": "Sam Two takes the NTP lead — 4m on Hole 3",
+          "at": "2026-10-20T04:20:00.000Z",
+          "imageUrl": "https://signed.example/event-moments/trip-1/mo-1.jpg?ttl=3600"
+        },
+        {
+          "icon": "🎯",
+          "text": "Pat One takes the NTP lead — 6m on Hole 3",
+          "at": "2026-10-20T04:10:00.000Z",
+          "imageUrl": "https://signed.example/event-moments/trip-1/mo-1.jpg?ttl=3600"
+        }
+      ],
+      "highlights": [],
+      "stats": {
+        "birdies": 0,
+        "eagles": 0,
+        "pars": 0,
+        "bogeys": 0,
+        "holeInOnes": 0,
+        "avgStableford": 0,
+        "bestHole": null,
+        "hardestHole": null
+      }
+    }
+  }
+}

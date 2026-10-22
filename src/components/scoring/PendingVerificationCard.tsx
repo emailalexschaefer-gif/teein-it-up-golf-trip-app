@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { startVisibilityPolling } from '@/lib/polling/visibilityPoller'
 
 /**
  * Marker verification — Stage 3. Deliberately NOT a modal: a collapsed
@@ -59,8 +60,9 @@ export default function PendingVerificationCard({ tripId, roundId }: { tripId: s
     // Light polling so a marker sees a new claim appear without needing
     // to navigate away and back — matches the same interval already
     // used elsewhere for round-active live data (e.g. the leaderboard).
-    const interval = setInterval(() => void load(), 15000)
-    return () => clearInterval(interval)
+    // Release 3A — pauses while the screen is hidden, refreshes at once on
+    // return, and never overlaps a previous request.
+    return startVisibilityPolling(load, 15000)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId, roundId])
 

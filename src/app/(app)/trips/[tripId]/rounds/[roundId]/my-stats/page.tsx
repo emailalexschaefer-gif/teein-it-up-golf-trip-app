@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
+import { startVisibilityPolling } from '@/lib/polling/visibilityPoller'
 
 interface StatsResponse {
   trackStats: boolean
@@ -30,14 +31,15 @@ export default function MyStatsPage() {
   useEffect(() => {
     let cancelled = false
     const poll = () => {
-      fetch(`/api/trips/${params.tripId}/rounds/${params.roundId}/my-stats`)
+      return fetch(`/api/trips/${params.tripId}/rounds/${params.roundId}/my-stats`)
         .then(res => res.json().then(body => ({ ok: res.ok, body })))
         .then(({ ok, body }) => { if (!cancelled) { if (ok) setData(body); else setError(body.error ?? 'Could not load.') } })
         .catch(() => { if (!cancelled) setError('Could not load your stats.') })
     }
     poll()
-    const interval = setInterval(poll, 8000)
-    return () => { cancelled = true; clearInterval(interval) }
+    // Release 3A — pauses while hidden, refreshes on return, no overlap.
+    const stopPolling = startVisibilityPolling(poll, 8000)
+    return () => { cancelled = true; stopPolling() }
   }, [params.tripId, params.roundId])
 
   if (error) return <div style={{ padding: 20, textAlign: 'center', fontFamily: 'var(--font-body)', color: '#9ca3af' }}>{error}</div>

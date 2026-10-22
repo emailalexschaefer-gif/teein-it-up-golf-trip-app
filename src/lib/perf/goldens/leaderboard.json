@@ -1,0 +1,2452 @@
+{
+  "p1 on active round 2 (cumulative with round 1)": {
+    "status": 200,
+    "body": {
+      "board": [
+        {
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false,
+          "isCurrentUser": true,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 2
+            },
+            {
+              "holeNumber": 4,
+              "par": 5,
+              "strokeIndex": 1,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 5,
+              "par": 4,
+              "strokeIndex": 9,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 1
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2,
+            3,
+            1
+          ],
+          "position": 1
+        },
+        {
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 2
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2
+          ],
+          "position": 2
+        },
+        {
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            }
+          ],
+          "holePoints": [
+            3,
+            4
+          ],
+          "position": 3
+        },
+        {
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            }
+          ],
+          "holePoints": [
+            3
+          ],
+          "position": 4
+        },
+        {
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [],
+          "holePoints": [],
+          "position": 5
+        }
+      ],
+      "roundId": "round-2",
+      "roundName": "Round 2",
+      "scoringFormat": "stableford",
+      "totalHoles": 9,
+      "scoringNow": 4,
+      "finishedCount": 0,
+      "cumulativeStandings": [
+        {
+          "playerId": "u-p1",
+          "playerName": "Pat One",
+          "totalPoints": 40,
+          "position": 1,
+          "roundsPlayed": 2,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 13,
+              "isCurrentRound": true,
+              "holesPlayed": 5,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-p2",
+          "playerName": "Sam Two",
+          "totalPoints": 36,
+          "position": 2,
+          "roundsPlayed": 2,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 9,
+              "isCurrentRound": true,
+              "holesPlayed": 3,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-p3",
+          "playerName": "Kim Three",
+          "totalPoints": 34,
+          "position": 3,
+          "roundsPlayed": 2,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 7,
+              "isCurrentRound": true,
+              "holesPlayed": 2,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-solo",
+          "playerName": "Solo Sue",
+          "totalPoints": 3,
+          "position": 4,
+          "roundsPlayed": 1,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 0,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 3,
+              "isCurrentRound": true,
+              "holesPlayed": 1,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-p4",
+          "playerName": "Lee Four",
+          "totalPoints": 0,
+          "position": 5,
+          "roundsPlayed": 1,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 0,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 0,
+              "isCurrentRound": true,
+              "holesPlayed": 0,
+              "finished": false
+            }
+          ]
+        }
+      ],
+      "roundsSummary": [
+        {
+          "roundId": "round-1",
+          "roundNumber": 1,
+          "isLive": false
+        },
+        {
+          "roundId": "round-2",
+          "roundNumber": 2,
+          "isLive": true
+        }
+      ]
+    }
+  },
+  "p3 on active round 2": {
+    "status": 200,
+    "body": {
+      "board": [
+        {
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 2
+            },
+            {
+              "holeNumber": 4,
+              "par": 5,
+              "strokeIndex": 1,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 5,
+              "par": 4,
+              "strokeIndex": 9,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 1
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2,
+            3,
+            1
+          ],
+          "position": 1
+        },
+        {
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 2
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2
+          ],
+          "position": 2
+        },
+        {
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false,
+          "isCurrentUser": true,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            }
+          ],
+          "holePoints": [
+            3,
+            4
+          ],
+          "position": 3
+        },
+        {
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            }
+          ],
+          "holePoints": [
+            3
+          ],
+          "position": 4
+        },
+        {
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [],
+          "holePoints": [],
+          "position": 5
+        }
+      ],
+      "roundId": "round-2",
+      "roundName": "Round 2",
+      "scoringFormat": "stableford",
+      "totalHoles": 9,
+      "scoringNow": 4,
+      "finishedCount": 0,
+      "cumulativeStandings": [
+        {
+          "playerId": "u-p1",
+          "playerName": "Pat One",
+          "totalPoints": 40,
+          "position": 1,
+          "roundsPlayed": 2,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 13,
+              "isCurrentRound": true,
+              "holesPlayed": 5,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-p2",
+          "playerName": "Sam Two",
+          "totalPoints": 36,
+          "position": 2,
+          "roundsPlayed": 2,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 9,
+              "isCurrentRound": true,
+              "holesPlayed": 3,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-p3",
+          "playerName": "Kim Three",
+          "totalPoints": 34,
+          "position": 3,
+          "roundsPlayed": 2,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 7,
+              "isCurrentRound": true,
+              "holesPlayed": 2,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-solo",
+          "playerName": "Solo Sue",
+          "totalPoints": 3,
+          "position": 4,
+          "roundsPlayed": 1,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 0,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 3,
+              "isCurrentRound": true,
+              "holesPlayed": 1,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-p4",
+          "playerName": "Lee Four",
+          "totalPoints": 0,
+          "position": 5,
+          "roundsPlayed": 1,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 0,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 0,
+              "isCurrentRound": true,
+              "holesPlayed": 0,
+              "finished": false
+            }
+          ]
+        }
+      ],
+      "roundsSummary": [
+        {
+          "roundId": "round-1",
+          "roundNumber": 1,
+          "isLive": false
+        },
+        {
+          "roundId": "round-2",
+          "roundNumber": 2,
+          "isLive": true
+        }
+      ]
+    }
+  },
+  "organiser on round 1 (single round)": {
+    "status": 200,
+    "body": {
+      "board": [
+        {
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 27,
+          "holesPlayed": 9,
+          "finished": true,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 2
+            },
+            {
+              "holeNumber": 4,
+              "par": 5,
+              "strokeIndex": 1,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 5,
+              "par": 4,
+              "strokeIndex": 9,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 6,
+              "par": 4,
+              "strokeIndex": 11,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 2
+            },
+            {
+              "holeNumber": 7,
+              "par": 3,
+              "strokeIndex": 17,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 8,
+              "par": 4,
+              "strokeIndex": 5,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 9,
+              "par": 5,
+              "strokeIndex": 13,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 2
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2,
+            3,
+            4,
+            2,
+            3,
+            4,
+            2
+          ],
+          "position": 1
+        },
+        {
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 27,
+          "holesPlayed": 9,
+          "finished": true,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 2
+            },
+            {
+              "holeNumber": 4,
+              "par": 5,
+              "strokeIndex": 1,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 5,
+              "par": 4,
+              "strokeIndex": 9,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 6,
+              "par": 4,
+              "strokeIndex": 11,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 2
+            },
+            {
+              "holeNumber": 7,
+              "par": 3,
+              "strokeIndex": 17,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 8,
+              "par": 4,
+              "strokeIndex": 5,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 9,
+              "par": 5,
+              "strokeIndex": 13,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 2
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2,
+            3,
+            4,
+            2,
+            3,
+            4,
+            2
+          ],
+          "position": 1
+        },
+        {
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 27,
+          "holesPlayed": 9,
+          "finished": true,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 2
+            },
+            {
+              "holeNumber": 4,
+              "par": 5,
+              "strokeIndex": 1,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 5,
+              "par": 4,
+              "strokeIndex": 9,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 6,
+              "par": 4,
+              "strokeIndex": 11,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 2
+            },
+            {
+              "holeNumber": 7,
+              "par": 3,
+              "strokeIndex": 17,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 8,
+              "par": 4,
+              "strokeIndex": 5,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 9,
+              "par": 5,
+              "strokeIndex": 13,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 2
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2,
+            3,
+            4,
+            2,
+            3,
+            4,
+            2
+          ],
+          "position": 1
+        }
+      ],
+      "roundId": "round-1",
+      "roundName": "Round 1",
+      "scoringFormat": "stableford",
+      "totalHoles": 9,
+      "scoringNow": 0,
+      "finishedCount": 3,
+      "cumulativeStandings": [
+        {
+          "playerId": "u-p1",
+          "playerName": "Pat One",
+          "totalPoints": 27,
+          "position": 1,
+          "roundsPlayed": 1,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": true,
+              "holesPlayed": 9,
+              "finished": true
+            }
+          ]
+        },
+        {
+          "playerId": "u-p2",
+          "playerName": "Sam Two",
+          "totalPoints": 27,
+          "position": 1,
+          "roundsPlayed": 1,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": true,
+              "holesPlayed": 9,
+              "finished": true
+            }
+          ]
+        },
+        {
+          "playerId": "u-p3",
+          "playerName": "Kim Three",
+          "totalPoints": 27,
+          "position": 1,
+          "roundsPlayed": 1,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": true,
+              "holesPlayed": 9,
+              "finished": true
+            }
+          ]
+        }
+      ],
+      "roundsSummary": [
+        {
+          "roundId": "round-1",
+          "roundNumber": 1,
+          "isLive": false
+        }
+      ]
+    }
+  },
+  "not signed in -> 401": {
+    "status": 401,
+    "body": {
+      "error": "Not authenticated."
+    }
+  },
+  "non-member -> 403": {
+    "status": 403,
+    "body": {
+      "error": "Not a trip member."
+    }
+  },
+  "practice event -> 200 practice notice": {
+    "status": 200,
+    "body": {
+      "error": "Practice rounds do not have a competitive leaderboard.",
+      "isPractice": true
+    }
+  },
+  "unknown round -> 404": {
+    "status": 404,
+    "body": {
+      "error": "Round not found."
+    }
+  },
+  "round from another event -> 404": {
+    "status": 404,
+    "body": {
+      "error": "Round not found."
+    }
+  },
+  "scorecards error -> 500": {
+    "status": 500,
+    "body": {
+      "error": "Could not load leaderboard."
+    }
+  },
+  "all-rounds lookup error: core board still returned": {
+    "status": 200,
+    "body": {
+      "board": [
+        {
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false,
+          "isCurrentUser": true,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 2
+            },
+            {
+              "holeNumber": 4,
+              "par": 5,
+              "strokeIndex": 1,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 5,
+              "par": 4,
+              "strokeIndex": 9,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 1
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2,
+            3,
+            1
+          ],
+          "position": 1
+        },
+        {
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 2
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2
+          ],
+          "position": 2
+        },
+        {
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            }
+          ],
+          "holePoints": [
+            3,
+            4
+          ],
+          "position": 3
+        },
+        {
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            }
+          ],
+          "holePoints": [
+            3
+          ],
+          "position": 4
+        },
+        {
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [],
+          "holePoints": [],
+          "position": 5
+        }
+      ],
+      "roundId": "round-2",
+      "roundName": "Round 2",
+      "scoringFormat": "stableford",
+      "totalHoles": 9,
+      "scoringNow": 4,
+      "finishedCount": 0,
+      "cumulativeStandings": [],
+      "roundsSummary": []
+    }
+  },
+  "all-rounds lookup network failure: core board still returned": {
+    "status": 200,
+    "body": {
+      "board": [
+        {
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false,
+          "isCurrentUser": true,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 2
+            },
+            {
+              "holeNumber": 4,
+              "par": 5,
+              "strokeIndex": 1,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 5,
+              "par": 4,
+              "strokeIndex": 9,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 1
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2,
+            3,
+            1
+          ],
+          "position": 1
+        },
+        {
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 2
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2
+          ],
+          "position": 2
+        },
+        {
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            }
+          ],
+          "holePoints": [
+            3,
+            4
+          ],
+          "position": 3
+        },
+        {
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            }
+          ],
+          "holePoints": [
+            3
+          ],
+          "position": 4
+        },
+        {
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [],
+          "holePoints": [],
+          "position": 5
+        }
+      ],
+      "roundId": "round-2",
+      "roundName": "Round 2",
+      "scoringFormat": "stableford",
+      "totalHoles": 9,
+      "scoringNow": 4,
+      "finishedCount": 0,
+      "cumulativeStandings": [],
+      "roundsSummary": []
+    }
+  },
+  "prior-round scorecards network failure: core board still returned": {
+    "status": 200,
+    "body": {
+      "board": [
+        {
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false,
+          "isCurrentUser": true,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 2
+            },
+            {
+              "holeNumber": 4,
+              "par": 5,
+              "strokeIndex": 1,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 5,
+              "par": 4,
+              "strokeIndex": 9,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 1
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2,
+            3,
+            1
+          ],
+          "position": 1
+        },
+        {
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 2
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2
+          ],
+          "position": 2
+        },
+        {
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            }
+          ],
+          "holePoints": [
+            3,
+            4
+          ],
+          "position": 3
+        },
+        {
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            }
+          ],
+          "holePoints": [
+            3
+          ],
+          "position": 4
+        },
+        {
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [],
+          "holePoints": [],
+          "position": 5
+        }
+      ],
+      "roundId": "round-2",
+      "roundName": "Round 2",
+      "scoringFormat": "stableford",
+      "totalHoles": 9,
+      "scoringNow": 4,
+      "finishedCount": 0,
+      "cumulativeStandings": [],
+      "roundsSummary": []
+    }
+  },
+  "prior-round scorecards error -> cumulative empty, board intact": {
+    "status": 200,
+    "body": {
+      "board": [
+        {
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false,
+          "isCurrentUser": true,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 2
+            },
+            {
+              "holeNumber": 4,
+              "par": 5,
+              "strokeIndex": 1,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 5,
+              "par": 4,
+              "strokeIndex": 9,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 1
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2,
+            3,
+            1
+          ],
+          "position": 1
+        },
+        {
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 2
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2
+          ],
+          "position": 2
+        },
+        {
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            }
+          ],
+          "holePoints": [
+            3,
+            4
+          ],
+          "position": 3
+        },
+        {
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            }
+          ],
+          "holePoints": [
+            3
+          ],
+          "position": 4
+        },
+        {
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [],
+          "holePoints": [],
+          "position": 5
+        }
+      ],
+      "roundId": "round-2",
+      "roundName": "Round 2",
+      "scoringFormat": "stableford",
+      "totalHoles": 9,
+      "scoringNow": 4,
+      "finishedCount": 0,
+      "cumulativeStandings": [],
+      "roundsSummary": []
+    }
+  },
+  "holes lookup error is tolerated": {
+    "status": 200,
+    "body": {
+      "board": [
+        {
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false,
+          "isCurrentUser": true,
+          "perHole": [],
+          "holePoints": [],
+          "position": 1
+        },
+        {
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [],
+          "holePoints": [],
+          "position": 2
+        },
+        {
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [],
+          "holePoints": [],
+          "position": 3
+        },
+        {
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [],
+          "holePoints": [],
+          "position": 4
+        },
+        {
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [],
+          "holePoints": [],
+          "position": 5
+        }
+      ],
+      "roundId": "round-2",
+      "roundName": "Round 2",
+      "scoringFormat": "stableford",
+      "totalHoles": 9,
+      "scoringNow": 4,
+      "finishedCount": 0,
+      "cumulativeStandings": [
+        {
+          "playerId": "u-p1",
+          "playerName": "Pat One",
+          "totalPoints": 40,
+          "position": 1,
+          "roundsPlayed": 2,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 13,
+              "isCurrentRound": true,
+              "holesPlayed": 5,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-p2",
+          "playerName": "Sam Two",
+          "totalPoints": 36,
+          "position": 2,
+          "roundsPlayed": 2,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 9,
+              "isCurrentRound": true,
+              "holesPlayed": 3,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-p3",
+          "playerName": "Kim Three",
+          "totalPoints": 34,
+          "position": 3,
+          "roundsPlayed": 2,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 7,
+              "isCurrentRound": true,
+              "holesPlayed": 2,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-solo",
+          "playerName": "Solo Sue",
+          "totalPoints": 3,
+          "position": 4,
+          "roundsPlayed": 1,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 0,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 3,
+              "isCurrentRound": true,
+              "holesPlayed": 1,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-p4",
+          "playerName": "Lee Four",
+          "totalPoints": 0,
+          "position": 5,
+          "roundsPlayed": 1,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 0,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 0,
+              "isCurrentRound": true,
+              "holesPlayed": 0,
+              "finished": false
+            }
+          ]
+        }
+      ],
+      "roundsSummary": [
+        {
+          "roundId": "round-1",
+          "roundNumber": 1,
+          "isLive": false
+        },
+        {
+          "roundId": "round-2",
+          "roundNumber": 2,
+          "isLive": true
+        }
+      ]
+    }
+  },
+  "holes network failure -> 500 from outer handler": {
+    "status": 500,
+    "body": {
+      "error": "Couldn't load the leaderboard right now.",
+      "debug": "network failure on holes"
+    }
+  },
+  "practice lookup error: treated as not practice": {
+    "status": 200,
+    "body": {
+      "board": [
+        {
+          "playerId": "u-p1",
+          "name": "Pat One",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 13,
+          "holesPlayed": 5,
+          "finished": false,
+          "isCurrentUser": true,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 2
+            },
+            {
+              "holeNumber": 4,
+              "par": 5,
+              "strokeIndex": 1,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 5,
+              "par": 4,
+              "strokeIndex": 9,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 1
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2,
+            3,
+            1
+          ],
+          "position": 1
+        },
+        {
+          "playerId": "u-p2",
+          "name": "Sam Two",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 9,
+          "holesPlayed": 3,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 4
+            },
+            {
+              "holeNumber": 3,
+              "par": 3,
+              "strokeIndex": 15,
+              "gross": 6,
+              "pickedUp": false,
+              "points": 2
+            }
+          ],
+          "holePoints": [
+            3,
+            4,
+            2
+          ],
+          "position": 2
+        },
+        {
+          "playerId": "u-p3",
+          "name": "Kim Three",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 7,
+          "holesPlayed": 2,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            },
+            {
+              "holeNumber": 2,
+              "par": 4,
+              "strokeIndex": 3,
+              "gross": 4,
+              "pickedUp": false,
+              "points": 4
+            }
+          ],
+          "holePoints": [
+            3,
+            4
+          ],
+          "position": 3
+        },
+        {
+          "playerId": "u-solo",
+          "name": "Solo Sue",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 3,
+          "holesPlayed": 1,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [
+            {
+              "holeNumber": 1,
+              "par": 4,
+              "strokeIndex": 7,
+              "gross": 5,
+              "pickedUp": false,
+              "points": 3
+            }
+          ],
+          "holePoints": [
+            3
+          ],
+          "position": 4
+        },
+        {
+          "playerId": "u-p4",
+          "name": "Lee Four",
+          "avatarUrl": null,
+          "handicap": 12,
+          "totalPts": 0,
+          "holesPlayed": 0,
+          "finished": false,
+          "isCurrentUser": false,
+          "perHole": [],
+          "holePoints": [],
+          "position": 5
+        }
+      ],
+      "roundId": "round-2",
+      "roundName": "Round 2",
+      "scoringFormat": "stableford",
+      "totalHoles": 9,
+      "scoringNow": 4,
+      "finishedCount": 0,
+      "cumulativeStandings": [
+        {
+          "playerId": "u-p1",
+          "playerName": "Pat One",
+          "totalPoints": 40,
+          "position": 1,
+          "roundsPlayed": 2,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 13,
+              "isCurrentRound": true,
+              "holesPlayed": 5,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-p2",
+          "playerName": "Sam Two",
+          "totalPoints": 36,
+          "position": 2,
+          "roundsPlayed": 2,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 9,
+              "isCurrentRound": true,
+              "holesPlayed": 3,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-p3",
+          "playerName": "Kim Three",
+          "totalPoints": 34,
+          "position": 3,
+          "roundsPlayed": 2,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 7,
+              "isCurrentRound": true,
+              "holesPlayed": 2,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-solo",
+          "playerName": "Solo Sue",
+          "totalPoints": 3,
+          "position": 4,
+          "roundsPlayed": 1,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 0,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 3,
+              "isCurrentRound": true,
+              "holesPlayed": 1,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-p4",
+          "playerName": "Lee Four",
+          "totalPoints": 0,
+          "position": 5,
+          "roundsPlayed": 1,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 0,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 0,
+              "isCurrentRound": true,
+              "holesPlayed": 0,
+              "finished": false
+            }
+          ]
+        }
+      ],
+      "roundsSummary": [
+        {
+          "roundId": "round-1",
+          "roundNumber": 1,
+          "isLive": false
+        },
+        {
+          "roundId": "round-2",
+          "roundNumber": 2,
+          "isLive": true
+        }
+      ]
+    }
+  },
+  "member lookup network failure -> 500": {
+    "status": 500,
+    "body": {
+      "error": "Couldn't load the leaderboard right now.",
+      "debug": "network failure on trip_members"
+    }
+  },
+  "event with no scorecards yet": {
+    "status": 200,
+    "body": {
+      "board": [],
+      "roundId": "round-2",
+      "roundName": "Round 2",
+      "scoringFormat": "stableford",
+      "totalHoles": 9,
+      "scoringNow": 0,
+      "finishedCount": 0,
+      "cumulativeStandings": [
+        {
+          "playerId": "u-p1",
+          "playerName": "Pat One",
+          "totalPoints": 27,
+          "position": 1,
+          "roundsPlayed": 1,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 0,
+              "isCurrentRound": true,
+              "holesPlayed": 0,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-p2",
+          "playerName": "Sam Two",
+          "totalPoints": 27,
+          "position": 1,
+          "roundsPlayed": 1,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 0,
+              "isCurrentRound": true,
+              "holesPlayed": 0,
+              "finished": false
+            }
+          ]
+        },
+        {
+          "playerId": "u-p3",
+          "playerName": "Kim Three",
+          "totalPoints": 27,
+          "position": 1,
+          "roundsPlayed": 1,
+          "rounds": [
+            {
+              "roundId": "round-1",
+              "roundNumber": 1,
+              "points": 27,
+              "isCurrentRound": false,
+              "holesPlayed": null,
+              "finished": true
+            },
+            {
+              "roundId": "round-2",
+              "roundNumber": 2,
+              "points": 0,
+              "isCurrentRound": true,
+              "holesPlayed": 0,
+              "finished": false
+            }
+          ]
+        }
+      ],
+      "roundsSummary": [
+        {
+          "roundId": "round-1",
+          "roundNumber": 1,
+          "isLive": false
+        },
+        {
+          "roundId": "round-2",
+          "roundNumber": 2,
+          "isLive": true
+        }
+      ]
+    }
+  }
+}

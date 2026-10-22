@@ -37,9 +37,21 @@ async function getHandler(_req: NextRequest, { params }: RouteProps) {
     type AdminClient = ReturnType<typeof createAdminClient>
     const admin: AdminClient = createAdminClient()
 
-    // Verify caller is a trip member
-    const memberCheck = await admin.from('trip_members').select('role')
-      .eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
+    // Release 3A (performance) — the three lookups below (membership,
+    // is-this-a-practice-event, and the round itself) each depend only on
+    // the ids in the URL and the already-authenticated user, never on each
+    // other's results, so they run together instead of one after another.
+    // Their results are still evaluated in the ORIGINAL order (member 403,
+    // then practice notice, then round 404), so every response is unchanged,
+    // and nothing from the heavier scorecard/holes reads below is fetched
+    // until the membership gate has passed.
+    const [memberCheck, practiceCheck, roundRes] = await Promise.all([
+      // Verify caller is a trip member
+      admin.from('trip_members').select('role')
+        .eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle(),
+      admin.from('trips').select('is_practice').eq('id', tripId).maybeSingle(),
+      admin.from('rounds').select('id, name, holes, status, scoring_format, created_at, starting_hole_number').eq('id', roundId).eq('trip_id', tripId).maybeSingle(),
+    ])
     if (!memberCheck.data) return NextResponse.json({ error: 'Not a trip member.' }, { status: 403 })
 
   // Separate Solo Event Play from Practice Round Mode (5 Sep) — a
@@ -49,33 +61,48 @@ async function getHandler(_req: NextRequest, { params }: RouteProps) {
   // already-computed board, which would still mean this endpoint did
   // competitive-shaped work for a non-competitive round. Gated on
   // is_practice specifically, never group size or player count.
-  const practiceCheck = await admin.from('trips').select('is_practice').eq('id', tripId).maybeSingle()
   if (practiceCheck.data?.is_practice) {
     return NextResponse.json({ error: 'Practice rounds do not have a competitive leaderboard.', isPractice: true }, { status: 200 })
   }
 
-  const roundRes = await admin.from('rounds').select('id, name, holes, status, scoring_format, created_at, starting_hole_number').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
   if (!roundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
   const totalHoles: number = roundRes.data.holes ?? 18
   const startingHoleNumber: 1 | 10 = roundRes.data.starting_hole_number === 10 ? 10 : 1
 
+  // Release 3A — holes, scorecards and the event's rounds list are three
+  // independent reads (all keyed only by the ids above), now issued
+  // together. The rounds-list read feeds the cumulative-standings block
+  // further down, which has its own try/catch: its result is wrapped so a
+  // failure there (an error result OR a thrown network error) is still
+  // handled INSIDE that block exactly as before — it can never fail the
+  // core leaderboard, and can never become an unhandled rejection.
+  const allRoundsPromise = admin
+    .from('rounds').select('id, play_date, created_at, status')
+    .eq('trip_id', tripId)
+    .in('status', ['completed', 'active']) // include this round's own live totals, not just fully-completed ones
+    .then(
+      (r: { data: unknown; error: unknown }) => r,
+      (e: unknown) => ({ data: null, error: e }),
+    )
+  const [holesRes, scorecardsRes] = await Promise.all([
+    admin.from('holes').select('id, hole_number, par, stroke_index').eq('round_id', roundId),
+    // Fetch scorecards with player info and their score entries (including
+    // capture_role — required to avoid double-counting self+marker rows).
+    admin
+      .from('scorecards')
+      .select(`
+        id, player_id, playing_handicap, status,
+        profiles:player_id ( full_name, avatar_url ),
+        score_entries ( id, hole_id, gross_score, stableford_pts, is_no_return, capture_role )
+      `)
+      .eq('round_id', roundId)
+      .neq('status', 'withdrawn'),
+  ])
   // Holes for this round — needed to attach par/SI to each per-hole row
   // in the inline expanded scorecard, per the explicit "reuse existing
   // scorecard data" requirement rather than a second endpoint.
-  const holesRes = await admin.from('holes').select('id, hole_number, par, stroke_index').eq('round_id', roundId)
   const holeById = new Map<string, HoleRow>((holesRes.data ?? []).map((h: HoleRow) => [h.id, h]))
-
-  // Fetch scorecards with player info and their score entries (including
-  // capture_role — required to avoid double-counting self+marker rows).
-  const { data: scorecards, error: scErr } = await admin
-    .from('scorecards')
-    .select(`
-      id, player_id, playing_handicap, status,
-      profiles:player_id ( full_name, avatar_url ),
-      score_entries ( id, hole_id, gross_score, stableford_pts, is_no_return, capture_role )
-    `)
-    .eq('round_id', roundId)
-    .neq('status', 'withdrawn')
+  const { data: scorecards, error: scErr } = scorecardsRes
 
   if (scErr) {
     console.error('[leaderboard]', scErr)
@@ -195,10 +222,8 @@ async function getHandler(_req: NextRequest, { params }: RouteProps) {
     // round's ARRAY POSITION rather than a SQL inequality on a
     // collision-prone column. Fully generic for Round 3, 4, ... — no
     // round-count-specific logic anywhere in this.
-    const allRoundsRes = await admin
-      .from('rounds').select('id, play_date, created_at, status')
-      .eq('trip_id', tripId)
-      .in('status', ['completed', 'active']) // include this round's own live totals, not just fully-completed ones
+    // (issued earlier, together with holes/scorecards — see allRoundsPromise)
+    const allRoundsRes = await allRoundsPromise
     if (allRoundsRes.error) throw allRoundsRes.error
     const sortedRounds = sortRoundsChronologically((allRoundsRes.data ?? []) as { id: string; play_date: string; created_at: string; status: string }[])
     const currentRoundIdx = sortedRounds.findIndex(r => r.id === roundId)

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import MomentCapture from '@/components/moments/MomentCapture'
 import { trackEvent } from '@/lib/analytics/trackEvent'
+import { startVisibilityPolling } from '@/lib/polling/visibilityPoller'
 import { resolveCompetitorDisplayName, resolveSideCompMomentEntryId } from '@/lib/scoring/sideCompIdentity'
 
 /**
@@ -210,8 +211,11 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
     }
 
     void initialLoad()
-    const interval = setInterval(() => void pollStatus(), 15000)
-    return () => { cancelled = true; clearInterval(interval) }
+    // Release 3A — pauses while the screen is hidden, refreshes at once on
+    // return, and never overlaps a previous status request. The first load
+    // above is unchanged; the selected-player reset semantics are untouched.
+    const stopPolling = startVisibilityPolling(pollStatus, 15000)
+    return () => { cancelled = true; stopPolling() }
     // selectedPlayerId included deliberately — switching "Result for"
     // must re-run the exact same full state reset as an account switch
     // already correctly does (see initialLoad's own reset block above),

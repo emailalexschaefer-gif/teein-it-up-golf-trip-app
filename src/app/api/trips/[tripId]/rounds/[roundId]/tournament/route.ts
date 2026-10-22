@@ -45,15 +45,22 @@ async function getHandler(_req: NextRequest, { params }: RouteProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin: any = createAdminClient()
 
-  const memberCheck = await admin.from('trip_members').select('role')
-    .eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
+  // Release 3A (performance) — the organiser check and the round lookup
+  // depend only on the URL ids and the authenticated user, not on each
+  // other, so they run together. They are still evaluated in the original
+  // order (403 first, then 404), and none of the heavier reads below start
+  // until the organiser gate has passed.
+  const [memberCheck, roundRes] = await Promise.all([
+    admin.from('trip_members').select('role')
+      .eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle(),
+    admin.from('rounds')
+      .select('id, name, holes, status, scoring_format, score_capture_mode, course_name, starting_hole_number')
+      .eq('id', roundId).eq('trip_id', tripId).maybeSingle(),
+  ])
   if (!memberCheck.data || memberCheck.data.role !== 'organiser') {
     return NextResponse.json({ error: 'Organiser only.' }, { status: 403 })
   }
 
-  const roundRes = await admin.from('rounds')
-    .select('id, name, holes, status, scoring_format, score_capture_mode, course_name, starting_hole_number')
-    .eq('id', roundId).eq('trip_id', tripId).maybeSingle()
   if (!roundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
   const totalHoles: number = roundRes.data.holes ?? 18
   const isMarkerMode = roundRes.data.score_capture_mode === 'self_and_marker'
@@ -68,31 +75,50 @@ async function getHandler(_req: NextRequest, { params }: RouteProps) {
     totalHoles === 9 ? 9 : 18, roundRes.data.starting_hole_number === 10 ? 10 : 1,
   )
 
-  const holesRes = await admin.from('holes').select('id, hole_number, par').eq('round_id', roundId)
+  // Release 3A — six independent reads (each keyed only by the ids above),
+  // issued together instead of one after another:
+  //   holes, groups, scorecards, trip members (group assignment),
+  //   round markers (marker names), and the round's side competitions.
+  // The side-competitions read belongs to the optional "story" block further
+  // down, which has its own try/catch — its result is wrapped so a failure
+  // (an error result OR a thrown network error) is still handled INSIDE that
+  // block exactly as before, and can never become an unhandled rejection.
+  // Every other read here behaved the same way before (a thrown error
+  // escapes the handler; an error result is tolerated as empty data), and
+  // still does.
+  const sideCompsPromise = admin.from('side_comps').select('id, comp_type, hole_number').eq('round_id', roundId).eq('enabled', true)
+    .then(
+      (r: { data: unknown; error: unknown }) => r,
+      (e: unknown) => ({ __rejected: e }),
+    )
+  const [holesRes, groupsRes, scRes, tmRes, markersRes] = await Promise.all([
+    admin.from('holes').select('id, hole_number, par').eq('round_id', roundId),
+    admin.from('trip_groups').select('id, name, sort_order').eq('trip_id', tripId).order('sort_order'),
+    admin.from('scorecards')
+      .select(`
+        id, player_id, status, submitted_at, scoring_method, group_id,
+        profiles:player_id ( full_name ),
+        score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_at, admin_overridden )
+      `)
+      .eq('round_id', roundId)
+      .neq('status', 'withdrawn'),
+    // Separate query for group assignment — scorecards.player_id has no FK to
+    // trip_members (it references profiles directly), so this can't be
+    // embedded in the scorecards select above; merged in JS instead. This is
+    // the identical fix already applied earlier in this project for the same
+    // class of bug on the trip detail page.
+    admin.from('trip_members').select('profile_id, group_id').eq('trip_id', tripId),
+    // Marker names, for the rich alert cards — round_markers links each
+    // player to whoever is marking them for this specific round.
+    admin.from('round_markers').select('player_id, marker_player_id').eq('round_id', roundId),
+  ])
   const holeByNumber = new Map<number, HoleRow>((holesRes.data ?? []).map((h: HoleRow) => [h.hole_number, h]))
-
-  const groupsRes = await admin.from('trip_groups').select('id, name, sort_order').eq('trip_id', tripId).order('sort_order')
-
-  const scRes = await admin.from('scorecards')
-    .select(`
-      id, player_id, status, submitted_at, scoring_method, group_id,
-      profiles:player_id ( full_name ),
-      score_entries ( hole_id, gross_score, stableford_pts, is_no_return, capture_role, entered_at, admin_overridden )
-    `)
-    .eq('round_id', roundId)
-    .neq('status', 'withdrawn')
 
   if (scRes.error) {
     console.error('[tournament]', scRes.error)
     return NextResponse.json({ error: 'Could not load tournament data.' }, { status: 500 })
   }
 
-  // Separate query for group assignment — scorecards.player_id has no FK to
-  // trip_members (it references profiles directly), so this can't be
-  // embedded in the scorecards select above; merged in JS instead. This is
-  // the identical fix already applied earlier in this project for the same
-  // class of bug on the trip detail page.
-  const tmRes = await admin.from('trip_members').select('profile_id, group_id').eq('trip_id', tripId)
   const groupIdByProfile = new Map<string, string | null>((tmRes.data ?? []).map((m: { profile_id: string; group_id: string | null }) => [m.profile_id, m.group_id]))
 
   const holeNumberById = new Map<string, number>((holesRes.data ?? []).map((h: HoleRow) => [h.id, h.hole_number]))
@@ -244,9 +270,6 @@ async function getHandler(_req: NextRequest, { params }: RouteProps) {
     }
   })
 
-  // Marker names, for the rich alert cards — round_markers links each
-  // player to whoever is marking them for this specific round.
-  const markersRes = await admin.from('round_markers').select('player_id, marker_player_id').eq('round_id', roundId)
   const nameByProfileId = new Map<string, string>(players.map(p => [p.playerId, p.name]))
   const markerNameByPlayerId = new Map<string, string>(
     (markersRes.data ?? []).map((m: { player_id: string; marker_player_id: string }) => [m.player_id, nameByProfileId.get(m.marker_player_id) ?? 'Marker'])
@@ -532,15 +555,22 @@ async function getHandler(_req: NextRequest, { params }: RouteProps) {
   // inserted anywhere as a side effect of a GET — there is no separate
   // "story_events" table to accidentally duplicate rows in.
   try {
-    const compsRes = await admin.from('side_comps').select('id, comp_type, hole_number').eq('round_id', roundId).eq('enabled', true)
-    const comps = compsRes.data ?? []
+    // (issued earlier, together with the other independent reads)
+    const compsRes = await sideCompsPromise
+    if ('__rejected' in compsRes) throw compsRes.__rejected
+    const comps = (compsRes.data ?? []) as { id: string; comp_type: string; hole_number: number | null }[]
     if (comps.length > 0) {
       const compIds = comps.map((c: { id: string }) => c.id)
-      const changesRes = await admin
-        .from('side_comp_lead_changes')
-        .select('id, side_comp_id, player_id, result_value, sequence_number, moment_id, created_at, profiles:player_id(full_name)')
-        .in('side_comp_id', compIds)
-        .order('sequence_number', { ascending: true })
+      // Release 3A — the lead-change log and the current entries are both
+      // keyed only by compIds, so they are read together.
+      const [changesRes, entriesRes] = await Promise.all([
+        admin
+          .from('side_comp_lead_changes')
+          .select('id, side_comp_id, player_id, result_value, sequence_number, moment_id, created_at, profiles:player_id(full_name)')
+          .in('side_comp_id', compIds)
+          .order('sequence_number', { ascending: true }),
+        admin.from('side_comp_entries').select('side_comp_id, player_id, verification_status, result_value').in('side_comp_id', compIds),
+      ])
       const changes = (changesRes.data ?? []) as { id: string; side_comp_id: string; player_id: string; result_value: number; sequence_number: number; moment_id: string | null; created_at: string; profiles: { full_name: string } | null }[]
 
       // Current verification_status for every player/comp pair that
@@ -552,9 +582,6 @@ async function getHandler(_req: NextRequest, { params }: RouteProps) {
       // 'pending' on any resubmission, even of a previously-verified
       // claim) — Stage 4's own review, same bug class as the one fixed
       // in the Side Games route's Longest Drive log-walk.
-      const entriesRes = compIds.length > 0
-        ? await admin.from('side_comp_entries').select('side_comp_id, player_id, verification_status, result_value').in('side_comp_id', compIds)
-        : { data: [] as { side_comp_id: string; player_id: string; verification_status: string; result_value: number | null }[] }
       const verifiedNow = new Set(
         ((entriesRes.data ?? []) as { side_comp_id: string; player_id: string; verification_status: string; result_value: number | null }[])
           .filter(e => e.verification_status === 'verified')
@@ -575,6 +602,31 @@ async function getHandler(_req: NextRequest, { params }: RouteProps) {
       )
 
       const COMP_LABEL: Record<string, string> = { nearest_pin: 'NTP', longest_drive: 'Longest Drive', pros_approach: "Pro's Approach" }
+      // Release 3A — a lead change can carry a Moment photo, which needs one
+      // lookup plus one signed-URL call. Previously these ran one change at
+      // a time inside the loop below; they now all start together, one per
+      // DISTINCT moment (a moment shared by two changes is looked up once —
+      // same result either way). The loop below still awaits each result at
+      // the exact point it used to do the lookup, in the same order, so a
+      // failing lookup stops the story at the same entry as before. The
+      // no-op catch only marks the promise as handled, so a failure for a
+      // change the loop never reaches cannot become an unhandled rejection.
+      const momentImageByMomentId = new Map<string, Promise<string | undefined>>()
+      for (const c of changes) {
+        if (!c.moment_id || momentImageByMomentId.has(c.moment_id)) continue
+        const momentId = c.moment_id
+        const pending = (async () => {
+          const momentRes = await admin.from('moments').select('image_path').eq('id', momentId).maybeSingle()
+          if (momentRes.data?.image_path) {
+            const signed = await admin.storage.from('event-moments').createSignedUrl(momentRes.data.image_path, 3600)
+            return signed.data?.signedUrl ?? undefined
+          }
+          return undefined
+        })()
+        pending.catch(() => { /* handled where it is awaited */ })
+        momentImageByMomentId.set(momentId, pending)
+      }
+
       const changesByComp = new Map<string, typeof changes>()
       for (const c of changes) {
         if (!changesByComp.has(c.side_comp_id)) changesByComp.set(c.side_comp_id, [])
@@ -605,11 +657,7 @@ async function getHandler(_req: NextRequest, { params }: RouteProps) {
             : `${change.profiles?.full_name ?? 'A player'} takes the ${label} lead — ${change.result_value}m${holeSuffix}`
           let imageUrl: string | undefined
           if (change.moment_id) {
-            const momentRes = await admin.from('moments').select('image_path').eq('id', change.moment_id).maybeSingle()
-            if (momentRes.data?.image_path) {
-              const signed = await admin.storage.from('event-moments').createSignedUrl(momentRes.data.image_path, 3600)
-              imageUrl = signed.data?.signedUrl ?? undefined
-            }
+            imageUrl = await momentImageByMomentId.get(change.moment_id)
           }
           story.push({ icon: comp.comp_type === 'longest_drive' ? '💥' : '🎯', text, at: change.created_at, imageUrl })
         }
