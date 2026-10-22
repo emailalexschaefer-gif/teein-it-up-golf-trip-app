@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import WatchPresentationLink from '@/components/memories/WatchPresentationLink'
 import { useQuery } from '@tanstack/react-query'
 import RoundSchedule, { type ScheduleRound } from './RoundSchedule'
 import PlayerRoundView from './PlayerRoundView'
@@ -102,6 +103,9 @@ export default function MyRoundClient({
           Your organiser hasn&apos;t set up any rounds yet.
         </div>
       )}
+
+      {/* Release 3S -- renders nothing until a presentation is published. */}
+      <WatchPresentationLink tripId={tripId} />
 
       {/* 4. YOUR EVENT STORY — collapsed by default. Only rendered at
           all once the whole event is fully complete, exactly as

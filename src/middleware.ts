@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { isPublicStaticPath } from '@/lib/auth/publicStaticPaths'
+import { isPublicRoute } from '@/lib/auth/publicRoutes'
 
 export async function middleware(request: NextRequest) {
   const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -51,19 +52,7 @@ export async function middleware(request: NextRequest) {
   // the background — they were silently receiving a login-page
   // redirect instead of JSON/JS, which alone would have been enough to
   // break installability regardless of anything else being correct.
-  const isPublic =
-    pathname === '/' ||
-    pathname === '/login' ||
-    pathname === '/signup' ||            // account creation — must be public
-    pathname.startsWith('/auth/') ||     // /auth/callback (client-side handler)
-    pathname === '/reset-password' ||
-    pathname.startsWith('/join/') ||
-    pathname.startsWith('/api/auth/') || // /api/auth/callback (PKCE server handler)
-    pathname.startsWith('/_next/') ||
-    pathname.startsWith('/favicon') ||
-    pathname === '/manifest.json' ||
-    pathname === '/sw.js' ||
-    pathname.startsWith('/brand/')
+  const isPublic = isPublicRoute(pathname)
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()
@@ -84,5 +73,5 @@ export async function middleware(request: NextRequest) {
 export const config = {
   // Phase A-2 — also skip middleware entirely for /brand/*, /images/*,
   // manifest.json and sw.js (public files, see publicStaticPaths.ts).
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|brand/|images/|manifest\\.json|sw\\.js).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|brand/|images/|audio/|manifest\\.json|sw\\.js).*)'],
 }

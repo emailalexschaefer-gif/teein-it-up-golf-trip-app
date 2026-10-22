@@ -47,14 +47,14 @@ function loadMatcherRegex(): RegExp {
 
 test('middleware matcher skips every public static file (middleware never runs for them)', () => {
   const re = loadMatcherRegex()
-  for (const p of ['/brand/logo-new.png', '/images/generic-slide-template.jpg', '/manifest.json', '/sw.js', '/favicon.ico', '/_next/static/x.js']) {
+  for (const p of ['/brand/logo-new.png', '/images/generic-slide-template.jpg', '/audio/funky-clubhouse-mix.mp3', '/manifest.json', '/sw.js', '/favicon.ico', '/_next/static/x.js']) {
     assert.equal(re.test(p), false, `${p} should be excluded from middleware`)
   }
 })
 
 test('middleware matcher still runs for every page and API route (auth preserved)', () => {
   const re = loadMatcherRegex()
-  for (const p of ['/', '/login', '/dashboard', '/trips/abc', '/trips/abc/scorecard', '/api/scores', '/api/trips/abc/messages', '/api/trips/abc/rounds/r1/my-scores', '/me', '/admin', '/brand', '/images', '/api/brand/x', '/api/images/x']) {
+  for (const p of ['/', '/login', '/dashboard', '/trips/abc', '/trips/abc/scorecard', '/api/scores', '/api/trips/abc/messages', '/api/trips/abc/rounds/r1/my-scores', '/me', '/admin', '/brand', '/images', '/audio', '/api/audio/x', '/api/brand/x', '/api/images/x']) {
     assert.equal(re.test(p), true, `${p} must still pass through middleware`)
   }
 })

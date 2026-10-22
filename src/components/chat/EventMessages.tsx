@@ -7,6 +7,8 @@ import dynamic from 'next/dynamic'
 import MomentViewer, { type MomentViewerData } from '@/components/moments/MomentViewer'
 import { trackEvent } from '@/lib/analytics/trackEvent'
 import { stabiliseUrls, type StableUrlMap } from '@/lib/chat/stableSignedUrls'
+import PresentationCard from '@/components/chat/PresentationCard'
+import { parsePresentationChatMessage } from '@/lib/sharing/chatMessage'
 
 // Same reasoning and same risk as SelfMarkerScoreShell.tsx's identical
 // change — MomentCapture's own import chain reaches the genuinely
@@ -509,7 +511,9 @@ export default function EventMessages({
                   Hole {m.momentHoleNumber}
                 </div>
               )}
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#14532d', lineHeight: 1.5 }}>{m.message}</p>
+              {m.message_type === 'announcement' && parsePresentationChatMessage(m.message)
+                ? <PresentationCard tripId={tripId} message={m.message} />
+                : <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#14532d', lineHeight: 1.5 }}>{m.message}</p>}
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
                 {/* Item 4 — for a Moment specifically, the primary
                     attribution is the SUBJECT (momentPlayerName —

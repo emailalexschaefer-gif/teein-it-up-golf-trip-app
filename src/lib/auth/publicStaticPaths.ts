@@ -17,7 +17,7 @@
 // matcher only excludes as exactly /favicon.ico), and it is the single
 // place the unit tests pin the list down.
 
-const PUBLIC_STATIC_PREFIXES = ['/brand/', '/images/', '/_next/'] as const
+const PUBLIC_STATIC_PREFIXES = ['/brand/', '/images/', '/audio/', '/_next/'] as const
 const PUBLIC_STATIC_EXACT = ['/manifest.json', '/sw.js', '/favicon.ico', '/robots.txt', '/sitemap.xml'] as const
 
 export function isPublicStaticPath(pathname: string): boolean {

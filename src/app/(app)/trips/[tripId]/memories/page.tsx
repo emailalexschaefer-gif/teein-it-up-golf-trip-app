@@ -10,6 +10,7 @@ import {
   type PresentationConfig, type PresentationScope, type RoundSectionConfig, type SectionAvailability,
 } from '@/lib/trips/slideshowDeck'
 import EventHighlightsPlayer from '@/components/memories/EventHighlightsPlayer'
+import SharePresentationPanel from '@/components/memories/SharePresentationPanel'
 import UploadMomentsModal from '@/components/memories/UploadMomentsModal'
 
 // Event Memories V1.2 (12 Sep) -- the gallery's own Memory/Round/
@@ -68,6 +69,7 @@ export default function EventMemoriesPage() {
   const [presentationConfig, setPresentationConfig] = useState<PresentationConfig | null>(null)
   const [slideshowDeck, setSlideshowDeck] = useState<SlideshowDeck | null>(null)
   const [slideshowDuration, setSlideshowDuration] = useState<5 | 8 | 10>(8)
+  const [showPublishPanel, setShowPublishPanel] = useState(false)
   // V1.4 completion patch (14 Sep) -- Group Photo picker. Persisted
   // server-side (trips.group_photo_moment_id, migration 087), unlike
   // the slideshow curation above -- feeds buildSlideshowDeck's own
@@ -873,11 +875,19 @@ export default function EventMemoriesPage() {
             </div>
             <div style={wizardFooterStyle}>
               <button onClick={() => setSlideshowStep('sections')} style={wizardSecondaryBtn}>Back</button>
+              {isOrganiser && presentationConfig.scope.kind === 'fullEvent' && (
+                <button onClick={() => setShowPublishPanel(true)} style={wizardSecondaryBtn}>Publish</button>
+              )}
               <button onClick={playPresentation} style={wizardPrimaryBtn}>▶ Play</button>
             </div>
           </div>
         )
       })()}
+
+      {showPublishPanel && isOrganiser && presentationConfig && presentationConfig.scope.kind === 'fullEvent' && (
+        <SharePresentationPanel tripId={params.tripId} config={presentationConfig} durationSeconds={slideshowDuration} onClose={() => setShowPublishPanel(false)}
+          candidates={(manifest?.memories ?? []).filter(m => m.audience === 'everyone' && (m.mediaType === 'photo' || m.mediaType === 'video')).map(m => ({ momentId: m.momentId, imageUrl: m.imageUrl, mediaType: m.mediaType, playerName: m.playerName }))} />
+      )}
 
       {/* Step 4 -- fullscreen playback. Exactly one buildPresentationDeck
           call site exists, in playPresentation above. */}
