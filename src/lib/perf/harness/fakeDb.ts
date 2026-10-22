@@ -100,12 +100,12 @@ class Query implements PromiseLike<{ data: unknown; error: unknown }> {
   private filters: Array<[string, string, unknown]> = []
   private ord: { col: string; asc: boolean } | null = null
   constructor(private db: FakeDb, private table: string) {}
-  select(_cols?: string) { return this }
+  select() { return this }
   eq(col: string, val: unknown) { this.filters.push(['eq', col, val]); return this }
   neq(col: string, val: unknown) { this.filters.push(['neq', col, val]); return this }
   in(col: string, vals: unknown[]) { this.filters.push(['in', col, vals]); return this }
   order(col: string, o?: { ascending?: boolean }) { this.ord = { col, asc: o?.ascending !== false }; return this }
-  limit(_n: number) { return this }
+  limit() { return this }
   maybeSingle() { return this.db.execute(this.table, this.filters, this.ord, true) }
   single() { return this.db.execute(this.table, this.filters, this.ord, true) }
   then<R1 = { data: unknown; error: unknown }, R2 = never>(

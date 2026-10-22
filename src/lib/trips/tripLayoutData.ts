@@ -30,35 +30,33 @@ export interface TripLayoutData {
   activeRound: { id: string; name: string } | null
 }
 
-// Structural subset of the Supabase server client the layout uses.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type LayoutClient = any
+/** The only shape of a query result the layout reads (Supabase responses satisfy it). */
+export interface LookupResult<T> { data: T | null }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type QueryResult = { data?: any; error?: unknown }
+/**
+ * The four lookups, supplied by the layout (which builds them from the real
+ * Supabase client) or by a test. Keeping them as typed callbacks means this
+ * module needs no untyped client.
+ */
+export interface TripLayoutFetchers {
+  getUser: () => PromiseLike<{ data: { user: { id: string } | null } }>
+  getMembership: (userId: string) => PromiseLike<LookupResult<{ role: string | null }>>
+  getPractice: () => PromiseLike<LookupResult<{ is_practice: boolean | null }>>
+  getActiveRound: () => PromiseLike<LookupResult<{ id: string; name: string }>>
+}
 
 export async function loadTripLayoutData(
-  supabase: LayoutClient,
-  tripId: string,
+  fetchers: TripLayoutFetchers,
   timeouts: TripLayoutTimeouts = DEFAULT_LAYOUT_TIMEOUTS,
 ): Promise<TripLayoutData> {
-  const userResult = await withTimeout<QueryResult>(supabase.auth.getUser(), timeouts.userMs).catch(() => null)
+  const userResult = await withTimeout(fetchers.getUser(), timeouts.userMs).catch(() => null)
   const user = userResult?.data?.user ?? null
   if (!user) return { user: null, isOrganiser: false, isPractice: false, activeRound: null }
 
   const [membershipResult, tripResult, activeRoundResult] = await Promise.all([
-    withTimeout<QueryResult>(
-      supabase.from('trip_members').select('role').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle(),
-      timeouts.membershipMs,
-    ).catch(() => null),
-    withTimeout<QueryResult>(
-      supabase.from('trips').select('is_practice').eq('id', tripId).maybeSingle(),
-      timeouts.practiceMs,
-    ).catch(() => null),
-    withTimeout<QueryResult>(
-      supabase.from('rounds').select('id, name').eq('trip_id', tripId).eq('status', 'active').maybeSingle(),
-      timeouts.activeRoundMs,
-    ).catch(() => null),
+    withTimeout(fetchers.getMembership(user.id), timeouts.membershipMs).catch(() => null),
+    withTimeout(fetchers.getPractice(), timeouts.practiceMs).catch(() => null),
+    withTimeout(fetchers.getActiveRound(), timeouts.activeRoundMs).catch(() => null),
   ])
 
   return {

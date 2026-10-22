@@ -68,12 +68,13 @@ export async function runGet(absolutePath: string, params: Record<string, string
       from: (t: string) => db.from(t),
     }),
   })
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const g = globalThis as any
-  const RealDate = g.Date
+  const g = globalThis as unknown as { Date: unknown }
+  const RealDate = g.Date as DateConstructor
   class FixedDate extends RealDate {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    constructor(...args: any[]) { if (args.length === 0) super(FIXED_NOW); else super(...(args as [])) }
+    constructor(...args: unknown[]) {
+      if (args.length === 0) super(FIXED_NOW)
+      else super(...(args as [number]))
+    }
     static now() { return FIXED_NOW }
   }
   const silence = { error: console.error, warn: console.warn, log: console.log }

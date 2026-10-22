@@ -23,7 +23,16 @@ interface Props { params: Promise<{ tripId: string }>; children: React.ReactNode
 export default async function TripScopedLayout({ params, children }: Props) {
   const { tripId } = await params
   const supabase = await createClient()
-  const { user, isOrganiser, isPractice, activeRound } = await loadTripLayoutData(supabase, tripId)
+  const { user, isOrganiser, isPractice, activeRound } = await loadTripLayoutData({
+    getUser: () => supabase.auth.getUser(),
+    // Same membership check pattern already used in page.tsx — determines
+    // isOrganiser for nav visibility only. Does not gate access to any route.
+    getMembership: (userId) => supabase.from('trip_members').select('role').eq('trip_id', tripId).eq('profile_id', userId).maybeSingle(),
+    // Practice V2 — Practice-specific navigation item set.
+    getPractice: () => supabase.from('trips').select('is_practice').eq('id', tripId).maybeSingle(),
+    // The active round, for the Scorecard nav link and the round-start banner.
+    getActiveRound: () => supabase.from('rounds').select('id, name').eq('trip_id', tripId).eq('status', 'active').maybeSingle(),
+  })
   if (!user) redirect('/login')
 
   return (
