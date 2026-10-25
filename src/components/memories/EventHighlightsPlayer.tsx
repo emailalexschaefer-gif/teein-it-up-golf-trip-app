@@ -2,6 +2,9 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import type { Slide } from '@/lib/trips/slideshowDeck'
+import { isCelebrationSlide } from '@/lib/presentation/celebrationTrigger'
+import PresentationConfetti from '@/components/memories/PresentationConfetti'
+import { usePresentationAudio } from '@/components/memories/usePresentationAudio'
 import { snapshotTitleCqw, splitCourseName, pillarboxCqw, momentsLabelPlacement, momentsLabelHeading } from '@/lib/trips/presentationLayout'
 
 /**
@@ -194,6 +197,9 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
   // genuinely detectable as portrait. Dismissible; never blocks playback.
   const [showRotateHint, setShowRotateHint] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  // Background music + champion celebration (see lib/presentation/audioController.ts).
+  const audio = usePresentationAudio()
+  const { setVideoPlaying, celebrate, endCelebration } = audio
   const videoRef = useRef<HTMLVideoElement>(null)
   const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null)
   const hideControlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -378,6 +384,24 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
   }, [])
   useEffect(() => () => { if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current) }, [])
 
+  // Video audio has priority: while a Blooper video is playing with its sound on, the
+  // soundtrack fades out and pauses; it resumes (same position) afterwards.
+  const videoHasSound = isVideoBlooper(current) && playing && !videoMuted
+  useEffect(() => {
+    setVideoPlaying(videoHasSound)
+    return () => setVideoPlaying(false)
+  }, [videoHasSound, setVideoPlaying])
+
+  // Overall Champion reveal: keyed on the slide INDEX only, so re-renders and incidental
+  // state changes can never restart it; leaving the slide stops the applause and restores music.
+  const onChampionSlide = isCelebrationSlide(current)
+  useEffect(() => {
+    if (!onChampionSlide) return
+    celebrate() // music fades to silence and stays off for this slide; applause + confetti start together after the reveal
+    return () => { endCelebration() }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onChampionSlide, index])
+
   // Keyboard controls (desktop).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -391,7 +415,16 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
   }, [index, goTo, onExit])
 
   function renderPhoto(slide: Extract<Slide, { kind: 'photo' }> | undefined, visible: boolean) {
-    if (!slide || !slide.imageUrl) return null
+    if (!slide) return null
+    // Package 1 -- a photo whose file could not be found (no URL) used to be a silent blank
+    // frame. It now says so, and the Moment id is logged so the file can be traced.
+    if (!slide.imageUrl) {
+      return (
+        <div style={{ position: 'absolute', inset: 0, display: visible ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#9ca3af' }}>Photo unavailable</p>
+        </div>
+      )
+    }
     const failed = failedUrls.has(slide.imageUrl)
     return (
       <div style={{ position: 'absolute', inset: 0, display: visible ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', background: '#000', overflow: 'hidden' }}>
@@ -413,7 +446,7 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
               src={slide.imageUrl} alt={slide.caption ?? 'Event memory'}
               style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
               onLoad={visible ? (e) => reportMediaSize(slide.momentId, e.currentTarget.naturalWidth, e.currentTarget.naturalHeight) : undefined}
-              onError={() => setFailedUrls(prev => new Set(prev).add(slide.imageUrl!))}
+              onError={() => { console.warn('[presentation] photo failed to load', { momentId: slide.momentId }); setFailedUrls(prev => new Set(prev).add(slide.imageUrl!)) }}
             />
           </>
         )}
@@ -426,6 +459,7 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
   return (
     <div
       ref={containerRef}
+      onClickCapture={audio.unlock}
       onClick={bumpControls}
       onTouchStart={bumpControls}
       style={{ position: 'fixed', inset: 0, background: '#000', zIndex: PLAYER_Z, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -495,6 +529,8 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
           </div>
         )}
 
+        {audio.confetti.run > 0 && onChampionSlide && <PresentationConfetti key={audio.confetti.run} durationMs={audio.confetti.ms} />}
+
         {/* Mute/unmute, Blooper slides only. */}
         {isVideoBlooper(current) && (
           <button
@@ -539,6 +575,23 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
               disabled={index === slides.length - 1 && !(canLoopAftershow && aftershowStartIndex! <= index)}
               style={navButtonStyle(index === slides.length - 1 && !(canLoopAftershow && aftershowStartIndex! <= index))}
             >›</button>
+            {/* Soundtrack and celebration-sound toggles -- inside the controls layer, so they
+                are hidden until the viewer interacts, like every other control. */}
+            <button
+              onClick={(e) => { e.stopPropagation(); audio.toggleMusic() }}
+              aria-pressed={audio.state.musicEnabled}
+              aria-label={audio.state.musicEnabled ? 'Turn music off' : 'Turn music on'}
+              title={audio.state.blocked && audio.state.musicEnabled ? 'Tap to start music' : undefined}
+              style={{ ...navButtonStyle(false), fontSize: 16, opacity: audio.state.musicEnabled ? 1 : 0.55 }}
+            ><span style={{ textDecoration: audio.state.musicEnabled ? 'none' : 'line-through' }}>{'\u266A'}</span></button>
+            {audio.state.applauseAvailable && (
+              <button
+                onClick={(e) => { e.stopPropagation(); audio.toggleApplause() }}
+                aria-pressed={audio.state.applauseEnabled}
+                aria-label={audio.state.applauseEnabled ? 'Turn celebration sound off' : 'Turn celebration sound on'}
+                style={{ ...navButtonStyle(false), fontSize: 16, opacity: audio.state.applauseEnabled ? 1 : 0.55 }}
+              >{'\u{1F44F}'}</button>
+            )}
           </div>
         </div>
       </div>

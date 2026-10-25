@@ -6,7 +6,7 @@ import Link from 'next/link'
 import type { EventMemoryData } from '@/lib/trips/eventMemoryData'
 import {
   type SlideshowDeck,
-  buildPresentationDeck, getAvailableSections, defaultPresentationConfig, resolveSelectedMomentIds, resolveAftershowMomentIds,
+  buildPresentationDeck, getAvailableSections, defaultPresentationConfig, resolveSelectedMomentIds, resolveAftershowMomentIds, isPresentationPhotoCandidate, presentationPhotoCoverage,
   type PresentationConfig, type PresentationScope, type RoundSectionConfig, type SectionAvailability,
 } from '@/lib/trips/slideshowDeck'
 import EventHighlightsPlayer from '@/components/memories/EventHighlightsPlayer'
@@ -699,7 +699,7 @@ export default function EventMemoriesPage() {
           </div>
           <div style={wizardBodyStyle}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-              {manifest.memories.filter(m => m.mediaType === 'photo' && presentationConfig.rounds.some(r => r.bestMoments && r.roundId === m.roundId)).map(m => {
+              {manifest.memories.filter(m => isPresentationPhotoCandidate(m, presentationConfig)).map(m => {
                 const included = (presentationConfig.selectedMomentIds ?? []).includes(m.momentId)
                 return (
                   <button key={m.momentId} onClick={() => toggleBestMomentSelection(m.momentId)} style={{ position: 'relative', aspectRatio: '1', borderRadius: 8, overflow: 'hidden', border: included ? '3px solid #1a4731' : '1px solid #eceae3', padding: 0, cursor: 'pointer', opacity: included ? 1 : 0.5 }}>
@@ -712,7 +712,7 @@ export default function EventMemoriesPage() {
                 )
               })}
             </div>
-            {manifest.memories.filter(m => m.mediaType === 'photo' && presentationConfig.rounds.some(r => r.bestMoments && r.roundId === m.roundId)).length === 0 && (
+            {manifest.memories.filter(m => isPresentationPhotoCandidate(m, presentationConfig)).length === 0 && (
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', textAlign: 'center', padding: '20px 0' }}>No photos available yet.</p>
             )}
           </div>
@@ -863,10 +863,22 @@ export default function EventMemoriesPage() {
                     <button onClick={() => setSlideshowStep('memories')} style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#1a4731', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Edit Memories</button>
                   </div>
                   <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', marginBottom: 10 }}>
-                    {presentationConfig.bestMomentsSource === 'favourites' ? 'Showing Favourites.' : presentationConfig.bestMomentsSource === 'all' ? 'Showing all Memories for the included rounds.' : 'Showing your specific selection.'}
+                    {presentationConfig.bestMomentsSource === 'favourites' ? 'Showing Favourites.' : presentationConfig.bestMomentsSource === 'all' ? (presentationConfig.scope.kind === 'fullEvent' ? 'Showing all photos from the included rounds and event-level photos.' : 'Showing all photos from this round.') : 'Showing your specific selection.'}
                   </p>
+                  {(() => {
+                    // Package 1 -- say what is in and what is not, so a missing photo is never a mystery.
+                    const cov = presentationPhotoCoverage(manifest, presentationConfig, previewDeck.slides)
+                    if (cov.candidates === 0) return null
+                    return (
+                      <p data-testid="photo-coverage" style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#4b5563', marginBottom: 10 }}>
+                        {cov.shown} of {cov.candidates} photos {cov.shown === 1 ? 'is' : 'are'} on photo slides.
+                        {cov.notShown > 0 && presentationConfig.bestMomentsSource === 'all' && ` ${cov.notShown} ${cov.notShown === 1 ? 'is' : 'are'} not shown as a separate slide on purpose: a Side Game winner's photo appears on that winner's slide, and photos from players who did not win a Side Game are left out. Videos play in the aftershow.`}
+                        {cov.notShown > 0 && presentationConfig.bestMomentsSource !== 'all' && ` ${cov.notShown} not selected (dimmed below).`}
+                      </p>
+                    )
+                  })()}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-                    {manifest.memories.filter(m => m.mediaType === 'photo' && presentationConfig.rounds.some(r => r.bestMoments && r.roundId === m.roundId)).map(m => {
+                    {manifest.memories.filter(m => isPresentationPhotoCandidate(m, presentationConfig)).map(m => {
                       const included = previewDeck.slides.some(s => s.kind === 'photo' && s.momentId === m.momentId)
                       return (
                         <div key={m.momentId} style={{ position: 'relative', aspectRatio: '1', borderRadius: 8, overflow: 'hidden', border: included ? '3px solid #1a4731' : '1px solid #eceae3', opacity: included ? 1 : 0.4 }}>

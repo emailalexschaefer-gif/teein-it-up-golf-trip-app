@@ -827,6 +827,24 @@ export function defaultPresentationConfig(data: EventMemoryData, scope: Presenta
   }
 }
 
+export function isPresentationPhotoCandidate(m: { mediaType: string; roundId: string | null }, config: PresentationConfig): boolean {
+  if (m.mediaType !== 'photo') return false
+  // Package 1 (26 Oct) -- a photo with no round (an event-level upload: arrival, dinner,
+  // prize-giving, travel) belongs to a FULL-EVENT presentation. The older builder showed these
+  // under an "Event Memories" divider; the configurable builder dropped them, so "All Memories"
+  // silently left them out. A single-round presentation still contains only that round's photos.
+  if (m.roundId === null) return config.scope.kind === 'fullEvent'
+  return config.rounds.some(r => r.bestMoments && r.roundId === m.roundId)
+}
+
+/** How many candidate photos become their own photo slide, and how many do not (and why that can be intentional). */
+export function presentationPhotoCoverage(data: EventMemoryData, config: PresentationConfig, slides: Slide[]): { candidates: number; shown: number; notShown: number } {
+  const shownIds = new Set(slides.filter((s): s is Extract<Slide, { kind: 'photo' }> => s.kind === 'photo').map(s => s.momentId))
+  const candidates = data.memories.filter(m => isPresentationPhotoCandidate(m, config))
+  const shown = candidates.filter(m => shownIds.has(m.momentId)).length
+  return { candidates: candidates.length, shown, notShown: candidates.length - shown }
+}
+
 /**
  * resolveSelectedMomentIds -- V1.9 (6 Oct), the single canonical
  * resolver for "which photo Moments does Best Moments actually
@@ -854,8 +872,7 @@ export function defaultPresentationConfig(data: EventMemoryData, scope: Presenta
  *     is silently excluded, never kept).
  */
 export function resolveSelectedMomentIds(data: EventMemoryData, config: PresentationConfig): Set<string> {
-  const eligibleRoundIds = new Set(config.rounds.filter(r => r.bestMoments).map(r => r.roundId))
-  const eligible = data.memories.filter(m => m.mediaType === 'photo' && eligibleRoundIds.has(m.roundId ?? ''))
+  const eligible = data.memories.filter(m => isPresentationPhotoCandidate(m, config))
   if (config.bestMomentsSource === 'favourites') return new Set(eligible.filter(m => m.organiserFavourite).map(m => m.momentId))
   if (config.bestMomentsSource === 'selected') {
     const requested = new Set(config.selectedMomentIds ?? [])
@@ -1014,6 +1031,21 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
       kind: 'eventAtAGlance', eventName: data.event.name, roundCount: roundsInOrder.length, courseNames,
       totalHoles, sideGameCount: data.sideGameCount, championCount, championDeclared: data.results.champion ? championDeclared : undefined, playerCount,
     })
+  }
+
+  // Package 1 (26 Oct) -- event-level photos (no round), same placement the older builder used:
+  // after the opening / group photo / event numbers, under one divider, before the rounds. Only for
+  // a full-event presentation; the group photo is not repeated when it already has its own slide.
+  if (config.scope.kind === 'fullEvent') {
+    const includedIds = resolveSelectedMomentIds(data, config)
+    const groupPhotoShownId = config.groupPhoto && data.event.groupPhotoMomentId ? data.event.groupPhotoMomentId : null
+    const eventLevel = sortMemoriesChronologically(
+      data.memories.filter(m => m.mediaType === 'photo' && m.roundId === null && includedIds.has(m.momentId) && m.momentId !== groupPhotoShownId),
+    )
+    if (eventLevel.length > 0) {
+      slides.push({ kind: 'eventDivider' })
+      for (const m of eventLevel) slides.push(toPhotoSlide(m, null))
+    }
   }
 
   for (const roundConfig of config.rounds) {

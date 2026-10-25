@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { PresentationConfig } from '@/lib/trips/slideshowDeck'
+import { chooseLink } from '@/lib/sharing/linkChoice'
 
 // Release 3S -- organiser-only publish panel. Publishing is always a
 // deliberate button press here; playing a presentation never publishes.
@@ -93,7 +94,8 @@ export default function SharePresentationPanel({ tripId, config, durationSeconds
   }
 
   const isPublic = status?.publicEnabled === true
-  const shownLink = link ? (isPublic ? link : `${window.location.origin}/trips/${tripId}/presentation`) : null
+  const choice = link ? chooseLink({ isPublic, publicUrl: link, origin: window.location.origin, tripId }) : null
+  const shownLink = choice?.url ?? null
   const canPublish = !busy && preview !== null && (!publicEnabled || attestCleared) && (nameMode === 'initials' || attestFullNames)
 
   return (
@@ -125,9 +127,9 @@ export default function SharePresentationPanel({ tripId, config, durationSeconds
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12, marginBottom: 12 }}>
           <label style={{ display: 'flex', gap: 10, alignItems: 'center', minHeight: 44, fontSize: 14, fontWeight: 700 }}>
             <input type="checkbox" checked={publicEnabled} onChange={e => setPublicEnabled(e.target.checked)} style={{ width: 22, height: 22 }} />
-            Also allow a shareable link for people outside the event
+            Share with anyone who has the link (no sign-in needed)
           </label>
-          <p style={{ fontSize: 12, color: '#6b7280', margin: '2px 0 0' }}>Leave this off to publish for event members only. You can turn it on later by updating the presentation.</p>
+          <p style={{ fontSize: 12, color: '#6b7280', margin: '2px 0 0' }}>Off: only signed-in event members can watch. On: family and friends can watch from a link on any phone, with no account.</p>
           {status?.publicEnabled === true && !publicEnabled && (
             <p role="status" style={{ fontSize: 12, color: '#b91c1c', margin: '6px 0 0' }}>Public sharing is currently ON. Updating with this unticked switches it off, and any link already shared stops working immediately.</p>
           )}
@@ -180,9 +182,10 @@ export default function SharePresentationPanel({ tripId, config, durationSeconds
 
         {link && (
           <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12, marginBottom: 12 }}>
-            <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 4px' }}>{isPublic ? 'Shareable link' : 'Event-members link (public sharing is off)'}</p>
+            <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 4px' }}>{choice?.heading}</p>
             <p style={{ fontSize: 13, wordBreak: 'break-all', margin: '0 0 8px' }}>{shownLink}</p>
-            <button onClick={copy} style={btn}>{copied ? 'Copied!' : 'Copy Link'}</button>
+            {choice?.warning && <p role="note" style={{ fontSize: 12.5, color: '#92400e', background: '#fef3c7', border: '1px solid #f3d98b', borderRadius: 8, padding: '8px 10px', margin: '0 0 8px' }}>{choice.warning}</p>}
+            <button onClick={copy} style={btn}>{copied ? 'Copied!' : choice?.copyLabel}</button>
           </div>
         )}
 
