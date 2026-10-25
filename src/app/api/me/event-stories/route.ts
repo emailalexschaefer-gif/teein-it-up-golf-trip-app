@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { computeCumulativeStandings, determineChampions, type RoundPlayerResult } from '@/lib/scoring/multiRound'
-import { loadEarlyFinish, adjustForEarlyFinish } from '@/lib/scoring/earlyFinish'
 import { orderHolesByPlaySequence } from '@/lib/scoring/holeSequence'
 import { readEventOutcomes } from '@/lib/trips/eventOutcome'
 
@@ -138,9 +137,7 @@ export async function GET() {
       })
     }))
 
-    // Package 3: a round finished early is excluded unless included; incomplete players are not ranked.
-    const early = await loadEarlyFinish(admin, completedRounds.map(r => r.id), tripId)
-    const standings = computeCumulativeStandings(adjustForEarlyFinish(perRoundResults, completedRounds.map(r => r.id), early).results)
+    const standings = computeCumulativeStandings(perRoundResults)
     const championDeclared = outcomeByTrip.get(tripId)?.championDeclared ?? true
     const champions = championDeclared ? determineChampions(standings) : []
     isMyEventWinnerByTrip.set(tripId, champions.some(c => c.playerId === user.id))

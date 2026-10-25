@@ -23,32 +23,26 @@ export default function EndEventControl({ tripId, noPlayableRoundsRemain }: Prop
   const [reason, setReason] = useState<EndReason | ''>('')
   const [note, setNote] = useState('')
   const [declareChampion, setDeclareChampion] = useState(false) // default: NO champion
-  // Package 3: a shortened round the organiser accepted as official can complete the competition normally.
-  const [canConclude, setCanConclude] = useState(false)
-  const [mode, setMode] = useState<'ended_early' | 'concluded'>('ended_early')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const url = `/api/trips/${tripId}/end-event`
   const title = noPlayableRoundsRemain ? 'Finish Event' : 'End Event Early'
 
   async function openDialog() {
-    setOpen(true); setError(null); setImpact(null); setReason(''); setNote(''); setDeclareChampion(false); setCanConclude(false); setMode('ended_early'); setBusy(true)
+    setOpen(true); setError(null); setImpact(null); setReason(''); setNote(''); setDeclareChampion(false); setBusy(true)
     try {
       const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ preview: true }) })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) { setError(body.error ?? 'Could not check the impact.'); return }
       setImpact(body.impact as EndImpact)
-      setCanConclude(body.canConclude === true)
-      if (body.canConclude === true) setMode('concluded')
     } catch { setError('Could not check the impact. Check your connection.') } finally { setBusy(false) }
   }
 
   async function confirm() {
-    if (mode === 'ended_early' && !reason) { setError('Please choose a reason.'); return }
+    if (!reason) { setError('Please choose a reason.'); return }
     setBusy(true); setError(null)
     try {
-      const payload = mode === 'concluded' ? { outcome: 'concluded' } : { reason, note, declareChampion }
-      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason, note, declareChampion }) })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) { setError(body.error ?? 'Could not end the event.'); return }
       setOpen(false)
@@ -88,22 +82,6 @@ export default function EndEventControl({ tripId, noPlayableRoundsRemain }: Prop
               </div>
             )}
 
-            {canConclude && (
-              <fieldset style={{ border: '1px solid #eceae3', borderRadius: 10, padding: '10px 12px', margin: '12px 0 0' }}>
-                <legend style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 800, padding: '0 6px' }}>How should this event be recorded?</legend>
-                {([
-                  { v: 'concluded', t: 'Competition concluded', d: 'A shortened round is accepted as the official result. The event finishes normally and the champion comes from the standings.' },
-                  { v: 'ended_early', t: 'Event ended early', d: 'The event was cut short. You choose the reason and whether to declare a champion.' },
-                ] as const).map(o => (
-                  <label key={o.v} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', minHeight: 44, padding: '6px 0', fontFamily: 'var(--font-body)', fontSize: 14, cursor: 'pointer' }}>
-                    <input type="radio" name="end-mode" checked={mode === o.v} onChange={() => setMode(o.v)} style={{ marginTop: 4, width: 18, height: 18 }} />
-                    <span><strong>{o.t}</strong><br /><span style={{ fontSize: 12.5, color: '#6b6b60' }}>{o.d}</span></span>
-                  </label>
-                ))}
-              </fieldset>
-            )}
-
-            {mode === 'ended_early' && (<>
             <label style={label} htmlFor="end-reason">Reason</label>
             <select id="end-reason" value={reason} onChange={e => setReason(e.target.value as EndReason | '')}
               style={{ width: '100%', minHeight: 44, borderRadius: 10, border: '1px solid #d9d6cb', padding: '0 10px', fontSize: 15, fontFamily: 'var(--font-body)', background: '#fff' }}>
@@ -123,12 +101,11 @@ export default function EndEventControl({ tripId, noPlayableRoundsRemain }: Prop
                 </label>
               ))}
             </fieldset>
-            </>)}
 
             {error && <p role="alert" style={{ color: '#b91c1c', fontSize: 13, margin: '10px 0 0' }}>{error}</p>}
             <div style={{ display: 'flex', gap: 10, marginTop: 14, position: 'sticky', bottom: -1, background: '#fff', padding: '10px 0 2px' }}>
               <button onClick={() => setOpen(false)} disabled={busy} style={{ ...btn, flex: 1, border: '1px solid #d9d6cb', background: '#fff', color: '#1a1a16' }}>Keep Event Open</button>
-              <button onClick={confirm} disabled={busy || !impact || (mode === 'ended_early' && !reason)} style={{ ...btn, flex: 1, border: 'none', background: '#14532d', color: '#fff', opacity: busy || !impact || (mode === 'ended_early' && !reason) ? 0.6 : 1 }}>
+              <button onClick={confirm} disabled={busy || !impact || !reason} style={{ ...btn, flex: 1, border: 'none', background: '#14532d', color: '#fff', opacity: busy || !impact || !reason ? 0.6 : 1 }}>
                 {busy && impact ? 'Working…' : title}
               </button>
             </div>

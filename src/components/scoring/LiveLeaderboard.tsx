@@ -16,7 +16,7 @@ import RoundHighlightsSection from './RoundHighlightsSection'
 import { derivePreviousCurrentTotal } from '@/lib/scoring/multiRound'
 import { trackEvent } from '@/lib/analytics/trackEvent'
 
-interface PerHoleEntry {
+export interface PerHoleEntry {
   holeNumber: number
   par: number
   strokeIndex: number
@@ -25,7 +25,7 @@ interface PerHoleEntry {
   points: number
 }
 
-interface LeaderboardEntry {
+export interface LeaderboardEntry {
   playerId: string
   name: string
   avatarUrl: string | null
@@ -36,9 +36,6 @@ interface LeaderboardEntry {
   isCurrentUser: boolean
   position: number
   perHole: PerHoleEntry[]
-  // Package 3 (round finished early). ranked === false: incomplete, shown apart and never ranked or zeroed.
-  ranked?: boolean
-  officialPoints?: number | null
 }
 
 interface CumulativeRoundEntry {
@@ -59,10 +56,7 @@ interface CumulativeStandingEntry {
   rounds?: CumulativeRoundEntry[]
 }
 
-interface EarlyFinishInfo { title: string; resultLabel: string; countingLabel: string }
-interface NotRankedEntry { playerId: string; playerName: string; totalPoints: number }
-
-interface LeaderboardResponse {
+export interface LeaderboardResponse {
   board: LeaderboardEntry[]
   roundId: string
   roundName: string
@@ -71,8 +65,6 @@ interface LeaderboardResponse {
   scoringNow: number
   finishedCount: number
   cumulativeStandings?: CumulativeStandingEntry[]
-  earlyFinish?: EarlyFinishInfo | null
-  notRankedStandings?: NotRankedEntry[]
   // Separate Solo Event Play from Practice Round Mode (5 Sep) — present
   // only when the route's own practice gate fired; every other field
   // above is absent in that response, never a partially-populated
@@ -235,17 +227,12 @@ export default function LiveLeaderboard({
     )
   }
 
-  // Package 3: a round finished early ranks only players with a qualifying result; incomplete players are listed
-  // apart ("Not ranked — incomplete round") with their real points. A normal round has no such players.
-  const rankedBoard = data.board.filter(r => r.ranked !== false)
-  const incompleteBoard = data.board.filter(r => r.ranked === false)
-  const cumulativeNotRanked = data.notRankedStandings ?? []
-  const topThree = rankedBoard.slice(0, 3)
-  const me = rankedBoard.find(r => r.isCurrentUser)
+  const topThree = data.board.slice(0, 3)
+  const me = data.board.find(r => r.isCurrentUser)
   // Only show "your position" as a separate pinned row if you're not
   // already visible in the top three — no point showing yourself twice.
   const meOutsideTopThree = me && me.position > 3 ? me : null
-  const visibleRows = expanded ? rankedBoard : topThree
+  const visibleRows = expanded ? data.board : topThree
 
   // Round 2+ view: R1 | R2 LIVE | TOTAL table, TOTAL determines position.
   // Round 1 (roundsSummary.length === 1, i.e. no prior round exists yet)
@@ -254,8 +241,7 @@ export default function LiveLeaderboard({
   const cumulative = data.cumulativeStandings ?? []
   const isMultiRound = (data.roundsSummary?.length ?? 0) > 1 && cumulative.length > 0
   const cumTopThree = cumulative.slice(0, 3)
-  const meAny = data.board.find(r => r.isCurrentUser)
-  const cumMe = meAny ? cumulative.find(c => c.playerId === meAny.playerId) : undefined
+  const cumMe = me ? cumulative.find(c => c.playerId === me.playerId) : undefined
   const cumMeOutsideTopThree = cumMe && cumMe.position > 3 ? cumMe : null
   const cumVisibleRows = expanded ? cumulative : cumTopThree
   const boardByPlayerId = new Map(data.board.map(r => [r.playerId, r]))
@@ -284,13 +270,6 @@ export default function LiveLeaderboard({
           Last updated: {relativeTime(dataUpdatedAt)}
         </div>
       </div>
-
-      {data.earlyFinish && (
-        <div role="status" style={{ background: '#fffaf0', border: '1px solid #e8c96a', borderRadius: 12, padding: '10px 12px', marginBottom: 12, fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#4b4b44' }}>
-          <div style={{ fontWeight: 800, color: '#7a5a00', fontSize: 13 }}>{data.earlyFinish.title}</div>
-          <div>{data.earlyFinish.resultLabel} &middot; {data.earlyFinish.countingLabel}</div>
-        </div>
-      )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         <div style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 16, fontWeight: 800 }}>
@@ -359,20 +338,6 @@ export default function LiveLeaderboard({
               {expanded ? '↑ Show top 3 only' : `↓ Show full leaderboard (${cumulative.length})`}
             </button>
           )}
-
-          {cumulativeNotRanked.length > 0 && (
-            <div style={{ marginTop: 12, background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', overflow: 'hidden' }}>
-              <div style={{ padding: '6px 14px', fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 800, letterSpacing: 0.6, color: '#7a5a00', background: '#fffaf0', borderBottom: '1px solid #eceae3' }}>
-                NOT RANKED &mdash; INCOMPLETE ROUND
-              </div>
-              {cumulativeNotRanked.map((n, i) => (
-                <div key={n.playerId} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '10px 14px', borderTop: i > 0 ? '1px solid #eceae3' : 'none', fontFamily: 'var(--font-body)', fontSize: 14 }}>
-                  <span style={{ fontWeight: 700, color: '#14532d' }}>{n.playerName}</span>
-                  <span style={{ color: '#6b6b60' }}>{n.totalPoints} pts</span>
-                </div>
-              ))}
-            </div>
-          )}
         </>
       ) : (
         <>
@@ -398,7 +363,7 @@ export default function LiveLeaderboard({
             )}
           </div>
 
-          {rankedBoard.length > 3 && (
+          {data.board.length > 3 && (
             <button
               onClick={() => setExpanded(e => !e)}
               style={{
@@ -408,22 +373,8 @@ export default function LiveLeaderboard({
                 cursor: 'pointer',
               }}
             >
-              {expanded ? '↑ Show top 3 only' : `↓ Show full leaderboard (${rankedBoard.length})`}
+              {expanded ? '↑ Show top 3 only' : `↓ Show full leaderboard (${data.board.length})`}
             </button>
-          )}
-
-          {incompleteBoard.length > 0 && (
-            <div style={{ marginTop: 12, background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', overflow: 'hidden' }}>
-              <div style={{ padding: '6px 14px', fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 800, letterSpacing: 0.6, color: '#7a5a00', background: '#fffaf0', borderBottom: '1px solid #eceae3' }}>
-                NOT RANKED &mdash; INCOMPLETE ROUND
-              </div>
-              {incompleteBoard.map((row, i) => (
-                <div key={row.playerId} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '10px 14px', borderTop: i > 0 ? '1px solid #eceae3' : 'none', background: row.isCurrentUser ? '#fdf3d9' : 'transparent', fontFamily: 'var(--font-body)', fontSize: 14 }}>
-                  <span style={{ fontWeight: 700, color: '#14532d' }}>{row.name}{row.isCurrentUser ? ' (you)' : ''}</span>
-                  <span style={{ color: '#6b6b60' }}>{row.holesPlayed} hole{row.holesPlayed === 1 ? '' : 's'} &middot; {row.totalPts} pts</span>
-                </div>
-              ))}
-            </div>
           )}
         </>
       )}
@@ -523,11 +474,8 @@ function LeaderboardRow({ row, movement, isLast, isExpanded, onToggle, totalHole
 
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 17, color: '#14532d' }}>
-            {row.ranked === true && typeof row.officialPoints === 'number' ? row.officialPoints : row.totalPts} <span style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af' }}>pts</span>
+            {row.totalPts} <span style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af' }}>pts</span>
           </div>
-          {row.ranked === true && typeof row.officialPoints === 'number' && row.officialPoints !== row.totalPts && (
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, color: '#9ca3af' }}>9 holes &middot; {row.totalPts} played</div>
-          )}
         </div>
 
         <div style={{ width: 16, textAlign: 'center', flexShrink: 0 }}>
@@ -753,7 +701,7 @@ function MultiRoundRow({ row, isCurrentUser, isLast, isExpanded, onToggle, board
  * scroll is contained to this element only, so the page itself never
  * overflows even for an 18-hole round on a narrow screen.
  */
-function InlineScorecard({ row, totalHoles }: { row: LeaderboardEntry; totalHoles: number }) {
+export function InlineScorecard({ row, totalHoles }: { row: LeaderboardEntry; totalHoles: number }) {
   const front9 = row.perHole.filter(h => h.holeNumber <= 9)
   const back9  = row.perHole.filter(h => h.holeNumber > 9)
   const front9Pts = front9.reduce((s, h) => s + h.points, 0)

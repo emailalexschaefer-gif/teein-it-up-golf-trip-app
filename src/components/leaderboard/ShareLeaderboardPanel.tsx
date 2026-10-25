@@ -8,7 +8,7 @@ import { buildLeaderboardPdf } from '@/lib/leaderboardShare/exportPdf'
 import { renderBoardPng, PngTooLargeError } from '@/lib/leaderboardShare/exportPng'
 import { copyText, loadPdfLogo, safeFilename, shareLink, shareOrDownload } from '@/lib/leaderboardShare/exportSave'
 
-export interface ShareStatus { available: boolean; enabled?: boolean; isOrganiser?: boolean; url?: string }
+export interface ShareStatus { available: boolean; enabled?: boolean; isOrganiser?: boolean; url?: string; organiserName?: string; unavailable?: boolean; error?: string }
 
 const btn: React.CSSProperties = { minHeight: 46, padding: '0 16px', borderRadius: 10, fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14.5, cursor: 'pointer' }
 const primary: React.CSSProperties = { ...btn, border: 'none', background: '#14532d', color: '#fff' }
@@ -18,6 +18,7 @@ export default function ShareLeaderboardPanel({ tripId, status, onClose }: { tri
   const qc = useQueryClient()
   const [current, setCurrent] = useState<ShareStatus>(status)
   const [ack, setAck] = useState(false)
+  const [consenting, setConsenting] = useState(false) // organiser: step 2 of Enable Live Link
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -27,12 +28,13 @@ export default function ShareLeaderboardPanel({ tripId, status, onClose }: { tri
     const res = await fetch(`${base}/share-leaderboard`, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(data.error ?? 'Something went wrong. Please try again.')
+    if (data.unavailable) throw new Error(data.error ?? 'Sharing is not available right now.')
     setCurrent(data); qc.setQueryData(['share-leaderboard', tripId], data)
   }
 
   async function enable() {
     setBusy('enable'); setError(null); setNotice(null)
-    try { await call('POST', { acknowledge: true }); setNotice('Public link is on.') } catch (e) { setError(e instanceof Error ? e.message : 'Could not turn on sharing.') } finally { setBusy(null) }
+    try { await call('POST', { acknowledge: true }); setConsenting(false); setNotice('Live link is on.') } catch (e) { setError(e instanceof Error ? e.message : 'Could not turn on sharing.') } finally { setBusy(null) }
   }
   async function disable() {
     if (!window.confirm('Turn off the public link? Anyone who has it will no longer be able to see the leaderboard. Turning it on again creates a new link.')) return
@@ -78,7 +80,9 @@ export default function ShareLeaderboardPanel({ tripId, status, onClose }: { tri
         <p style={{ margin: '0 0 14px', fontSize: 13.5, color: '#4b4b44' }}>Let friends and family follow the scores, live or as a snapshot.</p>
 
         <h3 style={{ fontSize: 14, margin: '0 0 6px' }}>Live link</h3>
-        {current.enabled && current.url ? (
+        {current.unavailable ? (
+          <p role="alert" style={{ fontSize: 13.5, color: '#7a1f1f', background: '#fdf0f0', border: '1px solid #e5c1c1', borderRadius: 10, padding: 12, margin: 0 }}>{current.error ?? 'The live link is not available right now. You can still save an image or PDF.'}</p>
+        ) : current.enabled && current.url ? (
           <>
             <input readOnly value={current.url} onFocus={e => e.currentTarget.select()} aria-label="Public leaderboard link"
               style={{ width: '100%', boxSizing: 'border-box', padding: 10, borderRadius: 10, border: '1px solid #d9d6cb', fontSize: 13.5, marginBottom: 10 }} />
@@ -93,6 +97,11 @@ export default function ShareLeaderboardPanel({ tripId, status, onClose }: { tri
               </button>
             )}
           </>
+        ) : current.isOrganiser && !consenting ? (
+          <>
+            <p style={{ fontSize: 13.5, color: '#4b4b44', margin: '0 0 10px' }}>The live link is off. Turn it on so friends and family can follow the scores without logging in.</p>
+            <button onClick={() => setConsenting(true)} style={{ ...primary, width: '100%' }}>Enable Live Link</button>
+          </>
         ) : current.isOrganiser ? (
           <>
             <div style={{ background: '#fdf3d9', border: '1px solid #e8c96a', borderRadius: 10, padding: 12, fontSize: 13.5, lineHeight: 1.45 }}>
@@ -103,11 +112,11 @@ export default function ShareLeaderboardPanel({ tripId, status, onClose }: { tri
               <span>I understand full player names and scores will be publicly visible to anyone with the link.</span>
             </label>
             <button onClick={enable} disabled={!ack || busy !== null} style={{ ...primary, width: '100%', opacity: !ack || busy ? 0.55 : 1 }}>
-              {busy === 'enable' ? 'Working…' : 'Turn on public link'}
+              {busy === 'enable' ? 'Working…' : 'Activate Live Link'}
             </button>
           </>
         ) : (
-          <p style={{ fontSize: 13.5, color: '#4b4b44', margin: 0 }}>Your organiser hasn&apos;t turned on the public link yet. Ask them to enable it. You can still save the leaderboard as an image or PDF below.</p>
+          <p style={{ fontSize: 13.5, color: '#4b4b44', margin: 0 }}>The live link is not switched on yet. Only {current.organiserName ? current.organiserName : 'the event organiser'} can enable it. You can still save the leaderboard as an image or PDF below, and once it is on you can copy and share the link here.</p>
         )}
 
         <h3 style={{ fontSize: 14, margin: '20px 0 6px' }}>Save a snapshot</h3>

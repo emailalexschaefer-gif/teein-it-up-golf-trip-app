@@ -7,9 +7,7 @@ import ConfettiBurst from './ConfettiBurst'
 import { trackEvent } from '@/lib/analytics/trackEvent'
 
 interface RoundRef { roundId: string; roundNumber: number; roundName: string; courseName: string | null }
-interface StandingRound { roundId: string; roundNumber: number; points: number; /** Package 3: false = a round finished early that did not count toward the championship. */ counted?: boolean }
-interface EarlyRoundRef { roundId: string; roundNumber: number; reason: string; note: string | null; officialHoles: number | null; countsTowardEvent: boolean; title: string; resultLabel: string; countingLabel: string }
-interface NotRankedRef { playerId: string; playerName: string; totalPoints: number }
+interface StandingRound { roundId: string; roundNumber: number; points: number }
 interface Standing { playerId: string; playerName: string; totalPoints: number; position: number; roundsPlayed: number; rounds: StandingRound[] }
 interface RoundWinner { roundId: string; roundNumber: number; roundName: string; courseName: string | null; winners: { playerId: string; playerName: string; points: number }[] }
 interface Champion { playerId: string; playerName: string; totalPoints: number }
@@ -56,9 +54,6 @@ interface FinalResults {
   /** false = the organiser ended the event early without declaring an overall champion. */
   championDeclared?: boolean
   endedEarly?: boolean
-  earlyRounds?: EarlyRoundRef[]
-  notRanked?: NotRankedRef[]
-  championshipEmpty?: boolean
   hasTie: boolean
   sideCompetitionsByRound: RoundSideCompetitions[]
   eventHighlights: { makers: EventHighlight[]; breakers: EventHighlight[] }
@@ -292,8 +287,8 @@ export default function FinalEventResults({ tripId }: { tripId: string }) {
                 </span>
               </div>
               {s.rounds.map(r => (
-                <div key={r.roundId} title={r.counted === false ? 'Round finished early \u2014 not counted toward the event championship' : undefined} style={{ width: 44, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 12.5, color: r.counted === false ? '#b5b0a0' : '#4b5563', fontStyle: r.counted === false ? 'italic' : 'normal' }}>
-                  {r.points}{r.counted === false ? '*' : ''}
+                <div key={r.roundId} style={{ width: 44, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#4b5563' }}>
+                  {r.points}
                 </div>
               ))}
               <div style={{ width: 52, textAlign: 'center', flexShrink: 0, fontFamily: 'var(--font-display)', fontWeight: 900, fontSize: 15, color: '#7a5c00' }}>
@@ -301,36 +296,7 @@ export default function FinalEventResults({ tripId }: { tripId: string }) {
               </div>
             </div>
           ))}
-          {data.standings.length === 0 && (
-            <div style={{ padding: '16px 14px', fontFamily: 'var(--font-body)', fontSize: 13, color: '#6b7280', textAlign: 'center' }}>
-              {data.championshipEmpty ? 'No round counted toward the event championship, so there is no overall ranking. Every score is kept under Round Winners and in Event Memories.' : 'No standings to show.'}
-            </div>
-          )}
         </div>
-
-        {(data.earlyRounds ?? []).length > 0 && (
-          <div style={{ margin: '-8px 2px 16px', fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a5a00', lineHeight: 1.5 }}>
-            {(data.earlyRounds ?? []).map(e => (
-              <div key={e.roundId}>
-                <strong>R{e.roundNumber}</strong> &mdash; {e.title}. {e.resultLabel}. {e.countingLabel}.{e.countsTowardEvent ? '' : ' (* shown for reference only)'}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {(data.notRanked ?? []).length > 0 && (
-          <>
-            <SectionLabel>{'Not ranked \u2014 incomplete round'}</SectionLabel>
-            <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', overflow: 'hidden', marginBottom: 20 }}>
-              {(data.notRanked ?? []).map((n, i) => (
-                <div key={n.playerId} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '10px 14px', borderTop: i > 0 ? '1px solid #f3f4f1' : 'none', fontFamily: 'var(--font-body)', fontSize: 13 }}>
-                  <span style={{ fontWeight: 700, color: '#14532d' }}>{n.playerName}</span>
-                  <span style={{ color: '#6b7280' }}>{n.totalPoints} pts played</span>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
 
         {/* ── Event Makers & Breakers (Release 2, items 4/5) — the same
             eventHighlights the API already computed via
@@ -416,14 +382,8 @@ export default function FinalEventResults({ tripId }: { tripId: string }) {
               <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 3 }}>
                 Round {rw.roundNumber}{rw.courseName ? ` — ${rw.courseName}` : ''}
               </div>
-              {(() => {
-                const e = (data.earlyRounds ?? []).find(x => x.roundId === rw.roundId)
-                return e ? <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#7a5a00', marginBottom: 3 }}>{e.title} &middot; {e.resultLabel} &middot; {e.countingLabel}</div> : null
-              })()}
               <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d' }}>
-                {rw.winners.length > 0
-                  ? `${rw.winners.map(w => w.playerName).join(' & ')} \u2014 ${rw.winners[0]?.points} pts`
-                  : 'No round winner (no official result)'}
+                {rw.winners.map(w => w.playerName).join(' & ')} — {rw.winners[0]?.points} pts
               </div>
             </div>
           ))}

@@ -5,6 +5,7 @@ import WatchPresentationLink from '@/components/memories/WatchPresentationLink'
 import { useQuery } from '@tanstack/react-query'
 import RoundSchedule, { type ScheduleRound } from './RoundSchedule'
 import PlayerRoundView from './PlayerRoundView'
+import CompletedRoundResults from './CompletedRoundResults'
 import MyGolfEventStory from './MyGolfEventStory'
 import MyAchievementsSection from './MyAchievementsSection'
 import MyBadgesSection from './MyBadgesSection'
@@ -92,6 +93,10 @@ export default function MyRoundClient({
         rounds={rounds} selectedRoundId={selectedRoundId ?? ''} defaultRoundId={defaultRoundId}
         onSelect={setSelectedRoundId} tripId={tripId}
       />
+      {/* Completed rounds only: read-only round standings + scorecards. */}
+      {selected && (
+        <CompletedRoundResults tripId={tripId} roundId={selected.id} roundName={selected.name} roundStatus={selected.status} />
+      )}
       {selected ? (
         <PlayerRoundView
           tripId={tripId} roundId={selected.id} roundStatus={selected.status}

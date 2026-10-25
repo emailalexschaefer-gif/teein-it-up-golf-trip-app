@@ -14,8 +14,6 @@ import MyRoundSummary from './MyRoundSummary'
 import RoundWorkflowTracker from './RoundWorkflowTracker'
 import CancelRoundControl from './CancelRoundControl'
 import EndEventControl from './EndEventControl'
-import FinishRoundEarlyControl from './FinishRoundEarlyControl'
-import EarlyResultsPanel from './EarlyResultsPanel'
 import { noPlayableRoundsRemain as noRoundsLeft, canEndEvent } from '@/lib/scoring/roundLifecycle'
 import EventProgressBadge from './EventProgressBadge'
 import CollapsibleSection from '@/components/shared/CollapsibleSection'
@@ -407,10 +405,6 @@ export default function MyHQClient({
           >
             Open Close Round control ↓
           </button>
-          {/* Package 3: a round in play that cannot be completed. Separate from Cancel Round (upcoming) and Close Round (normal). */}
-          {selected.status === 'active' && (
-            <FinishRoundEarlyControl key={selected.id} tripId={tripId} roundId={selected.id} roundName={selected.name} />
-          )}
         </div>
       )
     }
@@ -504,11 +498,6 @@ export default function MyHQClient({
       {selected && (selected.status === 'upcoming' || selected.status === 'cancelled') && (
         <CancelRoundControl key={`${selected.id}:${selected.status}`} tripId={tripId} roundId={selected.id} roundName={selected.name} status={selected.status}
           onCancelled={() => { if (mostRecentlyCompletedRoundId) setSelectedRoundId(mostRecentlyCompletedRoundId) }} />
-      )}
-
-      {/* Package 3: official result of a round that was finished early (counts toward championship / refresh). */}
-      {selected && selected.status === 'completed' && (
-        <EarlyResultsPanel key={selected.id} tripId={tripId} roundId={selected.id} eventEnded={tripCompleted} />
       )}
 
       {/* Event-level: end the event early / finish it, and choose whether to declare a champion

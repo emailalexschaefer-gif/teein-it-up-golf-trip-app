@@ -2,7 +2,6 @@
  * POST /api/trips/[tripId]/end-event  (organiser only)
  *   { preview: true }                                   -> impact preview, writes nothing
  *   { declareChampion: boolean, reason, note? }         -> ends the event early
- *   { outcome: 'concluded' }                            -> competition concluded (a normal completion) after a round was finished early
  * Ending an event early, cancelling a round and declaring a champion are separate
  * decisions; the champion choice must be sent explicitly (defaults to NO).
  */
@@ -25,8 +24,8 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   const role = await getMemberRole(admin, tripId, user.id)
   if (!role) return json({ error: 'Not a trip member.' }, 403)
   if (role !== 'organiser') return json({ error: 'Only the organiser can end the event.' }, 403)
-  let body: { preview?: unknown; declareChampion?: unknown; reason?: unknown; note?: unknown; outcome?: unknown } = {}
+  let body: { preview?: unknown; declareChampion?: unknown; reason?: unknown; note?: unknown } = {}
   try { body = await req.json() } catch { /* empty body */ }
-  const result = await endEvent(admin, { tripId, userId: user.id, preview: body.preview === true, declareChampion: body.declareChampion, reason: body.reason, note: body.note, outcome: body.outcome })
+  const result = await endEvent(admin, { tripId, userId: user.id, preview: body.preview === true, declareChampion: body.declareChampion, reason: body.reason, note: body.note })
   return json(result.body, result.status)
 }

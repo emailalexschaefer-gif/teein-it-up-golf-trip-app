@@ -206,8 +206,7 @@ test('End Event UI: champion choice defaults to NO, a reason is required, confir
   const s = read('src/components/scoring/EndEventControl.tsx')
   assert.match(s, /useState\(false\) \/\/ default: NO champion/)
   assert.match(s, /Declare an overall event champion\?/)
-  // Package 3: the reason is still required for "ended early"; a "competition concluded" completion has no reason to give.
-  assert.match(s, /disabled=\{busy \|\| !impact \|\| \(mode === 'ended_early' && !reason\)\}/)
+  assert.match(s, /disabled=\{busy \|\| !impact \|\| !reason\}/)
   assert.match(s, /Moments/); assert.match(s, /keep all scores/)
   assert.doesNotMatch(s, /Abandon/i, 'no generic abandoned status')
 })

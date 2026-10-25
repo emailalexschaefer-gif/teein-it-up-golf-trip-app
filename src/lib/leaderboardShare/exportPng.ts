@@ -7,7 +7,7 @@
  * with a clear error so the caller can offer the PDF instead of producing a
  * blank or truncated picture.
  */
-import { positionText, medalOf, initialsOf, podiumRows, crownedRows, playerCountText, podiumCaption, statusSubtitle, boardFootnote, hasBoardExtras, type Medal, type PublicBoard } from './publicBoard'
+import { positionText, medalOf, initialsOf, podiumRows, crownedRows, playerCountText, podiumCaption, statusSubtitle, type Medal, type PublicBoard } from './publicBoard'
 import { CROWN_POINTS, CROWN_BAND, CROWN_GOLD, CROWN_GOLD_DARK } from './crown'
 
 export const PNG_WIDTH = 1080
@@ -30,8 +30,7 @@ export interface PngLayout { width: number; height: number; scale: number; noteL
 
 /** Pure layout maths (unit tested). `measure` returns text width in CSS px at the given font. */
 export function computePngLayout(board: PublicBoard, wrapNote: (text: string) => string[]): PngLayout {
-  const foot = boardFootnote(board)
-  const noteLines = foot && (board.rows.length > 0 || hasBoardExtras(board)) ? wrapNote(foot) : []
+  const noteLines = board.note && board.rows.length > 0 ? wrapNote(board.note) : []
   const podium = podiumRows(board).length > 0 ? PODIUM_H : 0
   const body = board.rows.length === 0 ? 120 : TABLE_HEAD_H + board.rows.length * ROW_H
   const height = HEADER_H + GAP + podium + body + (noteLines.length ? GAP + noteLines.length * NOTE_LINE_H : 0) + GAP + FOOTER_H

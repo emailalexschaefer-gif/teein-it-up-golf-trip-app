@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  positionText, medalOf, initialsOf, podiumRows, crownedRows, playerCountText, podiumCaption, statusSubtitle, NOT_RANKED_LABEL,
+  positionText, medalOf, initialsOf, podiumRows, crownedRows, playerCountText, podiumCaption, statusSubtitle,
   type PublicBoard, type PublicBoardRow, type Medal,
 } from '@/lib/leaderboardShare/publicBoard'
 import { CROWN_POINTS, CROWN_BAND, CROWN_GOLD, CROWN_GOLD_DARK } from '@/lib/leaderboardShare/crown'
@@ -200,13 +200,6 @@ export default function PublicLeaderboardView({ token, initial }: { token: strin
           </>
         )}
 
-        {(board.earlyNotes ?? []).map(n => <p key={n} style={{ fontSize: 12.5, color: '#7a5a00', margin: '12px 4px 0', lineHeight: 1.45, fontWeight: 600 }}>{n}</p>)}
-        {board.notRanked && board.notRanked.length > 0 && (
-          <div style={{ margin: '12px 4px 0', fontSize: 12.5, color: '#4b4b44', lineHeight: 1.5 }}>
-            <strong>{NOT_RANKED_LABEL}</strong>
-            <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{board.notRanked.map(n => <li key={n.name}>{n.name} &mdash; {n.total} pts</li>)}</ul>
-          </div>
-        )}
         {board.note && board.rows.length > 0 && <p style={{ fontSize: 12.5, color: '#6b6b60', margin: '12px 4px 0', lineHeight: 1.45 }}>{board.note}</p>}
         <p role="status" style={{ fontSize: 12, color: stale ? '#b45309' : '#7a7a70', margin: '8px 4px 0' }}>
           {stale ? 'Having trouble refreshing — showing the last scores we have.' : updatedText ? `Last updated ${updatedText}${live ? ' · refreshes automatically' : ''}` : ''}

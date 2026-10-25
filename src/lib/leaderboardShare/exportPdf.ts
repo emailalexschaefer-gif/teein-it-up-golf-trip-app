@@ -11,7 +11,7 @@
  * Any number of players: rows flow onto as many A4 pages as needed, with the
  * table header repeated on each page and "Page x of y" in the footer.
  */
-import { positionText, medalOf, podiumRows, crownedRows, playerCountText, podiumCaption, statusSubtitle, boardFootnote, hasBoardExtras, type Medal, type PublicBoard } from './publicBoard'
+import { positionText, medalOf, podiumRows, crownedRows, playerCountText, podiumCaption, statusSubtitle, type Medal, type PublicBoard } from './publicBoard'
 import { CROWN_POINTS, CROWN_BAND } from './crown'
 
 const PAGE_W = 595.28
@@ -239,9 +239,8 @@ export function buildLeaderboardPdf(board: PublicBoard, opts: PdfOptions = {}): 
     y -= ROW_H
   })
 
-  const footnote = boardFootnote(board)
-  if (footnote && (board.rows.length > 0 || hasBoardExtras(board))) {
-    const lines = wrap(footnote, 9, PAGE_W - MARGIN * 2)
+  if (board.note && board.rows.length > 0) {
+    const lines = wrap(board.note, 9, PAGE_W - MARGIN * 2)
     if (y - 14 * lines.length - 10 < bottom) { page = new Page(); pages.push(page); y = header(page, false) }
     y -= 8
     for (const line of lines) { page.text(line, MARGIN, y, 9, false, MUTED); y -= 12 }

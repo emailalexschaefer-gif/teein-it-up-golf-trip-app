@@ -26,17 +26,9 @@ import { computeCumulativeStandings, determineRoundWinners, determineChampions, 
 import { orderHolesByPlaySequence } from '@/lib/scoring/holeSequence'
 import { generateEventMakersAndBreakers, type EventRoundData } from '@/lib/highlights/eventMakersBreakers'
 import { readEventOutcome, type EventOutcome } from './eventOutcome'
-import { loadEarlyFinish, adjustForEarlyFinish, roundCompetitionResults, earlyLabels, type NotRankedPlayer } from '@/lib/scoring/earlyFinish'
 import type { PlayerRoundData, PlayerHoleResult } from '@/lib/highlights/makersBreakers'
 
 interface RoundRow { id: string; name: string; course_name: string | null; status: string; created_at: string }
-
-export interface EarlyRoundSummary {
-  roundId: string; roundNumber: number
-  reason: string; note: string | null
-  officialHoles: number | null; countsTowardEvent: boolean
-  title: string; resultLabel: string; countingLabel: string
-}
 
 export type FinalResultsResult =
   | { ok: true; data: {
@@ -49,12 +41,6 @@ export type FinalResultsResult =
       championDeclared: boolean
       endedEarly: boolean
       hasTie: boolean
-      /** Package 3: rounds finished early (empty for a normal event). */
-      earlyRounds: EarlyRoundSummary[]
-      /** Package 3: players incomplete in a championship-counted shortened round. Never ranked, never zeroed. */
-      notRanked: NotRankedPlayer[]
-      /** True when no round counts toward the championship (every round excluded) -- no ranking exists. */
-      championshipEmpty: boolean
       sideCompetitionsByRound: unknown
       eventHighlights: unknown
     } }
@@ -185,28 +171,17 @@ export async function computeFinalResults(tripId: string, admin: ReturnType<type
     // live multi-round leaderboard already relies on. Ties share position
     // (see the module's own doc comment) rather than being split
     // arbitrarily by database/array order.
-    // Package 3: a round finished early is excluded from the championship unless the
-    // organiser explicitly included it (then only qualifying players count, on their frozen
-    // official nine-hole points; incomplete players are listed separately, never zeroed).
-    // With no finished-early round this is a pass-through and nothing below changes.
-    const roundIds = completedRounds.map(r => r.id)
-    const early = await loadEarlyFinish(admin, roundIds, tripId)
-    const adj = adjustForEarlyFinish(perRoundResults, roundIds, early)
-    const standings = computeCumulativeStandings(adj.results)
+    const standings = computeCumulativeStandings(perRoundResults)
 
     // Per-round breakdown attached to each standing, same additive
     // pattern as the live leaderboard route's cumulativeStandings.rounds
     // — R1/R2/.../Rn columns for however many rounds this event actually
-    // had, never hard-coded to two. `points` is the number shown for that round
-    // (actual points for a round that did not count, official points for a counted
-    // shortened round); `counted` says whether it fed the championship total.
+    // had, never hard-coded to two.
     const pointsByPlayer = new Map<string, Record<string, number>>()
     completedRounds.forEach((round, idx) => {
-      const info = early.get(round.id)
       for (const r of perRoundResults[idx]) {
         const existing = pointsByPlayer.get(r.playerId) ?? {}
-        const res = info?.results.get(r.playerId)
-        existing[round.id] = info && info.countsTowardEvent && res?.kind === 'qualifying' && res.officialPoints !== null ? res.officialPoints : r.roundPoints
+        existing[round.id] = r.roundPoints
         pointsByPlayer.set(r.playerId, existing)
       }
     })
@@ -215,18 +190,16 @@ export async function computeFinalResults(tripId: string, admin: ReturnType<type
       rounds: completedRounds.map((round, idx) => ({
         roundId: round.id, roundNumber: idx + 1,
         points: pointsByPlayer.get(s.playerId)?.[round.id] ?? 0,
-        counted: !adj.excludedRoundIds.includes(round.id),
       })),
     }))
 
     // Round winners — the highest score within that single round only,
     // independent of the overall cumulative ranking. Tie-safe: a round
     // can legitimately have more than one winner. Pure, tested function
-    // — see multiRound.ts / multiRound.test.ts. A finished-early round is decided on
-    // official nine-hole results among qualifying players only (no official result = no winner).
+    // — see multiRound.ts / multiRound.test.ts.
     const roundWinners = completedRounds.map((round, idx) => ({
       roundId: round.id, roundNumber: idx + 1, roundName: round.name, courseName: round.course_name,
-      winners: determineRoundWinners(roundCompetitionResults(perRoundResults[idx], early.get(round.id))),
+      winners: determineRoundWinners(perRoundResults[idx]),
     }))
 
     // Champion(s) — position 1 in the overall standings. Can legitimately
@@ -331,7 +304,7 @@ export async function computeFinalResults(tripId: string, admin: ReturnType<type
     // Release 2, item 4/5 — the SAME event-level Makers & Breakers
     // result My Golf's Event Story (item 6) also consumes; computed
     // once here, not duplicated in either presentation layer.
-    const eventHighlights = generateEventMakersAndBreakers({ rounds: eventRoundsData, includeChampion: outcome.championDeclared, championResults: early.size > 0 ? adj.results : undefined })
+    const eventHighlights = generateEventMakersAndBreakers({ rounds: eventRoundsData, includeChampion: outcome.championDeclared })
 
     return {
       ok: true as const,
@@ -348,13 +321,6 @@ export async function computeFinalResults(tripId: string, admin: ReturnType<type
       // supports it; this only stays true when players are tied all
       // the way through it, not merely level on the raw point total.
       hasTie: champions.length > 1,
-      earlyRounds: completedRounds.flatMap((r, idx) => {
-        const i = early.get(r.id); if (!i) return []
-        const l = earlyLabels(i)
-        return [{ roundId: r.id, roundNumber: idx + 1, reason: i.reason, note: i.note, officialHoles: i.officialHoles, countsTowardEvent: i.countsTowardEvent, title: l.title, resultLabel: l.result, countingLabel: l.counting }]
-      }),
-      notRanked: adj.notRanked,
-      championshipEmpty: early.size > 0 && standings.length === 0,
       sideCompetitionsByRound,
       eventHighlights,
       },

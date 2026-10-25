@@ -16,8 +16,19 @@ type Admin = any
 
 export const leaderboardPath = (token: string): string => `/l/${token}`
 
+/** Thrown when public sharing cannot work at all (table missing = migration 098 not applied, or the database is unreachable). Never means "no link". */
+export class ShareUnavailableError extends Error {
+  constructor(public kind: 'migration' | 'database') { super(kind === 'migration' ? 'SHARING_MIGRATION_MISSING' : 'SHARING_DATABASE_ERROR') }
+}
+export function classifyShareError(err: { code?: string; message?: string } | null | undefined): 'migration' | 'database' {
+  const m = String(err?.message ?? '')
+  return err?.code === '42P01' || err?.code === 'PGRST205' || /shared_leaderboards.*(does not exist|schema cache)|relation .*shared_leaderboards/i.test(m) ? 'migration' : 'database'
+}
+
+/** The active link, or null when there genuinely is none. A failed lookup THROWS ShareUnavailableError: it must never look like "not enabled". */
 export async function getActiveLink(admin: Admin, tripId: string): Promise<{ token: string } | null> {
-  const { data } = await admin.from('shared_leaderboards').select('token').eq('trip_id', tripId).eq('status', 'active').maybeSingle()
+  const { data, error } = await admin.from('shared_leaderboards').select('token').eq('trip_id', tripId).eq('status', 'active').maybeSingle()
+  if (error) { console.error('[share-leaderboard] lookup failed', { code: error.code, tripId }); throw new ShareUnavailableError(classifyShareError(error)) }
   return data?.token ? { token: data.token as string } : null
 }
 
@@ -33,6 +44,7 @@ export async function enableSharing(admin: Admin, p: { tripId: string; userId: s
       if (again) return { token: again.token, created: false }
     }
     console.error('[share-leaderboard] enable failed', { code: ins.error.code, tripId: p.tripId })
+    if (classifyShareError(ins.error) === 'migration') throw new ShareUnavailableError('migration')
     return null
   }
   return { token, created: true }

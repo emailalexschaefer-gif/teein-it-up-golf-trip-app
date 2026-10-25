@@ -65,7 +65,7 @@ test('share-leaderboard: every member may read status; only the organiser may en
   const get = src.slice(src.indexOf('export async function GET'), src.indexOf('export async function POST'))
   assert.match(post, /role !== 'organiser'[\s\S]*403/); assert.match(post, /acknowledge !== true[\s\S]*400/)
   assert.match(del, /role !== 'organiser'[\s\S]*403/)
-  assert.equal(/organiser/.test(get.replace('isOrganiser: a.role === \'organiser\'', '')), false, 'GET is not organiser-gated')
+  assert.equal(/role !== 'organiser'|403/.test(get), false, 'GET is not organiser-gated (every member may read status)')
   assert.match(src, /Not a trip member[\s\S]*403|403[\s\S]*Not a trip member/)
   assert.match(post, /is_practice === true[\s\S]*409/)
 })
@@ -87,9 +87,9 @@ test('the member leaderboard route still delegates to the canonical computation 
 test('Share Leaderboard is on the leaderboard page for everyone; the organiser sees the warning + acknowledgement and a revoke button', () => {
   assert.match(read('src/app/(app)/trips/[tripId]/leaderboard/page.tsx'), /<ShareLeaderboardButton tripId=\{tripId\} \/>/)
   const panel = read('src/components/leaderboard/ShareLeaderboardPanel.tsx')
-  for (const s of ['Copy Live Link', 'Turn on public link', 'Turn off public link', 'full player names and scores', 'type="checkbox"', 'Image (PNG)', 'PDF', 'Share']) assert.ok(panel.includes(s), s)
+  for (const s of ['Copy Live Link', 'Enable Live Link', 'Activate Live Link', 'Turn off public link', 'full player names and scores', 'type="checkbox"', 'Image (PNG)', 'PDF', 'Share']) assert.ok(panel.includes(s), s)
   assert.match(panel, /disabled=\{!ack/); assert.match(panel, /window\.confirm/); assert.match(panel, /No emails, contact details, handicaps or chat/)
-  assert.match(panel, /hasn&apos;t turned on the public link/)
+  assert.match(panel, /The live link is not switched on yet\. Only/)
 })
 
 // ── migration ─────────────────────────────────────────────────────────────
@@ -109,12 +109,51 @@ test('analytics and perf telemetry redact leaderboard tokens', () => {
 
 test('Share Leaderboard UI: gold button with dark-green text and share icon; popup is portalled above the bottom nav with reachable buttons', () => {
   const btn = readFileSync(join(process.cwd(), 'src/components/leaderboard/ShareLeaderboardButton.tsx'), 'utf8')
-  assert.match(btn, /#e0b43a/); assert.match(btn, /color: '#14532d'/); assert.match(btn, /<svg aria-hidden="true"/); assert.match(btn, /Share Leaderboard/)
+  assert.match(btn, /#e0b43a/); assert.match(btn, /color: '#14532d'/); assert.match(btn, /<svg aria-hidden="true"/); assert.match(btn, /^\s*Share$/m); assert.doesNotMatch(btn, /Share Leaderboard\s*\n/)
   const panel = readFileSync(join(process.cwd(), 'src/components/leaderboard/ShareLeaderboardPanel.tsx'), 'utf8')
   assert.match(panel, /createPortal\(dialog, document\.body\)/)
   assert.match(panel, /zIndex: 120/); assert.match(panel, /maxHeight: '88dvh'/); assert.match(panel, /env\(safe-area-inset-bottom\)/)
   assert.match(panel, /position: 'sticky', bottom: -1/)
   // organiser can enable from inside the popup, with the existing consent, then sees Copy / Share
-  assert.match(panel, /Turn on public link/); assert.match(panel, /acknowledge: true/); assert.match(panel, /disabled=\{!ack \|\| busy !== null\}/)
+  assert.match(panel, /Activate Live Link/); assert.match(panel, /acknowledge: true/); assert.match(panel, /disabled=\{!ack \|\| busy !== null\}/)
   assert.match(panel, /Copy Live Link/)
+})
+
+// ── Share fix: honest errors, organiser vs player, compact button ────────────────────────────────
+import { getActiveLink, enableSharing, ShareUnavailableError, classifyShareError } from './service'
+const fakeAdmin = (err: { code?: string; message?: string } | null, data: unknown = null) => ({
+  from: () => { const q = { select: () => q, eq: () => q, insert: async () => ({ error: err }), maybeSingle: async () => ({ data, error: err }) }; return q },
+})
+const hush = async <T>(f: () => Promise<T>) => { const e = console.error; console.error = () => {}; try { return await f() } finally { console.error = e } }
+
+test('a failed link lookup is an error, never "no link" (so a missing table cannot look like "organiser has not enabled sharing")', async () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const a = (x: unknown): any => x
+  await assert.rejects(hush(() => getActiveLink(a(fakeAdmin({ code: '42P01', message: 'relation "shared_leaderboards" does not exist' })), 't')), (e: unknown) => e instanceof ShareUnavailableError && e.kind === 'migration')
+  await assert.rejects(hush(() => getActiveLink(a(fakeAdmin({ code: 'PGRST205' })), 't')), (e: unknown) => e instanceof ShareUnavailableError && e.kind === 'migration')
+  await assert.rejects(hush(() => getActiveLink(a(fakeAdmin({ code: '57P01', message: 'terminating' })), 't')), (e: unknown) => e instanceof ShareUnavailableError && e.kind === 'database')
+  assert.equal(await getActiveLink(a(fakeAdmin(null, null)), 't'), null, 'genuinely no link is still null')
+  assert.deepEqual(await getActiveLink(a(fakeAdmin(null, { token: 'x' })), 't'), { token: 'x' })
+  assert.equal(classifyShareError({ code: '23505' }), 'database')
+})
+
+test('enabling with the table missing is a clear 503 for the organiser, not a generic failure', async () => {
+  const src = readFileSync(new URL('../../app/api/trips/[tripId]/share-leaderboard/route.ts', import.meta.url), 'utf8')
+  assert.match(src, /catch \(e\) \{ return json\(unavailable\(e, true\), 503\) \}/)
+  assert.match(src, /migration 098/)
+  assert.match(src, /catch \(e\) \{ return json\(unavailable\(e, isOrganiser\)\) \}/)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const a = (x: unknown): any => x
+  await assert.rejects(hush(() => enableSharing(a(fakeAdmin({ code: '42P01' })), { tripId: 't', userId: 'u' })), ShareUnavailableError)
+})
+
+test('only organisers can activate; players get the link once it exists and are told WHO can enable it otherwise', () => {
+  const route = readFileSync(new URL('../../app/api/trips/[tripId]/share-leaderboard/route.ts', import.meta.url), 'utf8')
+  assert.match(route, /if \(a\.role !== 'organiser'\) return json\(\{ error: 'Only the organiser can turn on public sharing\.' \}, 403\)/)
+  assert.match(route, /organiserName/)
+  const panel = readFileSync(new URL('../../components/leaderboard/ShareLeaderboardPanel.tsx', import.meta.url), 'utf8')
+  assert.match(panel, /Only \{current\.organiserName/)
+  assert.match(panel, /Copy Live Link/); assert.doesNotMatch(panel.split('current.isOrganiser && !consenting')[0].split('Your organiser')[0] ?? '', /Activate Live Link/)
+  assert.match(panel, /current\.unavailable \?/)
+  assert.match(panel, /Image \(PNG\)/)
 })

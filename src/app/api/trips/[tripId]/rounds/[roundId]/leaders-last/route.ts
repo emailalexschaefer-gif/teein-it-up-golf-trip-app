@@ -24,7 +24,6 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { computeCumulativeStandings, seedLeadersLast, sortRoundsChronologically, type RoundPlayerResult } from '@/lib/scoring/multiRound'
-import { loadEarlyFinish, adjustForEarlyFinish } from '@/lib/scoring/earlyFinish'
 
 interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
 type AdminClient = ReturnType<typeof createAdminClient>
@@ -89,12 +88,7 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
   }
 
   const allTotals = await Promise.all(priorRoundIds.map(id => totalsForRound(admin, id)))
-  // Package 3: seed from the championship standings (a round finished early only counts when included).
-  // A player who is incomplete in a counted shortened round has no rank; they are still placed
-  // (after the ranked players, by their actual points) so nobody is left out of the reseed.
-  const earlyInfo = await loadEarlyFinish(admin, priorRoundIds, tripId)
-  const adj = adjustForEarlyFinish(allTotals, priorRoundIds, earlyInfo)
-  const standings: { playerId: string }[] = [...computeCumulativeStandings(adj.results), ...adj.notRanked] // best-to-worst, matches seedLeadersLast's expected input
+  const standings = computeCumulativeStandings(allTotals) // best-to-worst, matches seedLeadersLast's expected input
 
   // Existing groups for this trip, ordered by tee_time — earliest first.
   // Priority 3 — now prefers THIS round's own round_group_tee_times
