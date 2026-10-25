@@ -7,5 +7,5 @@ export function fixtureBoard(n: number, status: PublicBoard['status'] = 'live', 
   const rows = Array.from({ length: n }, (_, i) => ({
     position: i + 1, tied: false, name: `Player Number ${i + 1} Surname`, total: Math.max(0, 40 - i), rounds: Array.from({ length: rounds }, (_, k) => 10 + k), thru: status === 'live' ? `Thru ${(i % 18) + 1}` : null,
   }))
-  return { eventName: 'Lappen Invitational', status, statusLabel: STATUS_LABEL[status], roundLabel: 'Round 1', roundColumns: Array.from({ length: rounds }, (_, k) => ({ label: `R${k + 1}`, live: false })), rows, note: 'note', generatedAt: NOW.toISOString() }
+  return { eventName: 'Lappen Invitational', endedEarly: status === 'ended_early', status, statusLabel: STATUS_LABEL[status], roundLabel: 'Round 1', roundColumns: Array.from({ length: rounds }, (_, k) => ({ label: `R${k + 1}`, live: false })), rows, note: 'note', generatedAt: NOW.toISOString() }
 }

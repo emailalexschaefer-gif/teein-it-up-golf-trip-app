@@ -37,10 +37,11 @@ export function normaliseCancelReason(input: unknown): string | null {
 }
 
 /**
- * An event is complete when at least one round was actually completed and
- * every other round is completed or cancelled. A cancelled round never
- * blocks completion; an all-cancelled event is never "complete" (there is
- * nothing to present or declare a champion from).
+ * Nothing left to play: at least one round was actually completed and every
+ * other round is completed or cancelled. An all-cancelled event is never
+ * "complete" (there is nothing to present). Whether the event FINISHES by
+ * itself is shouldAutoCompleteEvent; ending with cancelled rounds is the
+ * organiser's explicit End Event decision.
  */
 export function isEventComplete(rounds: { status: string }[]): boolean {
   if (rounds.length === 0) return false
@@ -52,6 +53,47 @@ export function isEventComplete(rounds: { status: string }[]): boolean {
   return completed > 0
 }
 
+/**
+ * ONLY a normal completion finishes an event by itself: every round played and
+ * closed, nothing cancelled. If any round was cancelled the organiser must end
+ * the event explicitly (and decide whether to declare a champion): cancelling
+ * rounds, or closing the last played round, never crowns anyone on its own.
+ */
+export function shouldAutoCompleteEvent(rounds: { status: string }[]): boolean {
+  return isEventComplete(rounds) && !rounds.some(r => r.status === 'cancelled')
+}
+
+/** Everything left is completed or cancelled and at least one round was played: the organiser can finish the event now. */
+export function noPlayableRoundsRemain(rounds: { status: string }[]): boolean {
+  return isEventComplete(rounds)
+}
+
+export type EndEventCheck = { ok: true } | { ok: false; error: string }
+
+/** Can the organiser end this event now? (Trip must not already be completed, no round may be live.) */
+export function canEndEvent(tripStatus: string, isPractice: boolean, rounds: { status: string }[]): EndEventCheck {
+  if (isPractice) return { ok: false, error: 'Practice rounds cannot be ended this way.' }
+  if (tripStatus === 'completed') return { ok: false, error: 'This event has already ended.' }
+  if (rounds.some(r => r.status === 'active')) return { ok: false, error: 'A round is still being played. Close it first, then end the event.' }
+  if (!rounds.some(r => r.status === 'completed')) return { ok: false, error: 'Complete at least one round before ending the event, so there is something to present.' }
+  return { ok: true }
+}
+
+export interface EndImpact {
+  completedRounds: number
+  /** Rounds not yet played that will be marked cancelled when the event ends. */
+  roundsToCancel: number
+  noPlayableRoundsRemain: boolean
+}
+
+export function describeEndImpact(rounds: { status: string }[]): EndImpact {
+  return {
+    completedRounds: rounds.filter(r => r.status === 'completed').length,
+    roundsToCancel: rounds.filter(r => r.status === 'upcoming').length,
+    noPlayableRoundsRemain: noPlayableRoundsRemain(rounds),
+  }
+}
+
 /** Rounds that count toward counts, progress and statistics (everything except cancelled). */
 export function countedRounds<T extends { status: string }>(rounds: T[]): T[] {
   return rounds.filter(r => r.status !== 'cancelled')
@@ -61,8 +103,8 @@ export interface CancelImpact {
   /** Rounds that will still count once this one is cancelled. */
   remainingRounds: number
   completedRounds: number
-  /** True when cancelling this round finishes the event (champion declared from completed rounds). */
-  completesEvent: boolean
+  /** True when, after this cancellation, nothing is left to play: the organiser should now finish the event (cancelling never ends it or crowns anyone by itself). */
+  noPlayableRoundsRemain: boolean
   /** True when no completed round exists yet, so the event will simply continue / has nothing to present. */
   noCompletedRounds: boolean
 }
@@ -74,7 +116,7 @@ export function describeCancelImpact(rounds: { id: string; status: string }[], r
   return {
     remainingRounds: counted.length,
     completedRounds: completed,
-    completesEvent: isEventComplete(after),
+    noPlayableRoundsRemain: noPlayableRoundsRemain(after),
     noCompletedRounds: completed === 0,
   }
 }

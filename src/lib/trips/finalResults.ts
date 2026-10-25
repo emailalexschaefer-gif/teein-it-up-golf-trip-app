@@ -25,6 +25,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { computeCumulativeStandings, determineRoundWinners, determineChampions, sortRoundsChronologically, type RoundPlayerResult, type Champion } from '@/lib/scoring/multiRound'
 import { orderHolesByPlaySequence } from '@/lib/scoring/holeSequence'
 import { generateEventMakersAndBreakers, type EventRoundData } from '@/lib/highlights/eventMakersBreakers'
+import { readEventOutcome, type EventOutcome } from './eventOutcome'
 import type { PlayerRoundData, PlayerHoleResult } from '@/lib/highlights/makersBreakers'
 
 interface RoundRow { id: string; name: string; course_name: string | null; status: string; created_at: string }
@@ -36,6 +37,9 @@ export type FinalResultsResult =
       standings: unknown
       roundWinners: unknown
       champions: Champion[]
+      /** False when the event ended early with no overall champion: `champions` is then empty and no champion is claimed anywhere. */
+      championDeclared: boolean
+      endedEarly: boolean
       hasTie: boolean
       sideCompetitionsByRound: unknown
       eventHighlights: unknown
@@ -202,7 +206,11 @@ export async function computeFinalResults(tripId: string, admin: ReturnType<type
     // be more than one player; the UI must represent that honestly (see
     // route doc comment above), never pick one by array order. Pure,
     // tested function.
-    const champions = determineChampions(standings)
+    // Whether an overall champion was DECLARED is the organiser's decision (an event ended
+    // early may have none). When not declared, no champion exists in this result at all;
+    // the final standings (and podium positions) are unaffected.
+    const outcome: EventOutcome = await readEventOutcome(admin, tripId)
+    const champions = outcome.championDeclared ? determineChampions(standings) : []
 
     // ── Side Competition Winners + Powerplay Highlight (Sprint 9) ─────────
     // Explicitly grouped by round — a Side Competition existing in two
@@ -296,7 +304,7 @@ export async function computeFinalResults(tripId: string, admin: ReturnType<type
     // Release 2, item 4/5 — the SAME event-level Makers & Breakers
     // result My Golf's Event Story (item 6) also consumes; computed
     // once here, not duplicated in either presentation layer.
-    const eventHighlights = generateEventMakersAndBreakers({ rounds: eventRoundsData })
+    const eventHighlights = generateEventMakersAndBreakers({ rounds: eventRoundsData, includeChampion: outcome.championDeclared })
 
     return {
       ok: true as const,
@@ -306,6 +314,8 @@ export async function computeFinalResults(tripId: string, admin: ReturnType<type
       standings: standingsWithRounds,
       roundWinners,
       champions,
+      championDeclared: outcome.championDeclared,
+      endedEarly: outcome.endedEarly,
       // Release 2, item 1 — now genuinely resolved via the countback
       // ladder (multiRound.ts) wherever the underlying hole-level data
       // supports it; this only stays true when players are tied all

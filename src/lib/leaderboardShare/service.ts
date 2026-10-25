@@ -9,6 +9,7 @@ import { isPlausibleShareToken } from '@/lib/sharing/tokenShape'
 import { computeRoundLeaderboard } from '@/lib/scoring/roundLeaderboard'
 import { getRoundDisplayName, selectLeaderboardRound, sortRoundsChronologically } from '@/lib/scoring/multiRound'
 import { buildPublicBoard, type PublicBoard } from './publicBoard'
+import { readEventOutcome } from '@/lib/trips/eventOutcome'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Admin = any
@@ -75,9 +76,10 @@ export async function buildBoardForTrip(admin: Admin, tripId: string, now: Date 
   const chronological = sortRoundsChronologically(counted)
   const selectedRound = selectLeaderboardRound(counted)
   const completedRoundCount = counted.filter(r => r.status === 'completed').length
+  const outcome = await readEventOutcome(admin, tripId)
 
   if (!selectedRound || selectedRound.status === 'upcoming') {
-    return buildPublicBoard({ eventName: trip.name, tripStatus: trip.status, selected: null, payload: null, completedRoundCount, now })
+    return buildPublicBoard({ eventName: trip.name, tripStatus: trip.status, selected: null, payload: null, completedRoundCount, now, outcome })
   }
 
   const result = await computeRoundLeaderboard(admin, {
@@ -90,6 +92,6 @@ export async function buildBoardForTrip(admin: Admin, tripId: string, now: Date 
   return buildPublicBoard({
     eventName: trip.name, tripStatus: trip.status,
     selected: { status: selectedRound.status, label: getRoundDisplayName(selectedRound, chronological) },
-    payload: result.body, completedRoundCount, now,
+    payload: result.body, completedRoundCount, now, outcome,
   })
 }

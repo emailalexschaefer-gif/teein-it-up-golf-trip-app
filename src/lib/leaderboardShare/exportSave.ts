@@ -67,3 +67,28 @@ export async function copyText(text: string): Promise<boolean> {
     return ok
   } catch { return false }
 }
+
+/**
+ * Decodes the app's own logo into raw RGB + alpha for the PDF. Returns null on
+ * any failure (the PDF then simply has no logo; the wordmark and tagline remain).
+ */
+export async function loadPdfLogo(url: string, size = 160): Promise<{ width: number; height: number; rgb: Uint8Array; alpha: Uint8Array } | null> {
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image()
+      const t = setTimeout(() => reject(new Error('timeout')), 3000)
+      i.onload = () => { clearTimeout(t); resolve(i) }
+      i.onerror = () => { clearTimeout(t); reject(new Error('load')) }
+      i.src = url
+    })
+    const canvas = document.createElement('canvas')
+    canvas.width = size; canvas.height = size
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.drawImage(img, 0, 0, size, size)
+    const { data } = ctx.getImageData(0, 0, size, size)
+    const rgb = new Uint8Array(size * size * 3), alpha = new Uint8Array(size * size)
+    for (let i = 0, p = 0, q = 0; i < data.length; i += 4) { rgb[p++] = data[i]; rgb[p++] = data[i + 1]; rgb[p++] = data[i + 2]; alpha[q++] = data[i + 3] }
+    return { width: size, height: size, rgb, alpha }
+  } catch { return null }
+}

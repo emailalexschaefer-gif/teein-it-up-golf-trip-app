@@ -43,7 +43,7 @@ test('the revert only ever fires when the trip is currently completed -- never f
 test('the revert is derived from the current, fully re-fetched round set on every save -- not a count fixed at trip creation', () => {
   const ts = readTripsRoute()
   assert.match(ts, /finalRoundsRes[\s\S]{0,200}from\('rounds'\)[\s\S]{0,100}eq\('trip_id', tripId\)/)
-  assert.match(ts, /allStillComplete = finalRounds\.every\(r => r\.status === 'completed'\)/)
+  assert.match(ts, /allStillComplete = finalRounds\.every\(r => r\.status === 'completed' \|\| r\.status === 'cancelled'\)/)
 })
 
 test('an existing active or completed round is never deleted through this route, even if omitted from the incoming array', () => {

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { computeCumulativeStandings, determineChampions, type RoundPlayerResult } from '@/lib/scoring/multiRound'
 import { orderHolesByPlaySequence } from '@/lib/scoring/holeSequence'
+import { readEventOutcomes } from '@/lib/trips/eventOutcome'
 
 /**
  * GET /api/me/event-stories
@@ -61,6 +62,8 @@ export async function GET() {
     admin.from('trips').select('id, name').in('id', completedTripIds),
   ])
 
+  // An event ended early with no declared champion has no winner in anyone's history.
+  const outcomeByTrip = await readEventOutcomes(admin, completedTripIds)
   const tripNameById = new Map((tripsRes.data ?? []).map((t: { id: string; name: string }) => [t.id, t.name]))
 
   interface RoundRow { id: string; trip_id: string; course_name: string | null; play_date: string | null; status: string; holes: number | null; starting_hole_number: number | null }
@@ -135,7 +138,8 @@ export async function GET() {
     }))
 
     const standings = computeCumulativeStandings(perRoundResults)
-    const champions = determineChampions(standings)
+    const championDeclared = outcomeByTrip.get(tripId)?.championDeclared ?? true
+    const champions = championDeclared ? determineChampions(standings) : []
     isMyEventWinnerByTrip.set(tripId, champions.some(c => c.playerId === user.id))
   }))
 

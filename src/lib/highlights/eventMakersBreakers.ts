@@ -47,6 +47,12 @@ export interface EventFieldData {
   // rather than re-deriving round status itself, matching "event-level
   // results should be derived from completed round data only."
   rounds: EventRoundData[]
+  /**
+   * False when the organiser ended the event early WITHOUT declaring an overall
+   * champion: the 'Event Champion' highlight is then not produced at all (no
+   * hidden copy). Defaults to true (a normal completion).
+   */
+  includeChampion?: boolean
 }
 
 export interface EventHighlight {
@@ -106,7 +112,7 @@ export function generateEventMakersAndBreakers(field: EventFieldData): { makers:
 
   // ── Event Champion — reuses multiRound.ts's own canonical,
   // countback-aware ranking entirely. No second "who won" concept. ────
-  if (rounds.length > 0) {
+  if (rounds.length > 0 && field.includeChampion !== false) {
     const roundPlayerResults: RoundPlayerResult[][] = rounds.map(round =>
       completedPlayers(round).map(p => ({
         playerId: p.playerId, playerName: p.playerName, roundPoints: sumPts(p.holes),

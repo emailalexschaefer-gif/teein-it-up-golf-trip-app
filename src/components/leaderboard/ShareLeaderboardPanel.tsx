@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { PublicBoard } from '@/lib/leaderboardShare/publicBoard'
 import { buildLeaderboardPdf } from '@/lib/leaderboardShare/exportPdf'
 import { renderBoardPng, PngTooLargeError } from '@/lib/leaderboardShare/exportPng'
-import { copyText, safeFilename, shareLink, shareOrDownload } from '@/lib/leaderboardShare/exportSave'
+import { copyText, loadPdfLogo, safeFilename, shareLink, shareOrDownload } from '@/lib/leaderboardShare/exportSave'
 
 export interface ShareStatus { available: boolean; enabled?: boolean; isOrganiser?: boolean; url?: string }
 
@@ -60,8 +60,8 @@ export default function ShareLeaderboardPanel({ tripId, status, onClose }: { tri
       const board = await loadBoard()
       const generatedText = `Generated ${new Date(board.generatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`
       const blob = kind === 'png'
-        ? await renderBoardPng(board, { generatedText, siteLabel: window.location.host, logoUrl: '/brand/teein-it-up-icon.png' })
-        : new Blob([buildLeaderboardPdf(board, { generatedText }) as BlobPart], { type: 'application/pdf' })
+        ? await renderBoardPng(board, { generatedText, siteLabel: window.location.host, logoUrl: '/brand/logo-new-720.png' })
+        : new Blob([buildLeaderboardPdf(board, { generatedText, logo: await loadPdfLogo('/brand/logo-new-720.png') }) as BlobPart], { type: 'application/pdf' })
       const r = await shareOrDownload(blob, safeFilename(board.eventName, kind), `${board.eventName} leaderboard`)
       if (r === 'downloaded') setNotice(kind === 'png' ? 'Image saved.' : 'PDF saved.')
     } catch (e) {

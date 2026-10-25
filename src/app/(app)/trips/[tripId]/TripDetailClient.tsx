@@ -63,7 +63,7 @@ export interface TripData {
   trip_members: TripMemberRow[]; rounds: RoundRow[]; trip_groups?: Array<{ id: string; name?: string; tee_time?: string | null }>
 }
 
-interface Props { trip: TripData; currentUserId: string; userRole: TripRole }
+interface Props { trip: TripData; currentUserId: string; userRole: TripRole; /** false = event ended early with no overall champion. */ championDeclared?: boolean }
 type Tab = 'overview' | 'players' | 'groups' | 'rounds'
 
 // Workflow progress steps — maps to demo's ProgressBar
@@ -83,7 +83,7 @@ function workflowStep(status: TripStatus): number {
   return map[status] ?? 1
 }
 
-export default function TripDetailClient({ trip, currentUserId, userRole }: Props) {
+export default function TripDetailClient({ trip, currentUserId, userRole, championDeclared = true }: Props) {
   const isOrganiser  = userRole === 'organiser'
 
   // All hooks must run unconditionally, on every render, regardless of
@@ -151,7 +151,7 @@ export default function TripDetailClient({ trip, currentUserId, userRole }: Prop
   // nothing about hook order changes between an organiser's render and
   // a player's — only the JSX returned differs.
   if (!isOrganiser) {
-    return <PlayerHomeCard trip={trip} currentUserId={currentUserId} />
+    return <PlayerHomeCard trip={trip} currentUserId={currentUserId} championDeclared={championDeclared} />
   }
 
   const organiserIsPlaying = trip.organiser_is_playing ?? false

@@ -34,13 +34,13 @@ test('countedRounds drops cancelled rounds only', () => {
   assert.deepEqual(countedRounds(r).map(x => x.id), ['a', 'c'])
 })
 
-test('describeCancelImpact reports completion and no-completed-round cases', () => {
+test('describeCancelImpact reports whether any playable round remains, and the no-completed-round case', () => {
   const lappen = [{ id: 'r1', status: 'completed' }, { id: 'r2', status: 'upcoming' }]
-  assert.deepEqual(describeCancelImpact(lappen, 'r2'), { remainingRounds: 1, completedRounds: 1, completesEvent: true, noCompletedRounds: false })
+  assert.deepEqual(describeCancelImpact(lappen, 'r2'), { remainingRounds: 1, completedRounds: 1, noPlayableRoundsRemain: true, noCompletedRounds: false })
   const three = [{ id: 'r1', status: 'completed' }, { id: 'r2', status: 'upcoming' }, { id: 'r3', status: 'upcoming' }]
-  assert.equal(describeCancelImpact(three, 'r2').completesEvent, false)
+  assert.equal(describeCancelImpact(three, 'r2').noPlayableRoundsRemain, false)
   const none = [{ id: 'r1', status: 'upcoming' }, { id: 'r2', status: 'upcoming' }]
-  const i = describeCancelImpact(none, 'r2'); assert.equal(i.noCompletedRounds, true); assert.equal(i.completesEvent, false)
+  const i = describeCancelImpact(none, 'r2'); assert.equal(i.noCompletedRounds, true); assert.equal(i.noPlayableRoundsRemain, false)
 })
 
 test('normaliseCancelReason trims, collapses whitespace, caps length, and nulls empties', () => {
@@ -110,13 +110,13 @@ function lappen(): Mem {
 }
 const status = (m: Mem, id: string) => m.tables.rounds.find(r => r.id === id)!.status
 
-test('Lappen: cancelling the unplayed round completes the event and preserves Round 1 untouched', async () => {
+test('Lappen: cancelling the unplayed round does NOT finish the event or crown anyone, and preserves Round 1 untouched', async () => {
   const m = lappen()
   const before = JSON.stringify([m.tables.scorecards, m.tables.score_entries, m.tables.rounds[0]])
   const r = await cancelRound(m, { tripId: 't1', roundId: 'r2', userId: 'org', reason: '  Heavy rain ' })
-  assert.equal(r.status, 200); assert.equal(r.body.eventCompleted, true)
+  assert.equal(r.status, 200); assert.equal(r.body.eventCompleted, false); assert.equal(r.body.noPlayableRoundsRemain, true)
   assert.equal(status(m, 'r2'), 'cancelled'); assert.equal(status(m, 'r1'), 'completed')
-  assert.equal(m.tables.trips[0].status, 'completed')
+  assert.equal(m.tables.trips[0].status, 'live', 'ending the event is a separate organiser decision')
   const r2 = m.tables.rounds[1]
   assert.equal(r2.cancel_reason, 'Heavy rain'); assert.equal(r2.cancelled_by, 'org'); assert.ok(r2.cancelled_at)
   assert.equal(JSON.stringify([m.tables.scorecards, m.tables.score_entries, m.tables.rounds[0]]), before, 'no scores or Round 1 data changed')
@@ -145,12 +145,12 @@ test('cancel refuses completed, active, already-cancelled, unknown, and practice
   assert.equal((await cancelRound(m, { tripId: 't1', roundId: 'rc', userId: 'o' })).status, 409)
 })
 
-test('cancelling one of several unplayed rounds leaves the event open', async () => {
+test('cancelling unplayed rounds never changes the event status; only noPlayableRoundsRemain flips', async () => {
   const m = lappen(); m.tables.rounds.push({ id: 'r3', trip_id: 't1', name: 'Round 3', status: 'upcoming' })
   const r = await cancelRound(m, { tripId: 't1', roundId: 'r2', userId: 'o' })
-  assert.equal(r.body.eventCompleted, false); assert.equal(m.tables.trips[0].status, 'live')
+  assert.equal(r.body.eventCompleted, false); assert.equal(r.body.noPlayableRoundsRemain, false); assert.equal(m.tables.trips[0].status, 'live')
   const r3 = await cancelRound(m, { tripId: 't1', roundId: 'r3', userId: 'o' })
-  assert.equal(r3.body.eventCompleted, true); assert.equal(m.tables.trips[0].status, 'completed')
+  assert.equal(r3.body.eventCompleted, false); assert.equal(r3.body.noPlayableRoundsRemain, true); assert.equal(m.tables.trips[0].status, 'live')
 })
 
 test('cancelling the only round, or every round, never completes the event', async () => {
@@ -163,6 +163,7 @@ test('cancelling the only round, or every round, never completes the event', asy
 test('reinstate restores upcoming, reopens a completed event, clears cancel fields and audits', async () => {
   const m = lappen(); m.tables.shared_presentations.push({ id: 'sp', trip_id: 't1', status: 'active' })
   await cancelRound(m, { tripId: 't1', roundId: 'r2', userId: 'org', reason: 'Rain' })
+  m.tables.trips[0].status = 'completed' // the organiser ended the event after the cancellation
   const r = await reinstateRound(m, { tripId: 't1', roundId: 'r2', userId: 'org' })
   assert.equal(r.status, 200); assert.equal(r.body.eventReopened, true); assert.equal(r.body.presentationPublished, true)
   assert.equal(status(m, 'r2'), 'upcoming'); assert.equal(m.tables.trips[0].status, 'live')
@@ -195,9 +196,9 @@ test('a round started in another tab is never cancelled (conditional update)', a
 
 // ── wiring (source) ───────────────────────────────────────────────────────
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
-test('close-round completes the event with the cancelled-aware rule', () => {
+test('close-round auto-completes only a normal completion (no cancelled round)', () => {
   const s = read('src/app/api/trips/[tripId]/rounds/[roundId]/close/route.ts')
-  assert.match(s, /isEventComplete\(\(allRoundsRes\.data \?\? \[\]\) as \{ status: string \}\[\]\)/)
+  assert.match(s, /shouldAutoCompleteEvent\(\(allRoundsRes\.data \?\? \[\]\) as \{ status: string \}\[\]\)/)
 })
 test('cancel and reinstate routes are organiser-only and use the shared logic', () => {
   for (const [dir, fn] of [['cancel', 'cancelRound'], ['reinstate', 'reinstateRound']] as const) {

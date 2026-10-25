@@ -42,6 +42,9 @@ const SIDE_COMP_LABEL: Record<string, string> = {
 export type MemorySourceType = 'GENERAL' | 'SIDE_GAME' | 'CHAT' | 'MAKER' | 'BREAKER' | 'HIGHLIGHT'
 
 export interface EventFinalResults {
+  /** False = event ended early with no overall champion: `champions` is empty; standings still present. */
+  championDeclared: boolean
+  endedEarly: boolean
   champions: { playerId: string; playerName: string; totalPoints: number }[]
   hasTie: boolean
   standings: { playerId: string; playerName: string; totalPoints: number; position: number }[]
@@ -340,6 +343,8 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
     const finalResultsResult: FinalResultsResult = await computeFinalResults(tripId, admin)
     if (finalResultsResult.ok) {
       champion = {
+        championDeclared: finalResultsResult.data.championDeclared,
+        endedEarly: finalResultsResult.data.endedEarly,
         champions: finalResultsResult.data.champions,
         hasTie: finalResultsResult.data.hasTie,
         standings: (finalResultsResult.data.standings as { playerId: string; playerName: string; totalPoints: number; position: number }[])

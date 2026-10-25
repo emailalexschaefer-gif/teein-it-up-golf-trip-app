@@ -13,6 +13,8 @@ import AdminScoreOverridePanel from './AdminScoreOverridePanel'
 import MyRoundSummary from './MyRoundSummary'
 import RoundWorkflowTracker from './RoundWorkflowTracker'
 import CancelRoundControl from './CancelRoundControl'
+import EndEventControl from './EndEventControl'
+import { noPlayableRoundsRemain as noRoundsLeft, canEndEvent } from '@/lib/scoring/roundLifecycle'
 import EventProgressBadge from './EventProgressBadge'
 import CollapsibleSection from '@/components/shared/CollapsibleSection'
 import { trackEvent } from '@/lib/analytics/trackEvent'
@@ -102,6 +104,7 @@ export default function MyHQClient({
   tripId, rounds, defaultRoundId, organiserIsPlaying,
   mostRecentlyCompletedRoundId, mostRecentlyCompletedRoundName,
   nextUpcomingRoundId, nextUpcomingRoundName, eventFullyComplete,
+  tripCompleted = false, endedEarly = false, championDeclared = true,
 }: {
   tripId: string
   rounds: ScheduleRound[]
@@ -112,6 +115,10 @@ export default function MyHQClient({
   nextUpcomingRoundId: string | null
   nextUpcomingRoundName: string | null
   eventFullyComplete: boolean
+  /** trips.status === 'completed': the single switch that unlocks Final Standings, Memories and the presentation. */
+  tripCompleted?: boolean
+  endedEarly?: boolean
+  championDeclared?: boolean
 }) {
   const router = useRouter()
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(defaultRoundId)
@@ -214,6 +221,9 @@ export default function MyHQClient({
   }) : null
 
   const eventProgress = deriveEventProgress({ rounds: rounds.map(r => ({ status: asRoundStatus(r.status) })) })
+  // The event-level presentation needs the event to be FINISHED (trips.status 'completed'); with a cancelled
+  // round, 'all rounds closed' alone is not enough: the organiser ends the event first.
+  const eventPresentationReady = eventProgress.allRoundsClosed && (tripCompleted || !rounds.some(r => r.status === 'cancelled'))
 
   // Phase E (11 Oct), Task #55 — which Round Control Centre stage rows
   // are expanded, now CONTROLLED here (not owned inside
@@ -272,7 +282,7 @@ export default function MyHQClient({
       // Memories page (see that page's deep-link effect). This never
       // removes the plain picker — a round whose id the deep link
       // can't match just falls through to it unchanged.
-      if (eventProgress.allRoundsClosed) { router.push(`/trips/${tripId}/memories?startSlideshow=event`); return }
+      if (eventPresentationReady) { router.push(`/trips/${tripId}/memories?startSlideshow=event`); return }
       if (selected) { router.push(`/trips/${tripId}/memories?startSlideshow=round&roundId=${selected.id}`); return }
       router.push(`/trips/${tripId}/memories`)
     }
@@ -490,11 +500,17 @@ export default function MyHQClient({
           onCancelled={() => { if (mostRecentlyCompletedRoundId) setSelectedRoundId(mostRecentlyCompletedRoundId) }} />
       )}
 
+      {/* Event-level: end the event early / finish it, and choose whether to declare a champion
+          (separate from cancelling a round). Hidden once the event has ended. */}
+      {!tripCompleted && canEndEvent('live', false, rounds).ok && (
+        <EndEventControl tripId={tripId} noPlayableRoundsRemain={noRoundsLeft(rounds)} />
+      )}
+
       {selected && workflow && (
         <div style={{ marginBottom: 16 }}>
           <RoundWorkflowTracker
             roundName={selected.name}
-            stages={eventProgress.allRoundsClosed
+            stages={eventPresentationReady
               ? workflow.stages.map(st => st.id === 'reviewPresent' ? { ...st, actionLabel: 'Create & Share Event Presentation', detail: 'All rounds closed \u2014 build, publish and share the event presentation' } : st)
               : workflow.stages}
             primaryStageId={workflow.primaryStageId}
@@ -536,12 +552,16 @@ export default function MyHQClient({
 
       {selected?.id === mostRecentlyCompletedRoundId && eventFullyComplete && (
         <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', padding: '20px', textAlign: 'center', marginBottom: 16 }}>
-          <p style={{ fontSize: 26, marginBottom: 8 }}>🏆</p>
-          <p style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 15, fontWeight: 800, marginBottom: 6 }}>Event Complete</p>
+          <p style={{ fontSize: 26, marginBottom: 8 }}>{championDeclared ? '🏆' : '🏁'}</p>
+          <p style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 15, fontWeight: 800, marginBottom: 6 }}>
+            {endedEarly ? 'Event Ended Early' : 'Event Complete'}
+          </p>
           <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 12.5, lineHeight: 1.5, marginBottom: 14 }}>
-            {rounds.some(r => r.status === 'cancelled')
-              ? 'Every round that was played is complete and results are locked in. Cancelled rounds are not counted.'
-              : 'All rounds have been played and results are locked in.'}
+            {!championDeclared
+              ? 'Final standings are ready. No overall champion was declared. Scores, Moments and the presentation are kept.'
+              : rounds.some(r => r.status === 'cancelled')
+                ? 'Every round that was played is complete and results are locked in. Cancelled rounds are not counted.'
+                : 'All rounds have been played and results are locked in.'}
           </p>
           <Link
             href={`/trips/${tripId}/results`}
@@ -551,7 +571,7 @@ export default function MyHQClient({
               fontSize: 13, fontWeight: 700, textDecoration: 'none',
             }}
           >
-            View Final Results →
+            {championDeclared ? 'View Final Results →' : 'View Final Standings →'}
           </Link>
         </div>
       )}

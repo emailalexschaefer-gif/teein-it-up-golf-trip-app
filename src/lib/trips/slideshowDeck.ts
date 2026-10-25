@@ -171,7 +171,9 @@ export type Slide =
   | { kind: 'champion'; champions: { playerId: string; playerName: string; totalPoints: number }[]; hasTie: boolean; photoUrl: string | null }
   // Final leaderboard, paginated -- `page`/`totalPages` so a large
   // field never gets squeezed onto one unreadable slide.
-  | { kind: 'leaderboard'; entries: { position: number; playerName: string; totalPoints: number }[]; page: number; totalPages: number }
+  // championDeclared/endedEarly: an event ended early WITHOUT an overall champion shows the
+  // same podium and standings, captioned as ended early, and never a trophy/winner treatment.
+  | { kind: 'leaderboard'; entries: { position: number; playerName: string; totalPoints: number }[]; page: number; totalPages: number; championDeclared?: boolean; endedEarly?: boolean }
   // Group photo -- V1.4 (14 Sep). Only ever produced from an
   // explicit organiser selection (groupPhotoMomentId), never inferred
   // (e.g. "the Memory with the most people" -- no such detection is
@@ -197,7 +199,7 @@ export type Slide =
   // SNAPSHOT" reference design, which shows the event's own name as
   // part of the slide (the opening slide's eventName field, reused
   // verbatim here too -- never a second lookup of the trip's name).
-  | { kind: 'eventAtAGlance'; eventName: string; roundCount: number; courseNames: string[]; totalHoles: number; sideGameCount: number; championCount: number }
+  | { kind: 'eventAtAGlance'; eventName: string; roundCount: number; courseNames: string[]; totalHoles: number; sideGameCount: number; championCount: number; /** false = ended early with no champion: show the player count instead of the champion column. */ championDeclared?: boolean; playerCount?: number }
   // Bloopers chapter divider -- only emitted when at least one
   // blooper clip genuinely exists, matching every other divider's
   // "no empty chapter" rule.
@@ -467,6 +469,7 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], gro
 
   if (data.results.champion) {
     const champ = data.results.champion
+    const champDeclared = champ.champions.length > 0
     // Champion photo: the earliest Favourite (chronologically) whose
     // V1.6 (5 Oct) -- full priority chain, per the brief: (1) an
     // explicit organiser-selected Champion Photo always wins; (2)
@@ -483,7 +486,8 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], gro
       : undefined
     const favouriteChampionPhoto = chronological.find(m => m.organiserFavourite && championIds.has(m.playerId))
     const championPhotoUrl = explicitChampionPhoto?.imageUrl ?? favouriteChampionPhoto?.imageUrl ?? null
-    slides.push({ kind: 'champion', champions: champ.champions, hasTie: champ.hasTie, photoUrl: championPhotoUrl })
+    // The overall champion slide exists ONLY when a champion was declared.
+    if (champDeclared) slides.push({ kind: 'champion', champions: champ.champions, hasTie: champ.hasTie, photoUrl: championPhotoUrl })
 
     // V1.6 (5 Oct) -- redesigned from paginated Top 10 to a single
     // Top-5 celebration slide, per the brief: players have already
@@ -494,7 +498,7 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], gro
     // exist (slice never pads with fabricated entries).
     const sorted = [...champ.standings].sort((a, b) => a.position - b.position)
     const entries = sorted.slice(0, 5).map(s => ({ position: s.position, playerName: s.playerName, totalPoints: s.totalPoints }))
-    slides.push({ kind: 'leaderboard', entries, page: 1, totalPages: 1 })
+    slides.push({ kind: 'leaderboard', entries, page: 1, totalPages: 1, championDeclared: champDeclared, endedEarly: champ.endedEarly })
   }
 
   // V1.18 (10 Oct), Package 5 -- the closing screen now comes BEFORE
@@ -691,7 +695,11 @@ export function getAvailableSections(data: EventMemoryData, scope: PresentationS
   const hasFavourite = data.memories.some(m => m.mediaType === 'photo' && m.organiserFavourite)
   const hasAnyPhoto = data.memories.some(m => m.mediaType === 'photo')
   const hasGroupPhoto = data.event.groupPhotoMomentId !== null && data.memories.some(m => m.momentId === data.event.groupPhotoMomentId && m.mediaType === 'photo')
-  const hasChampion = data.results.champion !== null
+  // A champion exists only when one was declared; standings exist for any completed event
+  // (including one ended early with no champion).
+  const hasStandings = data.results.champion !== null
+  const hasChampion = hasStandings && (data.results.champion?.champions.length ?? 0) > 0
+  const noChampionReason = hasStandings ? 'No overall champion was declared for this event.' : 'Event not completed yet.'
   // V1.18 (10 Oct), Package 4 -- availability now reflects the full
   // resolved aftershow set (Blooper-tagged + unassigned event-level
   // uploads + any explicit organiser inclusion), not just a plain
@@ -737,8 +745,8 @@ export function getAvailableSections(data: EventMemoryData, scope: PresentationS
     { type: 'BEST_MOMENTS', label: 'Round Highlights', available: hasAnyPhoto, reason: hasAnyPhoto ? undefined : 'No photos yet.' },
     { type: 'SIDE_GAME_WINNERS', label: 'Side Game Winners', available: data.sideGameWinners.some(w => w.winnerPlayerId !== null) },
     { type: 'MAKERS_BREAKERS', label: 'Makers & Breakers', available: data.rounds.some(r => parsePublishedHighlights(r.publishedHighlights).length > 0) },
-    { type: 'EVENT_CHAMPION', label: 'Event Champion', available: hasChampion, reason: hasChampion ? undefined : 'Event not completed yet.' },
-    { type: 'FINAL_LEADERBOARD', label: 'Final Leaderboard', available: hasChampion, reason: hasChampion ? undefined : 'Event not completed yet.' },
+    { type: 'EVENT_CHAMPION', label: 'Event Champion', available: hasChampion, reason: hasChampion ? undefined : noChampionReason },
+    { type: 'FINAL_LEADERBOARD', label: data.results.champion?.endedEarly && !hasChampion ? 'Final Standings' : 'Final Leaderboard', available: hasStandings, reason: hasStandings ? undefined : 'Event not completed yet.' },
     { type: 'BLOOPERS', label: 'Moments & Bloopers', available: hasBloopers, reason: hasBloopers ? undefined : 'No Moments or Bloopers to include yet.' },
     { type: 'EVENT_FINALE', label: "Teein' It Up Finale", available: true },
     { type: 'ROUND_INTRO', label: 'Round sections', available: data.rounds.length > 0 },
@@ -1000,9 +1008,11 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     // champion yet; genuinely reflects a tie (2+) rather than
     // collapsing it to 1.
     const championCount = data.results.champion?.champions.length ?? 0
+    const championDeclared = championCount > 0
+    const playerCount = data.playerCount > 0 ? data.playerCount : (data.results.champion?.standings.length ?? 0)
     slides.push({
       kind: 'eventAtAGlance', eventName: data.event.name, roundCount: roundsInOrder.length, courseNames,
-      totalHoles, sideGameCount: data.sideGameCount, championCount,
+      totalHoles, sideGameCount: data.sideGameCount, championCount, championDeclared: data.results.champion ? championDeclared : undefined, playerCount,
     })
   }
 
@@ -1079,7 +1089,7 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     }
   }
 
-  if (config.eventChampion && data.results.champion) {
+  if (config.eventChampion && data.results.champion && data.results.champion.champions.length > 0) {
     const champ = data.results.champion
     // V1.6 (5 Oct) -- same priority chain as buildCoreSlides above:
     // explicit Champion Photo, then a Favourite photo of the
@@ -1111,7 +1121,7 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     // V1.6 (5 Oct) -- Top 5 only, a single slide, matching buildCoreSlides above.
     const sorted = [...data.results.champion.standings].sort((a, b) => a.position - b.position)
     const entries = sorted.slice(0, 5).map(s => ({ position: s.position, playerName: s.playerName, totalPoints: s.totalPoints }))
-    slides.push({ kind: 'leaderboard', entries, page: 1, totalPages: 1 })
+    slides.push({ kind: 'leaderboard', entries, page: 1, totalPages: 1, championDeclared: data.results.champion.champions.length > 0, endedEarly: data.results.champion.endedEarly })
   }
 
   // V1.18 (10 Oct), Package 5 -- the closing screen now comes BEFORE

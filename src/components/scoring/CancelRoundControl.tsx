@@ -41,7 +41,7 @@ export default function CancelRoundControl({ tripId, roundId, roundName, status,
       const body = await res.json().catch(() => ({}))
       if (!res.ok) { setError(body.error ?? 'Could not cancel the round.'); return }
       setOpen(false)
-      setNotice(body.eventCompleted ? 'Round cancelled. The event is now complete.' : 'Round cancelled.')
+      setNotice(body.noPlayableRoundsRemain ? 'Round cancelled. No rounds are left to play. Finish the event when you are ready.' : 'Round cancelled.')
       onCancelled?.()
       router.refresh()
     } catch { setError('Could not cancel the round. Check your connection.') } finally { setBusy(false) }
@@ -99,8 +99,9 @@ export default function CancelRoundControl({ tripId, roundId, roundName, status,
                 <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.5 }}>
                   <li>{impact.completedRounds} completed round{impact.completedRounds === 1 ? '' : 's'} keep all results, side games and highlights.</li>
                   <li>The cancelled round is excluded from standings, statistics and the presentation.</li>
-                  {impact.completesEvent
-                    ? <li><strong>The event will be marked complete</strong>, and the champion is decided from the completed round{impact.completedRounds === 1 ? '' : 's'}.</li>
+                  <li>Cancelling a round does not finish the event or declare a champion. You decide that separately.</li>
+                  {impact.noPlayableRoundsRemain
+                    ? <li>No round will be left to play. You can then finish the event and choose whether to declare a champion.</li>
                     : impact.noCompletedRounds
                       ? <li>No round has been completed yet, so the event stays open.</li>
                       : <li>The event stays open until the remaining rounds are played or cancelled.</li>}

@@ -3,6 +3,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { readEventOutcome } from '@/lib/trips/eventOutcome'
 
 interface Props { params: Promise<{ tripId: string }> }
 
@@ -366,9 +367,16 @@ export async function PATCH(request: NextRequest, { params }: Props) {
   // under Upcoming within the Active tab, exactly as required.
   if (finalRounds.length > 0) {
     const tripStatusRes = await admin.from('trips').select('status').eq('id', tripId).maybeSingle()
-    const allStillComplete = finalRounds.every(r => r.status === 'completed')
+    // A cancelled round does not make a completed event incomplete (it is not "unfinished").
+    const allStillComplete = finalRounds.every(r => r.status === 'completed' || r.status === 'cancelled')
     if (tripStatusRes.data?.status === 'completed' && !allStillComplete) {
-      const { error: revertError } = await admin.from('trips').update({ status: 'ready' }).eq('id', tripId)
+      // Reopening also clears how the event ended (ended early / no champion), so it can be ended
+      // properly again later. Only written when it WAS ended early (works before migration 099 too).
+      const outcome = await readEventOutcome(admin, tripId)
+      const reopen = outcome.endedEarly
+        ? { status: 'ready', ended_early: false, champion_declared: true, ended_early_reason: null, ended_early_note: null, ended_early_at: null, ended_early_by: null }
+        : { status: 'ready' }
+      const { error: revertError } = await admin.from('trips').update(reopen).eq('id', tripId)
       if (revertError) {
         console.error('[PATCH /api/trips] completed -> ready lifecycle revert failed', revertError)
       } else {

@@ -17,6 +17,8 @@ import TripInformationCard from '@/components/trips/TripInformationCard'
 interface Props {
   trip: TripData
   currentUserId: string
+  /** false = event ended early with no overall champion: no trophy wording. */
+  championDeclared?: boolean
 }
 
 function formatTeeTime(teeTime: string | null): string | null {
@@ -240,7 +242,7 @@ function PlayerEventInfoView({ trip, onBack }: { trip: TripData; onBack: () => v
   )
 }
 
-export default function PlayerHomeCard({ trip, currentUserId }: Props) {
+export default function PlayerHomeCard({ trip, currentUserId, championDeclared = true }: Props) {
   // Event Lobby <-> Trip Information toggle — local state, not a route
   // change, per explicit instruction ("should not require leaving the
   // event or using browser back"). Named generically (view/EventInfo,
@@ -448,7 +450,7 @@ export default function PlayerHomeCard({ trip, currentUserId }: Props) {
                 boxShadow: '0 4px 16px rgba(20,83,45,0.3)',
               }}
             >
-              🏆 View Final Results
+              {championDeclared ? '🏆 View Final Results' : 'View Final Standings'}
             </Link>
           ) : (
             <>

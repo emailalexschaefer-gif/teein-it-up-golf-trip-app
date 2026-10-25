@@ -728,7 +728,11 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize
       { left: 50.51, width: 14.44, value: slide.sideGameCount, label: `Side Game${slide.sideGameCount === 1 ? '' : 's'}`, icon: <GoldClubsIcon size={ICON} /> },
       // Live championCount -- never hardcoded; correctly shows 0 (no
       // confirmed champion yet) or 2+ (a genuine tie).
-      { left: 64.95, width: 16.65, value: slide.championCount, label: 'Event Champion', icon: <GoldCrownIcon size={ICON} /> },
+      // No champion declared (event ended early): no crown and no champion claim -- the
+      // artwork's fourth column shows the number of players instead.
+      slide.championDeclared === false
+        ? { left: 64.95, width: 16.65, value: slide.playerCount ?? 0, label: `Player${slide.playerCount === 1 ? '' : 's'}`, icon: <GoldFlagIcon size={ICON} /> }
+        : { left: 64.95, width: 16.65, value: slide.championCount, label: 'Event Champion', icon: <GoldCrownIcon size={ICON} /> },
     ]
     const ruleStyle = (dir: 'l' | 'r'): React.CSSProperties => ({ flex: '0 0 16cqw', height: 1, background: `linear-gradient(to ${dir === 'l' ? 'right' : 'left'}, transparent, #e8c96a)` })
     return (
@@ -951,7 +955,9 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize
     // subordinate rows. Position/name/score sit in the same
     // fixed-width columns on every row, podium or plain, so they line
     // up down the whole list regardless of tier.
-    const medalFor = (position: number) => position === 1 ? '\u{1F3C6}' : position === 2 ? '\u{1F948}' : position === 3 ? '\u{1F949}' : null
+    // First place gets the trophy ONLY when an overall champion was declared.
+    const noChampion = slide.championDeclared === false
+    const medalFor = (position: number) => position === 1 ? (noChampion ? '\u{1F947}' : '\u{1F3C6}') : position === 2 ? '\u{1F948}' : position === 3 ? '\u{1F949}' : null
     const PODIUM_COL_WIDTH = 38
     // V1.11 (7 Oct) -- the approved Final Leaderboard artwork
     // (public/images/final-leaderboard-template.jpg) already carries
@@ -963,6 +969,11 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize
     return (
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundImage: 'url(/images/final-leaderboard-template.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', padding: `28vh clamp(50px, 7vw, 100px) ${CONTROLS_SAFE_AREA_PX + 10}px` }}>
         <div style={{ width: '100%', maxWidth: 400, display: 'flex', flexDirection: 'column', gap: 'clamp(7px, 1.3vh, 11px)' }}>
+          {slide.endedEarly && (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(10px, 1.5vh, 12px)', fontWeight: 800, letterSpacing: 2, color: '#fbbf24', textAlign: 'center', textTransform: 'uppercase', margin: '0 0 2px' }}>
+              Final standings \u00b7 Event ended early
+            </p>
+          )}
           {slide.entries.map(e => {
             const isPodium = e.position <= 3
             const tier = e.position === 1 ? 'gold' : e.position === 2 ? 'silver' : e.position === 3 ? 'bronze' : 'plain'

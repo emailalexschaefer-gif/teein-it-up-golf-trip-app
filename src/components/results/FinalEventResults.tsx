@@ -51,6 +51,9 @@ interface FinalResults {
   standings: Standing[]
   roundWinners: RoundWinner[]
   champions: Champion[]
+  /** false = the organiser ended the event early without declaring an overall champion. */
+  championDeclared?: boolean
+  endedEarly?: boolean
   hasTie: boolean
   sideCompetitionsByRound: RoundSideCompetitions[]
   eventHighlights: { makers: EventHighlight[]; breakers: EventHighlight[] }
@@ -166,6 +169,7 @@ export default function FinalEventResults({ tripId }: { tripId: string }) {
   const podium = positionGroups.map(pos => ({ position: pos, players: data.standings.filter(s => s.position === pos) }))
   const medal = (pos: number) => pos === positionGroups[0] ? '🥇' : pos === positionGroups[1] ? '🥈' : '🥉'
 
+  const noChampion = data.championDeclared === false || data.champions.length === 0
   const championNames = data.champions.map(c => c.playerName).join(' & ')
   const championTotal = data.champions[0]?.totalPoints ?? 0
 
@@ -178,15 +182,26 @@ export default function FinalEventResults({ tripId }: { tripId: string }) {
       <div style={{ padding: '16px 16px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
           <Link href={`/trips/${tripId}`} style={{ color: '#9ca3af', fontSize: 18, textDecoration: 'none' }}>←</Link>
-          <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>Final Results</span>
+          <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>{noChampion ? 'Final Standings' : 'Final Results'}</span>
         </div>
       </div>
 
-      {/* ── Champion Hero ────────────────────────────────────────────────── */}
+      {/* ── Champion Hero (only when an overall champion was declared) ───── */}
+      {noChampion ? (
+        <div style={{ padding: '28px 16px 24px', textAlign: 'center' }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 800, letterSpacing: 1.5, color: '#a1791f', textTransform: 'uppercase', marginBottom: 6 }}>
+            {data.endedEarly ? 'Event Ended Early' : 'Event Complete'}
+          </div>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, color: '#14532d', fontWeight: 800, marginBottom: 6 }}>{data.tripName}</div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#6b7280', lineHeight: 1.5, maxWidth: 300, margin: '0 auto' }}>
+            Final standings. No overall event champion was declared.
+          </div>
+        </div>
+      ) : (
       <div style={{ position: 'relative', padding: '28px 16px 32px', textAlign: 'center', overflow: 'hidden' }}>
         <ConfettiBurst />
         <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 800, letterSpacing: 1.5, color: '#a1791f', textTransform: 'uppercase', marginBottom: 6 }}>
-          Event Complete
+          {data.endedEarly ? 'Event Ended Early' : 'Event Complete'}
         </div>
         <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, color: '#14532d', fontWeight: 700, marginBottom: 18 }}>
           {data.tripName}
@@ -218,10 +233,11 @@ export default function FinalEventResults({ tripId }: { tripId: string }) {
           </p>
         )}
       </div>
+      )}
 
       <div style={{ padding: '0 16px' }}>
         {/* ── Final Podium ──────────────────────────────────────────────── */}
-        <SectionLabel>Final Podium</SectionLabel>
+        <SectionLabel>{noChampion ? 'Top Three' : 'Final Podium'}</SectionLabel>
         <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden', marginBottom: 20 }}>
           {podium.map((tier, i) => (
             <div key={tier.position} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: i < podium.length - 1 ? '1px solid #f3f4f1' : 'none' }}>
@@ -243,7 +259,7 @@ export default function FinalEventResults({ tripId }: { tripId: string }) {
 
         {/* ── Final Leaderboard — dynamic R1..Rn | TOTAL columns, never
             hard-coded to a specific round count. ──────────────────────── */}
-        <SectionLabel>Final Leaderboard</SectionLabel>
+        <SectionLabel>{noChampion ? 'Final Standings' : 'Final Leaderboard'}</SectionLabel>
         <div style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #eceae3', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden', marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#faf9f6', borderBottom: '1px solid #eceae3' }}>
             <div style={{ flex: 1, minWidth: 0 }} />

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildPublicBoard, positionText, STATUS_LABEL, type PublicBoard } from './publicBoard'
+import { buildPublicBoard, positionText, STATUS_LABEL, medalOf, initialsOf, podiumRows, crownedRows, statusSubtitle, podiumCaption } from './publicBoard'
 import type { RoundLeaderboardPayload } from '@/lib/scoring/roundLeaderboard'
 
 const NOW = new Date('2026-10-24T03:00:00.000Z')
@@ -41,7 +41,7 @@ test('between rounds and after the event: ROUND COMPLETE vs EVENT FINAL; thru hi
   const mid = buildPublicBoard({ ...base, completedRoundCount: 1, selected: { status: 'completed', label: 'Round 1' }, payload: p })
   assert.equal(mid.status, 'round_complete'); assert.equal(mid.rows[0].thru, null)
   const fin = buildPublicBoard({ ...base, tripStatus: 'completed', completedRoundCount: 2, selected: { status: 'completed', label: 'Round 2' }, payload: p })
-  assert.equal(fin.status, 'final'); assert.equal(fin.roundLabel, '2 rounds'); assert.equal(fin.note, null)
+  assert.equal(fin.status, 'final'); assert.equal(fin.roundLabel, '2 rounds'); assert.match(fin.note ?? '', /competition is complete/); assert.doesNotMatch(fin.note ?? '', /[Pp]rovisional|live scores/i)
 })
 
 test('Lappen: one completed round + one cancelled round reads as a one-round EVENT FINAL', () => {
@@ -81,7 +81,7 @@ test('PRIVACY: only name, position, points and thru reach the public shape; no i
   const json = JSON.stringify(b)
   for (const leak of ['secret-id', 'avatar', 'img/', 'handicap', 'playerId', 'perHole', 'email', 'isCurrentUser']) assert.equal(json.includes(leak), false, leak)
   assert.deepEqual(Object.keys(b.rows[0]).sort(), ['name', 'position', 'rounds', 'thru', 'tied', 'total'])
-  assert.deepEqual(Object.keys(b).sort(), ['eventName', 'generatedAt', 'note', 'roundColumns', 'roundLabel', 'rows', 'status', 'statusLabel'])
+  assert.deepEqual(Object.keys(b).sort(), ['endedEarly', 'eventName', 'generatedAt', 'note', 'roundColumns', 'roundLabel', 'rows', 'status', 'statusLabel'])
 })
 
 test('hostile or empty names are normalised, never throw', () => {
@@ -91,6 +91,68 @@ test('hostile or empty names are normalised, never throw', () => {
   assert.equal(b.rows[0].name, 'Player'); assert.equal(b.rows[1].name.length, 60); assert.equal(b.eventName, 'Golf event')
 })
 
-test('status labels are the four documented words', () => {
-  assert.deepEqual(Object.values(STATUS_LABEL), ['NOT STARTED', 'LIVE', 'ROUND COMPLETE', 'EVENT FINAL'])
+test('status labels are the documented words', () => {
+  assert.deepEqual(Object.values(STATUS_LABEL), ['NOT STARTED', 'LIVE', 'ROUND COMPLETE', 'FINAL RESULTS', 'EVENT ENDED EARLY'])
+})
+
+test('podium: top three medal positions, gold/silver/bronze, ties share a medal, hidden until someone has scored', () => {
+  const b = (rows: { position: number; total: number }[], status: 'live' | 'final' = 'live') => ({ status, rows: rows.map((r, i) => ({ ...r, tied: false, name: `P${i}`, rounds: [], thru: null })) })
+  assert.deepEqual(podiumRows(b([{ position: 1, total: 30 }, { position: 2, total: 28 }, { position: 3, total: 20 }, { position: 4, total: 10 }])).map(r => medalOf(r.position)), ['gold', 'silver', 'bronze'])
+  assert.deepEqual(podiumRows(b([{ position: 1, total: 30 }, { position: 2, total: 28 }, { position: 2, total: 28 }, { position: 4, total: 10 }])).map(r => medalOf(r.position)), ['gold', 'silver', 'silver'])
+  assert.equal(podiumRows(b([{ position: 1, total: 0 }, { position: 1, total: 0 }])).length, 0)
+  assert.equal(podiumRows(b([])).length, 0)
+  assert.equal(medalOf(4), null)
+})
+
+test('CROWN: only on a final board, only for first place, never live or between rounds, never on zero points', () => {
+  const rows = [{ position: 1, total: 40 }, { position: 2, total: 38 }].map((r, i) => ({ ...r, tied: false, name: `P${i}`, rounds: [], thru: null }))
+  assert.deepEqual(crownedRows({ status: 'final', rows }).map(r => r.name), ['P0'])
+  for (const status of ['live', 'round_complete', 'not_started'] as const) assert.equal(crownedRows({ status, rows }).length, 0, status)
+  assert.equal(crownedRows({ status: 'final', rows: rows.map(r => ({ ...r, total: 0 })) }).length, 0)
+  const tied = [{ ...rows[0], position: 1, tied: true }, { ...rows[1], position: 1, tied: true }]
+  assert.equal(crownedRows({ status: 'final', rows: tied }).length, 2)
+})
+
+test('initials: two letters, one for a single name, accents and punctuation handled, never empty', () => {
+  assert.equal(initialsOf('Darren Lappen'), 'DL'); assert.equal(initialsOf('Howard La-Faber'), 'HL'); assert.equal(initialsOf('Madonna'), 'M')
+  assert.equal(initialsOf('  se\u00e1n  o\u2019brien '), 'S' + 'O'); assert.equal(initialsOf('***'), '?'); assert.equal(initialsOf(''), '?')
+})
+
+// ── ended early (Lappen): LIVE / FINAL RESULTS / EVENT ENDED EARLY ─────────
+const lappenPayload = () => single([{ name: 'Alex Schaefer', pts: 41, holes: 18, position: 1 }, { name: 'Daz', pts: 38, holes: 18, position: 2 }, { name: 'Sam Carter', pts: 30, holes: 18, position: 3 }])
+const done = { ...base, tripStatus: 'completed', completedRoundCount: 1, selected: { status: 'completed', label: 'Round 1' }, payload: lappenPayload() }
+
+test('ended early, NO champion: EVENT ENDED EARLY, podium shown, nobody crowned', () => {
+  const b = buildPublicBoard({ ...done, outcome: { endedEarly: true, championDeclared: false } })
+  assert.equal(b.status, 'ended_early'); assert.equal(b.statusLabel, 'EVENT ENDED EARLY'); assert.equal(b.endedEarly, true)
+  assert.equal(podiumRows(b).length, 3, 'top three podium still shown')
+  assert.equal(crownedRows(b).length, 0, 'no crown')
+  assert.match(b.note ?? '', /No overall champion was declared/)
+  assert.equal(statusSubtitle(b), 'Final standings'); assert.equal(podiumCaption(b), 'Final standings: top three')
+  assert.ok(!/champion/i.test(JSON.stringify([b.statusLabel, statusSubtitle(b), podiumCaption(b)])), 'no champion wording in the headline copy')
+})
+
+test('ended early WITH a declared champion: FINAL RESULTS, crowned, and says it ended early', () => {
+  const b = buildPublicBoard({ ...done, outcome: { endedEarly: true, championDeclared: true } })
+  assert.equal(b.status, 'final'); assert.equal(b.statusLabel, 'FINAL RESULTS'); assert.equal(b.endedEarly, true)
+  assert.deepEqual(crownedRows(b).map(r => r.name), ['Alex Schaefer'])
+  assert.equal(statusSubtitle(b), 'Event ended early'); assert.match(b.note ?? '', /event ended early/i)
+})
+
+test('normal completion is unchanged: FINAL RESULTS, crowned, "The competition is complete"; no outcome input = normal', () => {
+  for (const outcome of [undefined, { endedEarly: false, championDeclared: true }]) {
+    const b = buildPublicBoard({ ...done, outcome })
+    assert.equal(b.status, 'final'); assert.equal(b.endedEarly, false); assert.equal(crownedRows(b).length, 1)
+    assert.equal(statusSubtitle(b), 'The competition is complete')
+  }
+})
+
+test('while the event is still live nothing is crowned, even if an outcome says otherwise', () => {
+  const b = buildPublicBoard({ ...base, tripStatus: 'active', selected: { status: 'active', label: 'Round 1' }, payload: lappenPayload(), outcome: { endedEarly: true, championDeclared: false } })
+  assert.equal(b.status, 'live'); assert.equal(crownedRows(b).length, 0); assert.equal(podiumCaption(b), 'Provisional top three')
+})
+
+test('a championless ended-early event keeps the privacy shape (no ids, avatars, handicaps)', () => {
+  const json = JSON.stringify(buildPublicBoard({ ...done, outcome: { endedEarly: true, championDeclared: false } }))
+  for (const leak of ['secret-id', 'avatar', 'img/', 'handicap', 'playerId']) assert.equal(json.includes(leak), false, leak)
 })

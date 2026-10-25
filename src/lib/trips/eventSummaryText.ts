@@ -40,6 +40,9 @@ export interface SummaryEvent {
  * second, independently derived naming pass that could drift.
  */
 export interface SummaryChampionResult {
+  /** false = ended early with no overall champion (champions is then empty). */
+  championDeclared?: boolean
+  endedEarly?: boolean
   champions: { playerId: string; playerName: string; totalPoints: number }[]
   hasTie: boolean
   standings: { playerId: string; playerName: string; totalPoints: number; position: number }[]
@@ -148,6 +151,14 @@ export function buildEventSummaryText(
     const names = championResult.champions.map(c => c.playerName).join(' & ')
     lines.push(`Champion: ${names}${championResult.hasTie ? ' (tie)' : ''}`)
     lines.push(`Winning Score: ${championResult.champions[0].totalPoints} points`)
+    lines.push('')
+    lines.push('FINAL STANDINGS')
+    lines.push('')
+    const sortedStandings = [...championResult.standings].sort((a, b) => a.position - b.position)
+    sortedStandings.forEach(s => lines.push(`${s.position}. ${s.playerName} \u2014 ${s.totalPoints} points`))
+  } else if (championResult && championResult.championDeclared === false) {
+    // Ended early with no overall champion: final standings, and no champion claimed anywhere.
+    lines.push(championResult.endedEarly ? 'Event ended early. No overall champion was declared.' : 'No overall champion was declared.')
     lines.push('')
     lines.push('FINAL STANDINGS')
     lines.push('')

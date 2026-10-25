@@ -33,7 +33,8 @@ for (const n of [0, 2, 20, 50, 120]) {
     if (n >= 50) assert.ok(pages >= 2, `50+ players must paginate, got ${pages}`)
     assert.equal((s.match(/\/Type \/Page /g) ?? []).length, pages)
     for (let p = 1; p <= pages; p++) assert.ok(s.includes(`(Page ${p} of ${pages})`), `footer page ${p}`)
-    for (let i = 1; i <= n; i++) assert.equal(s.split(`(Player Number ${i} Surname)`).length - 1, 1, `player ${i}`)
+    // the top three appear on the podium AND in the full table; everyone else exactly once
+    for (let i = 1; i <= n; i++) assert.equal(s.split(`(Player Number ${i} Surname)`).length - 1, i <= 3 ? 2 : 1, `player ${i}`)
   })
 }
 
@@ -72,4 +73,44 @@ test('long names are shortened to fit the column, not overlapped', () => {
   const s = text(buildLeaderboardPdf(b))
   assert.equal(s.includes('(' + 'W'.repeat(60) + ')'), false)
   assert.ok(textWidth('W'.repeat(60), 10.5, true) > 300)
+})
+
+test('PDF status, branding and crown: FINAL has crown + final wording; LIVE and between-rounds never draw a crown', () => {
+  const final = fixtureBoard(5, 'final'); final.rows[0].name = 'Champion One'
+  const crownOps = (b: ReturnType<typeof fixtureBoard>) => (text(buildLeaderboardPdf(b)).match(/ 1 j /g) ?? []).length
+  assert.ok(crownOps(final) >= 3, 'podium + pill + row crowns')
+  assert.equal(crownOps(fixtureBoard(5, 'live')), 0)
+  assert.equal(crownOps(fixtureBoard(5, 'round_complete')), 0)
+  assert.equal(crownOps(fixtureBoard(5, 'not_started')), 0)
+  const s = text(buildLeaderboardPdf(final))
+  assert.ok(s.includes('(FINAL RESULTS)') && s.includes('(The competition is complete)') && s.includes('(FINAL TOP THREE)'))
+  assert.ok(s.includes('(Run your next golf event like a pro.)'))
+  const live = text(buildLeaderboardPdf(fixtureBoard(5, 'live')))
+  assert.ok(live.includes('(LIVE)') && live.includes('(PROVISIONAL TOP THREE)') && !live.includes('FINAL'))
+})
+
+test('PDF with an embedded logo is still structurally valid and ASCII; a malformed logo is ignored', () => {
+  const w = 8, h = 8
+  const logo = { width: w, height: h, rgb: new Uint8Array(w * h * 3).fill(200), alpha: new Uint8Array(w * h).fill(255) }
+  const bytes = buildLeaderboardPdf(fixtureBoard(30, 'live'), { logo })
+  assertStructure(bytes)
+  const s = text(bytes)
+  assert.ok(s.includes('/SMask') && s.includes('/Im1 Do'))
+  const bad = buildLeaderboardPdf(fixtureBoard(3, 'live'), { logo: { ...logo, rgb: new Uint8Array(5) } })
+  assertStructure(bad); assert.equal(text(bad).includes('/Im1'), false)
+})
+
+// ── ended early (Lappen) ──────────────────────────────────────────────────
+const crownOps = (s: string) => (s.match(/ h B /g) ?? []).length
+
+test('PDF: ended early with NO champion says EVENT ENDED EARLY, shows Final Standings and draws no crown', () => {
+  const s = text(buildLeaderboardPdf(fixtureBoard(8, 'ended_early', 1), { generatedText: 'Generated test' }))
+  assert.ok(s.includes('EVENT ENDED EARLY')); assert.ok(s.includes('Final standings'))
+  assert.equal(crownOps(s), 0, 'no crown vector anywhere')
+  assert.ok(!/champion/i.test(s), 'no champion wording')
+})
+
+test('PDF: normal FINAL RESULTS still draws the crown (guard against the check passing vacuously)', () => {
+  const s = text(buildLeaderboardPdf(fixtureBoard(8, 'final', 1), { generatedText: 'Generated test' }))
+  assert.ok(s.includes('FINAL RESULTS')); assert.ok(crownOps(s) > 0)
 })

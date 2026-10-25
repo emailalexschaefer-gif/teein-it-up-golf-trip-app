@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import MyHQClient from '@/components/scoring/MyHQClient'
 import MyRoundClient from '@/components/scoring/MyRoundClient'
 import EventCountdown from '@/components/trips/EventCountdown'
+import { readEventOutcome } from '@/lib/trips/eventOutcome'
 import { resolveFocusRound, sortRoundsChronologically, getRoundDisplayName } from '@/lib/scoring/multiRound'
 
 export const dynamic = 'force-dynamic'
@@ -99,9 +100,15 @@ export default async function TournamentPage({ params, searchParams }: Props) {
   // about "Practice always wants My Golf, never My HQ" should ever
   // depend on that flag being set right in every current and future
   // creation path.
-  const { data: tripRow } = await supabase.from('trips').select('organiser_is_playing, is_practice').eq('id', tripId).maybeSingle()
+  const { data: tripRow } = await supabase.from('trips').select('organiser_is_playing, is_practice, status').eq('id', tripId).maybeSingle()
   const organiserIsPlaying = isOrganiser && (tripRow?.organiser_is_playing ?? false)
   const isPractice = tripRow?.is_practice === true
+  const tripCompleted = tripRow?.status === 'completed'
+  // With a cancelled round, "all rounds closed" is NOT the same as "event finished": the organiser
+  // must end the event (and choose whether to declare a champion). Without one, behaviour is unchanged.
+  const hasCancelledRound = (rounds ?? []).some(r => r.status === 'cancelled')
+  const eventFinished = eventFullyComplete && (tripCompleted || !hasCancelledRound)
+  const outcome = tripCompleted ? await readEventOutcome(supabase, tripId) : null
 
   if (!isOrganiser || isPractice || (organiserIsPlaying && view === 'mygolf')) {
     // ── Player: My Golf — also reachable by an organiser who is also
@@ -144,7 +151,7 @@ export default async function TournamentPage({ params, searchParams }: Props) {
         ) : (
           <MyRoundClient
             tripId={tripId} rounds={roundsAscending} defaultRoundId={focusRound.id}
-            eventFullyComplete={eventFullyComplete} currentPlayerId={user.id}
+            eventFullyComplete={eventFinished} currentPlayerId={user.id}
           />
         )}
       </div>
@@ -191,7 +198,10 @@ export default async function TournamentPage({ params, searchParams }: Props) {
         mostRecentlyCompletedRoundName={mostRecentlyCompletedRound?.name ?? null}
         nextUpcomingRoundId={nextUpcomingRound?.id ?? null}
         nextUpcomingRoundName={nextUpcomingRound?.name ?? null}
-        eventFullyComplete={eventFullyComplete}
+        eventFullyComplete={eventFinished}
+        tripCompleted={tripCompleted}
+        endedEarly={outcome?.endedEarly === true}
+        championDeclared={outcome ? outcome.championDeclared : true}
       />
 
     </div>

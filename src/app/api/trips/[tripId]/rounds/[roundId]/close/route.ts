@@ -11,7 +11,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { isEventComplete } from '@/lib/scoring/roundLifecycle'
+import { shouldAutoCompleteEvent } from '@/lib/scoring/roundLifecycle'
 import { checkRoundCompletion } from '@/lib/scoring/roundCompletion'
 import { resolveSharedDeviceGroupForPlayer } from '@/lib/scoring/resolveSharedDeviceGroup'
 
@@ -149,8 +149,10 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
   // the round has already successfully closed, and this must not roll
   // that back over a trip-level label.
   const allRoundsRes = await admin.from('rounds').select('status').eq('trip_id', tripId)
-  // Cancelled rounds never block completion (see roundLifecycle.isEventComplete).
-  const allRoundsComplete = isEventComplete((allRoundsRes.data ?? []) as { status: string }[])
+  // Only a normal completion (all rounds played, none cancelled) finishes the event by itself.
+  // If any round was cancelled, the organiser ends the event explicitly and decides whether to
+  // declare a champion (see roundLifecycle.shouldAutoCompleteEvent and eventEnd.ts).
+  const allRoundsComplete = shouldAutoCompleteEvent((allRoundsRes.data ?? []) as { status: string }[])
   if (allRoundsComplete) {
     const { error: tripCompleteError } = await admin.from('trips').update({ status: 'completed' }).eq('id', tripId)
     if (tripCompleteError) {

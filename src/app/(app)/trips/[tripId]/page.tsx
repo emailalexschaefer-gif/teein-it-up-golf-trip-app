@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import TripDetailClient from './TripDetailClient'
+import { readEventOutcome } from '@/lib/trips/eventOutcome'
 import type { TripData } from './TripDetailClient'
 import Link from 'next/link'
 import { groupSideCompsByRound } from '@/lib/trips/sideCompRoundTrip'
@@ -258,11 +259,15 @@ export default async function TripDetailPage({ params }: Props) {
       .sort((a, b) => a.play_date.localeCompare(b.play_date)),
   }
 
+  // How the event ended (tolerant: a missing migration 099 reads as a normal completion with a champion).
+  const outcome = sortedTrip.status === 'completed' ? await readEventOutcome(db, tripId) : null
+
   return (
     <TripDetailClient
       trip={sortedTrip}
       currentUserId={user.id}
       userRole={membership.role as 'organiser' | 'player'}
+      championDeclared={outcome ? outcome.championDeclared : true}
     />
   )
 }

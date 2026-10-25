@@ -14,7 +14,8 @@ const GOLF = read('src/components/scoring/MyRoundClient.tsx')
 const MW = read('src/middleware.ts') + read('src/lib/auth/publicRoutes.ts')
 
 test('HQ Stage 5 goes to the event slideshow and is relabelled once all rounds are closed', () => {
-  assert.match(HQ, /allRoundsClosed\) \{ router\.push\(`\/trips\/\$\{tripId\}\/memories\?startSlideshow=event`\)/)
+  assert.match(HQ, /eventPresentationReady\) \{ router\.push\(`\/trips\/\$\{tripId\}\/memories\?startSlideshow=event`\)/)
+  assert.match(HQ, /eventPresentationReady = eventProgress\.allRoundsClosed/)
   assert.match(HQ, /Create & Share Event Presentation/)
 })
 test('Event Memories shows an organiser-only Share Event Presentation entry once every round is completed', () => {

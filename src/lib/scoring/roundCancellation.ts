@@ -6,7 +6,8 @@
  * Writes only: rounds.status/cancelled_*, round_status_events, trips.status.
  * Never touches scorecards, score_entries, side games or published results.
  */
-import { canCancelRound, canReinstateRound, describeCancelImpact, isEventComplete, normaliseCancelReason } from './roundLifecycle'
+import { canCancelRound, canReinstateRound, describeCancelImpact, noPlayableRoundsRemain, normaliseCancelReason } from './roundLifecycle'
+import { readEventOutcome } from '@/lib/trips/eventOutcome'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Admin = any
@@ -50,15 +51,10 @@ export async function cancelRound(admin: Admin, p: { tripId: string; roundId: st
   })
   if (audit.error) console.error('[cancel-round] audit insert failed', { code: audit.error.code, tripId, roundId })
 
-  // Same completion rule the close-round route uses.
+  // Cancelling a round NEVER finishes the event or crowns anyone: the organiser
+  // decides that explicitly with End Event (a separate decision, see eventEnd.ts).
   const after = rounds.map(r => (r.id === roundId ? { ...r, status: 'cancelled' } : r))
-  let eventCompleted = false
-  if (isEventComplete(after) && tripRes.data.status !== 'completed') {
-    const tripUpd = await admin.from('trips').update({ status: 'completed' }).eq('id', tripId)
-    if (tripUpd.error) console.error('[cancel-round] event completion failed', { code: tripUpd.error.code, tripId })
-    else eventCompleted = true
-  }
-  return { status: 200, body: { ok: true, eventCompleted, impact } }
+  return { status: 200, body: { ok: true, eventCompleted: false, noPlayableRoundsRemain: noPlayableRoundsRemain(after), impact } }
 }
 
 export async function reinstateRound(admin: Admin, p: { tripId: string; roundId: string; userId: string }): Promise<LifecycleResult> {
@@ -90,7 +86,13 @@ export async function reinstateRound(admin: Admin, p: { tripId: string; roundId:
 
   let eventReopened = false
   if (tripRes.data.status === 'completed') {
-    const tripUpd = await admin.from('trips').update({ status: 'live' }).eq('id', tripId)
+    // Reopening clears how the event ended, so it can be ended again properly later.
+    // (Only written when it was ended early, so this also works before migration 099.)
+    const outcome = await readEventOutcome(admin, tripId)
+    const reopen = outcome.endedEarly
+      ? { status: 'live', ended_early: false, champion_declared: true, ended_early_reason: null, ended_early_note: null, ended_early_at: null, ended_early_by: null }
+      : { status: 'live' }
+    const tripUpd = await admin.from('trips').update(reopen).eq('id', tripId)
     if (tripUpd.error) console.error('[reinstate-round] event reopen failed', { code: tripUpd.error.code, tripId })
     else eventReopened = true
   }

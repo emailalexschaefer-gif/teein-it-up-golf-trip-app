@@ -11,7 +11,7 @@
  */
 import type { RoundLeaderboardPayload } from '@/lib/scoring/roundLeaderboard'
 
-export type BoardStatus = 'not_started' | 'live' | 'round_complete' | 'final'
+export type BoardStatus = 'not_started' | 'live' | 'round_complete' | 'final' | 'ended_early'
 
 export interface PublicBoardRow {
   position: number
@@ -29,6 +29,8 @@ export interface PublicBoard {
   eventName: string
   status: BoardStatus
   statusLabel: string
+  /** True when the organiser ended the event early (with or without a champion). */
+  endedEarly: boolean
   /** e.g. "Round 2" while live, "2 rounds" when final. */
   roundLabel: string | null
   /** Round columns (R1, R2 ...); empty for a single-round board. */
@@ -43,12 +45,17 @@ export const STATUS_LABEL: Record<BoardStatus, string> = {
   not_started: 'NOT STARTED',
   live: 'LIVE',
   round_complete: 'ROUND COMPLETE',
-  final: 'EVENT FINAL',
+  final: 'FINAL RESULTS',
+  // Ended early with NO overall champion declared: final standings, no crown, no champion.
+  ended_early: 'EVENT ENDED EARLY',
 }
 
 const NOTE_LIVE = 'Live scores. Provisional until each round is verified and closed by the organiser.'
 const NOTE_ROUND_COMPLETE = 'Round results are confirmed. Standings update when the next round is played.'
 const NOTE_NOT_STARTED = 'Scores will appear here once play begins.'
+const NOTE_FINAL = 'The competition is complete. These are the confirmed final results.'
+const NOTE_FINAL_EARLY = 'The event ended early. These are the confirmed final results.'
+const NOTE_ENDED_EARLY = 'The event ended early. These are the final standings. No overall champion was declared.'
 const NOTE_COUNTBACK = 'Ties are decided on countback.'
 
 function cleanName(name: unknown): string {
@@ -76,20 +83,24 @@ export interface BuildInput {
   /** Rounds that were actually completed (cancelled rounds excluded). */
   completedRoundCount: number
   now: Date
+  /** How the event ended (defaults to a normal completion). */
+  outcome?: { endedEarly: boolean; championDeclared: boolean }
 }
 
 export function buildPublicBoard(input: BuildInput): PublicBoard {
   const { eventName, tripStatus, selected, payload, completedRoundCount, now } = input
+  const endedEarly = input.outcome?.endedEarly === true
+  const championDeclared = input.outcome?.championDeclared !== false
   const generatedAt = now.toISOString()
   const name = typeof eventName === 'string' && eventName.trim() ? eventName.trim().slice(0, 100) : 'Golf event'
 
   if (!selected || !payload || selected.status === 'upcoming') {
-    return { eventName: name, status: 'not_started', statusLabel: STATUS_LABEL.not_started, roundLabel: null, roundColumns: [], rows: [], note: NOTE_NOT_STARTED, generatedAt }
+    return { eventName: name, endedEarly, status: 'not_started', statusLabel: STATUS_LABEL.not_started, roundLabel: null, roundColumns: [], rows: [], note: NOTE_NOT_STARTED, generatedAt }
   }
 
   const status: BoardStatus =
     selected.status === 'active' ? 'live'
-      : tripStatus === 'completed' ? 'final'
+      : tripStatus === 'completed' ? (endedEarly && !championDeclared ? 'ended_early' : 'final')
         : 'round_complete'
 
   const multi = payload.roundsSummary.length > 1 && payload.cumulativeStandings.length > 0
@@ -120,15 +131,77 @@ export function buildPublicBoard(input: BuildInput): PublicBoard {
 
   const roundLabel =
     status === 'live' ? selected.label
-      : status === 'final' ? plural(completedRoundCount, 'round')
+      : status === 'final' || status === 'ended_early' ? plural(completedRoundCount, 'round')
         : selected.label
-  const base = status === 'live' ? NOTE_LIVE : status === 'round_complete' ? NOTE_ROUND_COMPLETE : null
+  const base = status === 'live' ? NOTE_LIVE : status === 'round_complete' ? NOTE_ROUND_COMPLETE : status === 'ended_early' ? NOTE_ENDED_EARLY : endedEarly ? NOTE_FINAL_EARLY : NOTE_FINAL
   const note = multi ? [base, NOTE_COUNTBACK].filter(Boolean).join(' ') : base
 
-  return { eventName: name, status, statusLabel: STATUS_LABEL[status], roundLabel, roundColumns, rows, note, generatedAt }
+  return { eventName: name, endedEarly, status, statusLabel: STATUS_LABEL[status], roundLabel, roundColumns, rows, note, generatedAt }
 }
 
 /** "T2" for a tie, "2" otherwise. */
 export function positionText(row: { position: number; tied: boolean }): string {
   return `${row.tied ? 'T' : ''}${row.position}`
+}
+
+export type Medal = 'gold' | 'silver' | 'bronze'
+
+/** Gold, silver and bronze by position (tied players share a medal). */
+export function medalOf(position: number): Medal | null {
+  return position === 1 ? 'gold' : position === 2 ? 'silver' : position === 3 ? 'bronze' : null
+}
+
+/** Up to two letters for the avatar circle. */
+export function initialsOf(name: string): string {
+  const parts = name.replace(/[^\p{L}\p{N}\s'\u2019-]/gu, ' ').split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  const first = Array.from(parts[0])[0] ?? '?'
+  const last = parts.length > 1 ? (Array.from(parts[parts.length - 1])[0] ?? '') : ''
+  return (first + last).toUpperCase()
+}
+
+/**
+ * The three podium cards: the first three rows that hold a medal position.
+ * Not shown until somebody has actually scored, so a board of zeros never
+ * hands out gold, silver and bronze.
+ */
+export function podiumRows(board: Pick<PublicBoard, 'rows'>): PublicBoardRow[] {
+  if (board.rows.length === 0 || board.rows[0].total <= 0) return []
+  return board.rows.filter(r => r.position <= 3).slice(0, 3)
+}
+
+/**
+ * Who wears the crown: ONLY when the event is final (organiser-closed, all
+ * rounds done) and only the player(s) in first place. Never while live or
+ * between rounds, and never on a board with no points.
+ */
+export function crownedRows(board: Pick<PublicBoard, 'rows' | 'status'>): PublicBoardRow[] {
+  if (board.status !== 'final') return []
+  return board.rows.filter(r => r.position === 1 && r.total > 0)
+}
+
+export function playerCountText(board: Pick<PublicBoard, 'rows'>): string {
+  return board.rows.length === 0 ? '' : plural(board.rows.length, 'player')
+}
+
+/** The line under the status label. One definition used by the web page, PNG and PDF. */
+export function statusSubtitle(board: Pick<PublicBoard, 'status' | 'endedEarly'>): string {
+  switch (board.status) {
+    case 'live': return 'Scores updating as play progresses'
+    case 'final': return board.endedEarly ? 'Event ended early' : 'The competition is complete'
+    case 'ended_early': return 'Final standings'
+    case 'round_complete': return 'Between rounds'
+    default: return 'Play has not begun'
+  }
+}
+
+/** Heading above the three podium cards. One definition used by every format. */
+export function podiumCaption(board: Pick<PublicBoard, 'status'>): string {
+  switch (board.status) {
+    case 'live': return 'Provisional top three'
+    case 'final': return 'Final top three'
+    case 'ended_early': return 'Final standings: top three'
+    case 'round_complete': return 'Top three so far'
+    default: return ''
+  }
 }
