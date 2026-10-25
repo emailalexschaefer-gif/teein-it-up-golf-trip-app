@@ -46,7 +46,7 @@ export function normaliseRoute(path: string): string {
   } catch { /* keep as is */ }
   p = p.split('?')[0].split('#')[0]
   p = p.replace(/^\/join\/[^/]+/, '/join/:code')
-  p = p.replace(/^\/s\/[^/]+/, '/s/:token').replace(/^\/api\/s\/[^/]+/, '/api/s/:token')
+  p = p.replace(/^\/s\/[^/]+/, '/s/:token').replace(/^\/api\/s\/[^/]+/, '/api/s/:token').replace(/^\/l\/[^/]+/, '/l/:token').replace(/^\/api\/l\/[^/]+/, '/api/l/:token')
   p = p.replace(UUID, ':id')
   // any other long opaque segment (tokens, slugs with digits) or pure number
   p = p

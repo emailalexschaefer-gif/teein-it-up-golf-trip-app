@@ -26,6 +26,7 @@ export interface ScheduleRound {
 function statusLabel(round: ScheduleRound, isDefaultSelection: boolean): { text: string; bg: string; color: string; border: string } {
   if (round.status === 'active') return { text: 'LIVE', bg: '#dcfce7', color: '#166534', border: '#86efac' }
   if (round.status === 'completed') return { text: 'COMPLETE', bg: '#f0fdf4', color: '#166534', border: '#bbf7d0' }
+  if (round.status === 'cancelled') return { text: 'CANCELLED', bg: '#fdf2f2', color: '#9b1c1c', border: '#e5c1c1' }
   // Upcoming: "NEXT" only for the one round the automatic selection
   // rule would land on by default (item 8's exact behaviour table) —
   // every other upcoming round just reads "Upcoming", so a 3+ round

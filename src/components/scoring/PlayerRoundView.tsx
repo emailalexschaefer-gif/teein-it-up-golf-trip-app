@@ -56,7 +56,18 @@ export default function PlayerRoundView({
     refetchInterval: roundStatus === 'active' ? 8000 : false,
     refetchOnWindowFocus: true,
     staleTime: 0,
+    enabled: roundStatus !== 'cancelled',
   })
+
+  // Package 2 (post-Lappen): a cancelled round was never played -- no scorecard, no results.
+  if (roundStatus === 'cancelled') {
+    return (
+      <div style={{ textAlign: 'center', padding: '32px 16px', background: '#fdf2f2', border: '1px solid #e5c1c1', borderRadius: 14, marginBottom: 16 }}>
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#7a1f1f', margin: '0 0 4px' }}>{roundName ?? 'This round'} was cancelled</p>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#6b6b60', margin: 0 }}>It will not be played and is not counted in the results.</p>
+      </div>
+    )
+  }
 
   if (isLoading) return <div style={{ textAlign: 'center', padding: '40px 0', fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>Loading your round…</div>
   if (error || !data) {

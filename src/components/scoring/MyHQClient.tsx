@@ -12,6 +12,7 @@ import EventMemoriesCard from './EventMemoriesCard'
 import AdminScoreOverridePanel from './AdminScoreOverridePanel'
 import MyRoundSummary from './MyRoundSummary'
 import RoundWorkflowTracker from './RoundWorkflowTracker'
+import CancelRoundControl from './CancelRoundControl'
 import EventProgressBadge from './EventProgressBadge'
 import CollapsibleSection from '@/components/shared/CollapsibleSection'
 import { trackEvent } from '@/lib/analytics/trackEvent'
@@ -192,12 +193,14 @@ export default function MyHQClient({
   // here to the three real values, same as every other status check
   // already scattered across this codebase (e.g. `roundStatus ===
   // 'active'`), not a new assumption.
-  function asRoundStatus(status: string): 'upcoming' | 'active' | 'completed' {
-    return status === 'active' || status === 'completed' ? status : 'upcoming'
+  function asRoundStatus(status: string): 'upcoming' | 'active' | 'completed' | 'cancelled' {
+    return status === 'active' || status === 'completed' || status === 'cancelled' ? status : 'upcoming'
   }
 
-  const workflow = selected ? deriveRoundWorkflow({
-    roundStatus: asRoundStatus(selected.status),
+  // A cancelled round has no workflow at all (nothing to start, score, close
+  // or present) -- it gets its own cancelled panel below instead.
+  const workflow = selected && selected.status !== 'cancelled' ? deriveRoundWorkflow({
+    roundStatus: selected.status === 'active' || selected.status === 'completed' ? selected.status : 'upcoming',
     finishedPlayers: workflowTournamentData?.summary.finishedCount ?? 0,
     totalPlayers: workflowTournamentData?.summary.players ?? 0,
     completionPct: workflowTournamentData?.summary.completionPct ?? 0,
@@ -481,6 +484,12 @@ export default function MyHQClient({
         </div>
       )}
 
+      {/* Package 2 (post-Lappen) -- cancel an unplayed round / reinstate a cancelled one. */}
+      {selected && (selected.status === 'upcoming' || selected.status === 'cancelled') && (
+        <CancelRoundControl key={`${selected.id}:${selected.status}`} tripId={tripId} roundId={selected.id} roundName={selected.name} status={selected.status}
+          onCancelled={() => { if (mostRecentlyCompletedRoundId) setSelectedRoundId(mostRecentlyCompletedRoundId) }} />
+      )}
+
       {selected && workflow && (
         <div style={{ marginBottom: 16 }}>
           <RoundWorkflowTracker
@@ -530,7 +539,9 @@ export default function MyHQClient({
           <p style={{ fontSize: 26, marginBottom: 8 }}>🏆</p>
           <p style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 15, fontWeight: 800, marginBottom: 6 }}>Event Complete</p>
           <p style={{ fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 12.5, lineHeight: 1.5, marginBottom: 14 }}>
-            All rounds have been played and results are locked in.
+            {rounds.some(r => r.status === 'cancelled')
+              ? 'Every round that was played is complete and results are locked in. Cancelled rounds are not counted.'
+              : 'All rounds have been played and results are locked in.'}
           </p>
           <Link
             href={`/trips/${tripId}/results`}

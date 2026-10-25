@@ -101,7 +101,7 @@ export default async function RoundScorePage({ params }: Props) {
   const round = roundRes.data
 
   // If round is not yet active, redirect back to the trip (they'll see the Rounds tab)
-  if (round.status === 'upcoming') {
+  if (round.status === 'upcoming' || round.status === 'cancelled') {
     redirect(`/trips/${tripId}`)
   }
 

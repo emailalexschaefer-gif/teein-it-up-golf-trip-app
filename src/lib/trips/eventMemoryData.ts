@@ -120,6 +120,7 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
   const roundsRes = await admin.from('rounds')
     .select('id, name, course_name, play_date, status, holes')
     .eq('trip_id', tripId)
+    .neq('status', 'cancelled') // a cancelled round was never played: not in the manifest, presentation or counts
     .order('play_date', { ascending: true })
   const rounds = roundsRes.data ?? []
   const roundIds = rounds.map((r: { id: string }) => r.id)

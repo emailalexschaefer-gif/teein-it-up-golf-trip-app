@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import LiveLeaderboard from '@/components/scoring/LiveLeaderboard'
 import RoundSideGamesSection from '@/components/scoring/RoundSideGamesSection'
 import TheField from '@/components/scoring/TheField'
+import ShareLeaderboardButton from '@/components/leaderboard/ShareLeaderboardButton'
 import { resolveRequestedOrDefaultRound } from '@/lib/scoring/multiRound'
 
 export const dynamic = 'force-dynamic'
@@ -59,6 +60,8 @@ export default async function LeaderboardPage({ params, searchParams }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <Link href={`/trips/${tripId}`} style={{ color: '#9ca3af', fontSize: 18, textDecoration: 'none' }}>←</Link>
         <span style={{ fontFamily: 'var(--font-display)', color: '#14532d', fontSize: 18, fontWeight: 800 }}>Leaderboard</span>
+        {/* Package 1 (post-Lappen): Share Leaderboard for every event participant. */}
+        <ShareLeaderboardButton tripId={tripId} />
       </div>
 
       {!round || round.status === 'upcoming' ? (

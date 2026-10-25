@@ -223,7 +223,7 @@ export function deriveRoundWorkflow(input: RoundWorkflowInput): RoundWorkflowRes
 }
 
 export interface EventProgressInput {
-  rounds: { status: 'upcoming' | 'active' | 'completed' }[]
+  rounds: { status: 'upcoming' | 'active' | 'completed' | 'cancelled' }[]
 }
 
 export interface EventProgressResult {
@@ -234,8 +234,11 @@ export interface EventProgressResult {
 }
 
 export function deriveEventProgress(input: EventProgressInput): EventProgressResult {
-  const totalCount = input.rounds.length
-  const closedCount = input.rounds.filter(r => r.status === 'completed').length
+  // A cancelled round is excluded from both counts: it never blocks
+  // "all rounds closed" and is never reported as one of the event's rounds.
+  const counted = input.rounds.filter(r => r.status !== 'cancelled')
+  const totalCount = counted.length
+  const closedCount = counted.filter(r => r.status === 'completed').length
   return { closedCount, totalCount, allRoundsClosed: totalCount > 0 && closedCount === totalCount }
 }
 

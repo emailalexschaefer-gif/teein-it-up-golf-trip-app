@@ -176,7 +176,7 @@ const SENSITIVE_QUERY_PARAMS = ['invitecode', 'code', 'token', 'access_token', '
 export function sanitizePagePath(path: string): string {
   const [rawPathname, rawQuery] = path.split('?')
 
-  const pathname = rawPathname.replace(/^\/join\/[^/?]+/, '/join/:code').replace(/^\/s\/[^/?]+/, '/s/:token')
+  const pathname = rawPathname.replace(/^\/join\/[^/?]+/, '/join/:code').replace(/^\/s\/[^/?]+/, '/s/:token').replace(/^\/l\/[^/?]+/, '/l/:token')
 
   if (!rawQuery) return pathname
   const params = new URLSearchParams(rawQuery)

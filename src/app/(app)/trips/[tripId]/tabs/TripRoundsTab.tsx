@@ -277,8 +277,9 @@ function StatusPill({ status }: { status: string }) {
     upcoming:  { background: '#f8f4eb', color: '#7a7260', border: '1px solid #d9c9a3' },
     active:    { background: '#dcfce7', color: '#166534', border: '1px solid #86efac' },
     completed: { background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0' },
+    cancelled: { background: '#fdf2f2', color: '#9b1c1c', border: '1px solid #e5c1c1' },
   }
-  const labels: Record<string, string> = { upcoming: 'Upcoming', active: 'Live', completed: 'Completed' }
+  const labels: Record<string, string> = { upcoming: 'Upcoming', active: 'Live', completed: 'Completed', cancelled: 'Cancelled' }
   return (
     <span style={{
       fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700,

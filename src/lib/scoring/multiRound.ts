@@ -400,7 +400,8 @@ export interface LeaderboardRoundCandidate extends RoundOrderingInput {
  * second, potentially inconsistent way.
  */
 export function selectLeaderboardRound<T extends LeaderboardRoundCandidate>(rounds: T[]): T | undefined {
-  const chronological = sortRoundsChronologically(rounds) // oldest first
+  // A cancelled round never has a leaderboard (Package 2, post-Lappen).
+  const chronological = sortRoundsChronologically(rounds.filter(r => r.status !== 'cancelled')) // oldest first
   const activeRound = chronological.find(r => r.status === 'active')
   if (activeRound) return activeRound
   // Most recent completed = last match walking from the end, not the

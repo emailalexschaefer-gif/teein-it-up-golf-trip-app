@@ -17,6 +17,10 @@ export function isPublicRoute(pathname: string): boolean {
     pathname === '/sw.js' ||
     pathname.startsWith('/brand/') ||
     pathname.startsWith('/s/') ||
-    pathname.startsWith('/api/s/')
+    pathname.startsWith('/api/s/') ||
+    // Package 1 (post-Lappen): the public live leaderboard and its data endpoint
+    // (token-authorised, read-only).
+    pathname.startsWith('/l/') ||
+    pathname.startsWith('/api/l/')
   )
 }

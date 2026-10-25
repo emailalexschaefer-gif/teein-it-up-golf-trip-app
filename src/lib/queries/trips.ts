@@ -97,7 +97,7 @@ export function useMyTrips(userId: string | undefined, authResolved: boolean): U
       // Step 3: Fetch real player, round and group counts — batched, not N+1
       const [membersResult, roundsResult, groupsResult] = await Promise.all([
         db.from('trip_members').select('trip_id, role').in('trip_id', tripIds),
-        db.from('rounds').select('id, trip_id').in('trip_id', tripIds),
+        db.from('rounds').select('id, trip_id, status').in('trip_id', tripIds),
         db.from('trip_groups').select('id, trip_id').in('trip_id', tripIds),
       ])
 
@@ -130,6 +130,7 @@ export function useMyTrips(userId: string | undefined, authResolved: boolean): U
       const roundCountByTrip: Record<string, number> = {}
       if (roundsResult.data) {
         for (const r of roundsResult.data) {
+          if (r.status === 'cancelled') continue
           roundCountByTrip[r.trip_id] = (roundCountByTrip[r.trip_id] ?? 0) + 1
         }
       }

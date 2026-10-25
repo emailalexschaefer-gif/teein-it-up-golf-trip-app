@@ -40,6 +40,9 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
   if (roundRes.data.status === 'completed') {
     return NextResponse.json({ error: 'This round has already been completed.' }, { status: 409 })
   }
+  if (roundRes.data.status === 'cancelled') {
+    return NextResponse.json({ error: 'This round has been cancelled.' }, { status: 409 })
+  }
 
   // Every player expected to participate — trip_members with role
   // 'player' plus the organiser if organiser_is_playing, matching the

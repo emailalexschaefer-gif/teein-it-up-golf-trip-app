@@ -186,6 +186,9 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   if (round.status === 'completed') {
     return NextResponse.json({ error: 'This round has already been completed.' }, { status: 409 })
   }
+  if (round.status === 'cancelled') {
+    return NextResponse.json({ error: 'This round has been cancelled. Reinstate it before starting.' }, { status: 409 })
+  }
 
   // ── Parse hole data ────────────────────────────────────────────────────────
   let body: unknown

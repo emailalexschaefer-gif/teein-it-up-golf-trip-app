@@ -40,7 +40,7 @@ test('no module reachable from a client component imports node:* / crypto', () =
       const spec = m[1] ?? m[2] ?? m[3]
       if (!spec) continue
       if (/^node:/.test(spec) || spec === 'crypto' || spec === 'fs' || spec === 'path') { bad.push(`${f.replace(SRC, 'src/')} imports ${spec} (via ${via})`); continue }
-      if (/supabase\/admin|sharing\/server|sharing\/publish|sharing\/token$/.test(spec)) { bad.push(`${f.replace(SRC, 'src/')} imports server-only ${spec}`); continue }
+      if (/supabase\/admin|sharing\/server|sharing\/publish|sharing\/token$|leaderboardShare\/service$/.test(spec)) { bad.push(`${f.replace(SRC, 'src/')} imports server-only ${spec}`); continue }
       const r = resolveImport(f, spec)
       if (r) visit(r, via)
     }

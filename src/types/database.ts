@@ -508,6 +508,6 @@ export type TablesUpdate<T extends keyof Database['public']['Tables']> =
 export type TripStatus     = 'draft' | 'open' | 'groups_ready' | 'ready' | 'live' | 'completed' | 'archived'
 export type TripRole       = 'organiser' | 'player'
 export type ScoringFormat  = 'stableford' | 'stroke' | 'match_play' | 'ambrose' | 'four_ball_better_ball'
-export type RoundStatus    = 'upcoming' | 'active' | 'completed'
+export type RoundStatus    = 'upcoming' | 'active' | 'completed' | 'cancelled'
 export type ScorecardStatus = 'active' | 'completed' | 'withdrawn'
 export type SideCompType   = 'nearest_pin' | 'longest_drive' | 'best_on_day' | 'custom'

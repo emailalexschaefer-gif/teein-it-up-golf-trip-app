@@ -167,7 +167,7 @@ export default function TripOverviewTab({ trip, isOrganiser, playerCount, numGro
               label="Players"
             />
             <div style={{ width: 1, background: '#ede0c4' }} />
-            <StatCell icon="⛳" value={trip.rounds.length} sub="rounds" label="Rounds" />
+            <StatCell icon="⛳" value={trip.rounds.filter(r => r.status !== 'cancelled').length} sub="rounds" label="Rounds" />
             <div style={{ width: 1, background: '#ede0c4' }} />
             <StatCell icon="🏌️" value={numGroups} sub="groups" label="Groups" />
           </div>

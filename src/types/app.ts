@@ -219,6 +219,7 @@ export const ROUND_STATUS_LABELS: Record<RoundStatus, string> = {
   upcoming:  'Upcoming',
   active:    'Live',
   completed: 'Completed',
+  cancelled: 'Cancelled',
 }
 
 // ─── Groups ───────────────────────────────────────────────────────────────────
