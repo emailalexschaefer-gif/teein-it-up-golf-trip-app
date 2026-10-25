@@ -39,7 +39,13 @@ export interface PublicBoard {
   note: string | null
   /** ISO timestamp the standings were computed. */
   generatedAt: string
+  /** Package 3: players incomplete in a championship-counted shortened round. Shown apart from the ranking, never zeroed. */
+  notRanked?: { name: string; total: number }[]
+  /** Package 3: one line per round finished early ("R2 \u2014 Round Finished Early \u2014 Weather. Official 9-Hole Result. Not Counted Toward Event Championship."). */
+  earlyNotes?: string[]
 }
+
+export const NOT_RANKED_LABEL = 'Not ranked \u2014 incomplete round'
 
 export const STATUS_LABEL: Record<BoardStatus, string> = {
   not_started: 'NOT STARTED',
@@ -105,6 +111,14 @@ export function buildPublicBoard(input: BuildInput): PublicBoard {
 
   const multi = payload.roundsSummary.length > 1 && payload.cumulativeStandings.length > 0
   let rows: PublicBoardRow[]
+  let notRanked: { name: string; total: number }[] = []
+  const earlyNotes: string[] = []
+  // This round was finished early: say so on every surface (public page, PNG, PDF). Only the reason category is shown.
+  const ef = payload.earlyFinish
+  if (ef) {
+    const n = payload.roundsSummary.find(r => r.roundId === payload.roundId)?.roundNumber
+    earlyNotes.push(`${n ? `R${n} \u2014 ` : ''}${ef.title}. ${ef.resultLabel}. ${ef.countingLabel}.`)
+  }
   let roundColumns: PublicBoard['roundColumns'] = []
 
   if (multi) {
@@ -119,11 +133,15 @@ export function buildPublicBoard(input: BuildInput): PublicBoard {
         thru: status === 'live' && current ? (current.finished ? 'F' : `Thru ${current.holesPlayed ?? 0}`) : null,
       }
     }))
+    notRanked = (payload.notRankedStandings ?? []).map(n => ({ name: cleanName(n.playerName), total: n.totalPoints }))
   } else {
-    rows = markTies(payload.board.map(b => ({
+    // A round finished early: qualifying players are ranked on their official points; incomplete players are listed apart.
+    const ranked = payload.board.filter(b => b.ranked !== false)
+    notRanked = payload.board.filter(b => b.ranked === false).map(b => ({ name: cleanName(b.name), total: b.totalPts }))
+    rows = markTies(ranked.map(b => ({
       position: b.position,
       name: cleanName(b.name),
-      total: b.totalPts,
+      total: b.ranked === true && typeof b.officialPoints === 'number' ? b.officialPoints : b.totalPts,
       rounds: [],
       thru: status === 'live' ? (b.finished ? 'F' : `Thru ${b.holesPlayed}`) : null,
     })))
@@ -136,7 +154,10 @@ export function buildPublicBoard(input: BuildInput): PublicBoard {
   const base = status === 'live' ? NOTE_LIVE : status === 'round_complete' ? NOTE_ROUND_COMPLETE : status === 'ended_early' ? NOTE_ENDED_EARLY : endedEarly ? NOTE_FINAL_EARLY : NOTE_FINAL
   const note = multi ? [base, NOTE_COUNTBACK].filter(Boolean).join(' ') : base
 
-  return { eventName: name, endedEarly, status, statusLabel: STATUS_LABEL[status], roundLabel, roundColumns, rows, note, generatedAt }
+  return {
+    eventName: name, endedEarly, status, statusLabel: STATUS_LABEL[status], roundLabel, roundColumns, rows, note, generatedAt,
+    ...(notRanked.length > 0 ? { notRanked } : {}), ...(earlyNotes.length > 0 ? { earlyNotes } : {}),
+  }
 }
 
 /** "T2" for a tie, "2" otherwise. */
@@ -204,4 +225,21 @@ export function podiumCaption(board: Pick<PublicBoard, 'status'>): string {
     case 'round_complete': return 'Top three so far'
     default: return ''
   }
+}
+
+/**
+ * The text under the table on every surface (page, PNG, PDF): finished-early labels, the players who are not ranked
+ * (incomplete, with their real points -- never a zero), then the ordinary status note. One function so the surfaces agree.
+ */
+export function boardFootnote(board: PublicBoard): string | null {
+  const parts: string[] = []
+  if (board.earlyNotes?.length) parts.push(...board.earlyNotes)
+  if (board.notRanked?.length) parts.push(`${NOT_RANKED_LABEL}: ${board.notRanked.map(n => `${n.name} (${n.total} pts)`).join(', ')}.`)
+  if (board.note) parts.push(board.note)
+  return parts.length > 0 ? parts.join(' ') : null
+}
+
+/** True when there is something to say under the table even though no player is ranked. */
+export function hasBoardExtras(board: PublicBoard): boolean {
+  return !!(board.earlyNotes?.length || board.notRanked?.length)
 }

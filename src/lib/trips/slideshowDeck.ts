@@ -129,7 +129,7 @@ function sortHighlightsForPresentation(highlights: HighlightLike[]): HighlightLi
 export type Slide =
   | { kind: 'opening'; eventName: string; dateRange: string | null; heroImageUrl: string | null }
   | { kind: 'eventDivider' }
-  | { kind: 'roundDivider'; roundId: string; roundName: string; courseName: string | null; playDate: string | null }
+  | { kind: 'roundDivider'; roundId: string; roundName: string; courseName: string | null; playDate: string | null; /** Package 3: "Round Finished Early \u2014 Weather" when the round was finished early. */ earlyLabel?: string }
   | { kind: 'closing' }
   | {
       kind: 'photo'; momentId: string; imageUrl: string | null; caption: string | null
@@ -235,11 +235,11 @@ export type Slide =
   // own ranked results only (never cumulative), from
   // determineRoundStandings -- position 1 is this round's winner,
   // displayed distinctly by the renderer, never a separate field here.
-  | { kind: 'roundResults'; roundId: string; roundName: string; standings: { playerId: string; playerName: string; roundPoints: number; position: number }[] }
+  | { kind: 'roundResults'; roundId: string; roundName: string; standings: { playerId: string; playerName: string; roundPoints: number; position: number }[]; /** Package 3: e.g. ["Round Finished Early \u2014 Weather", "Official 9-Hole Result", "Not Counted Toward Event Championship"]. */ earlyLabels?: string[] }
   // 18 Oct field test -- cumulative standings AFTER a round (Round 2 onwards),
   // shown directly after that round's own Results slide, which is unchanged.
   // `roundsIncluded` is how many completed rounds feed the totals.
-  | { kind: 'cumulativeResults'; roundId: string; roundName: string; roundsIncluded: number; standings: { playerId: string; playerName: string; totalPoints: number; position: number }[] }
+  | { kind: 'cumulativeResults'; roundId: string; roundName: string; roundsIncluded: number; standings: { playerId: string; playerName: string; totalPoints: number; position: number }[]; /** Package 3: players incomplete in a counted shortened round (never ranked, never zeroed). */ notRanked?: { playerName: string; totalPoints: number }[] }
 
 export interface SlideshowDeck {
   slides: Slide[]
@@ -447,7 +447,7 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], gro
     // chapters."
     if (roundMemories.length === 0 && roundWinners.length === 0 && roundHighlights.length === 0) continue
 
-    slides.push({ kind: 'roundDivider', roundId: round.id, roundName: round.name, courseName: round.courseName, playDate: round.playDate })
+    slides.push({ kind: 'roundDivider', roundId: round.id, roundName: round.name, courseName: round.courseName, playDate: round.playDate, ...(round.earlyFinish ? { earlyLabel: round.earlyFinish.title } : {}) })
     for (const m of roundMemories) slides.push(toPhotoSlide(m, round.name))
 
     for (const w of roundWinners) {
@@ -1057,7 +1057,7 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
       return true
     })
 
-    slides.push({ kind: 'roundDivider', roundId: round.id, roundName: round.name, courseName: round.courseName, playDate: round.playDate })
+    slides.push({ kind: 'roundDivider', roundId: round.id, roundName: round.name, courseName: round.courseName, playDate: round.playDate, ...(round.earlyFinish ? { earlyLabel: round.earlyFinish.title } : {}) })
     for (const m of bestMomentsExcludingWinners) { slides.push(toPhotoSlide(m, round.name)); memoryCount += 1 }
     for (const { winner, photo } of winnerMatches) {
       slides.push({ kind: 'sideGameWinner', sideCompId: winner.sideCompId, label: winner.label, holeNumber: winner.holeNumber, winnerName: winner.winnerName as string, winnerImageUrl: photo?.imageUrl ?? null })
@@ -1074,7 +1074,7 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     // Photo as a Round Winner fallback" instruction. The generic
     // template owns this slide's presentation entirely.
     if (roundStandingsResult.length > 0) {
-      slides.push({ kind: 'roundResults', roundId: round.id, roundName: round.name, standings: roundStandingsResult })
+      slides.push({ kind: 'roundResults', roundId: round.id, roundName: round.name, standings: roundStandingsResult, ...(round.earlyFinish ? { earlyLabels: [round.earlyFinish.title, round.earlyFinish.resultLabel, round.earlyFinish.countingLabel] } : {}) })
       // 18 Oct field test -- "Total Scores after Round N", directly after that
       // round's own (unchanged) Results slide. Round 1 has no cumulative
       // slide (it would just repeat Round 1). Standings come from
@@ -1084,7 +1084,7 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
       const cum = round.cumulativeStandings ?? null
       const included = round.cumulativeRoundsIncluded ?? 0
       if (cum && cum.length > 0 && included >= 2) {
-        slides.push({ kind: 'cumulativeResults', roundId: round.id, roundName: round.name, roundsIncluded: included, standings: cum })
+        slides.push({ kind: 'cumulativeResults', roundId: round.id, roundName: round.name, roundsIncluded: included, standings: cum, ...((round.cumulativeNotRanked ?? []).length > 0 ? { notRanked: (round.cumulativeNotRanked ?? []).map(n => ({ playerName: n.playerName, totalPoints: n.totalPoints })) } : {}) })
       }
     }
   }

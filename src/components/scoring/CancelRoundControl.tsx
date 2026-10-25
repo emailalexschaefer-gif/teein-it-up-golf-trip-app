@@ -86,8 +86,8 @@ export default function CancelRoundControl({ tripId, roundId, roundName, status,
       </button>
       {notice && <p role="status" style={{ color: '#14532d', fontSize: 13, margin: '10px 0 0' }}>{notice}</p>}
       {open && (
-        <div role="dialog" aria-modal="true" aria-label="Cancel round" style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', width: '100%', maxWidth: 520, borderRadius: '18px 18px 0 0', padding: 20, maxHeight: '90vh', overflowY: 'auto' }}>
+        <div role="dialog" aria-modal="true" aria-label="Cancel round" style={{ position: 'fixed', inset: 0, zIndex: 120, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', width: '100%', maxWidth: 520, borderRadius: '18px 18px 0 0', padding: 20, paddingBottom: 'calc(20px + env(safe-area-inset-bottom))', maxHeight: '88dvh', overscrollBehavior: 'contain', overflowY: 'auto' }}>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 20, margin: '0 0 8px' }}>Cancel {roundName}?</h2>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#4b4b44', margin: '0 0 12px' }}>
               Use this when the round will not be played (for example weather or course closure). The round is kept on record with no scores, and you can reinstate it later.
@@ -112,7 +112,7 @@ export default function CancelRoundControl({ tripId, roundId, roundName, status,
             <textarea id="cancel-reason" value={reason} maxLength={CANCEL_REASON_MAX} onChange={e => setReason(e.target.value)} rows={2}
               placeholder="e.g. Heavy rain, course closed" style={{ width: '100%', borderRadius: 10, border: '1px solid #d9d6cb', padding: 10, fontSize: 15, fontFamily: 'var(--font-body)', boxSizing: 'border-box' }} />
             {error && <p role="alert" style={{ color: '#b91c1c', fontSize: 13, margin: '10px 0 0' }}>{error}</p>}
-            <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+            <div style={{ display: 'flex', gap: 10, marginTop: 14, position: 'sticky', bottom: -1, background: '#fff', padding: '10px 0 2px' }}>
               <button onClick={() => setOpen(false)} disabled={busy} style={{ ...btn, flex: 1, border: '1px solid #d9d6cb', background: '#fff', color: '#1a1a16' }}>Keep Round</button>
               <button onClick={confirmCancel} disabled={busy || !impact} style={{ ...btn, flex: 1, border: 'none', background: '#9b1c1c', color: '#fff', opacity: busy || !impact ? 0.6 : 1 }}>
                 {busy && impact ? 'Cancelling…' : 'Cancel Round'}

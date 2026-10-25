@@ -97,7 +97,7 @@ export default function SharePresentationPanel({ tripId, config, durationSeconds
   const canPublish = !busy && preview !== null && (!publicEnabled || attestCleared) && (nameMode === 'initials' || attestFullNames)
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Publish presentation" style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+    <div role="dialog" aria-modal="true" aria-label="Publish presentation" style={{ position: 'fixed', inset: 0, zIndex: 120, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
       <div style={{ background: '#faf6ed', width: '100%', maxWidth: 520, maxHeight: '92dvh', overflowY: 'auto', borderRadius: '18px 18px 0 0', padding: '20px 16px calc(20px + env(safe-area-inset-bottom))' }}>
         <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22, margin: '0 0 4px' }}>Publish Presentation</h2>
         <p style={{ fontSize: 13, color: '#4b5563', margin: '0 0 14px' }}>

@@ -817,6 +817,7 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize
         <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(29px, 4.9vw, 44px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 14, textAlign: 'center' }}>{slide.roundName}</p>
         {slide.courseName && <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(16px, 2.6vw, 22px)', color: '#e5e7eb', textAlign: 'center' }}>{slide.courseName}</p>}
         {slide.playDate && <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(13px, 1.7vw, 15px)', color: '#d1d5db', marginTop: 4, textAlign: 'center' }}>{new Date(slide.playDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>}
+        {slide.earlyLabel && <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(12px, 1.6vw, 14px)', color: '#fbbf24', marginTop: 10, textAlign: 'center', letterSpacing: 0.5 }}>{slide.earlyLabel}</p>}
       </GenericTemplateSlide>
     )
   }
@@ -1038,7 +1039,10 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize
     return (
       <GenericTemplateSlide>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2.5, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 4 }}>{slide.roundName}</p>
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(18px, 3vw, 26px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 16 }}>Results</p>
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(18px, 3vw, 26px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: slide.earlyLabels?.length ? 6 : 16 }}>Results</p>
+        {slide.earlyLabels && slide.earlyLabels.length > 0 && (
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#fbbf24', textAlign: 'center', marginBottom: 14, lineHeight: 1.5 }}>{slide.earlyLabels.join(' \u00b7 ')}</p>
+        )}
         <div style={{ width: '100%', maxWidth: 460, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {slide.standings.map(s => {
             const isWinner = s.position === 1
@@ -1088,6 +1092,16 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize
             )
           })}
         </div>
+        {slide.notRanked && slide.notRanked.length > 0 && (
+          <div style={{ width: '100%', maxWidth: 460, marginTop: 10 }}>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, letterSpacing: 1, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 4 }}>Not ranked &mdash; incomplete round</p>
+            {slide.notRanked.map(n => (
+              <div key={n.playerName} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '4px 14px', fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#d1d5db' }}>
+                <span>{n.playerName}</span><span>{n.totalPoints} pts</span>
+              </div>
+            ))}
+          </div>
+        )}
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginTop: 12, textAlign: 'center' }}>Combined Stableford points, {slide.roundsIncluded} rounds</p>
       </GenericTemplateSlide>
     )

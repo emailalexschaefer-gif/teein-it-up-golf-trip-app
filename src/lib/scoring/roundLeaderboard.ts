@@ -10,6 +10,7 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { computeCumulativeStandings, sortRoundsChronologically, buildRoundsSummary } from '@/lib/scoring/multiRound'
 import { orderHolesByPlaySequence } from '@/lib/scoring/holeSequence'
+import { loadEarlyFinish, adjustForEarlyFinish, earlyLabels, type NotRankedPlayer, type EarlyRoundInfo } from '@/lib/scoring/earlyFinish'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -26,15 +27,29 @@ export interface RoundRowForBoard { name: string; holes: number | null; scoring_
 export interface LeaderboardRow {
   playerId: string; name: string; avatarUrl: string | null; handicap: number; totalPts: number; holesPlayed: number
   finished: boolean; isCurrentUser: boolean; position: number
+  /** Package 3 (finished-early rounds only). Absent on a normal round. */
+  resultKind?: 'qualifying' | 'incomplete' | null
+  /** Official nine-hole points (qualifying only). `totalPts` stays the player's real, unchanged total. */
+  officialPoints?: number | null
+  /** False for an incomplete player of a finished-early round: shown separately, position 0, never ranked or zeroed. */
+  ranked?: boolean
+}
+export interface EarlyFinishBoardInfo {
+  reason: string; note: string | null; officialHoles: number | null; countsTowardEvent: boolean
+  title: string; resultLabel: string; countingLabel: string
 }
 export interface CumulativeRow {
   playerId: string; playerName: string; totalPoints: number; position: number; roundsPlayed: number
-  rounds?: { roundId: string; roundNumber: number; points: number; isCurrentRound: boolean; holesPlayed: number | null; finished: boolean }[]
+  rounds?: { roundId: string; roundNumber: number; points: number; isCurrentRound: boolean; holesPlayed: number | null; finished: boolean; counted?: boolean }[]
 }
 export interface RoundLeaderboardPayload {
   board: LeaderboardRow[]; roundId: string; roundName: string; scoringFormat: string | null; totalHoles: number
   scoringNow: number; finishedCount: number; cumulativeStandings: CumulativeRow[]
   roundsSummary: { roundId: string; roundNumber: number; isLive: boolean }[]
+  /** Package 3: set when THIS round was finished early. */
+  earlyFinish?: EarlyFinishBoardInfo | null
+  /** Package 3: players incomplete in a championship-counted shortened round (not ranked; actual points kept). */
+  notRankedStandings?: NotRankedPlayer[]
 }
 export type RoundLeaderboardResult =
   | { ok: true; body: RoundLeaderboardPayload }
@@ -155,6 +170,25 @@ export async function computeRoundLeaderboard(
     return { ...row, position }
   })
 
+  // Package 3 -- when THIS round was finished early the round board is decided on the frozen
+  // official results: qualifying players ranked (on official nine-hole points), incomplete
+  // players listed after them, unranked, with their real points untouched.
+  const earlyAll = await loadEarlyFinish(admin, [roundId], tripId)
+  const earlyThis: EarlyRoundInfo | undefined = earlyAll.get(roundId)
+  let boardOut: (typeof board[number] & { resultKind?: 'qualifying' | 'incomplete' | null; officialPoints?: number | null; ranked?: boolean })[] = board
+  if (earlyThis) {
+    const withKind = board.map(r => {
+      const res = earlyThis.results.get(r.playerId)
+      const q = !!earlyThis.officialHoles && res?.kind === 'qualifying' && res.officialPoints !== null
+      return { ...r, resultKind: (res?.kind ?? 'incomplete') as 'qualifying' | 'incomplete', officialPoints: q ? res!.officialPoints : null, ranked: q }
+    })
+    const qual = withKind.filter(r => r.ranked).sort((a, b) => (b.officialPoints ?? 0) - (a.officialPoints ?? 0))
+    const rest = withKind.filter(r => !r.ranked).sort((a, b) => b.totalPts - a.totalPts || b.holesPlayed - a.holesPlayed)
+    qual.forEach((r, i) => { r.position = i === 0 ? 1 : (r.officialPoints === qual[i - 1].officialPoints ? qual[i - 1].position : i + 1) })
+    rest.forEach(r => { r.position = 0 })
+    boardOut = [...qual, ...rest]
+  }
+
   // Cumulative event totals — reuses the same capture_role='self'
   // summing convention as this round's own totals above, and the
   // already-tested computeCumulativeStandings for the ranking/summing
@@ -180,6 +214,8 @@ export async function computeRoundLeaderboard(
   let roundsSummary: {
     roundId: string; roundNumber: number; isLive: boolean
   }[] = []
+  let notRankedStandings: NotRankedPlayer[] = []
+  let excludedEarlyRoundIds: string[] = []
   try {
     // Root cause of the "R2 LIVE shows R1 data" bug: rounds created
     // together at trip setup (a single multi-row INSERT) get IDENTICAL
@@ -246,7 +282,11 @@ export async function computeRoundLeaderboard(
             }
           })
         }))
-        cumulativeStandings = computeCumulativeStandings(perRoundTotals)
+        const earlyMap = await loadEarlyFinish(admin, relevantRoundIds, tripId)
+        const adj = adjustForEarlyFinish(perRoundTotals, relevantRoundIds, earlyMap)
+        notRankedStandings = adj.notRanked
+        excludedEarlyRoundIds = adj.excludedRoundIds
+        cumulativeStandings = computeCumulativeStandings(adj.results)
 
         // Package 1 fix — status is now derived directly from each
         // round's actual status via the extracted, unit-tested
@@ -270,7 +310,8 @@ export async function computeRoundLeaderboard(
         relevantRoundIds.forEach((rid, idx) => {
           for (const r of perRoundTotals[idx]) {
             const existing = pointsByPlayer.get(r.playerId) ?? {}
-            existing[rid] = r.roundPoints
+            const eInfo = earlyMap.get(rid); const eRes = eInfo?.results.get(r.playerId)
+            existing[rid] = eInfo && eInfo.countsTowardEvent && eRes?.kind === 'qualifying' && eRes.officialPoints !== null ? eRes.officialPoints : r.roundPoints
             pointsByPlayer.set(r.playerId, existing)
           }
         })
@@ -288,6 +329,7 @@ export async function computeRoundLeaderboard(
               isCurrentRound,
               holesPlayed: isCurrentRound ? (liveRow?.holesPlayed ?? 0) : null,
               finished: isCurrentRound ? (liveRow?.finished ?? false) : true,
+              ...(excludedEarlyRoundIds.includes(rs.roundId) ? { counted: false } : {}),
             }
           }),
         })) as typeof cumulativeStandings
@@ -301,7 +343,7 @@ export async function computeRoundLeaderboard(
   }
 
   return { ok: true, body: {
-    board,
+    board: boardOut,
     roundId,
     roundName: roundRes.data.name,
     scoringFormat: roundRes.data.scoring_format,
@@ -309,6 +351,8 @@ export async function computeRoundLeaderboard(
     scoringNow: board.filter(p => p.holesPlayed > 0 && !p.finished).length,
     finishedCount: board.filter(p => p.finished).length,
     cumulativeStandings, // only meaningful once a prior completed round exists; empty array otherwise. Each entry now also carries a `rounds` breakdown (R1, R2 live, etc.) — see route comments above.
+    ...(earlyThis ? { earlyFinish: { reason: earlyThis.reason, note: earlyThis.note, officialHoles: earlyThis.officialHoles, countsTowardEvent: earlyThis.countsTowardEvent, ...(({ title, result, counting }) => ({ title, resultLabel: result, countingLabel: counting }))(earlyLabels(earlyThis)) } } : {}),
+    ...(notRankedStandings.length > 0 ? { notRankedStandings } : {}),
     roundsSummary, // [{roundId, roundNumber}] ascending — lets the client know whether this is Round 1 (single-column) or Round 2+ (R1|R2 LIVE|TOTAL table) without a separate request
   } }
 }

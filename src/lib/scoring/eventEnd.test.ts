@@ -206,7 +206,8 @@ test('End Event UI: champion choice defaults to NO, a reason is required, confir
   const s = read('src/components/scoring/EndEventControl.tsx')
   assert.match(s, /useState\(false\) \/\/ default: NO champion/)
   assert.match(s, /Declare an overall event champion\?/)
-  assert.match(s, /disabled=\{busy \|\| !impact \|\| !reason\}/)
+  // Package 3: the reason is still required for "ended early"; a "competition concluded" completion has no reason to give.
+  assert.match(s, /disabled=\{busy \|\| !impact \|\| \(mode === 'ended_early' && !reason\)\}/)
   assert.match(s, /Moments/); assert.match(s, /keep all scores/)
   assert.doesNotMatch(s, /Abandon/i, 'no generic abandoned status')
 })
@@ -228,4 +229,23 @@ test('player home and tournament page read the outcome defensively and drop trop
   assert.match(read('src/app/(app)/trips/[tripId]/PlayerHomeCard.tsx'), /championDeclared \? '🏆 View Final Results' : 'View Final Standings'/)
   assert.match(read('src/app/(app)/trips/[tripId]/page.tsx'), /readEventOutcome\(db, tripId\)/)
   assert.match(read('src/app/(app)/trips/[tripId]/tournament/page.tsx'), /eventFinished = eventFullyComplete && \(tripCompleted \|\| !hasCancelledRound\)/)
+})
+
+test('bottom-sheet dialogs sit above the bottom nav (z-index 100; dialogs 120) and fit the visible screen', () => {
+  const nav = Number(/zIndex: (\d+)/.exec(read('src/components/layout/TripBottomNav.tsx'))![1])
+  for (const f of ['src/components/scoring/CancelRoundControl.tsx', 'src/components/scoring/EndEventControl.tsx', 'src/components/leaderboard/ShareLeaderboardPanel.tsx', 'src/components/memories/SharePresentationPanel.tsx']) {
+    const s = read(f)
+    const z = Number(/role="dialog"[^\n]*zIndex: (\d+)/.exec(s)![1])
+    assert.ok(z > nav, `${f}: dialog z-index ${z} must exceed the nav's ${nav}`)
+    if (!f.includes('SharePresentation')) { assert.match(s, /maxHeight: '88dvh'/, f); assert.match(s, /safe-area-inset-bottom/, f) }
+  }
+})
+
+test('organiser dialogs sit above the bottom tab bar (z-index 100; dialogs 120) and keep their buttons reachable', () => {
+  for (const f of ['src/components/scoring/CancelRoundControl.tsx', 'src/components/scoring/EndEventControl.tsx']) {
+    const s = read(f)
+    assert.match(s, /role="dialog"[^>]*style=\{\{ position: 'fixed', inset: 0, zIndex: 120/, f)
+    assert.match(s, /maxHeight: '88dvh'/, f); assert.match(s, /position: 'sticky', bottom: -1/, f); assert.match(s, /env\(safe-area-inset-bottom\)/, f)
+  }
+  assert.match(read('src/components/layout/TripBottomNav.tsx'), /zIndex: 100/)
 })

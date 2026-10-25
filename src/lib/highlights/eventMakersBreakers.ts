@@ -53,6 +53,13 @@ export interface EventFieldData {
    * hidden copy). Defaults to true (a normal completion).
    */
   includeChampion?: boolean
+  /**
+   * Package 3: when supplied (index-aligned with `rounds`), the Event Champion headline is
+   * computed from these championship results instead of the raw per-hole data, so a round
+   * finished early (excluded, or counted on official nine-hole points) is treated exactly
+   * as the final standings treat it. Every other highlight still uses the real scores.
+   */
+  championResults?: RoundPlayerResult[][]
 }
 
 export interface EventHighlight {
@@ -113,12 +120,13 @@ export function generateEventMakersAndBreakers(field: EventFieldData): { makers:
   // ── Event Champion — reuses multiRound.ts's own canonical,
   // countback-aware ranking entirely. No second "who won" concept. ────
   if (rounds.length > 0 && field.includeChampion !== false) {
-    const roundPlayerResults: RoundPlayerResult[][] = rounds.map(round =>
+    const roundPlayerResults: RoundPlayerResult[][] = field.championResults ?? rounds.map(round =>
       completedPlayers(round).map(p => ({
         playerId: p.playerId, playerName: p.playerName, roundPoints: sumPts(p.holes),
         holePoints: p.holes.map(h => h.stablefordPts),
       }))
     )
+    const countedRoundCount = roundPlayerResults.filter(r => r.length > 0).length
     const standings = computeCumulativeStandings(roundPlayerResults)
     const champions = determineChampions(standings)
     if (champions.length > 0) {
@@ -126,7 +134,7 @@ export function generateEventMakersAndBreakers(field: EventFieldData): { makers:
         category: 'event_champion', kind: 'maker', scope: 'individual',
         title: 'Event Champion', definition: 'The best result across the whole event.',
         playerIds: champions.map(c => c.playerId), playerNames: champions.map(c => c.playerName),
-        statValue: champions[0].totalPoints, statLine: `${champions[0].totalPoints} pts across ${rounds.length} round${rounds.length === 1 ? '' : 's'}`,
+        statValue: champions[0].totalPoints, statLine: `${champions[0].totalPoints} pts across ${countedRoundCount} round${countedRoundCount === 1 ? '' : 's'}`,
         significance: 1000, // always the headline, when it exists at all
       })
     }

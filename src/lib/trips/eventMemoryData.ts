@@ -32,6 +32,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { computeFinalResults, type FinalResultsResult } from './finalResults'
 import { determineRoundWinners, determineRoundStandings, type RoundPlayerResult } from '@/lib/scoring/multiRound'
 import { cumulativeThroughRounds } from './cumulativeThroughRound'
+import { loadEarlyFinish, roundCompetitionResults, earlyLabels, type NotRankedPlayer } from '@/lib/scoring/earlyFinish'
 import { computeRoundSideGames } from '@/lib/sideGames/computeRoundSideGames'
 import { resolveSideGameWinner, type SideCompForResolution } from './resolveSideGameWinner'
 
@@ -70,6 +71,10 @@ export interface EventMemoryData {
     // Optional so existing fixtures stay valid.
     cumulativeStandings?: { playerId: string; playerName: string; totalPoints: number; position: number }[] | null
     cumulativeRoundsIncluded?: number | null
+    /** Package 3: players not ranked after this round (incomplete in a counted shortened round). */
+    cumulativeNotRanked?: NotRankedPlayer[] | null
+    /** Package 3: set when the round was finished early. Presentation/memories keep every score; this only labels it. */
+    earlyFinish?: { reason: string; note: string | null; officialHoles: number | null; countsTowardEvent: boolean; title: string; resultLabel: string; countingLabel: string } | null
   }[]
   memories: {
     momentId: string; roundId: string | null; roundOrdinal: number | null; holeNumber: number | null
@@ -156,6 +161,8 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
   // just a second, ranked view of the same already-derived data.
   const roundStandingsByRoundId = new Map<string, { playerId: string; playerName: string; roundPoints: number; position: number }[]>()
   const roundPlayerResultsByRoundId = new Map<string, RoundPlayerResult[]>()
+  // Package 3: any round finished early (tolerant: none if migration 100 is absent).
+  const earlyByRoundId = await loadEarlyFinish(admin, completedRoundIds, tripId)
   if (completedRoundIds.length > 0) {
     const roundResultsArrays = await Promise.all(completedRoundIds.map(async (roundId: string) => {
       const scorecardsRes = await admin.from('scorecards')
@@ -167,7 +174,9 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
           roundPoints: (sc.score_entries ?? []).filter(e => e.capture_role === 'self').reduce((sum, e) => sum + (e.stableford_pts ?? 0), 0),
           holePoints: [],
         }))
-      return { roundId, playerResults, winners: determineRoundWinners(playerResults), standings: determineRoundStandings(playerResults) }
+      // A round finished early is decided on its frozen official results (qualifying players only).
+      const competition = roundCompetitionResults(playerResults, earlyByRoundId.get(roundId))
+      return { roundId, playerResults, winners: determineRoundWinners(competition), standings: determineRoundStandings(competition) }
     }))
     for (const r of roundResultsArrays) {
       roundWinnersByRoundId.set(r.roundId, r.winners)
@@ -181,6 +190,8 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
   const cumulativeByRoundId = cumulativeThroughRounds(
     rounds.map((r: { id: string; status: string }) => ({ id: r.id, status: r.status })),
     roundPlayerResultsByRoundId,
+    5,
+    earlyByRoundId,
   )
 
   const membersRes = await admin.from('trip_members').select('profile_id').eq('trip_id', tripId)
@@ -367,6 +378,8 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
       standings: r.status === 'completed' ? (roundStandingsByRoundId.get(r.id) ?? []) : null,
       cumulativeStandings: r.status === 'completed' ? (cumulativeByRoundId.get(r.id)?.standings ?? []) : null,
       cumulativeRoundsIncluded: r.status === 'completed' ? (cumulativeByRoundId.get(r.id)?.roundsIncluded ?? 0) : null,
+      cumulativeNotRanked: r.status === 'completed' ? (cumulativeByRoundId.get(r.id)?.notRanked ?? []) : null,
+      earlyFinish: (() => { const i = earlyByRoundId.get(r.id); if (!i) return null; const l = earlyLabels(i); return { reason: i.reason, note: i.note, officialHoles: i.officialHoles, countsTowardEvent: i.countsTowardEvent, title: l.title, resultLabel: l.result, countingLabel: l.counting } })(),
     })),
     memories: moments.map((m: {
       id: string; round_id: string | null; hole_number: number | null; player_id: string | null; captured_by: string | null

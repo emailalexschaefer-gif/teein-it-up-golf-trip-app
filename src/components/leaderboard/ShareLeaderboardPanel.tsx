@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import type { PublicBoard } from '@/lib/leaderboardShare/publicBoard'
 import { buildLeaderboardPdf } from '@/lib/leaderboardShare/exportPdf'
@@ -69,9 +70,10 @@ export default function ShareLeaderboardPanel({ tripId, status, onClose }: { tri
     } finally { setBusy(null) }
   }
 
-  return (
-    <div role="dialog" aria-modal="true" aria-label="Share leaderboard" style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      <div style={{ background: '#fff', width: '100%', maxWidth: 520, borderRadius: '18px 18px 0 0', padding: 20, maxHeight: '92vh', overflowY: 'auto', fontFamily: 'var(--font-body)' }}>
+  // Rendered at the document root so no parent stacking context can trap it beneath the bottom tab bar.
+  const dialog = (
+    <div role="dialog" aria-modal="true" aria-label="Share leaderboard" style={{ position: 'fixed', inset: 0, zIndex: 120, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+      <div style={{ background: '#fff', width: '100%', maxWidth: 520, borderRadius: '18px 18px 0 0', padding: 20, paddingBottom: 'calc(20px + env(safe-area-inset-bottom))', maxHeight: '88dvh', overscrollBehavior: 'contain', overflowY: 'auto', fontFamily: 'var(--font-body)' }}>
         <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22, margin: '0 0 4px' }}>Share Leaderboard</h2>
         <p style={{ margin: '0 0 14px', fontSize: 13.5, color: '#4b4b44' }}>Let friends and family follow the scores, live or as a snapshot.</p>
 
@@ -81,7 +83,7 @@ export default function ShareLeaderboardPanel({ tripId, status, onClose }: { tri
             <input readOnly value={current.url} onFocus={e => e.currentTarget.select()} aria-label="Public leaderboard link"
               style={{ width: '100%', boxSizing: 'border-box', padding: 10, borderRadius: 10, border: '1px solid #d9d6cb', fontSize: 13.5, marginBottom: 10 }} />
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={copy} style={{ ...secondary, flex: 1 }}>Copy Link</button>
+              <button onClick={copy} style={{ ...secondary, flex: 1 }}>Copy Live Link</button>
               <button onClick={share} style={{ ...primary, flex: 1 }}>Share{'…'}</button>
             </div>
             <p style={{ fontSize: 12.5, color: '#6b6b60', margin: '8px 0 0' }}>Anyone with this link can see full player names and scores. It updates automatically as play progresses.</p>
@@ -117,8 +119,11 @@ export default function ShareLeaderboardPanel({ tripId, status, onClose }: { tri
 
         {error && <p role="alert" style={{ color: '#b91c1c', fontSize: 13.5, margin: '12px 0 0' }}>{error}</p>}
         {notice && <p role="status" style={{ color: '#14532d', fontSize: 13.5, margin: '12px 0 0' }}>{notice}</p>}
-        <button onClick={onClose} style={{ ...btn, width: '100%', marginTop: 16, border: '1px solid #d9d6cb', background: '#fff', color: '#1a1a16' }}>Close</button>
+        <div style={{ position: 'sticky', bottom: -1, background: '#fff', padding: '12px 0 2px', marginTop: 8 }}>
+          <button onClick={onClose} style={{ ...btn, width: '100%', border: '1px solid #d9d6cb', background: '#fff', color: '#1a1a16' }}>Close</button>
+        </div>
       </div>
     </div>
   )
+  return typeof document === 'undefined' ? null : createPortal(dialog, document.body)
 }

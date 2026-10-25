@@ -20,6 +20,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { computeCumulativeStandings, sortRoundsChronologically, type RoundPlayerResult } from '@/lib/scoring/multiRound'
+import { loadEarlyFinish, adjustForEarlyFinish, roundCompetitionResults } from '@/lib/scoring/earlyFinish'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -151,7 +152,11 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     }
 
     const allRoundsTotals = await Promise.all(priorRounds.map(r => totalsForRound(admin, r.id)))
-    const cumulativeStandings = computeCumulativeStandings(allRoundsTotals)
+    // Package 3: a round finished early only counts when the organiser included it (official
+    // nine-hole points); incomplete players are returned separately and never zeroed.
+    const earlyInfo = await loadEarlyFinish(admin, priorRounds.map(r => r.id), tripId)
+    const adj = adjustForEarlyFinish(allRoundsTotals, priorRounds.map(r => r.id), earlyInfo)
+    const cumulativeStandings = computeCumulativeStandings(adj.results)
 
     const previousRound = priorRounds[priorRounds.length - 1]
     const previousRoundTotals = allRoundsTotals[allRoundsTotals.length - 1]
@@ -159,13 +164,15 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
     // reusing computeCumulativeStandings on a single round is exactly
     // "cumulative standings across one round," which is just that round's
     // own results, so no separate ranking function is needed here either.
-    const previousRoundResults = computeCumulativeStandings([previousRoundTotals])
+    const previousRoundResults = computeCumulativeStandings([roundCompetitionResults(previousRoundTotals, earlyInfo.get(previousRound.id))])
 
     return NextResponse.json({
       isFirstRound: false,
       previousRound: { id: previousRound.id, name: previousRound.name },
       previousRoundResults,
       cumulativeStandings,
+      notRankedStandings: adj.notRanked,
+      previousRoundEarlyFinish: earlyInfo.has(previousRound.id) ? { reason: earlyInfo.get(previousRound.id)!.reason, countsTowardEvent: earlyInfo.get(previousRound.id)!.countsTowardEvent } : null,
       groups: groupsWithPlayers,
     })
   } catch (err) {

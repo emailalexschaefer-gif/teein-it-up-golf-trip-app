@@ -87,7 +87,7 @@ test('the member leaderboard route still delegates to the canonical computation 
 test('Share Leaderboard is on the leaderboard page for everyone; the organiser sees the warning + acknowledgement and a revoke button', () => {
   assert.match(read('src/app/(app)/trips/[tripId]/leaderboard/page.tsx'), /<ShareLeaderboardButton tripId=\{tripId\} \/>/)
   const panel = read('src/components/leaderboard/ShareLeaderboardPanel.tsx')
-  for (const s of ['Copy Link', 'Turn on public link', 'Turn off public link', 'full player names and scores', 'type="checkbox"', 'Image (PNG)', 'PDF', 'Share']) assert.ok(panel.includes(s), s)
+  for (const s of ['Copy Live Link', 'Turn on public link', 'Turn off public link', 'full player names and scores', 'type="checkbox"', 'Image (PNG)', 'PDF', 'Share']) assert.ok(panel.includes(s), s)
   assert.match(panel, /disabled=\{!ack/); assert.match(panel, /window\.confirm/); assert.match(panel, /No emails, contact details, handicaps or chat/)
   assert.match(panel, /hasn&apos;t turned on the public link/)
 })
@@ -105,4 +105,16 @@ test('migration 098: new table only, RLS on with no policies, one active link pe
 
 test('analytics and perf telemetry redact leaderboard tokens', () => {
   assert.match(read('src/lib/analytics/trackEvent.ts'), /\/l\//); assert.match(read('src/lib/perf/perfMetrics.ts'), /\/l\//)
+})
+
+test('Share Leaderboard UI: gold button with dark-green text and share icon; popup is portalled above the bottom nav with reachable buttons', () => {
+  const btn = readFileSync(join(process.cwd(), 'src/components/leaderboard/ShareLeaderboardButton.tsx'), 'utf8')
+  assert.match(btn, /#e0b43a/); assert.match(btn, /color: '#14532d'/); assert.match(btn, /<svg aria-hidden="true"/); assert.match(btn, /Share Leaderboard/)
+  const panel = readFileSync(join(process.cwd(), 'src/components/leaderboard/ShareLeaderboardPanel.tsx'), 'utf8')
+  assert.match(panel, /createPortal\(dialog, document\.body\)/)
+  assert.match(panel, /zIndex: 120/); assert.match(panel, /maxHeight: '88dvh'/); assert.match(panel, /env\(safe-area-inset-bottom\)/)
+  assert.match(panel, /position: 'sticky', bottom: -1/)
+  // organiser can enable from inside the popup, with the existing consent, then sees Copy / Share
+  assert.match(panel, /Turn on public link/); assert.match(panel, /acknowledge: true/); assert.match(panel, /disabled=\{!ack \|\| busy !== null\}/)
+  assert.match(panel, /Copy Live Link/)
 })
