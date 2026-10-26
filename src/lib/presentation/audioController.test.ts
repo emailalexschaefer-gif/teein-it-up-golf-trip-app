@@ -272,11 +272,28 @@ test('confetti: every piece has landed by the celebration length; reduced motion
 
 // ---- asset / source guards ----
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
-test('licensing guard: the unverified applause is NOT in public/ (not served), the feature flag defaults OFF, music file is present', () => {
-  assert.equal(existsSync(fileURLToPath(new URL('../../../public/audio/celebration-applause.mp3', import.meta.url))), false)
+test('applause asset guard: an original, valid, playable-length MP3 is shipped; the unlicensed V62 clip is not; kill switch is "off"', () => {
+  const f = fileURLToPath(new URL('../../../public/audio/celebration-applause.mp3', import.meta.url))
+  assert.equal(existsSync(f), true)
+  const b = readFileSync(f)
+  assert.ok(b.length > 50_000 && b.length < 400_000, `size ${b.length}`)
+  // MP3: optional ID3v2 tag, then an MPEG frame-sync (0xFFEx / 0xFFFx)
+  let o = 0; if (b.toString('latin1', 0, 3) === 'ID3') o = 10 + ((b[6] & 0x7f) << 21 | (b[7] & 0x7f) << 14 | (b[8] & 0x7f) << 7 | (b[9] & 0x7f))
+  assert.ok(b[o] === 0xff && (b[o + 1] & 0xe0) === 0xe0, 'starts with an MPEG audio frame')
+  assert.ok(b.toString('latin1').includes('synthesised'), 'tagged as the original synthesised clip')
+  assert.equal(existsSync(fileURLToPath(new URL('../../../local-test-assets/celebration-applause.mp3', import.meta.url))), false)
   assert.equal(existsSync(fileURLToPath(new URL('../../../public/audio/funky-clubhouse-mix.mp3', import.meta.url))), true)
   const cfg = read('./audioConfig.ts')
-  assert.ok(/NEXT_PUBLIC_PRESENTATION_APPLAUSE === 'on'/.test(cfg) && /: null/.test(cfg))
+  assert.match(cfg, /NEXT_PUBLIC_PRESENTATION_APPLAUSE === 'off' \? null : '\/audio\/celebration-applause\.mp3'/)
+  assert.ok(existsSync(fileURLToPath(new URL('../../../local-test-assets/generate_applause.py', import.meta.url))), 'generator kept so the clip is reproducible')
+})
+test('applause is enabled by default (config) and the clip length matches the confetti / celebration timing', async () => {
+  const { APPLAUSE_SRC } = await import('./audioConfig')
+  assert.equal(APPLAUSE_SRC, process.env.NEXT_PUBLIC_PRESENTATION_APPLAUSE === 'off' ? null : '/audio/celebration-applause.mp3')
+  const f = fileURLToPath(new URL('../../../public/audio/celebration-applause.mp3', import.meta.url))
+  const kb = readFileSync(f).length * 8 / 128000 // 128 kbps CBR => seconds
+  assert.ok(Math.abs(kb - 9.43) < 0.6, `about 9.4 s, got ${kb.toFixed(2)}`)
+  assert.ok(FALLBACK_CELEBRATION_MS >= 9000 && FALLBACK_CELEBRATION_MS <= 10000)
 })
 test('player wiring: celebration only via isCelebrationSlide; toggles in the hidden controls layer; no new effect reveals controls', () => {
   const src = read('../../components/memories/EventHighlightsPlayer.tsx')

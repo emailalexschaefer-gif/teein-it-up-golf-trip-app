@@ -1,11 +1,9 @@
-# Local test assets — NOT deployed
+# Local test assets
 
-The recovered V62 applause clip (9.43 s) has **unverified** source and reuse rights, so it is deliberately NOT included in this package or repository. If you hold your own copy for local testing only, it must never be committed.
+`public/audio/celebration-applause.mp3` is an **original** clip, synthesised from random noise and simple oscillators
+by `generate_applause.py` (seeded, reproducible). It contains no recorded or third-party audio, so there is no licence to clear.
 
-To test it locally ONLY:
-1. copy your local copy to `public/audio/celebration-applause.mp3`
-2. run with `NEXT_PUBLIC_PRESENTATION_APPLAUSE=on`
-3. delete the copy from `public/audio/` before building anything that will be deployed
-   (an automated test fails if the file is present in `public/audio/`).
+The recovered V62 demo applause has **unverified** source and rights and is deliberately NOT used or shipped. An automated test fails if a copy appears in `local-test-assets/`.
 
-Production: leave the flag unset/off until rights are verified or a licensed replacement is supplied.
+To replace the clip with a recorded, licensed one: overwrite `public/audio/celebration-applause.mp3` (short MP3, about 9-10 s; the confetti follows the clip length) and keep the licence record.
+Kill switch: `NEXT_PUBLIC_PRESENTATION_APPLAUSE=off` in Vercel disables applause without a code change.

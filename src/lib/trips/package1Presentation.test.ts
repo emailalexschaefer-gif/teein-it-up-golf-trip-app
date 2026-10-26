@@ -122,11 +122,26 @@ test('media that fails to load never blanks or stops the slideshow, and is trace
 })
 
 // ── Items 1–3: audio layer restored, licensing respected ─────────────────
-test('music file is shipped; the unlicensed applause file is not (and the flag defaults off)', () => {
+test('music and the original applause clip are shipped; no unlicensed recording is present', () => {
   assert.ok(existsSync(join(ROOT, 'public/audio/funky-clubhouse-mix.mp3')))
-  assert.ok(!existsSync(join(ROOT, 'public/audio/celebration-applause.mp3')))
+  assert.ok(existsSync(join(ROOT, 'public/audio/celebration-applause.mp3')))
   assert.ok(!existsSync(join(ROOT, 'local-test-assets/celebration-applause.mp3')))
-  assert.match(read('src/lib/presentation/audioConfig.ts'), /NEXT_PUBLIC_PRESENTATION_APPLAUSE === 'on'/)
+  assert.match(read('src/lib/presentation/audioConfig.ts'), /NEXT_PUBLIC_PRESENTATION_APPLAUSE === 'off'/)
+  assert.match(read('local-test-assets/README.md'), /synthesised/i)
+})
+
+test('fullscreen: never requested automatically (Chrome shows its own grey notice); optional button only; canvas sized from the player box', () => {
+  const src = read('src/components/memories/EventHighlightsPlayer.tsx')
+  const calls = src.match(/\.requestFullscreen\??\.?\(/g) ?? []
+  assert.equal(calls.length, 1, 'exactly one call site')
+  const at = src.indexOf(calls[0]); const fn = src.lastIndexOf('function toggleFullscreen', at)
+  assert.ok(fn > 0 && at - fn < 400, 'the only call is inside toggleFullscreen')
+  assert.match(src, /onClick=\{\(e\) => \{ e\.stopPropagation\(\); toggleFullscreen\(\) \}\}/)
+  assert.match(src, /aria-label=\{isFullscreen \? 'Exit full screen' : 'Enter full screen'\}/)
+  const toggleIdx = src.indexOf('onClick={(e) => { e.stopPropagation(); toggleFullscreen() }}')
+  assert.ok(toggleIdx > src.indexOf('opacity: controlsVisible ? 1 : 0'), 'button sits inside the (hidden-until-tap) controls layer')
+  assert.match(src, /width: 'min\(100cqw, calc\(100cqh \* 16 \/ 9\)\)'/)
+  assert.doesNotMatch(src, /100vh/)
 })
 
 test('the player is wired to the audio layer and /audio/ is reachable without signing in (public viewers hear the music)', () => {
@@ -171,4 +186,11 @@ test('public presentation: only an active, public-enabled publication is served,
 
 test('public sharing is separate from marketing use of event content (no marketing flag is read or written by sharing)', () => {
   for (const f of ['src/app/api/trips/[tripId]/share-presentation/route.ts', 'src/app/s/[token]/page.tsx', 'src/lib/sharing/publish.ts', 'src/lib/sharing/eligibility.ts']) assert.doesNotMatch(read(f), /marketing/i, f)
+})
+
+test('champion slide holds for the whole celebration so applause and confetti are never cut off', () => {
+  const src = read('src/components/memories/EventHighlightsPlayer.tsx')
+  assert.match(src, /isCelebrationSlide\(current\)\s*\?\s*Math\.max\(baseSlideMs, REVEAL_DELAY_MS \+ FALLBACK_CELEBRATION_MS \+ CHAMPION_TAIL_MS\)/)
+  // 5 s is the shortest slide setting: (5 + 2) s must be lifted to cover reveal + 9.43 s clip
+  assert.ok(1000 + 9400 + 1200 > (5 + 2) * 1000)
 })

@@ -3,15 +3,15 @@
 // MUSIC: "Funky Clubhouse Mix" -- an original generated instrumental,
 // approved for use. Served as a static asset (no database storage, no signed links).
 //
-// APPLAUSE: the recovered V62 demo applause has NO established licence or
-// provenance, so it is NOT shipped in this package and the feature is OFF.
-// To enable later, once rights are cleared or a licensed replacement exists:
-//   1. add the file as public/audio/celebration-applause.mp3
-//   2. set NEXT_PUBLIC_PRESENTATION_APPLAUSE=on in Vercel and redeploy.
-// With the flag off, no applause is requested or played anywhere.
+// APPLAUSE: "celebration-applause.mp3" is an ORIGINAL clip synthesised for this app from random
+// noise and oscillators (no recorded or third-party audio, so no licence to clear). It replaces the
+// recovered V62 demo recording, which had no established licence and is NOT used.
+// The generator script is kept in local-test-assets/ so the clip is reproducible.
+// To swap in a recorded, licensed clip later: replace public/audio/celebration-applause.mp3.
+// Kill switch: NEXT_PUBLIC_PRESENTATION_APPLAUSE=off removes applause everywhere without a code change.
 export const MUSIC_SRC = '/audio/funky-clubhouse-mix.mp3'
 export const APPLAUSE_SRC: string | null =
-  process.env.NEXT_PUBLIC_PRESENTATION_APPLAUSE === 'on' ? '/audio/celebration-applause.mp3' : null
+  process.env.NEXT_PUBLIC_PRESENTATION_APPLAUSE === 'off' ? null : '/audio/celebration-applause.mp3'
 
 export const MUSIC_VOLUME = 0.25
 /** Music fade to silence on the champion slide / audible video. */

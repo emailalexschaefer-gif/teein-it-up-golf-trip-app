@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 import type { Slide } from '@/lib/trips/slideshowDeck'
 import { isCelebrationSlide } from '@/lib/presentation/celebrationTrigger'
 import PresentationConfetti from '@/components/memories/PresentationConfetti'
+import { REVEAL_DELAY_MS, FALLBACK_CELEBRATION_MS } from '@/lib/presentation/audioConfig'
 import { usePresentationAudio } from '@/components/memories/usePresentationAudio'
 import { SlideMediaLoader, browserImageLoad, requiredImageUrl, withoutImage, urlsToPreload, contentReady, MEDIA_TIMEOUT_MS } from '@/lib/presentation/slideMedia'
 import { snapshotTitleCqw, splitCourseName, pillarboxCqw, momentsLabelPlacement, momentsLabelHeading } from '@/lib/trips/presentationLayout'
@@ -16,10 +17,10 @@ import { snapshotTitleCqw, splitCourseName, pillarboxCqw, momentsLabelPlacement,
  *
  * 16:9 PRESENTATION CANVAS: the brief's own "separate the presentation
  * canvas from the device viewport" instruction. A fixed-aspect-ratio
- * canvas (width/height derived via the standard CSS "fit an aspect
- * ratio inside an arbitrary viewport" calculation: min(100vw,
- * 100vh*16/9) and min(100vh, 100vw*9/16)) is centred within whatever
- * the actual device viewport is. On a TV/landscape device this canvas
+ * canvas (width/height derived via the standard "fit an aspect ratio
+ * inside a box" calculation, from the player's own box in container
+ * units: min(100cqw, 100cqh*16/9) and min(100cqh, 100cqw*9/16)) is
+ * centred within whatever the actual visible area is. On a TV/landscape device this canvas
  * fills (or nearly fills) the screen; on a portrait phone it
  * letterboxes with dark bars above/below -- deliberately, so the
  * story composition is always genuinely 16:9 regardless of the
@@ -62,11 +63,9 @@ import { snapshotTitleCqw, splitCourseName, pillarboxCqw, momentsLabelPlacement,
  * ever be playing, by construction (the inactive slides render no
  * `<video>` element to play at all).
  *
- * FULLSCREEN: requests the browser's Fullscreen API on Play; if the
- * browser refuses or doesn't support it (confirmed with a feature
- * check, not just a try/catch on the call), the player still works as
- * a full-viewport overlay -- never unusable merely because
- * programmatic fullscreen was refused.
+ * FULLSCREEN: the player is a full-viewport overlay and does NOT request browser fullscreen
+ * by itself (Android Chrome shows a grey instructional notice over the opening slide when it
+ * does). An optional button requests it on the viewer's tap; refusal or no support changes nothing.
  *
  * WAKE LOCK: requested on Play, released on pause/exit, guarded
  * entirely behind a feature check and try/catch -- never a hard
@@ -151,6 +150,9 @@ function GoldCrownIcon({ size }: { size: string }) {
   )
 }
 
+/** Quiet beat after the cheering ends before the next slide. */
+const CHAMPION_TAIL_MS = 1200
+
 export default function EventHighlightsPlayer({ slides, durationSeconds, onExit, aftershowStartIndex, aftershowLoop }: EventHighlightsPlayerProps) {
   const [index, setIndex] = useState(0)
   const [playing, setPlaying] = useState(true)
@@ -198,6 +200,7 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
   // genuinely detectable as portrait. Dismissible; never blocks playback.
   const [showRotateHint, setShowRotateHint] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   // Background music + champion celebration (see lib/presentation/audioController.ts).
   const audio = usePresentationAudio()
   const { setVideoPlaying, celebrate, endCelebration } = audio
@@ -249,9 +252,14 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
   // comes from the video's own `ended` event (see the effect below);
   // this value is used if that event never fires (a failed/stalled
   // clip).
-  const slideDurationMs = isVideoBlooper(current)
+  const baseSlideMs = isVideoBlooper(current)
     ? ((current.durationSeconds ?? durationSeconds) + 3) * 1000
     : (current?.kind === 'photo' || (isBlooper(current) && current.mediaType === 'photo') ? durationSeconds : durationSeconds + 2) * 1000
+  // The champion slide stays up for the whole celebration (reveal pause + applause/confetti + a
+  // short beat), otherwise a 5-8 s slide would cut the cheering and confetti off part-way.
+  const slideDurationMs = isCelebrationSlide(current)
+    ? Math.max(baseSlideMs, REVEAL_DELAY_MS + FALLBACK_CELEBRATION_MS + CHAMPION_TAIL_MS)
+    : baseSlideMs
 
   const goTo = useCallback((next: number) => {
     setIndex(Math.max(0, Math.min(slides.length - 1, next)))
@@ -354,17 +362,20 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
   // moment the device is actually rotated (the resize listener below),
   // never a blocking overlay that could strand playback.
   useEffect(() => {
-    const el = containerRef.current
     let cancelled = false
 
+    // Package 1 (26 Oct) -- the presentation no longer requests browser fullscreen on its own.
+    // Android Chrome answers every fullscreen request with its own grey "Viewing full screen /
+    // swipe to exit" notice, drawn over the opening slide, which the page cannot hide or shorten.
+    // The player is already a full-viewport overlay, so it opens clean; fullscreen is now an
+    // optional button (toggleFullscreen) for viewers who want it.
     async function enterPresentationMode() {
-      if (el && document.fullscreenEnabled && el.requestFullscreen) {
-        try { await el.requestFullscreen() } catch { /* fullscreen refused -- still works as a full-viewport overlay */ }
-      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const orientation = (screen as any).orientation
-      if (orientation && typeof orientation.lock === 'function') {
-        try { await orientation.lock('landscape') } catch { /* locking unsupported/rejected -- fall through to the portrait check below */ }
+      // Orientation can only be locked while fullscreen on mobile browsers; if the viewer has
+      // already chosen fullscreen, keep landscape. Otherwise the rotate hint below covers portrait.
+      if (document.fullscreenElement && orientation && typeof orientation.lock === 'function') {
+        try { await orientation.lock('landscape') } catch { /* unsupported/rejected -- fall through to the portrait check below */ }
       }
       if (cancelled) return
       const stillPortrait = typeof window.matchMedia === 'function' && window.matchMedia('(orientation: portrait)').matches
@@ -378,6 +389,14 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
       if (typeof window.matchMedia === 'function' && window.matchMedia('(orientation: landscape)').matches) setShowRotateHint(false)
     }
     window.addEventListener('resize', onResize)
+    function onFullscreenChange() {
+      const on = !!document.fullscreenElement
+      setIsFullscreen(on)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const orientation = (screen as any).orientation
+      if (on && orientation && typeof orientation.lock === 'function') orientation.lock('landscape').catch(() => {})
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange)
 
     if ('wakeLock' in navigator) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -388,6 +407,7 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
     return () => {
       cancelled = true
       window.removeEventListener('resize', onResize)
+      document.removeEventListener('fullscreenchange', onFullscreenChange)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const orientation = (screen as any).orientation
       if (orientation && typeof orientation.unlock === 'function') {
@@ -397,6 +417,15 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
       wakeLockRef.current?.release().catch(() => {})
     }
   }, [])
+
+  // Optional fullscreen -- only ever in response to the viewer tapping the button.
+  const canFullscreen = typeof document !== 'undefined' && !!document.fullscreenEnabled
+  function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) { document.exitFullscreen().catch(() => {}); return }
+      containerRef.current?.requestFullscreen?.().catch(() => { /* refused: the overlay is still full-viewport */ })
+    } catch { /* not supported -- the button is only shown when it is */ }
+  }
 
   // Controls are hidden when the presentation starts. A deliberate user
   // action (tap/click, or keyboard focus landing on a control) reveals them,
@@ -491,7 +520,7 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
       onClickCapture={audio.unlock}
       onClick={bumpControls}
       onTouchStart={bumpControls}
-      style={{ position: 'fixed', inset: 0, background: '#000', zIndex: PLAYER_Z, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      style={{ position: 'fixed', inset: 0, background: '#000', zIndex: PLAYER_Z, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', containerType: 'size' }}
     >
       {/* V1.18 (10 Oct), Package 5.2 -- the aftershow's "gentle fade"
           transition keyframe, defined once here rather than per-slide. */}
@@ -502,8 +531,10 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
           device viewport. */}
       <div style={{
         position: 'relative', background: '#000', overflow: 'hidden',
-        width: 'min(100vw, calc(100vh * 16 / 9))',
-        height: 'min(100vh, calc(100vw * 9 / 16))',
+        // Sized from the player's own (visible) box, not the viewport: without browser fullscreen
+        // the address bar is showing and the viewport height would be taller than the screen the viewer can see.
+        width: 'min(100cqw, calc(100cqh * 16 / 9))',
+        height: 'min(100cqh, calc(100cqw * 9 / 16))',
         // Presentation UX polish (12 Oct) -- makes this canvas a size
         // container so slides can size type in `cqw` (1% of the CANVAS
         // width) instead of `vw` (1% of the device viewport). On a
@@ -626,6 +657,14 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
                 aria-label={audio.state.applauseEnabled ? 'Turn celebration sound off' : 'Turn celebration sound on'}
                 style={{ ...navButtonStyle(false), fontSize: 16, opacity: audio.state.applauseEnabled ? 1 : 0.55 }}
               >{'\u{1F44F}'}</button>
+            )}
+            {canFullscreen && (
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleFullscreen() }}
+                aria-pressed={isFullscreen}
+                aria-label={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
+                style={{ ...navButtonStyle(false), fontSize: 16 }}
+              >{isFullscreen ? '\u2922' : '\u26F6'}</button>
             )}
           </div>
         </div>
