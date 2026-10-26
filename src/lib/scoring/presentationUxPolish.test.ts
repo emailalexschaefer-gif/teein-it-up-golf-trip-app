@@ -156,7 +156,7 @@ test('momentsLabelHeading: BLOOPERS only for an organiser-flagged Blooper; every
 })
 
 test('the label is rendered only for photo Moments and Blooper slides -- never group photo, winners, champion or any other slide', () => {
-  const mount = playerSrc.match(/\{\(isPhoto\(current\) \|\| isBlooper\(current\)\) && mediaSize[\s\S]*?\/>\s*\n\s*\)\}/)
+  const mount = playerSrc.match(/\{(?:slideReady && )?\(isPhoto\(current\) \|\| isBlooper\(current\)\) && mediaSize[\s\S]*?\/>\s*\n\s*\)\}/)
   assert.ok(mount, 'expected a single, kind-gated mount')
   assert.equal((playerSrc.match(/<MomentsSourceLabel/g) ?? []).length, 1, 'mounted exactly once, so it can never duplicate')
   assert.match(mount![0], /mediaSize\.key === current\.momentId/)

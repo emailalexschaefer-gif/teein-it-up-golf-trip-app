@@ -5,6 +5,7 @@ import type { Slide } from '@/lib/trips/slideshowDeck'
 import { isCelebrationSlide } from '@/lib/presentation/celebrationTrigger'
 import PresentationConfetti from '@/components/memories/PresentationConfetti'
 import { usePresentationAudio } from '@/components/memories/usePresentationAudio'
+import { SlideMediaLoader, browserImageLoad, requiredImageUrl, withoutImage, urlsToPreload, contentReady, MEDIA_TIMEOUT_MS } from '@/lib/presentation/slideMedia'
 import { snapshotTitleCqw, splitCourseName, pillarboxCqw, momentsLabelPlacement, momentsLabelHeading } from '@/lib/trips/presentationLayout'
 
 /**
@@ -214,6 +215,34 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
   // like an ordinary photo slide for timing purposes.
   const isVideoBlooper = (s: Slide | undefined): s is Extract<Slide, { kind: 'blooper' }> => isBlooper(s) && s.mediaType === 'video'
 
+  // Package 1 correction -- media-ready playback (see lib/presentation/slideMedia.ts). A slide's
+  // picture and its text are revealed together, only once the picture is loaded and decoded (or
+  // has failed / timed out, in which case the slide's no-photo layout is used). The slide's
+  // display timer and the champion celebration both start from that moment, never earlier.
+  const [loader, setLoader] = useState<SlideMediaLoader | null>(null)
+  const [, setMediaTick] = useState(0)
+  useEffect(() => {
+    const l = new SlideMediaLoader(browserImageLoad, () => setMediaTick(t => t + 1))
+    setLoader(l)
+    return () => { l.dispose(); setLoader(null) }
+  }, [])
+  const currentImageUrl = requiredImageUrl(current)
+  useEffect(() => {
+    if (!loader) return
+    if (currentImageUrl) loader.request(currentImageUrl, true)
+    for (const u of urlsToPreload(slides, index)) loader.request(u)
+  }, [loader, slides, index, currentImageUrl])
+  const mediaStatus = currentImageUrl && loader ? loader.statusOf(currentImageUrl) : null
+  // Sensible timeout, counted from when the viewer actually reaches the slide.
+  useEffect(() => {
+    if (!loader || !currentImageUrl || mediaStatus !== 'loading') return
+    const t = setTimeout(() => { console.warn('[presentation] photo timed out, showing fallback', { index }); loader.giveUp(currentImageUrl) }, MEDIA_TIMEOUT_MS)
+    return () => clearTimeout(t)
+  }, [loader, currentImageUrl, mediaStatus, index])
+  const slideReady = contentReady(currentImageUrl, mediaStatus)
+  // The slide as it should be drawn: its picture removed if that picture is unavailable.
+  const shown: Slide | undefined = current && mediaStatus === 'failed' ? withoutImage(current) : current
+
   // Per-slide duration: photo slides use the chosen duration; title/
   // divider/closing slides stay visible a little longer. A video
   // Blooper slide's own timer is a FALLBACK only -- its real duration
@@ -265,13 +294,13 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
   // so the timer must still fire.
   useEffect(() => {
     if (advanceTimer.current) clearTimeout(advanceTimer.current)
-    if (!playing) return
+    if (!playing || !slideReady) return // the viewing time starts when the slide is actually on screen
     const atEnd = index >= slides.length - 1
     const willLoop = atEnd && canLoopAftershow && aftershowStartIndex! <= index
     if (atEnd && !willLoop) { setPlaying(false); return }
     advanceTimer.current = setTimeout(advance, slideDurationMs)
     return () => { if (advanceTimer.current) clearTimeout(advanceTimer.current) }
-  }, [index, playing, slideDurationMs, advance, slides.length, canLoopAftershow, aftershowStartIndex])
+  }, [index, playing, slideReady, slideDurationMs, advance, slides.length, canLoopAftershow, aftershowStartIndex])
 
   // Video playback: play/pause follows the presentation's own state;
   // the video's real `ended` event advances immediately rather than
@@ -396,11 +425,11 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
   // state changes can never restart it; leaving the slide stops the applause and restores music.
   const onChampionSlide = isCelebrationSlide(current)
   useEffect(() => {
-    if (!onChampionSlide) return
+    if (!onChampionSlide || !slideReady) return // reveal first, then confetti/applause
     celebrate() // music fades to silence and stays off for this slide; applause + confetti start together after the reveal
     return () => { endCelebration() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onChampionSlide, index])
+  }, [onChampionSlide, slideReady, index])
 
   // Keyboard controls (desktop).
   useEffect(() => {
@@ -420,14 +449,14 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
     // frame. It now says so, and the Moment id is logged so the file can be traced.
     if (!slide.imageUrl) {
       return (
-        <div style={{ position: 'absolute', inset: 0, display: visible ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
+        <div key={slide.momentId} style={{ position: 'absolute', inset: 0, display: visible ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#9ca3af' }}>Photo unavailable</p>
         </div>
       )
     }
     const failed = failedUrls.has(slide.imageUrl)
     return (
-      <div style={{ position: 'absolute', inset: 0, display: visible ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', background: '#000', overflow: 'hidden' }}>
+      <div key={slide.momentId} style={{ position: 'absolute', inset: 0, display: visible ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', background: '#000', overflow: 'hidden' }}>
         {failed ? (
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#9ca3af' }}>Photo unavailable</p>
         ) : (
@@ -454,7 +483,7 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
     )
   }
 
-  const current16x9Photo = isPhoto(current) ? current : undefined
+  const current16x9Photo = isPhoto(shown) ? shown : undefined
 
   return (
     <div
@@ -466,7 +495,7 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
     >
       {/* V1.18 (10 Oct), Package 5.2 -- the aftershow's "gentle fade"
           transition keyframe, defined once here rather than per-slide. */}
-      <style>{'@keyframes ttuAftershowFade { from { opacity: 0 } to { opacity: 1 } }'}</style>
+      <style>{'@keyframes ttuAftershowFade { from { opacity: 0 } to { opacity: 1 } } @keyframes ttuLoadIn { from { opacity: 0 } to { opacity: 1 } } @keyframes ttuSpin { to { transform: rotate(360deg) } } @media (prefers-reduced-motion: reduce) { .ttu-loading { animation: ttuLoadIn 0.4s ease 0.45s both !important } }'}</style>
       {/* 16:9 presentation canvas -- letterboxes on a portrait device,
           fills on landscape/TV. Everything slide-related renders
           inside this fixed-ratio box, never directly against the raw
@@ -484,12 +513,18 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
       }}>
         {/* Preload current + adjacent photo slides only -- never the whole deck. */}
         {renderPhoto(isPhoto(slides[index - 1]) ? slides[index - 1] as Extract<Slide, { kind: 'photo' }> : undefined, false)}
-        {renderPhoto(current16x9Photo, true)}
+        {slideReady && renderPhoto(current16x9Photo, true)}
         {renderPhoto(isPhoto(slides[index + 1]) ? slides[index + 1] as Extract<Slide, { kind: 'photo' }> : undefined, false)}
 
-        {!isPhoto(current) && (
+        {!slideReady && (
+          <div role="status" aria-live="polite" aria-label="Loading" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
+            <span className="ttu-loading" style={{ width: 26, height: 26, borderRadius: '50%', border: '3px solid rgba(255,255,255,0.18)', borderTopColor: '#c9a84c', animation: 'ttuLoadIn 0.4s ease 0.45s both, ttuSpin 0.9s linear infinite' }} />
+          </div>
+        )}
+
+        {slideReady && !isPhoto(current) && (
           <NonPhotoSlide
-            slide={current}
+            slide={shown!}
             videoRef={videoRef}
             videoMuted={videoMuted}
             onVideoFailed={() => advance()}
@@ -501,7 +536,7 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
             and Blooper photos/videos only (never group photo, winner,
             champion or any other slide). Sits above the media, below the
             controls layer, and never intercepts a tap. */}
-        {(isPhoto(current) || isBlooper(current)) && mediaSize && mediaSize.key === current.momentId && (
+        {slideReady && (isPhoto(current) || isBlooper(current)) && mediaSize && mediaSize.key === current.momentId && (
           <MomentsSourceLabel
             heading={momentsLabelHeading(isBlooper(current) ? current.isBlooper : undefined)}
             aspect={mediaSize.w / mediaSize.h}
@@ -510,7 +545,7 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
 
         {/* Photo context overlay -- subtle, never competing with the
             photograph, and kept clear of the controls safe-area strip. */}
-        {isPhoto(current) && (current.roundName || current.holeNumber || current.playerName || current.sideCompName || current.caption) && (
+        {slideReady && isPhoto(current) && (current.roundName || current.holeNumber || current.playerName || current.sideCompName || current.caption) && (
           <div style={{ position: 'absolute', left: 0, right: 0, bottom: CONTROLS_SAFE_AREA_PX, padding: '28px 20px 16px', background: 'linear-gradient(transparent, rgba(0,0,0,0.75))' }}>
             {(current.roundName || current.holeNumber) && (
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, letterSpacing: 1, color: '#d9c9a3', textTransform: 'uppercase', marginBottom: 2 }}>
