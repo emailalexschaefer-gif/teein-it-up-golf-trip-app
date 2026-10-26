@@ -12,6 +12,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { loadPublishedRows } from '@/lib/rounds/publishedView'
 
 interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
 
@@ -33,6 +34,13 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
   const startType = roundRes.data.start_type === 'shotgun' ? 'shotgun' : 'standard'
   const groupId = membershipRes.data.group_id
+
+  // Package 2: before the round starts, the released snapshot -- not the editable live assignment -- is authoritative.
+  const published = await loadPublishedRows(admin, roundId)
+  if (published) {
+    const mine = published.find(r => r.player_id === user.id)
+    return NextResponse.json({ startType, startingHole: startType === 'shotgun' ? (mine?.starting_hole ?? null) : null, published: true })
+  }
 
   if (startType !== 'shotgun' || !groupId) {
     return NextResponse.json({ startType, startingHole: null })

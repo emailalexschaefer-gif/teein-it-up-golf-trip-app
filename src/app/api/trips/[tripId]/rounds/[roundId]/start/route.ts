@@ -15,7 +15,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolvePlayingHandicap } from '@/lib/scoring/defaultHoles'
-import { calculateDailyHandicap } from '@/lib/scoring/dailyHandicap'
+import { resolveRoundHandicap, sameArrangements, diffArrangements, type ArrangementRow } from '@/lib/rounds/arrangements'
+import { loadLiveArrangements } from '@/lib/rounds/liveArrangements'
 import { z } from 'zod'
 
 // Concrete type for the admin (service-role) Supabase client, derived
@@ -139,7 +140,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   // first, then comparing trip_id explicitly, tells us which one this is.
   const roundByIdRes = await admin
     .from('rounds')
-    .select('id, status, holes, name, trip_id, score_capture_mode, slope_rating')
+    .select('id, status, holes, name, trip_id, score_capture_mode, slope_rating, start_type, starting_hole_number')
     .eq('id', roundId)
     .maybeSingle()
 
@@ -323,23 +324,35 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     hole_number: h.hole_number, par: h.par, stroke_index: h.stroke_index, distance: h.distance ?? null, pro_tip: h.pro_tip ?? null,
   }))
 
-  const scorecardData = assignedMembers.map((m: typeof assignedMembers[0]) => {
-    const override = handicapOverrides?.[m.profile_id]
-    let finalHandicap: number
-    if (override !== undefined) {
-      finalHandicap = override
-    } else {
-      const ga = resolvePlayingHandicap(m.playing_handicap, m.profiles?.handicap)
-      if (ga !== null && round.slope_rating != null) {
-        try {
-          finalHandicap = calculateDailyHandicap({ gaHandicap: ga, slopeRating: round.slope_rating })
-        } catch {
-          finalHandicap = ga
+  // Package 2 -- if the organiser released this round's arrangements, the released snapshot is the single
+  // authoritative source: its playing handicaps are used exactly as published (the client's values are ignored,
+  // so a fresh browser window the next day can never silently change them), and the live setup must still match
+  // what players were shown. Rounds that were never released keep the previous behaviour unchanged.
+  const releasedHandicap = new Map<string, number>()
+  {
+    const relRes = await admin.from('rounds').select('setup_released, release_revision').eq('id', roundId).maybeSingle()
+    if (!relRes.error && relRes.data?.setup_released && (relRes.data.release_revision ?? 0) > 0) {
+      const snapRes = await admin.from('round_arrangements').select('player_id, group_id, group_name, tee_time, starting_hole, playing_handicap').eq('round_id', roundId)
+      const snap = (snapRes.data ?? []) as ArrangementRow[]
+      if (!snapRes.error && snap.length > 0) {
+        const live = await loadLiveArrangements(admin, tripId, { id: roundId, name: round.name, status: round.status, start_type: (round as { start_type?: string | null }).start_type ?? null, starting_hole_number: (round as { starting_hole_number?: number | null }).starting_hole_number ?? null, slope_rating: round.slope_rating ?? null }, Object.fromEntries(snap.map(r => [r.player_id, r.playing_handicap])))
+        if (!sameArrangements(snap, live.rows)) {
+          return NextResponse.json({
+            error: 'The groups, tee times or starting holes have changed since this round was released. Open Begin Round and use Confirm & Re-release so players see the current arrangements, then start the round.',
+            code: 'arrangements_changed', changes: diffArrangements(snap, live.rows),
+          }, { status: 409 })
         }
-      } else {
-        finalHandicap = ga ?? 0
+        for (const r of snap) releasedHandicap.set(r.player_id, r.playing_handicap)
       }
     }
+  }
+
+  const scorecardData = assignedMembers.map((m: typeof assignedMembers[0]) => {
+    const released = releasedHandicap.get(m.profile_id)
+    const finalHandicap: number = released ?? resolveRoundHandicap({
+      override: handicapOverrides?.[m.profile_id], tripHandicap: m.playing_handicap,
+      profileHandicap: m.profiles?.handicap, slopeRating: round.slope_rating,
+    }) ?? 0
     return {
       player_id:        m.profile_id,
       playing_handicap: finalHandicap,

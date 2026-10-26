@@ -9,6 +9,7 @@ import CollapsibleSection from '@/components/shared/CollapsibleSection'
 import { useScoringFocusStore } from '@/store/scoringFocusStore'
 import BrandLogo from '@/components/brand/BrandLogo'
 import { trackEvent } from '@/lib/analytics/trackEvent'
+import { formatGolfHandicap } from '@/lib/scoring/handicapDisplay'
 
 interface Player {
   member_id:  string  // trip_members.id — required by the members PATCH route, distinct from profile_id
@@ -434,6 +435,28 @@ export default function BeginRoundModal({
 
   const [error, setError]   = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
+  // Package 2 -- release state from the server (the released snapshot is the source of truth for handicaps and
+  // for "what players were told"). Browser state alone is never trusted across sessions.
+  interface ReleaseState { available: boolean; released: boolean; legacy?: boolean; revision: number; snapshot: { player_id: string; playing_handicap: number }[]; pending: { player_id: string; changes: string[] }[] }
+  const [releaseState, setReleaseState] = useState<ReleaseState | null>(null)
+  const [releaseResult, setReleaseResult] = useState<{ unchanged: boolean; revision: number; legacyConverted?: boolean } | null>(null)
+  const [announceLegacy, setAnnounceLegacy] = useState(false)
+  async function refreshReleaseState(applyHandicaps: boolean) {
+    try {
+      const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/release`)
+      if (!res.ok) return
+      const data = await res.json() as ReleaseState
+      setReleaseState(data)
+      // Re-opening a released round must show the handicaps players were given, not recompute them.
+      if (applyHandicaps && data.released && data.snapshot.length > 0) {
+        setHandicapOverrides(Object.fromEntries(data.snapshot.map(r => [r.player_id, r.playing_handicap])))
+      }
+    } catch { /* offline/unavailable: the modal still works exactly as before */ }
+  }
+  useEffect(() => {
+    void refreshReleaseState(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Validation
   const allPlayersHaveHandicap = localGroups.every(g =>
@@ -475,16 +498,34 @@ export default function BeginRoundModal({
   const hasValidLibraryData = !!libraryHolesSnapshot && libraryHolesSnapshot.length === holeCount
     && libraryHolesSnapshot.every(h => h.par != null && h.stroke_index != null)
 
+  // Package 2 -- players with changes the organiser has not yet released: edits to groups / tee times /
+  // starting holes (reported by the server) plus any handicap now different from the released allocation.
+  const handicapEditedIds: string[] = releaseState?.released
+    ? localGroups.flatMap(g => g.players).filter(p => {
+        const snap = releaseState.snapshot.find(r => r.player_id === p.profile_id)
+        const cur = currentRoundHandicap(p)
+        return !!snap && cur !== null && cur !== snap.playing_handicap
+      }).map(p => p.profile_id)
+    : []
+  const unreleasedChangeCount = new Set([...(releaseState?.pending ?? []).map(c => c.player_id), ...handicapEditedIds]).size
+
   async function handleRelease() {
     setStarting(true); setError(null)
     try {
-      const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/release`, { method: 'POST' })
+      // Package 2 -- the organiser's FULL resolved handicaps (what the screen shows) are sent with the release,
+      // so they are stored with it and used by Start Round; they no longer live only in this window's state.
+      const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/release`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ announceLegacy, handicaps: Object.fromEntries(localGroups.flatMap(g => g.players).map(p => [p.profile_id, currentRoundHandicap(p) ?? 0])) }),
+      })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(data.error ?? "We couldn't release this round. Please try again.")
+        setError(data.problems?.length ? `${data.error} ${data.problems.join(' ')}` : (data.error ?? "We couldn't release this round. Please try again."))
         setStage('confirm')
         return
       }
+      setReleaseResult({ unchanged: !!data.unchanged, revision: data.revision ?? 0, legacyConverted: !!data.legacyConverted })
+      void refreshReleaseState(false)
       // Package 2 — deliberately does NOT navigate away or call
       // begin_round()/start here. Release only publishes the Starting
       // Grid to players; the round stays 'upcoming' until the organiser
@@ -502,6 +543,11 @@ export default function BeginRoundModal({
   }
 
   async function handleStartRound() {
+    // Never start on top of arrangements players have not been shown: re-release first.
+    if (unreleasedChangeCount > 0) {
+      setError('You have changes that players have not been shown yet. Use Edit Round Setup, then Confirm & Re-release, before starting.')
+      return
+    }
     setStage('launching'); setError(null)
     let staySpinning = false
     try {
@@ -634,6 +680,19 @@ export default function BeginRoundModal({
             ✓ Round Ready — Released to Players
           </span>
         </div>
+        {releaseResult && (
+          <p data-testid="release-result" style={{ fontFamily: 'var(--font-body)', color: 'rgba(245,230,184,0.75)', fontSize: 12.5, margin: '-14px 0 22px', maxWidth: 320 }}>
+            {releaseResult.unchanged
+              ? 'No changes since the last release \u2014 nobody was notified again.'
+              : releaseResult.legacyConverted
+              ? (announceLegacy ? 'This earlier release is now saved as version 1 and players have been notified.' : 'This earlier release is now saved as version 1. Players already had these arrangements, so nobody was notified.')
+              : releaseResult.revision > 1 ? 'Players with changes have been notified.' : 'Players have been notified that their arrangements are ready.'}
+            {' '}Scoring stays locked until you press Start Round.
+          </p>
+        )}
+        {error && (
+          <p role="alert" style={{ fontFamily: 'var(--font-body)', color: '#fecaca', fontSize: 13, margin: '0 0 16px', maxWidth: 320 }}>{error}</p>
+        )}
 
         <div style={{ width: '100%', maxWidth: 340, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <button
@@ -1040,9 +1099,9 @@ export default function BeginRoundModal({
                                   style={{ width: 30, height: 30, borderRadius: 8, border: '1.5px solid #d9c9a3', background: '#faf6ed', color: '#1a4731', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}
                                 >−</button>
                                 <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: hcp !== null ? '#7a7260' : '#b91c1c', fontWeight: 700, minWidth: 52, textAlign: 'center', lineHeight: 1.2 }}>
-                                  {hcp !== null ? `HCP ${hcp}` : '⚠ No HCP'}
+                                  {hcp !== null ? `HCP ${formatGolfHandicap(hcp)}` : '⚠ No HCP'}
                                   {dailyDiffersFromGa && (
-                                    <div style={{ fontSize: 9, fontWeight: 600, color: '#a1a89c' }}>GA {gaHcp}</div>
+                                    <div style={{ fontSize: 9, fontWeight: 600, color: '#a1a89c' }}>GA {formatGolfHandicap(gaHcp)}</div>
                                   )}
                                 </span>
                                 <button
@@ -1054,7 +1113,7 @@ export default function BeginRoundModal({
                               </div>
                             ) : (
                               hcp !== null ? (
-                                <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260', background: '#f2e8d0', borderRadius: 6, padding: '2px 8px', flexShrink: 0 }}>HCP {hcp}</span>
+                                <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260', background: '#f2e8d0', borderRadius: 6, padding: '2px 8px', flexShrink: 0 }}>HCP {formatGolfHandicap(hcp)}</span>
                               ) : (
                                 <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#b91c1c', fontWeight: 600, flexShrink: 0 }}>⚠ No handicap</span>
                               )
@@ -1281,7 +1340,7 @@ export default function BeginRoundModal({
                     return (
                       <div key={p.profile_id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f2e8d0' }}>
                         <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#1a1a16' }}>{p.full_name}</span>
-                        <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260', fontWeight: 600 }}>HCP {hcp}</span>
+                        <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260', fontWeight: 600 }}>HCP {formatGolfHandicap(hcp)}</span>
                       </div>
                     )
                   })}
@@ -1365,6 +1424,22 @@ export default function BeginRoundModal({
                 <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#a1791f', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>
                   Round Readiness
                 </div>
+                {/* Package 2 -- at-a-glance state: Draft / Ready to Release / Released to Players. */}
+                <div data-testid="release-state" style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, marginBottom: 6, color: releaseState?.released ? '#166534' : canBegin ? '#a1791f' : '#6b7280' }}>
+                  {releaseState?.released
+                    ? `\u2705 Released to Players (version ${releaseState.revision})${unreleasedChangeCount > 0 ? ` \u2014 ${unreleasedChangeCount} player${unreleasedChangeCount === 1 ? '' : 's'} with changes not yet released` : ' \u2014 up to date'}`
+                    : releaseState?.legacy ? '\u{1F7E1} Released before versioning \u2014 confirm once to lock in what players see'
+                    : canBegin ? '\u{1F7E1} Ready to Release' : '\u270F\uFE0F Draft \u2014 still preparing'}
+                </div>
+                {releaseState?.legacy && (
+                  <div data-testid="legacy-release-note" style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#374151', marginBottom: 8 }}>
+                    <p style={{ margin: '0 0 6px' }}>This round was released before arrangements were saved as versions. Press Confirm &amp; Re-release once to save exactly what is set up now. Scoring will not start and nobody is notified unless you tick the box below.</p>
+                    <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <input type="checkbox" checked={announceLegacy} onChange={e => setAnnounceLegacy(e.target.checked)} />
+                      <span>Also send players the &ldquo;arrangements are ready&rdquo; announcement</span>
+                    </label>
+                  </div>
+                )}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                   {readinessItems.map((item, i) => (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-body)', fontSize: 12, color: item.ok ? '#374151' : '#a1791f' }}>
@@ -1380,7 +1455,7 @@ export default function BeginRoundModal({
                 disabled={starting}
                 style={{ ...btnStyle(starting ? 'disabled' : 'gold'), cursor: starting ? 'not-allowed' : 'pointer' }}
               >
-                {starting ? 'Releasing…' : 'Confirm & Release to Players'}
+                {starting ? 'Releasing…' : releaseState?.released || releaseState?.legacy ? 'Confirm & Re-release to Players' : 'Confirm & Release to Players'}
               </button>
               <button type="button" onClick={() => setStage('holes')} style={btnStyle('ghost')} disabled={starting}>← Edit holes</button>
             </div>

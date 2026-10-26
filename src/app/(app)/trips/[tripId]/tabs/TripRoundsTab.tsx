@@ -203,6 +203,12 @@ function RoundCard({ round, index, tripId, canBegin, onBeginRound }: RoundCardPr
             </p>
           )}
 
+          {/* Package 2 -- at-a-glance: has this round's arrangements been published to players? */}
+          {round.status === 'upcoming' && (
+            <p data-testid="round-release-state" style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, marginBottom: 6, color: round.setup_released ? '#166534' : '#a1791f' }}>
+              {round.setup_released ? '\u2705 Released to players \u2014 not started' : '\u270F\uFE0F Not released yet'}
+            </p>
+          )}
           <div className="flex items-center gap-3 flex-wrap" style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#7a7260', marginBottom: 10 }}>
             <span>📅 {new Date(round.play_date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
             {round.tee_time && <span style={{ color: '#c9a84c', fontWeight: 700 }}>⏱ {round.tee_time}</span>}
@@ -223,7 +229,7 @@ function RoundCard({ round, index, tripId, canBegin, onBeginRound }: RoundCardPr
                 color: '#0f2d1c', boxShadow: '0 3px 12px rgba(201,168,76,0.4)',
               }}
             >
-              Finalise Round →
+              {round.setup_released ? 'Review, Re-release or Start →' : 'Finalise Round →'}
             </button>
           )}
 

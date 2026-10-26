@@ -19,6 +19,7 @@
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { loadPublishedRows } from '@/lib/rounds/publishedView'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { filterPublishedHighlightsForPlayer } from '@/lib/highlights/playerHighlights'
 import type { Highlight } from '@/lib/highlights/makersBreakers'
@@ -150,7 +151,17 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   // ── Group info ───────────────────────────────────────────────────────────
   let groupName: string | null = null
   let groupMembers: string[] = []
-  if (membership.data.group_id) {
+  const publishedRows = await loadPublishedRows(admin, roundId)
+  if (publishedRows) {
+    // Package 2: unpublished edits stay private -- group name and playing partners come from the released snapshot.
+    const mine = publishedRows.find(r => r.player_id === user.id)
+    if (mine) {
+      groupName = mine.group_name
+      const ids = publishedRows.filter(r => r.group_id === mine.group_id).map(r => r.player_id)
+      const memberProfiles = await admin.from('profiles').select('id, full_name').in('id', ids)
+      groupMembers = (memberProfiles.data ?? []).map((p: { full_name: string }) => p.full_name)
+    }
+  } else if (membership.data.group_id) {
     const groupRes = await admin.from('trip_groups').select('name').eq('id', membership.data.group_id).maybeSingle()
     groupName = groupRes.data?.name ?? null
     const groupMemberIds = await admin.from('trip_members').select('profile_id').eq('trip_id', tripId).eq('group_id', membership.data.group_id)

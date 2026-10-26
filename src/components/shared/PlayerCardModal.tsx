@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { formatGolfHandicap } from '@/lib/scoring/handicapDisplay'
 
 /**
  * Shared player profile modal — extracted from PlayerHomeCard.tsx
@@ -73,7 +74,7 @@ export default function PlayerCardModal({ player, onClose }: { player: PlayerCar
             {name}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 10, fontFamily: 'var(--font-body)', fontSize: 13, color: '#7a7260' }}>
-            {player.profiles?.handicap != null && <div>🏌️ Handicap {player.profiles.handicap}</div>}
+            {player.profiles?.handicap != null && <div>🏌️ Handicap {formatGolfHandicap(player.profiles.handicap)}</div>}
             {player.profiles?.golf_club && <div>⛳ {player.profiles.golf_club}</div>}
             {player.profiles?.occupation && <div>💼 {player.profiles.occupation}</div>}
           </div>

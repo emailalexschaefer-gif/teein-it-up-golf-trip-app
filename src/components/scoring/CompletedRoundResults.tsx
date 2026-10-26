@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { InlineScorecard, type LeaderboardEntry, type LeaderboardResponse } from './LiveLeaderboard'
 import { canShowRoundResults, findMyRow, incompleteLabel } from '@/lib/scoring/roundResultsView'
+import { formatGolfHandicap } from '@/lib/scoring/handicapDisplay'
 
 /**
  * My Golf — revisit a completed round. Strictly read-only: it only GETs the
@@ -88,7 +89,7 @@ export default function CompletedRoundResults({ tripId, roundId, roundName, roun
                           {row.name}{row.isCurrentUser ? ' (you)' : ''}
                         </span>
                         <span style={{ display: 'block', fontFamily: 'var(--font-body)', fontSize: 11, color: note ? '#a1791f' : '#9ca3af' }}>
-                          {note ?? `HCP ${row.handicap}`}
+                          {note ?? `HCP ${formatGolfHandicap(row.handicap)}`}
                         </span>
                       </span>
                       <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 16, color: '#14532d', flexShrink: 0 }}>{row.totalPts}<span style={{ fontSize: 10, fontWeight: 700, color: '#a1791f' }}> pts</span></span>

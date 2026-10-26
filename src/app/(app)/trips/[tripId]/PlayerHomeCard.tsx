@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import type { TripData, TripMemberRow } from './TripDetailClient'
 import EventCountdown from '@/components/trips/EventCountdown'
 import StartingGrid from '@/components/scoring/StartingGrid'
+import { formatGolfHandicap } from '@/lib/scoring/handicapDisplay'
 import PlayerCardModal, { initialsOf, type PlayerCardData } from '@/components/shared/PlayerCardModal'
 import { resolveFocusRound, sortRoundsChronologically } from '@/lib/scoring/multiRound'
 import WelcomeBrochure, { CollapsedWelcomeCard, isBrochureDismissed } from '@/components/trips/WelcomeBrochure'
@@ -127,7 +128,7 @@ function PlayersJoinedSection({ trip, onSelectPlayer }: { trip: TripData; onSele
             </span>
             {m.profiles?.handicap != null && (
               <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', fontWeight: 700, flexShrink: 0 }}>
-                HCP {m.profiles.handicap}
+                HCP {formatGolfHandicap(m.profiles.handicap)}
               </span>
             )}
           </button>
@@ -288,7 +289,7 @@ export default function PlayerHomeCard({ trip, currentUserId, championDeclared =
   // already fetched and available here; no new query needed.
   const organiserName = trip.trip_members.find(m => m.role === 'organiser')?.profiles?.full_name ?? null
   const [brochureExpanded, setBrochureExpanded] = useState(() => !isBrochureDismissed(trip.id))
-  const myGroup = me?.group_id ? trip.trip_groups?.find(g => g.id === me.group_id) : undefined
+  const liveMyGroup = me?.group_id ? trip.trip_groups?.find(g => g.id === me.group_id) : undefined
 
   // Focus on the most relevant round: the active one if there is one,
   // otherwise the earliest upcoming one, otherwise the most recently
@@ -315,6 +316,41 @@ export default function PlayerHomeCard({ trip, currentUserId, championDeclared =
   const upcomingRound = rounds.find(r => r.status === 'upcoming')
   const completedRounds = rounds.filter(r => r.status === 'completed')
   const focusRound = resolveFocusRound(activeRound, completedRounds[completedRounds.length - 1], upcomingRound)
+  // Package 2 -- between rounds the focus round is the one just completed (so its results stay front and
+  // centre), which meant a released NEXT round's arrangements were never shown in the lobby. The released
+  // upcoming round is now shown in its own right; Round 1's results and "complete" status remain below it.
+  const arrangementsRound = activeRound ?? (upcomingRound?.setup_released ? upcomingRound : focusRound)
+
+  // Package 2 -- unpublished edits stay private. For a released upcoming round the group name and tee time shown
+  // here come from the RELEASED snapshot, never from the organiser's live (possibly mid-edit) group data.
+  const [publishedMe, setPublishedMe] = useState<{ roundId: string; state: 'none' | 'ok'; group_name: string | null; tee_time: string | null } | null>(null)
+  const publishedRoundId = upcomingRound?.setup_released && !activeRound ? upcomingRound.id : null
+  useEffect(() => {
+    if (!publishedRoundId) { setPublishedMe(null); return }
+    let cancelled = false
+    const load = () => {
+      fetch(`/api/trips/${trip.id}/rounds/${publishedRoundId}/arrangements`)
+        .then(res => res.ok ? res.json() : null)
+        .then(body => {
+          if (cancelled || !body) return
+          // 'none' = a release made before the snapshot existed (legacy): the previous behaviour applies unchanged.
+          if (body.released && body.me) setPublishedMe({ roundId: publishedRoundId, state: 'ok', group_name: body.me.group_name ?? null, tee_time: body.me.tee_time ?? null })
+          else setPublishedMe({ roundId: publishedRoundId, state: 'none', group_name: null, tee_time: null })
+        })
+        .catch(() => { /* keeps the last published value; never falls back to a draft */ })
+    }
+    load()
+    const onVis = () => { if (document.visibilityState === 'visible') load() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { cancelled = true; document.removeEventListener('visibilitychange', onVis) }
+  }, [trip.id, publishedRoundId])
+  const publishedKnown = !!publishedRoundId && publishedMe?.roundId === publishedRoundId
+  const hasPublished = publishedKnown && publishedMe!.state === 'ok'
+  // While a released round is pending, nothing is shown from live group data until the snapshot answer arrives.
+  const myGroup = publishedRoundId
+    ? (hasPublished ? (publishedMe!.group_name ? { name: publishedMe!.group_name } : undefined) : (publishedKnown ? liveMyGroup : undefined))
+    : liveMyGroup
+  const lobbyTeeTime = hasPublished && focusRound?.id === publishedRoundId ? (publishedMe!.tee_time ?? focusRound?.tee_time ?? null) : (focusRound?.tee_time ?? null)
 
   if (view === 'eventInfo') {
     return <PlayerEventInfoView trip={trip} onBack={() => setView('lobby')} />
@@ -426,9 +462,9 @@ export default function PlayerHomeCard({ trip, currentUserId, championDeclared =
                 <span>👥</span><span>{myGroup.name}</span>
               </div>
             )}
-            {focusRound?.tee_time && (
+            {lobbyTeeTime && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#14532d' }}>
-                <span>⏰</span><span>Tee time {formatTeeTime(focusRound.tee_time)}</span>
+                <span>⏰</span><span>Tee time {formatTeeTime(lobbyTeeTime)}</span>
               </div>
             )}
           </div>
@@ -519,9 +555,10 @@ export default function PlayerHomeCard({ trip, currentUserId, championDeclared =
                   represent that. trips.groups_released itself is left
                   untouched elsewhere (not removed), since this is the
                   narrower, more correct signal for this specific gate. */}
-              {focusRound?.setup_released && trip.trip_groups && trip.trip_groups.length > 0 ? (
+              {arrangementsRound?.setup_released && trip.trip_groups && trip.trip_groups.length > 0 ? (
                 <StartingGrid
-                  tripId={trip.id} roundId={focusRound.id} groups={trip.trip_groups}
+                  key={arrangementsRound.id}
+                  tripId={trip.id} roundId={arrangementsRound.id} groups={trip.trip_groups}
                   onSelectPlayer={m => setSelectedPlayer(m)}
                 />
               ) : (

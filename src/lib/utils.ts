@@ -104,7 +104,9 @@ export function formatHandicap(
   const hcp = playingHandicap ?? profileHandicap ?? null
   if (hcp === null || hcp === undefined) return 'HCP not provided'
   // Show whole numbers without decimal, e.g. 18 not 18.0
-  return `HCP ${hcp % 1 === 0 ? hcp.toFixed(0) : hcp.toFixed(1)}`
+  // Plus handicaps are stored negative (+2 = -2) and shown in golf notation.
+  const abs = Math.abs(hcp)
+  return `HCP ${hcp < 0 ? '+' : ''}${abs % 1 === 0 ? abs.toFixed(0) : abs.toFixed(1)}`
 }
 
 // True if handicap came from profile fallback (not trip-specific)

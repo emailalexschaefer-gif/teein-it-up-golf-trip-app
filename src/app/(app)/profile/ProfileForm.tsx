@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { initials, avatarColor } from '@/lib/utils'
+import { formatGolfHandicap, HANDICAP_ENTRY_MIN, HANDICAP_ENTRY_MAX } from '@/lib/scoring/handicapDisplay'
 import ImageCropper from '@/components/shared/ImageCropper'
 import { resetInstallCardDismissal } from '@/components/trips/InstallPwaCard'
 
@@ -220,6 +221,9 @@ export default function ProfileForm({
     if (!email.trim() || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
       setErrorMsg('A valid email is required'); setSaveState('error'); return
     }
+    if (handicapVal !== null && (Number.isNaN(handicapVal) || handicapVal < HANDICAP_ENTRY_MIN || handicapVal > HANDICAP_ENTRY_MAX)) {
+      setErrorMsg(`Handicap must be between ${HANDICAP_ENTRY_MIN} and ${HANDICAP_ENTRY_MAX} (enter a plus handicap as a negative number, e.g. \u22122 for +2)`); setSaveState('error'); return
+    }
     if (bio.length > 200) { setErrorMsg('About Me must be 200 characters or fewer'); setSaveState('error'); return }
 
     setSaveState('saving')
@@ -364,7 +368,7 @@ export default function ProfileForm({
         </div>
         {!noHcp && hcp && (
           <div style={{ fontFamily: 'var(--font-body)', color: '#e8c96a', fontSize: 12.5, marginTop: 2 }}>
-            Playing Handicap: {hcp}
+            Playing Handicap: {Number.isNaN(parseFloat(hcp)) ? hcp : formatGolfHandicap(parseFloat(hcp))}
           </div>
         )}
         {location && (
@@ -455,13 +459,13 @@ export default function ProfileForm({
           </Field>
 
           {/* Handicap */}
-          <Field label="Golf handicap" hint="Your default handicap for future trips.">
+          <Field label="Golf handicap" hint="Your default handicap for future trips. Plus handicap? Enter \u22122 for a +2 handicap.">
             {!noHcp && (
               <input
-                type="number" min={0} max={54} step={0.1}
+                type="number" min={HANDICAP_ENTRY_MIN} max={HANDICAP_ENTRY_MAX} step={0.1} inputMode="decimal"
                 value={hcp}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setHcp(e.target.value)}
-                placeholder="e.g. 14 or 14.5"
+                placeholder="e.g. 14, 14.5 or \u22122 for +2"
                 disabled={noHcp}
                 style={{ ...inputStyle, marginBottom: 8 }}
               />

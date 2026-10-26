@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import MomentViewer, { type MomentViewerData } from '@/components/moments/MomentViewer'
 import CollapsibleSection from '@/components/shared/CollapsibleSection'
 import MySideGamesSection from '@/components/scoring/MySideGamesSection'
+import { formatGolfHandicap } from '@/lib/scoring/handicapDisplay'
 
 interface MyRoundData {
   hasScorecard: boolean
@@ -214,7 +215,7 @@ export default function PlayerRoundView({
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280', borderTop: '1px solid #f3f4f1', paddingTop: 10, marginBottom: 10 }}>
                   <span>Front 9: <strong style={{ color: '#14532d' }}>{data.front9Pts ?? 0}</strong></span>
                   <span>Back 9: <strong style={{ color: '#14532d' }}>{data.back9Pts ?? 0}</strong></span>
-                  <span>HCP: <strong style={{ color: '#14532d' }}>{data.playingHandicap}</strong></span>
+                  <span>HCP: <strong style={{ color: '#14532d' }}>{formatGolfHandicap(data.playingHandicap)}</strong></span>
                 </div>
                 <div style={{ display: 'flex', gap: 14, fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280' }}>
                   {(data.birdies ?? 0) > 0 && <span>⛳ {data.birdies} birdie{data.birdies === 1 ? '' : 's'}</span>}

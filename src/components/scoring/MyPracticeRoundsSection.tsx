@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import CollapsibleSection from '@/components/shared/CollapsibleSection'
+import { formatGolfHandicap } from '@/lib/scoring/handicapDisplay'
 
 interface PracticeStatBlock {
   fairwaysAnswered: number; fairwaysHit: number; fairwayPct: number | null
@@ -91,7 +92,7 @@ export default function MyPracticeRoundsSection() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
                 <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b7280' }}>
                   {r.playDate ? new Date(r.playDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}
-                  {r.playingHandicap != null ? ` · HCP ${r.playingHandicap}` : ''}
+                  {r.playingHandicap != null ? ` · HCP ${formatGolfHandicap(r.playingHandicap)}` : ''}
                 </span>
                 <span style={{ fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 800, color: '#14532d' }}>
                   {r.grossTotal} gr · {r.totalPts} pts

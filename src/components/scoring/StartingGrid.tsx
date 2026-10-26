@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { formatGolfHandicap } from '@/lib/scoring/handicapDisplay'
 
 /**
  * Starting Grid — shown instead of the plain Players Joined roster once
@@ -20,6 +21,16 @@ import { useEffect, useState } from 'react'
 interface Member { profile_id: string; group_id: string | null; role: string; profiles: { full_name: string; avatar_url: string | null; handicap?: number | null; golf_club?: string | null; occupation?: string | null } | null }
 export interface GroupInfo { id: string; name?: string; tee_time?: string | null }
 
+// Package 2 -- the released snapshot, as served by /rounds/[roundId]/arrangements.
+interface ArrangementGroup { id: string; name: string | null; tee_time: string | null; starting_hole: number | null; players: { id: string; name: string; avatar_url: string | null; playing_handicap: number }[] }
+interface Arrangements {
+  available: boolean; released: boolean; viewerId?: string
+  round?: { id: string; name: string; status: string; play_date: string; course_name: string | null; revision: number; released_at: string | null }
+  me?: { group_id: string; group_name: string | null; tee_time: string | null; starting_hole: number | null; playing_handicap: number } | null
+  groups?: ArrangementGroup[]
+}
+const REFRESH_MS = 30000
+
 export default function StartingGrid({
   tripId, roundId, groups, onSelectPlayer,
 }: {
@@ -32,6 +43,30 @@ export default function StartingGrid({
   const [startingHoleNumber, setStartingHoleNumber] = useState<1 | 10>(1)
   const [startingHoles, setStartingHoles] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
+  const [arr, setArr] = useState<Arrangements | null>(null)
+  const [seenRevision, setSeenRevision] = useState<number | null>(null)
+  const seenKey = `tiu-arrangements-seen-${roundId}`
+
+  // The released snapshot: fetched on mount, when the app returns to the foreground, and every 30 s while the
+  // lobby is open, so a re-release shows up without reinstalling or rejoining. A failed fetch keeps what is shown.
+  useEffect(() => {
+    let cancelled = false
+    try { const v = window.localStorage.getItem(seenKey); setSeenRevision(v ? Number(v) : 0) } catch { setSeenRevision(0) }
+    async function load() {
+      try {
+        const r = await fetch(`/api/trips/${tripId}/rounds/${roundId}/arrangements`, { cache: 'no-store' })
+        if (!r.ok) return
+        const body = await r.json() as Arrangements
+        if (!cancelled) setArr(body)
+      } catch { /* offline: keep the last snapshot shown */ }
+    }
+    void load()
+    const onVisible = () => { if (document.visibilityState === 'visible') void load() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('online', onVisible)
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void load() }, REFRESH_MS)
+    return () => { cancelled = true; document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('online', onVisible); window.clearInterval(timer) }
+  }, [tripId, roundId, seenKey])
 
   useEffect(() => {
     let cancelled = false
@@ -60,6 +95,64 @@ export default function StartingGrid({
   }, [tripId, roundId])
 
   if (loading) return null
+
+  // Released round: show the snapshot (group, tee time, hole, partners, ROUND handicap) -- not live tables
+  // and not the profile handicap.
+  if (arr?.released && arr.groups && arr.round) {
+    const revision = arr.round.revision
+    const updated = (seenRevision ?? 0) > 0 && (seenRevision ?? 0) < revision
+    const markSeen = () => { try { window.localStorage.setItem(seenKey, String(revision)) } catch { /* optional convenience */ }; setSeenRevision(revision) }
+    const live = arr.round.status === 'active'
+    const me = arr.me
+    return (
+      <div style={{ marginTop: 12 }} data-testid="arrangements">
+        <div style={{ background: 'linear-gradient(135deg,#0f2d1c,#1a4731)', border: '1.5px solid #c9a84c', borderRadius: 14, padding: '14px 14px 12px', color: '#fff' }} onClick={markSeen}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: '#e8c96a' }}>
+            {arr.round.name} {'\u2014'} {live ? 'Round Live' : 'Your Arrangements Are Ready'}{updated && <span style={{ marginLeft: 8, background: '#e8c96a', color: '#0f2d1c', borderRadius: 8, padding: '1px 7px' }}>Updated</span>}
+          </div>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, margin: '4px 0 2px' }}>{arr.round.course_name ?? arr.round.name}</div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'rgba(245,230,184,0.8)' }}>
+            {new Date(`${arr.round.play_date}T00:00:00`).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </div>
+          {me ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 10 }}>
+              <Fact label="Your group" value={me.group_name ?? '\u2014'} />
+              <Fact label="Tee time" value={me.tee_time ? formatTeeTime(me.tee_time) : 'To be confirmed'} />
+              <Fact label="Starting hole" value={me.starting_hole != null ? String(me.starting_hole) : '\u2014'} />
+              <Fact label="Playing handicap" value={String(me.playing_handicap)} testId="my-playing-handicap" />
+            </div>
+          ) : (
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, marginTop: 10, color: 'rgba(245,230,184,0.85)' }}>You are not in this round{'\u2019'}s playing groups. Ask the organiser if this looks wrong.</div>
+          )}
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, marginTop: 10, color: '#bbf7d0', fontWeight: 700 }}>
+            {live ? '\u25B6 The round has started' : '\u2713 Released \u00B7 Awaiting start \u2014 scoring opens when the organiser starts the round'}
+          </div>
+        </div>
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, margin: '14px 0 8px' }}>Starting Grid</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {arr.groups.map((g, i) => (
+            <div key={g.id}>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 800, color: '#a1791f', marginBottom: 6 }}>
+                {g.name ?? `Group ${i + 1}`}{g.tee_time && <span> {'\u00B7'} {'\u23F0'} {formatTeeTime(g.tee_time)}</span>}{g.starting_hole != null && <span> {'\u00B7'} Start Hole {g.starting_hole}</span>}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {g.players.map(pl => (
+                  <button
+                    key={pl.id}
+                    onClick={() => { const m = members.find(x => x.profile_id === pl.id); if (m) onSelectPlayer(m) }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, background: pl.id === arr.viewerId ? '#fffbeb' : '#ffffff', border: '1px solid #eceae3', borderRadius: 10, padding: '7px 10px', width: '100%', textAlign: 'left', cursor: 'pointer' }}
+                  >
+                    <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#1a1a16', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</span>
+                    <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#6b7280', fontWeight: 700, flexShrink: 0 }}>Playing HCP {formatGolfHandicap(pl.playing_handicap)}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   const byGroup = new Map<string, Member[]>()
   for (const m of members) {
@@ -150,7 +243,7 @@ export default function StartingGrid({
                     </span>
                     {m.profiles?.handicap != null && (
                       <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: '#9ca3af', fontWeight: 700, flexShrink: 0 }}>
-                        HCP {m.profiles.handicap}
+                        HCP {formatGolfHandicap(m.profiles.handicap)}
                       </span>
                     )}
                   </button>
@@ -160,6 +253,15 @@ export default function StartingGrid({
           )
         })}
       </div>
+    </div>
+  )
+}
+
+function Fact({ label, value, testId }: { label: string; value: string; testId?: string }) {
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '8px 10px' }}>
+      <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, color: 'rgba(245,230,184,0.7)', fontWeight: 700 }}>{label}</div>
+      <div data-testid={testId} style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: '#fff' }}>{value}</div>
     </div>
   )
 }

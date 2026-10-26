@@ -13,10 +13,11 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { loadPublishedRows, publishedStartingHoles } from '@/lib/rounds/publishedView'
 
 interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
 
-export async function GET(_req: NextRequest, { params }: RouteProps) {
+export async function GET(req: NextRequest, { params }: RouteProps) {
   const { tripId, roundId } = await params
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -30,6 +31,20 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
   const roundCheck = await admin.from('rounds').select('id, start_type, starting_hole_number').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
   if (!roundCheck.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
+
+  // Package 2: players see only the RELEASED starting holes while an upcoming round has a snapshot.
+  const wantsPublished = membership.data.role !== 'organiser' || req.nextUrl.searchParams.get('published') === '1'
+  if (wantsPublished) {
+    const published = await loadPublishedRows(admin, roundId)
+    if (published) {
+      return NextResponse.json({
+        startType: roundCheck.data.start_type,
+        startingHoleNumber: roundCheck.data.start_type === 'shotgun' ? (roundCheck.data.starting_hole_number === 10 ? 10 : 1) : (published[0].starting_hole === 10 ? 10 : 1),
+        startingHoles: roundCheck.data.start_type === 'shotgun' ? publishedStartingHoles(published) : [],
+        published: true,
+      })
+    }
+  }
 
   const { data: startingHoles, error } = await admin
     .from('round_group_starting_holes')

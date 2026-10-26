@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import PlayerCardModal, { initialsOf, type PlayerCardData } from '@/components/shared/PlayerCardModal'
+import { formatGolfHandicap } from '@/lib/scoring/handicapDisplay'
 
 /**
  * "The Field" — the pre-event Leaderboard state. Deliberately a
@@ -90,7 +91,7 @@ export default function TheField({ tripId }: { tripId: string }) {
             </span>
             {m.profiles?.handicap != null && (
               <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', fontWeight: 700, flexShrink: 0 }}>
-                HCP {m.profiles.handicap}
+                HCP {formatGolfHandicap(m.profiles.handicap)}
               </span>
             )}
           </button>

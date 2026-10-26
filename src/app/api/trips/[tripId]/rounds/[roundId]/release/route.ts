@@ -1,103 +1,136 @@
 /**
- * POST /api/trips/[tripId]/rounds/[roundId]/release
+ * POST /api/trips/[tripId]/rounds/[roundId]/release   -- "Confirm & Release" / "Confirm & Re-release"
+ * GET  /api/trips/[tripId]/rounds/[roundId]/release   -- organiser: release state + unreleased changes
  *
- * "Confirm & Release to Players" — Package 2. Publishes the current
- * group/handicap/tee-time/start-format configuration to players by
- * setting rounds.setup_released = true. Deliberately does NOT touch
- * rounds.status — that still only ever changes via the existing
- * /start route, kept completely separate so "released" and "live" stay
- * two genuinely distinct, independently-representable states.
+ * Package 2 (between-round management). Releasing publishes ONE authoritative snapshot of the round's
+ * arrangements (group, tee time, starting hole, playing handicap per player) via the transactional
+ * release_round_arrangements() function (migration 101), records the in-app announcement in Event Chat,
+ * and writes an audit row -- all or nothing. It NEVER changes rounds.status, never creates scorecards,
+ * and never touches a player's profile or event-membership handicap. Start Round remains a separate action.
  *
- * This endpoint does not itself write groups/handicaps/tee times/start
- * type — those are already saved incrementally as the organiser edits
- * them in BeginRoundModal (each field its own existing, already-working
- * PATCH/upsert endpoint). This is purely the readiness gate plus the
- * flag flip; no new "save the whole form" mechanism is introduced.
+ * Idempotent: releasing identical arrangements again changes nothing and sends nothing.
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { resolvePlayingHandicap } from '@/lib/scoring/defaultHoles'
+import { loadLiveArrangements } from '@/lib/rounds/liveArrangements'
+import { roundHandicap } from '@/lib/scoring/rounding'
+import { diffArrangements, sameArrangements, initialReleaseMessage, revisionMessages, isValidRoundHandicap, type ArrangementRow } from '@/lib/rounds/arrangements'
 
+export const dynamic = 'force-dynamic'
 interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
 
-export async function POST(_req: NextRequest, { params }: RouteProps) {
-  const { tripId, roundId } = await params
+type AdminClient = ReturnType<typeof createAdminClient>
+
+const MIGRATION_MISSING = 'Round release needs a database update (migration 101) that has not been applied yet.'
+const isMissingSchema = (e: { code?: string; message?: string } | null | undefined) =>
+  !!e && (e.code === '42P01' || e.code === '42703' || e.code === 'PGRST205' || e.code === 'PGRST202' || e.code === '42883' || /release_revision|round_arrangements|release_round_arrangements/.test(e.message ?? ''))
+
+async function authorise(tripId: string) {
   const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
-
-  type AdminClient = ReturnType<typeof createAdminClient>
+  const { data: { user }, error } = await supabase.auth.getUser()
+  if (error || !user) return { error: NextResponse.json({ error: 'Not authenticated.' }, { status: 401 }) }
   const admin: AdminClient = createAdminClient()
+  const m = await admin.from('trip_members').select('role').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
+  if (!m.data || m.data.role !== 'organiser') return { error: NextResponse.json({ error: 'Organiser access required.' }, { status: 403 }) }
+  return { user, admin }
+}
 
-  const memberCheck = await admin.from('trip_members').select('role').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
-  if (!memberCheck.data || memberCheck.data.role !== 'organiser') {
-    return NextResponse.json({ error: 'Organiser access required.' }, { status: 403 })
-  }
+async function loadRound(admin: AdminClient, tripId: string, roundId: string) {
+  return admin.from('rounds').select('id, name, status, start_type, starting_hole_number, slope_rating, setup_released, release_revision, released_at').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
+}
+async function loadSnapshot(admin: AdminClient, roundId: string) {
+  const res = await admin.from('round_arrangements').select('player_id, group_id, group_name, tee_time, starting_hole, playing_handicap').eq('round_id', roundId)
+  return { rows: (res.data ?? []) as ArrangementRow[], error: res.error }
+}
 
-  const roundRes = await admin.from('rounds').select('id, status, start_type').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
+export async function GET(_req: NextRequest, { params }: RouteProps) {
+  const { tripId, roundId } = await params
+  const auth = await authorise(tripId); if ('error' in auth) return auth.error
+  const { admin } = auth
+  const roundRes = await loadRound(admin, tripId, roundId)
+  if (isMissingSchema(roundRes.error)) return NextResponse.json({ available: false, released: false, revision: 0, snapshot: [], pending: [] })
   if (!roundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
-  if (roundRes.data.status === 'completed') {
-    return NextResponse.json({ error: 'This round has already been completed.' }, { status: 409 })
+  const r = roundRes.data
+  const snap = await loadSnapshot(admin, roundId)
+  if (isMissingSchema(snap.error)) return NextResponse.json({ available: false, released: false, revision: 0, snapshot: [], pending: [] })
+  const released = !!r.setup_released && snap.rows.length > 0
+  let pending: { player_id: string; changes: string[] }[] = []
+  if (released) {
+    // Live setup with the released handicaps held fixed, so only genuine edits show up as pending.
+    const hold = Object.fromEntries(snap.rows.map(s => [s.player_id, s.playing_handicap]))
+    const live = await loadLiveArrangements(admin, tripId, r, hold)
+    pending = diffArrangements(snap.rows, live.rows)
   }
-  if (roundRes.data.status === 'cancelled') {
-    return NextResponse.json({ error: 'This round has been cancelled.' }, { status: 409 })
-  }
+  return NextResponse.json({ available: true, released, legacy: !!r.setup_released && !released, revision: r.release_revision ?? 0, releasedAt: r.released_at ?? null, status: r.status, snapshot: snap.rows, pending })
+}
 
-  // Every player expected to participate — trip_members with role
-  // 'player' plus the organiser if organiser_is_playing, matching the
-  // exact canonical player-count formula already used consistently
-  // elsewhere in this app (dashboard counts, Players Joined heading).
-  const [tripRes, membersRes, groupsRes, startingHolesRes] = await Promise.all([
-    admin.from('trips').select('organiser_is_playing').eq('id', tripId).maybeSingle(),
-    admin.from('trip_members').select('profile_id, role, group_id, playing_handicap, profiles:profile_id(handicap)').eq('trip_id', tripId),
-    admin.from('trip_groups').select('id, tee_time').eq('trip_id', tripId),
-    admin.from('round_group_starting_holes').select('group_id').eq('round_id', roundId),
-  ])
+export async function POST(req: NextRequest, { params }: RouteProps) {
+  const { tripId, roundId } = await params
+  const auth = await authorise(tripId); if ('error' in auth) return auth.error
+  const { user, admin } = auth
 
-  const organiserIsPlaying = tripRes.data?.organiser_is_playing ?? false
-  const participatingMembers = ((membersRes.data ?? []) as unknown as { profile_id: string; role: string; group_id: string | null; playing_handicap: number | null; profiles: { handicap: number | null } | null }[])
-    .filter(m => m.role === 'player' || (m.role === 'organiser' && organiserIsPlaying))
-  const isShotgun = roundRes.data.start_type === 'shotgun'
-  const startingHoleGroupIds = new Set((startingHolesRes.data ?? []).map((r: { group_id: string }) => r.group_id))
+  const roundRes = await loadRound(admin, tripId, roundId)
+  if (isMissingSchema(roundRes.error)) return NextResponse.json({ error: MIGRATION_MISSING, code: 'migration_missing' }, { status: 503 })
+  if (!roundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
+  const round = roundRes.data
+  if (round.status === 'completed') return NextResponse.json({ error: 'This round has already been completed.' }, { status: 409 })
+  if (round.status === 'cancelled') return NextResponse.json({ error: 'This round has been cancelled.' }, { status: 409 })
+  if (round.status === 'active') return NextResponse.json({ error: 'This round is already live. Arrangements can no longer be released or changed here.' }, { status: 409 })
 
-  const readiness = {
-    playersAssigned: participatingMembers.filter(m => m.group_id != null).length,
-    playersTotal: participatingMembers.length,
-    groupsComplete: 0, // computed below
-    groupsTotal: (groupsRes.data ?? []).length,
-    handicapsConfirmed: participatingMembers.filter(m => resolvePlayingHandicap(m.playing_handicap, m.profiles?.handicap ?? null) !== null).length,
-    teeTimesSet: (groupsRes.data ?? []).filter((g: { tee_time: string | null }) => g.tee_time).length,
-    startFormatSelected: !!roundRes.data.start_type,
-    // Only meaningful for shotgun — a standard round genuinely has
-    // nothing to assign here, so it's vacuously satisfied rather than
-    // blocking release on data that was never required.
-    startingHolesComplete: !isShotgun || (groupsRes.data ?? []).every((g: { id: string }) => startingHoleGroupIds.has(g.id)),
-  }
-  const groupIdsWithPlayers = new Set(participatingMembers.filter(m => m.group_id).map(m => m.group_id))
-  readiness.groupsComplete = (groupsRes.data ?? []).filter((g: { id: string }) => groupIdsWithPlayers.has(g.id)).length
+  // Optional explicit allocations: the organiser's full, resolved per-player handicaps from Begin Round.
+  let allocations: Record<string, number> | undefined
+  let announceLegacy = false
+  try {
+    const body = await req.json().catch(() => ({}))
+    announceLegacy = !!(body && typeof body === 'object' && (body as Record<string, unknown>).announceLegacy === true)
+    if (body && typeof body === 'object' && body.handicaps && typeof body.handicaps === 'object') {
+      allocations = {}
+      for (const [pid, v] of Object.entries(body.handicaps as Record<string, unknown>)) {
+        if (!isValidRoundHandicap(v)) return NextResponse.json({ error: 'A playing handicap value is not a valid number.' }, { status: 400 })
+        allocations[pid] = roundHandicap(v)
+      }
+    }
+  } catch { /* no body: allocations stay computed */ }
 
-  const isReady = readiness.playersTotal > 0
-    && readiness.playersAssigned === readiness.playersTotal
-    && readiness.groupsTotal > 0
-    && readiness.groupsComplete === readiness.groupsTotal
-    && readiness.handicapsConfirmed === readiness.playersTotal
-    && readiness.teeTimesSet === readiness.groupsTotal
-    && readiness.startFormatSelected
-    && readiness.startingHolesComplete
-
-  if (!isReady) {
-    // Do not silently insert fake/default values to satisfy readiness —
-    // report exactly what's missing instead, matching the brief's own
-    // explicit instruction.
-    return NextResponse.json({ error: 'Round setup is not yet complete.', readiness }, { status: 400 })
+  const live = await loadLiveArrangements(admin, tripId, round, allocations)
+  if (live.problems.length > 0) {
+    // Report exactly what is missing; never insert defaults to satisfy readiness.
+    return NextResponse.json({ error: 'Round setup is not yet complete.', problems: live.problems, readiness: live.readiness }, { status: 400 })
   }
 
-  const { error } = await admin.from('rounds').update({ setup_released: true }).eq('id', roundId)
-  if (error) {
-    console.error('[release] update failed', { roundId, error: error.message })
-    return NextResponse.json({ error: 'Could not release this round. Please try again.' }, { status: 500 })
+  const snap = await loadSnapshot(admin, roundId)
+  if (isMissingSchema(snap.error)) return NextResponse.json({ error: MIGRATION_MISSING, code: 'migration_missing' }, { status: 503 })
+  const revision = round.release_revision ?? 0
+  const wasReleased = !!round.setup_released && revision > 0 && snap.rows.length > 0
+
+  if (wasReleased && sameArrangements(snap.rows, live.rows)) {
+    return NextResponse.json({ ok: true, unchanged: true, revision, notified: 0 })
   }
 
-  return NextResponse.json({ ok: true, readiness })
+  // Legacy release: released before snapshots existed (setup_released = true, no snapshot). Players have been seeing
+  // the live arrangements all along, so converting is SILENT by default -- it records exactly what is set now as the
+  // authoritative version and sends nothing, rather than announcing a "new" release for a round everyone already
+  // knows about. The organiser can opt in to an announcement with `announceLegacy: true`.
+  const legacy = !!round.setup_released && !wasReleased
+  const changes = wasReleased ? diffArrangements(snap.rows, live.rows) : []
+  const messages = wasReleased
+    ? revisionMessages(round.name, changes)
+    : (legacy && !announceLegacy ? [] : [initialReleaseMessage(round.name)])
+  const rpc = await admin.rpc('release_round_arrangements', {
+    p_round_id: roundId, p_actor: user.id, p_expected_revision: revision,
+    p_rows: live.rows, p_changes: changes, p_messages: messages,
+  })
+  if (rpc.error) {
+    if (isMissingSchema(rpc.error)) return NextResponse.json({ error: MIGRATION_MISSING, code: 'migration_missing' }, { status: 503 })
+    console.error('[release] rpc failed', { roundId, code: rpc.error.code, message: rpc.error.message })
+    return NextResponse.json({ error: 'Could not release this round. Nothing was changed. Please try again.' }, { status: 500 })
+  }
+  const out = rpc.data as { ok: boolean; error?: string; revision?: number }
+  if (!out.ok) {
+    if (out.error === 'revision_conflict') return NextResponse.json({ error: 'The arrangements were just updated by another release. Refresh and review before releasing again.', code: 'revision_conflict', revision: out.revision }, { status: 409 })
+    if (out.error === 'not_upcoming') return NextResponse.json({ error: 'This round is no longer upcoming, so it cannot be released.' }, { status: 409 })
+    return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
+  }
+  return NextResponse.json({ ok: true, unchanged: false, legacyConverted: legacy, revision: out.revision, notified: wasReleased ? messages.length : (messages.length > 0 ? live.rows.length : 0) })
 }

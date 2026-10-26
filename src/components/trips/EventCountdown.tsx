@@ -31,7 +31,7 @@ export default function EventCountdown({ tripId, round }: { tripId: string; roun
   // there's nothing here to actively keep in sync beyond that.
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/trips/${tripId}/rounds/${round.id}/group-tee-times`)
+    fetch(`/api/trips/${tripId}/rounds/${round.id}/group-tee-times?published=1`)
       .then(res => res.ok ? res.json() : null)
       .then(body => {
         if (cancelled || !body) return

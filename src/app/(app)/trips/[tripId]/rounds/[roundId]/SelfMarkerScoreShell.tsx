@@ -23,6 +23,7 @@ import PendingVerificationCard from '@/components/scoring/PendingVerificationCar
 import ExpandableRoundScorecard from '@/components/scoring/ExpandableRoundScorecard'
 import PracticeHoleStatsPanel from '@/components/scoring/PracticeHoleStatsPanel'
 import { computeResumeIndex } from '@/lib/scoring/resumeHole'
+import { formatGolfHandicap } from '@/lib/scoring/handicapDisplay'
 
 // P0 live-scoring crash investigation — the one recent, genuinely
 // unverified change reachable from this file's own import chain.
@@ -3191,7 +3192,7 @@ function ScoreCard({
             )}
           </div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 500, color: '#4a4638' }}>
-            Playing Handicap {hcp}
+            Playing Handicap {formatGolfHandicap(hcp)}
           </div>
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>

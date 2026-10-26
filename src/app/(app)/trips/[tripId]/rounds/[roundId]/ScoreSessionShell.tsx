@@ -12,6 +12,7 @@ import { deriveSyncStatus } from '@/lib/db/syncStatus'
 import PendingVerificationCard from '@/components/scoring/PendingVerificationCard'
 import SideCompEntryPanel from '@/components/scoring/SideCompEntryPanel'
 import { trackEvent } from '@/lib/analytics/trackEvent'
+import { formatGolfHandicap } from '@/lib/scoring/handicapDisplay'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1054,7 +1055,7 @@ export default function ScoreSessionShell({
                 </div>
                 <div>
                   <div style={{ fontFamily: 'var(--font-body)', color: '#14532d', fontWeight: 800, fontSize: 18, lineHeight: 1.25 }}>{activeName}</div>
-                  <div style={{ fontFamily: 'var(--font-body)', color: '#b0b6be', fontSize: 11 }}>Playing Handicap {hcp}</div>
+                  <div style={{ fontFamily: 'var(--font-body)', color: '#b0b6be', fontSize: 11 }}>Playing Handicap {formatGolfHandicap(hcp)}</div>
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>

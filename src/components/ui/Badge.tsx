@@ -2,6 +2,7 @@
 
 import React from 'react'
 import { cn } from '@/lib/utils'
+import { formatGolfHandicap } from '@/lib/scoring/handicapDisplay'
 
 // ── Badge ─────────────────────────────────────────────────────────────────────
 // Reusable chip/badge — consistent across the entire app.
@@ -65,7 +66,7 @@ export default function Badge({ variant = 'player', children, className }: Badge
 
 export function HcpBadge({ value }: { value: number | null | undefined }) {
   if (value == null) return null
-  return <Badge variant="hcp">HCP {value % 1 === 0 ? value : value.toFixed(1)}</Badge>
+  return <Badge variant="hcp">HCP {formatGolfHandicap(value)}</Badge>
 }
 
 export function TeeTimeBadge({ time }: { time: string }) {

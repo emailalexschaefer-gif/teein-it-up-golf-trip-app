@@ -15,10 +15,11 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { loadPublishedRows, publishedTeeTimes } from '@/lib/rounds/publishedView'
 
 interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
 
-export async function GET(_req: NextRequest, { params }: RouteProps) {
+export async function GET(req: NextRequest, { params }: RouteProps) {
   const { tripId, roundId } = await params
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -32,6 +33,14 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
   const roundCheck = await admin.from('rounds').select('id').eq('id', roundId).eq('trip_id', tripId).maybeSingle()
   if (!roundCheck.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
+
+  // Package 2: players (and the organiser's own player views, via ?published=1) see only the RELEASED tee times
+  // while an upcoming round has a snapshot. The organiser's editor reads live drafts (no flag).
+  const wantsPublished = membership.data.role !== 'organiser' || req.nextUrl.searchParams.get('published') === '1'
+  if (wantsPublished) {
+    const published = await loadPublishedRows(admin, roundId)
+    if (published) return NextResponse.json({ teeTimes: publishedTeeTimes(published), published: true })
+  }
 
   const { data: teeTimes, error } = await admin
     .from('round_group_tee_times')
