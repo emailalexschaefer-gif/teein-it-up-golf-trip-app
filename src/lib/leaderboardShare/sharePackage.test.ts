@@ -42,7 +42,8 @@ test('the public page and API open without login; nothing else was made public',
 
 test('public API is cached briefly at the CDN, read-only, indexed by no one, and 404s are identical and uncached', () => {
   const src = read('src/app/api/l/[token]/route.ts')
-  assert.match(src, /PUBLIC_CACHE = 'public, s-maxage=15, stale-while-revalidate=30'/)
+  assert.match(src, /PUBLIC_CACHE = 'public, s-maxage=5'/)
+  assert.doesNotMatch(src, /stale-while-revalidate/)
   assert.match(src, /noindex, nofollow/); assert.match(src, /no-referrer/)
   assert.equal(/export async function (POST|PUT|PATCH|DELETE)/.test(src), false)
   assert.equal((src.match(/return notFound\(\)/g) ?? []).length === 2, true)
@@ -53,7 +54,7 @@ test('public API is cached briefly at the CDN, read-only, indexed by no one, and
 test('the public page is noindex, shows no private chrome, and the view polls only while visible', () => {
   const page = read('src/app/l/[token]/page.tsx'); const view = read('src/components/leaderboard/PublicLeaderboardView.tsx')
   assert.match(page, /robots: \{ index: false, follow: false \}/)
-  assert.match(view, /visibilityState/); assert.match(view, /POLL_MS = 30000/)
+  assert.match(view, /visibilityState/); assert.match(view, /POLL_MS = LEADERBOARD_POLL_MS/)
   assert.equal(/localStorage|document\.cookie/.test(view), false)
 })
 

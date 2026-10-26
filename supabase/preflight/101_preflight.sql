@@ -56,9 +56,12 @@ checks AS (
          coalesce((SELECT string_agg(pg_get_constraintdef(c.oid), ' | ') FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid JOIN pg_namespace n ON n.oid=t.relnamespace WHERE n.nspname='public' AND t.relname='event_messages' AND c.contype='c' AND pg_get_constraintdef(c.oid) ILIKE '%recipient_type%'), 'no recipient_type CHECK found')
          || '   FAIL here = stale chat constraint: apply migration 102 (NOT 029 alone) BEFORE releasing any round'
 
-  UNION ALL SELECT 34, 'prereq 029/031: event_messages read policy treats ''event'' like ''all''',
-         CASE WHEN EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='event_messages' AND cmd IN ('SELECT','ALL') AND qual ILIKE '%''event''%') THEN 'OK' ELSE 'WARN' END,
-         coalesce((SELECT string_agg(policyname, ', ') FROM pg_policies WHERE schemaname='public' AND tablename='event_messages'), 'no policies')
+  UNION ALL SELECT 34, 'prereq 103: event_messages READ policy shows BOTH ''all'' and ''event'' posts to every event member',
+         CASE WHEN EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='event_messages' AND cmd IN ('SELECT','ALL')
+                             AND qual ILIKE '%''all''%' AND qual ILIKE '%''event''%') THEN 'OK'
+              ELSE 'FAIL' END,
+         coalesce((SELECT string_agg(policyname || ' [' || cmd || ']: ' || coalesce(qual,''), ' || ') FROM pg_policies WHERE schemaname='public' AND tablename='event_messages' AND cmd IN ('SELECT','ALL')), 'no read policy')
+         || '   FAIL here = event-wide posts (arrangements announcement, Side Game leads, everyone Moments) are visible to their SENDER ONLY: apply migration 103'
 
   UNION ALL SELECT 40, 'prereq 097: rounds.status CHECK allows upcoming/active/completed/cancelled',
          CASE WHEN EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid JOIN pg_namespace n ON n.oid=t.relnamespace

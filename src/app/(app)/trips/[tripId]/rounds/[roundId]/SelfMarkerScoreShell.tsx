@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { calculateStableford } from '@/lib/scoring/stableford'
 import { getHandicapStrokesForHole } from '@/lib/scoring/strokeAllocation'
 import { buildMismatchWarning, shouldWarn, type MismatchWarning } from '@/lib/scoring/mismatchWarning'
+import { showPartnerPanel, partnerNotStartedNote } from '@/lib/scoring/partnerPresence'
 import { compareCaptures, COMPARISON_LABEL, isZeroPointsMismatch, type ComparisonStatus, type CaptureValue } from '@/lib/scoring/comparison'
 import { queueScoreEntryBounded, getPendingCount, getQueuedEntriesForScorecards } from '@/lib/db/dexie'
 import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
@@ -188,7 +189,8 @@ interface LiveScores {
 }
 
 async function fetchLiveScores(tripId: string, roundId: string): Promise<LiveScores> {
-  const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/my-scores`)
+  // no-store: a manual or resume refresh must be a genuine fresh read, never a browser/SW-cached response
+  const res = await fetch(`/api/trips/${tripId}/rounds/${roundId}/my-scores`, { cache: 'no-store' })
   if (!res.ok) throw new Error('Failed to refresh scores')
   return res.json()
 }
@@ -423,7 +425,7 @@ export default function SelfMarkerScoreShell({
       return
     }
     {
-      const ids = [myScorecard?.id, markedScorecard?.id].filter((x): x is string => !!x)
+      const ids = [currentMy?.id, currentMarked?.id].filter((x): x is string => !!x)
       if (useSyncStore.getState().rejectedEntries.some(e => ids.includes(e.scorecardId))) {
         setSubmitFinalError('One or more of your scores was not accepted by the server and is still only on this phone. Open the banner above the scorecard to review it, or ask the organiser.')
         return
@@ -1348,6 +1350,10 @@ export default function SelfMarkerScoreShell({
 
   const myName = currentMy?.profiles?.full_name ?? 'You'
   const partnerName = currentMarked?.profiles?.full_name ?? null
+  const partnerNote = partnerNotStartedNote({
+    isSharedDeviceScoring, partnerName,
+    partnerSelfEntryCount: Object.keys(partnerSelf).length,
+  })
 
   // ── End-of-round reconciliation ─────────────────────────────────────────────
   // Shotgun Start fallback picker — takes priority over even the
@@ -2704,7 +2710,7 @@ export default function SelfMarkerScoreShell({
             the field test flagged: confirmed showing for a shared-
             device pair when it should never appear for one. Fixed to
             `requiresMarker && !isSharedDeviceScoring`. */}
-        {(requiresMarker || isSharedDeviceScoring) && markedScorecard && partnerName && (
+        {showPartnerPanel({ requiresMarker, isSharedDeviceScoring, liveMarkedPresent: !!currentMarked, partnerName }) && (
           <>
             {requiresMarker && !isSharedDeviceScoring && (
               <button
@@ -2745,7 +2751,9 @@ export default function SelfMarkerScoreShell({
             confirmed by inspection, not just by convention, before
             adding this button, satisfying the explicit shared-device
             guardrail without any extra gating needed here. */}
-        {requiresMarker && !markedScorecard && partnerName && (
+        {/* Field test 26 Oct -- the old stand-alone "Waiting" card gated on the frozen server prop and could never clear.
+            Replaced by a live-driven note (partnerNotStartedNote) inside the partner panel's own block below. */}
+        {partnerNote && (
           <div style={{
             marginTop: 12, background: '#faf9f6', border: '1.5px dashed #d9c9a3', borderRadius: 14,
             padding: '20px 16px', textAlign: 'center',
@@ -2754,8 +2762,8 @@ export default function SelfMarkerScoreShell({
               ⏳ Waiting for {partnerName}
             </div>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#9ca3af', lineHeight: 1.6, margin: '0 0 12px' }}>
-              Your playing partner hasn&apos;t started scoring yet.<br />
-              You can begin entering your score while you wait.
+              {partnerNote}<br />
+              You can keep entering scores while you wait.
             </p>
             <button
               onClick={() => void refetchLive()}

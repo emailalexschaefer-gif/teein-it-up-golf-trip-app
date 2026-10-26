@@ -6,13 +6,15 @@ import {
   positionText, medalOf, initialsOf, podiumRows, crownedRows, playerCountText, podiumCaption, statusSubtitle,
   type PublicBoard, type PublicBoardRow, type Medal,
 } from '@/lib/leaderboardShare/publicBoard'
+import { LEADERBOARD_POLL_MS, nextPollDelay, isRefreshStale } from '@/lib/leaderboardShare/refreshPolicy'
 import { CROWN_POINTS, CROWN_BAND, CROWN_GOLD, CROWN_GOLD_DARK } from '@/lib/leaderboardShare/crown'
 
 // The public, read-only live leaderboard. Mobile first. Polls the public data
-// endpoint every 30 seconds while the page is visible (and once when it becomes
-// visible again). No login, no controls, nothing but standings.
+// endpoint about every 12 seconds while the page is visible (immediately when it becomes
+// visible or the device comes back online; never two requests at once; backs off while
+// failing). No login, no controls, nothing but standings.
 
-const POLL_MS = 30000
+const POLL_MS = LEADERBOARD_POLL_MS
 const TAGLINE = 'Run your next golf event like a pro.'
 
 const MEDAL: Record<Medal, { bg: string; ring: string; chip: string; chipFg: string }> = {
@@ -72,38 +74,55 @@ export default function PublicLeaderboardView({ token, initial }: { token: strin
   const [gone, setGone] = useState(initial === null)
   const [stale, setStale] = useState(false)
   const [updatedText, setUpdatedText] = useState('')
+  // genuine time of the last SUCCESSFUL fetch (the first value is the server render's own generation time)
+  const [lastOkAt, setLastOkAt] = useState<number | null>(() => {
+    const t = initial ? Date.parse(initial.generatedAt) : NaN
+    return Number.isFinite(t) ? t : null
+  })
+  const lastOkRef = useRef<number | null>(lastOkAt)
+  const failures = useRef(0)
+  const inFlight = useRef(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const refresh = useCallback(async () => {
+    if (inFlight.current) return // never overlap requests
+    inFlight.current = true
     try {
       const res = await fetch(`/api/l/${token}`, { cache: 'no-store' })
-      if (res.status === 404) { setGone(true); return }
-      if (!res.ok) { setStale(true); return }
+      if (res.status === 404) { setGone(true); return } // revoked/unknown: stop, no private data is ever shown
+      if (!res.ok) throw new Error(`status ${res.status}`)
       setBoard(await res.json())
-      setGone(false); setStale(false)
-    } catch { setStale(true) }
+      const now = Date.now()
+      lastOkRef.current = now; failures.current = 0
+      setLastOkAt(now); setGone(false); setStale(false)
+    } catch {
+      failures.current += 1
+      setStale(isRefreshStale(failures.current, lastOkRef.current === null ? null : Date.now() - lastOkRef.current))
+    } finally { inFlight.current = false }
   }, [token])
 
   useEffect(() => {
     if (gone) return
     let cancelled = false
+    const clear = () => { if (timer.current) { clearTimeout(timer.current); timer.current = null } }
     const schedule = () => {
-      if (cancelled) return
-      timer.current = setTimeout(async () => {
-        if (document.visibilityState === 'visible') await refresh()
-        schedule()
-      }, POLL_MS)
+      clear()
+      if (cancelled || document.visibilityState === 'hidden') return // nothing pending while hidden
+      timer.current = setTimeout(async () => { timer.current = null; await refresh(); schedule() }, nextPollDelay(failures.current))
     }
-    const onVisible = () => { if (document.visibilityState === 'visible') void refresh() }
-    document.addEventListener('visibilitychange', onVisible)
+    const resume = () => {
+      if (document.visibilityState === 'visible') { clear(); void refresh().then(schedule) } else clear()
+    }
+    document.addEventListener('visibilitychange', resume)
+    window.addEventListener('online', resume)
     schedule()
-    return () => { cancelled = true; if (timer.current) clearTimeout(timer.current); document.removeEventListener('visibilitychange', onVisible) }
+    return () => { cancelled = true; clear(); document.removeEventListener('visibilitychange', resume); window.removeEventListener('online', resume) }
   }, [gone, refresh])
 
   useEffect(() => {
-    if (!board) return
-    try { setUpdatedText(new Date(board.generatedAt).toLocaleString([], { hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short', year: 'numeric' })) } catch { setUpdatedText('') }
-  }, [board])
+    if (lastOkAt === null) return
+    try { setUpdatedText(new Date(lastOkAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })) } catch { setUpdatedText('') }
+  }, [lastOkAt])
 
   const page: React.CSSProperties = { minHeight: '100dvh', background: '#f4f1e8', fontFamily: 'var(--font-body), system-ui, sans-serif', color: '#1a1a16' }
 
@@ -202,7 +221,7 @@ export default function PublicLeaderboardView({ token, initial }: { token: strin
 
         {board.note && board.rows.length > 0 && <p style={{ fontSize: 12.5, color: '#6b6b60', margin: '12px 4px 0', lineHeight: 1.45 }}>{board.note}</p>}
         <p role="status" style={{ fontSize: 12, color: stale ? '#b45309' : '#7a7a70', margin: '8px 4px 0' }}>
-          {stale ? 'Having trouble refreshing — showing the last scores we have.' : updatedText ? `Last updated ${updatedText}${live ? ' · refreshes automatically' : ''}` : ''}
+          {stale ? `Having trouble refreshing — showing the scores we last got${updatedText ? ` at ${updatedText}` : ''}.` : updatedText ? `Last updated ${updatedText}${live ? ' · refreshes automatically' : ''}` : ''}
         </p>
 
         <section style={{ marginTop: 28, padding: '22px 16px', background: 'linear-gradient(180deg,#0b2416 0%,#14532d 100%)', color: '#faf6ed', borderRadius: 16, textAlign: 'center' }}>

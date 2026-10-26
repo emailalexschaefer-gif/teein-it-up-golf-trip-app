@@ -15,3 +15,25 @@ export function holeOptionLabel(
     ? `Hole ${holeNumber} — Par ${par}`
     : `Hole ${holeNumber}`
 }
+
+/**
+ * Field test 26 Oct (Round 2 showed holes without pars). How much of this round's playable holes have a par in its own
+ * frozen course snapshot? 'none' / 'partial' drive a visible setup warning instead of a silent plain "Hole 3".
+ * Never reads another round's data and never invents a par.
+ */
+export function parCoverage(
+  holeNumbers: number[],
+  snapshot: { hole_number: number; par: number }[] | null | undefined,
+): 'complete' | 'partial' | 'none' {
+  const have = holeNumbers.filter(n => {
+    const par = snapshot?.find(h => h.hole_number === n)?.par
+    return typeof par === 'number' && Number.isFinite(par) && par > 0
+  }).length
+  if (holeNumbers.length === 0 || have === 0) return 'none'
+  return have === holeNumbers.length ? 'complete' : 'partial'
+}
+
+export const PAR_COVERAGE_WARNING =
+  "This round has no course hole data, so hole pars can't be shown. Choose this round's course and tees from the Course Library above (each round keeps its own) to see each hole's par."
+export const PAR_PARTIAL_WARNING =
+  "This round's course data is missing pars for some holes. Re-select this round's course and tees above to refresh it."

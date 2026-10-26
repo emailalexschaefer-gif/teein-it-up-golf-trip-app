@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic'
 interface RouteProps { params: Promise<{ token: string }> }
 
 const BASE = { 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex, nofollow' } as const
-export const PUBLIC_CACHE = 'public, s-maxage=15, stale-while-revalidate=30'
+// 5s shared cache and no stale window: the polling page can be at most ~5s + one poll interval behind the scores.
+export const PUBLIC_CACHE = 'public, s-maxage=5'
 
 export async function GET(_req: NextRequest, { params }: RouteProps) {
   const { token } = await params

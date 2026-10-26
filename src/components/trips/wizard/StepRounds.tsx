@@ -7,7 +7,7 @@ import { generateUUID } from '@/lib/utils'
 import CourseLibrarySearch from './CourseLibrarySearch'
 import type { WizardRound, WizardTripDetails, WizardSideComp } from '@/types/app'
 import { computeHolePlayOrder } from '@/lib/scoring/holeSequence'
-import { holeOptionLabel } from '@/lib/sideGames/holeOptionLabel'
+import { holeOptionLabel, parCoverage, PAR_COVERAGE_WARNING, PAR_PARTIAL_WARNING } from '@/lib/sideGames/holeOptionLabel'
 
 interface Props {
   tripDetails: WizardTripDetails
@@ -129,6 +129,11 @@ function SideCompsConfig({ round, onUpdate }: { round: WizardRound; onUpdate: (r
               {holeOptions.map(h => <option key={h} value={h}>{holeOptionLabel(h, round.library_holes_snapshot)}</option>)}
             </Select>
           </Field>
+          {parCoverage(holeOptions, round.library_holes_snapshot) !== 'complete' && (
+            <p role="note" className="text-xs rounded-lg px-3 py-2" style={{ background: '#fdf3d9', color: '#7a5c00' }}>
+              {parCoverage(holeOptions, round.library_holes_snapshot) === 'none' ? PAR_COVERAGE_WARNING : PAR_PARTIAL_WARNING}
+            </p>
+          )}
           {newType === 'powerplay' && (
             <p className="text-xs text-text-muted">⚡ 2× Stableford Points on this hole</p>
           )}
