@@ -46,6 +46,20 @@ checks AS (
          CASE WHEN EXISTS (SELECT 1 FROM pg_class t JOIN pg_namespace n ON n.oid=t.relnamespace WHERE n.nspname='public' AND t.relname='event_messages' AND t.relrowsecurity) THEN 'OK' ELSE 'WARN' END,
          'row level security on event_messages'
 
+  UNION ALL SELECT 33, 'prereq 102: event_messages recipient_type CHECKs (type + consistency) allow ''all'' (the release announcement uses it)',
+         CASE WHEN EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid JOIN pg_namespace n ON n.oid=t.relnamespace
+                           WHERE n.nspname='public' AND t.relname='event_messages' AND c.contype='c'
+                             AND pg_get_constraintdef(c.oid) ILIKE '%recipient_type%' AND pg_get_constraintdef(c.oid) NOT ILIKE '%''all''%') THEN 'FAIL'
+              WHEN NOT EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid JOIN pg_namespace n ON n.oid=t.relnamespace
+                           WHERE n.nspname='public' AND t.relname='event_messages' AND c.contype='c' AND pg_get_constraintdef(c.oid) ILIKE '%recipient_type%') THEN 'WARN'
+              ELSE 'OK' END,
+         coalesce((SELECT string_agg(pg_get_constraintdef(c.oid), ' | ') FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid JOIN pg_namespace n ON n.oid=t.relnamespace WHERE n.nspname='public' AND t.relname='event_messages' AND c.contype='c' AND pg_get_constraintdef(c.oid) ILIKE '%recipient_type%'), 'no recipient_type CHECK found')
+         || '   FAIL here = stale chat constraint: apply migration 102 (NOT 029 alone) BEFORE releasing any round'
+
+  UNION ALL SELECT 34, 'prereq 029/031: event_messages read policy treats ''event'' like ''all''',
+         CASE WHEN EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='event_messages' AND cmd IN ('SELECT','ALL') AND qual ILIKE '%''event''%') THEN 'OK' ELSE 'WARN' END,
+         coalesce((SELECT string_agg(policyname, ', ') FROM pg_policies WHERE schemaname='public' AND tablename='event_messages'), 'no policies')
+
   UNION ALL SELECT 40, 'prereq 097: rounds.status CHECK allows upcoming/active/completed/cancelled',
          CASE WHEN EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid JOIN pg_namespace n ON n.oid=t.relnamespace
                            WHERE n.nspname='public' AND t.relname='rounds' AND c.contype='c'

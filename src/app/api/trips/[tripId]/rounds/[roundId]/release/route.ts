@@ -123,8 +123,18 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   })
   if (rpc.error) {
     if (isMissingSchema(rpc.error)) return NextResponse.json({ error: MIGRATION_MISSING, code: 'migration_missing' }, { status: 503 })
-    console.error('[release] rpc failed', { roundId, code: rpc.error.code, message: rpc.error.message })
-    return NextResponse.json({ error: 'Could not release this round. Nothing was changed. Please try again.' }, { status: 500 })
+    console.error('[release] rpc failed', { roundId, code: rpc.error.code, message: rpc.error.message, details: rpc.error.details, hint: rpc.error.hint })
+    // 23514 = check_violation. The only CHECKs the release can trip are event_messages.recipient_type / recipient_consistency: a database whose
+    // chat constraints are the stale pre-102 ones (accept 'event', not 'all') reject the announcement, and the whole
+    // release rolls back. Say so plainly instead of a generic "try again" that can never succeed.
+    if (rpc.error.code === '23514') {
+      return NextResponse.json({
+        error: 'Nothing was changed. The database chat settings are out of date (migration 102 has not been applied), so the release announcement was refused. Ask your administrator to apply migration 102, then try again. (ref 23514)',
+        code: 'chat_schema_outdated',
+      }, { status: 503 })
+    }
+    // A short reference (SQLSTATE only -- no SQL text) so a failure can be matched to the server log.
+    return NextResponse.json({ error: `Could not release this round. Nothing was changed. Please try again. (ref ${rpc.error.code ?? 'unknown'})`, code: 'release_failed' }, { status: 500 })
   }
   const out = rpc.data as { ok: boolean; error?: string; revision?: number }
   if (!out.ok) {
