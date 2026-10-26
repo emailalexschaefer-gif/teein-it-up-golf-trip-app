@@ -69,8 +69,10 @@ test('verify route: authority is checked server-side inside the RPC; rejected re
   assert.match(r, /Only the assigned verifier/)
   assert.match(r, /p_verifier_id: verifierId/)
 })
-test('group-scorer rounds also show the verification panel', () => {
-  assert.match(read('src/app/(app)/trips/[tripId]/rounds/[roundId]/ScoreSessionShell.tsx'), /<PendingVerificationCard tripId=\{tripId\} roundId=\{round\.id\} \/>/)
+test('group-scorer rounds show the verification panel exactly once (pre-existing; no duplicate import/render)', () => {
+  const s = read('src/app/(app)/trips/[tripId]/rounds/[roundId]/ScoreSessionShell.tsx')
+  assert.equal((s.match(/^import PendingVerificationCard/gm) ?? []).length, 1)
+  assert.equal((s.match(/<PendingVerificationCard /g) ?? []).length, 1)
 })
 
 // ── capture the moment ────────────────────────────────────────────────────────

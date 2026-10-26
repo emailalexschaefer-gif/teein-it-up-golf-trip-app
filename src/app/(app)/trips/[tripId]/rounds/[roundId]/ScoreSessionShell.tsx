@@ -12,7 +12,6 @@ import { deriveSyncStatus } from '@/lib/db/syncStatus'
 import PendingVerificationCard from '@/components/scoring/PendingVerificationCard'
 import SideCompEntryPanel from '@/components/scoring/SideCompEntryPanel'
 import SideGameArrivalPrompt from '@/components/scoring/SideGameArrivalPrompt'
-import PendingVerificationCard from '@/components/scoring/PendingVerificationCard'
 import { sideGameAnchorId } from '@/lib/sideGames/arrivalPrompt'
 import { trackEvent } from '@/lib/analytics/trackEvent'
 import { formatGolfHandicap } from '@/lib/scoring/handicapDisplay'
@@ -994,7 +993,6 @@ export default function ScoreSessionShell({
           </div>
         )}
         <SideGameArrivalPrompt roundId={round.id} holeNumber={holeNum} comps={activeSideComps} />
-        <PendingVerificationCard tripId={tripId} roundId={round.id} />
         {activeSideComps.map(comp => (
           <div key={comp.id} id={sideGameAnchorId(comp.id)} style={{
             margin: '0 16px 10px', background: '#fdf3d9', border: '1.5px solid #e8c96a', borderRadius: 12,
