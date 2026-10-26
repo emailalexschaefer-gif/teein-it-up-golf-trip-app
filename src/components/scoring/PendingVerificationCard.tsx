@@ -44,7 +44,10 @@ const COMP_ICON: Record<string, string> = { nearest_pin: '🎯', longest_drive: 
 
 export default function PendingVerificationCard({ tripId, roundId }: { tripId: string; roundId: string }) {
   const [pending, setPending] = useState<PendingClaim[]>([])
-  const [expanded, setExpanded] = useState(false)
+  // Package 3 -- the verification request is prominent: open by default as soon as there is something to decide, so a
+  // verifier cannot miss it. It is still inline and non-blocking (never a modal over score entry). Once the verifier
+  // deliberately collapses it, that choice is respected.
+  const [expanded, setExpanded] = useState(true)
   const [loaded, setLoaded] = useState(false)
 
   async function load() {
@@ -74,11 +77,11 @@ export default function PendingVerificationCard({ tripId, roundId }: { tripId: s
         onClick={() => setExpanded(e => !e)}
         style={{
           width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          background: '#fdf3d9', border: '1.5px solid #e8c96a', borderRadius: 12, padding: '10px 14px', cursor: 'pointer',
+          background: '#fdf3d9', border: '2px solid #d4a017', borderRadius: 12, padding: '12px 14px', cursor: 'pointer', minHeight: 44,
         }}
       >
         <span style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, color: '#7a5c00' }}>
-          🎯 {pending.length} Side Game{pending.length === 1 ? '' : 's'} awaiting verification
+          ⚠ Side Game Verification Required · {pending.length} awaiting your decision
         </span>
         <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#a1791f' }}>{expanded ? '▲' : '▼'}</span>
       </button>
@@ -125,7 +128,7 @@ function VerificationClaimCard({ tripId, claim, onResolved }: { tripId: string; 
   return (
     <div style={{ background: '#ffffff', border: '1px solid #eceae3', borderRadius: 12, padding: '12px 14px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
       <div style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-        🎯 Side Game to verify
+        Side Game Verification Required
       </div>
       <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: '#14532d' }}>{claim.playerName}</div>
       <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#374151', marginTop: 1 }}>
@@ -168,11 +171,12 @@ function VerificationClaimCard({ tripId, claim, onResolved }: { tripId: string; 
           </button>
           {canCorrect && (
             <button
+              data-testid="verify-modify"
               disabled={submitting !== null}
               onClick={() => setCorrecting(true)}
               style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: '#ffffff', color: '#14532d', border: '1.5px solid #d1d5db', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}
             >
-              Correct
+              Modify
             </button>
           )}
           <button
@@ -206,7 +210,7 @@ function VerificationClaimCard({ tripId, claim, onResolved }: { tripId: string; 
               onClick={() => void decide('correct')}
               style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, cursor: 'pointer', opacity: (submitting || !correctedValue) ? 0.6 : 1 }}
             >
-              {submitting === 'correct' ? '…' : 'Save correction'}
+              {submitting === 'correct' ? '…' : 'Save & confirm'}
             </button>
           </div>
         </div>

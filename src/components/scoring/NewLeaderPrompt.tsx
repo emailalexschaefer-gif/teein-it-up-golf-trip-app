@@ -28,6 +28,8 @@ export interface NewLeaderContext {
   entryId: string | null
   playerName: string
   claimedValue: number | null
+  /** True only when the nomination would lead if verified; otherwise the neutral capture wording is used. */
+  couldLead?: boolean
 }
 
 /**
@@ -44,8 +46,9 @@ export interface NewLeaderContext {
  * reopen it either.
  */
 export default function NewLeaderPrompt({ ctx, onDismiss }: { ctx: NewLeaderContext; onDismiss: () => void }) {
-  const headline = HEADLINE[ctx.compType]?.() ?? '🏁 THAT COULD BE THE LEAD!'
-  const subtext = SUBTEXT[ctx.compType] ?? 'Grab a photo now — your Playing Partner will confirm it.'
+  const couldLead = ctx.couldLead !== false
+  const headline = couldLead ? (HEADLINE[ctx.compType]?.() ?? '🏁 THAT COULD BE THE LEAD!') : '📸 Capture the Moment!'
+  const subtext = couldLead ? (SUBTEXT[ctx.compType] ?? 'Grab a photo now — your Playing Partner will confirm it.') : 'Got a photo or video of that shot? It is optional \u2014 your nomination is already saved.'
 
   return (
     <div style={{

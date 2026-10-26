@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { calculateStableford } from '@/lib/scoring/stableford'
 import { getHandicapStrokesForHole } from '@/lib/scoring/strokeAllocation'
+import { buildMismatchWarning, shouldWarn, type MismatchWarning } from '@/lib/scoring/mismatchWarning'
 import { compareCaptures, COMPARISON_LABEL, isZeroPointsMismatch, type ComparisonStatus, type CaptureValue } from '@/lib/scoring/comparison'
 import { queueScoreEntryBounded, getPendingCount, getQueuedEntriesForScorecards } from '@/lib/db/dexie'
 import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
@@ -17,6 +18,8 @@ import { useScoringFocusStore } from '@/store/scoringFocusStore'
 import { trackEvent } from '@/lib/analytics/trackEvent'
 import LiveLeaderboard from '@/components/scoring/LiveLeaderboard'
 import SideCompEntryPanel from '@/components/scoring/SideCompEntryPanel'
+import SideGameArrivalPrompt from '@/components/scoring/SideGameArrivalPrompt'
+import { sideGameAnchorId } from '@/lib/sideGames/arrivalPrompt'
 import dynamic from 'next/dynamic'
 import type { NewLeaderContext } from '@/components/scoring/NewLeaderPrompt'
 import PendingVerificationCard from '@/components/scoring/PendingVerificationCard'
@@ -308,6 +311,10 @@ export default function SelfMarkerScoreShell({
   const [holes, setHoles] = useState<Hole[]>([])
   const [loadingHoles, setLoadingHoles] = useState(true)
   const [holeIdx, setHoleIdx] = useState(0)
+  // Package 3 -- advisory "Scores Don't Match" warning when moving forward off a disputed hole. Never blocks play,
+  // never alters either entry or the reconciliation state; shown once per distinct disagreement.
+  const [mismatchWarning, setMismatchWarning] = useState<MismatchWarning | null>(null)
+  const acknowledgedMismatchesRef = useRef<Set<string>>(new Set())
   // Shotgun Start. startInfo is fetched once on mount (my-starting-hole,
   // resolves the caller's own group server-side). holeIdxSeeded ensures
   // the seeding effect below runs exactly once — never re-seeds on a
@@ -1179,6 +1186,18 @@ export default function SelfMarkerScoreShell({
       return
     }
     setSaveFailure(null)
+    // Package 3 -- the save above has already persisted whatever was typed, so nothing is lost by pausing here.
+    // Both entries are kept exactly as they are whichever button is chosen.
+    const warning = buildMismatchWarning({
+      holeNumber: holeNum, myName, partnerName,
+      myStatus: myComparison, partnerStatus: partnerComparison,
+      myDraft: myDraftCapture, myMarkerEntry: myMarker[holeNum] ?? null,
+      partnerDraft: partnerDraftCapture, partnerSelfEntry: partnerSelf[holeNum] ?? null,
+    })
+    if (shouldWarn(direction, warning, acknowledgedMismatchesRef.current)) {
+      setMismatchWarning(warning)
+      return
+    }
     navigateHole(direction)
   }
 
@@ -2487,8 +2506,9 @@ export default function SelfMarkerScoreShell({
             </div>
           </div>
         )}
+        <SideGameArrivalPrompt roundId={round.id} holeNumber={holeNum} comps={activeSideComps} />
         {activeSideComps.map(comp => (
-          <div key={comp.id} style={{
+          <div key={comp.id} id={sideGameAnchorId(comp.id)} style={{
             background: '#fdf3d9', border: '1.5px solid #e8c96a', borderRadius: 12,
             padding: '10px 14px', marginBottom: 10,
           }}>
@@ -2565,6 +2585,7 @@ export default function SelfMarkerScoreShell({
                   // for himself or entering a result for his Paper
                   // partner.
                   playerName: result.competitorPlayerName, claimedValue: result.claimedValue,
+                  couldLead: result.wouldLeadIfVerified,
                 })
               }}
             />
@@ -2787,6 +2808,7 @@ export default function SelfMarkerScoreShell({
             nothing when both sides match — this section adds zero DOM,
             not just zero visible content, when there's nothing to
             resolve. */}
+        <div id="mismatch-reconciliation" />
         {(() => {
           const blocks: React.ReactNode[] = []
 
@@ -2973,6 +2995,52 @@ export default function SelfMarkerScoreShell({
         {isLocked && (
           <div style={{ textAlign: 'center', fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#9ca3af', marginBottom: 6 }}>
             Scores Finalised
+          </div>
+        )}
+
+        {mismatchWarning && (
+          <div
+            data-testid="mismatch-warning" role="alertdialog" aria-modal="true" aria-labelledby="mismatch-warning-title"
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          >
+            <div style={{ background: '#ffffff', borderRadius: 16, padding: 18, width: '100%', maxWidth: 380, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.35)' }}>
+              <div id="mismatch-warning-title" style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 17, color: '#92400e', marginBottom: 10 }}>
+                ⚠ Scores Don&apos;t Match — Hole {mismatchWarning.holeNumber}
+              </div>
+              {mismatchWarning.items.map(it => (
+                <div key={it.golfer} style={{ background: '#fffbeb', border: '1px solid #f3d98b', borderRadius: 10, padding: '10px 12px', marginBottom: 8, fontFamily: 'var(--font-body)', fontSize: 14, color: '#1a1a16' }}>
+                  <div style={{ fontWeight: 800, marginBottom: 4 }}>{it.golfer}</div>
+                  <div>{it.yourLabel}: <strong>{it.yourEntry}</strong></div>
+                  <div>{it.otherLabel}: <strong>{it.otherEntry}</strong></div>
+                </div>
+              ))}
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#4b5563', lineHeight: 1.45, margin: '6px 0 14px' }}>
+                These scores don&apos;t match. You can check them now or continue playing and resolve the difference later.
+              </p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button" data-testid="mismatch-review"
+                  onClick={() => {
+                    setMismatchWarning(null)
+                    // Stay on this hole: the reconciliation panel for it is already on this screen.
+                    setTimeout(() => document.getElementById('mismatch-reconciliation')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50)
+                  }}
+                  style={{ flex: 1, minHeight: 46, borderRadius: 10, border: 'none', background: '#14532d', color: '#fff', fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}
+                >Review Scores</button>
+                <button
+                  type="button" data-testid="mismatch-continue"
+                  onClick={() => {
+                    acknowledgedMismatchesRef.current.add(mismatchWarning.signature)
+                    setMismatchWarning(null)
+                    navigateHole('forward')
+                  }}
+                  style={{ flex: 1, minHeight: 46, borderRadius: 10, border: '1.5px solid #8a8f96', background: '#fff', color: '#14532d', fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}
+                >Continue Scoring</button>
+              </div>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#6b7280', margin: '10px 0 0' }}>
+                Both entries are kept. The hole stays flagged for review until it is corrected or resolved.
+              </p>
+            </div>
           </div>
         )}
 

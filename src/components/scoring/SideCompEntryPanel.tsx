@@ -301,7 +301,9 @@ export default function SideCompEntryPanel({ tripId, sideCompId, compType, label
       // filling in the claim form above. compType is a fixed enum, not
       // free text — no PII risk.
       trackEvent('side_game_claimed', { tripId, compType })
-      if (result.wouldLeadIfVerified) onWouldLeadIfVerified?.(result)
+      // Package 3 -- Capture the Moment is offered after ANY qualifying nomination (optional, skippable), not only a
+      // would-be leader. The celebratory 'could be the lead' wording is still reserved for wouldLeadIfVerified.
+      if (result.wouldLeadIfVerified || qualified) onWouldLeadIfVerified?.(result)
     } catch {
       setError('Couldn\u2019t save your claim — your score is unaffected. Check your connection and try again.')
     } finally {

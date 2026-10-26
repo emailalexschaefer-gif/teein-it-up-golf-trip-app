@@ -655,6 +655,7 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
                 onClick={(e) => { e.stopPropagation(); audio.toggleApplause() }}
                 aria-pressed={audio.state.applauseEnabled}
                 aria-label={audio.state.applauseEnabled ? 'Turn celebration sound off' : 'Turn celebration sound on'}
+                title={audio.state.applauseEnabled ? 'Applause on winner slides: ON (tap to turn off)' : 'Applause on winner slides: OFF (tap to turn on)'}
                 style={{ ...navButtonStyle(false), fontSize: 16, opacity: audio.state.applauseEnabled ? 1 : 0.55 }}
               >{'\u{1F44F}'}</button>
             )}
