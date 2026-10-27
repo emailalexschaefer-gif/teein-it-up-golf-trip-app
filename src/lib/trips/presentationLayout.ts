@@ -55,3 +55,17 @@ export function momentsLabelPlacement(aspect: number): MomentsLabelPlacement {
 export function momentsLabelHeading(isBlooper: boolean | undefined): 'BLOOPERS' | 'EVENT MOMENTS' {
   return isBlooper === true ? 'BLOOPERS' : 'EVENT MOMENTS'
 }
+
+/**
+ * Where the "EVENT MOMENTS -- Relive it in My Golf" callout appears (27 Oct audit; one rule, no per-photo exceptions):
+ *   - YES: every ordinary Moment photo slide ('photo') and every Blooper photo/video ('blooper'), landscape or portrait
+ *     (portrait -> side card in the pillarbox, landscape -> corner pill). It needs the media's natural size, which the
+ *     player reports on load.
+ *   - NO: official-announcement and structural slides -- Side Game winner, Round/Total results, Champion, Final Leaderboard,
+ *     Group Photo, dividers, Makers & Breakers, opening/closing. These are not "Moments" you relive in My Golf.
+ * A Side Game *Moment* (a player's photo captured for a side game) is an ordinary 'photo' slide and gets the callout;
+ * the official Side Game WINNER slide does not.
+ */
+export function showsMomentsCallout(slideKind: string): boolean {
+  return slideKind === 'photo' || slideKind === 'blooper'
+}

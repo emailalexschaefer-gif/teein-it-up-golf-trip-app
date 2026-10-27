@@ -156,7 +156,7 @@ test('momentsLabelHeading: BLOOPERS only for an organiser-flagged Blooper; every
 })
 
 test('the label is rendered only for photo Moments and Blooper slides -- never group photo, winners, champion or any other slide', () => {
-  const mount = playerSrc.match(/\{(?:slideReady && )?\(isPhoto\(current\) \|\| isBlooper\(current\)\) && mediaSize[\s\S]*?\/>\s*\n\s*\)\}/)
+  const mount = playerSrc.match(/\{(?:slideReady && )?showsMomentsCallout\(current\.kind\) && mediaSize[\s\S]*?\/>\s*\n\s*\)\}/)
   assert.ok(mount, 'expected a single, kind-gated mount')
   assert.equal((playerSrc.match(/<MomentsSourceLabel/g) ?? []).length, 1, 'mounted exactly once, so it can never duplicate')
   assert.match(mount![0], /mediaSize\.key === current\.momentId/)
@@ -192,4 +192,13 @@ test('photo/video rendering itself is unchanged: still object-fit contain (no cr
 test('deck: Blooper slides carry an optional, display-only isBlooper flag sourced from the memory record', () => {
   assert.match(deckSrc, /caption: string \| null; isBlooper\?: boolean \}/)
   assert.match(deckSrc, /caption: b\.caption, isBlooper: b\.isBlooper,/)
+})
+
+test('Moments callout rule (27 Oct audit): photo + blooper only; every announcement / structural slide never gets it', async () => {
+  const { showsMomentsCallout } = await import('../trips/presentationLayout')
+  for (const k of ['photo', 'blooper']) assert.equal(showsMomentsCallout(k), true, k)
+  for (const k of ['sideGameWinner', 'roundResults', 'cumulativeResults', 'champion', 'leaderboard', 'groupPhoto', 'makersBreakersCard', 'makersBreakersDivider', 'roundDivider', 'opening', 'closing', 'eventAtAGlance', 'bloopersDivider']) assert.equal(showsMomentsCallout(k), false, k)
+})
+test('the callout is drawn after the photo caption block so the caption gradient cannot dim it', () => {
+  assert.ok(playerSrc.indexOf('data-testid="photo-caption"') < playerSrc.indexOf('<MomentsSourceLabel'))
 })

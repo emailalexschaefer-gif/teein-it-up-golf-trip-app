@@ -9,6 +9,7 @@ import StartingGrid from '@/components/scoring/StartingGrid'
 import { formatGolfHandicap } from '@/lib/scoring/handicapDisplay'
 import PlayerCardModal, { initialsOf, type PlayerCardData } from '@/components/shared/PlayerCardModal'
 import { resolveFocusRound, sortRoundsChronologically } from '@/lib/scoring/multiRound'
+import { numberRounds, canonicalRoundLabel } from '@/lib/trips/roundNumbering'
 import WelcomeBrochure, { CollapsedWelcomeCard, isBrochureDismissed } from '@/components/trips/WelcomeBrochure'
 import InstallPwaCard from '@/components/trips/InstallPwaCard'
 import { trackEvent } from '@/lib/analytics/trackEvent'
@@ -176,6 +177,7 @@ function PlayersJoinedSection({ trip, onSelectPlayer }: { trip: TripData; onSele
  * would need extensive gating to reuse safely here).
  */
 function PlayerEventInfoView({ trip, onBack }: { trip: TripData; onBack: () => void }) {
+  const roundLabelOf = (r: { id: string; name: string }) => canonicalRoundLabel(r, numberRounds(trip.rounds))
   return (
     <div className="-mx-4 -mt-5 pb-20 md:pb-0">
       <div style={{
@@ -228,7 +230,7 @@ function PlayerEventInfoView({ trip, onBack }: { trip: TripData; onBack: () => v
                   play_date. */}
               {sortRoundsChronologically(trip.rounds).map(r => (
                 <div key={r.id} style={{ borderBottom: '1px solid #f3f1ea', paddingBottom: 10 }}>
-                  <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, color: '#14532d' }}>{r.name}</div>
+                  <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13.5, color: '#14532d' }}>{roundLabelOf(r)}</div>
                   <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260', marginTop: 2 }}>
                     {r.course_name ?? 'Course TBC'} · {new Date(r.play_date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
                     {r.tee_time ? ` · ${formatTeeTime(r.tee_time)}` : ''} · {formatLabel(r.scoring_format)}
@@ -312,6 +314,8 @@ export default function PlayerHomeCard({ trip, currentUserId, championDeclared =
   // this app already uses, so "most recently completed round" here
   // can never again resolve non-deterministically.
   const rounds = sortRoundsChronologically(trip.rounds)
+  const roundNumbering = numberRounds(trip.rounds) // ALL rounds, cancelled included: a cancelled Round 2 keeps its number
+  const roundLabelOf = (r: { id: string; name: string }) => canonicalRoundLabel(r, roundNumbering)
   const activeRound = rounds.find(r => r.status === 'active')
   const upcomingRound = rounds.find(r => r.status === 'upcoming')
   const completedRounds = rounds.filter(r => r.status === 'completed')
@@ -498,7 +502,7 @@ export default function PlayerHomeCard({ trip, currentUserId, championDeclared =
               {focusRound?.status === 'upcoming' && (
                 <div style={{ background: '#fdf3d9', border: '1px solid #e8c96a', borderRadius: 12, padding: '12px 14px', textAlign: 'center' }}>
                   <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#a1791f' }}>
-                    🟡 Waiting for {organiserName ?? 'the organiser'} to start {focusRound.name}
+                    🟡 Waiting for {organiserName ?? 'the organiser'} to start {roundLabelOf(focusRound)}
                   </span>
                 </div>
               )}
@@ -580,7 +584,7 @@ export default function PlayerHomeCard({ trip, currentUserId, championDeclared =
               {focusRound?.status === 'completed' && (
                 <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: '12px 14px', textAlign: 'center' }}>
                   <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: '#16a34a' }}>
-                    ✓ {focusRound.name} complete
+                    ✓ {roundLabelOf(focusRound)} complete
                   </span>
                 </div>
               )}

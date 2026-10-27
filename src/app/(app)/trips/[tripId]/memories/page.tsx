@@ -422,7 +422,7 @@ export default function EventMemoriesPage() {
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 12, paddingBottom: 2 }}>
             <button onClick={() => { setPendingScope(null); setFilterRoundId('all') }} style={tabStyle(filterRoundId === 'all')}>All</button>
             {manifest.rounds.map((r, i) => (
-              <button key={r.id} onClick={() => { setPendingScope(null); setFilterRoundId(r.id) }} style={tabStyle(filterRoundId === r.id)}>R{i + 1}</button>
+              <button key={r.id} onClick={() => { setPendingScope(null); setFilterRoundId(r.id) }} style={tabStyle(filterRoundId === r.id)}>R{r.ordinal ?? i + 1}</button>
             ))}
           </div>
 

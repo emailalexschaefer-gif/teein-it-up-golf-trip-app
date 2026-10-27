@@ -156,11 +156,29 @@ export type FailureClass = 'transient' | 'permanent'
  *  "round not active" ...). Retrying the identical request cannot help.
  *  Transient: auth/session, throttling, timeouts and server errors. */
 export function classifyHttpFailure(status: number): FailureClass {
-  if (status === 401 || status === 408 || status === 425 || status === 429) return 'transient'
+  // 405: a score POST that reaches a page instead of the API (a redirect to /login after the session lapsed, a proxy) is
+  // never a verdict on the score. The real endpoint always answers POST, so this can only be a routing/session problem.
+  if (status === 401 || status === 405 || status === 408 || status === 425 || status === 429) return 'transient'
   if (status >= 500) return 'transient'
   if (status >= 400) return 'permanent'
   // A 3xx/1xx that reached us is not a scoring answer — never "permanent".
   return 'transient'
+}
+
+/** Rejected rows filed by the old rule for a bare "HTTP 405" (see classifyHttpFailure): a routing/session problem, not a refusal of the score. */
+export function isTransportRejection(e: OfflineScoreEntry): boolean {
+  return e.syncStatus === 'rejected' && !e.conflict && e.lastError === 'HTTP 405'
+}
+
+/**
+ * Which "HTTP 405" rejections to send again: only the NEWEST row for its (scorecard, hole, role). A rejected row that a later
+ * edit has superseded stays exactly as it is, so recovery never resurrects an old value over what the player did afterwards.
+ * (The server is the second guard: it keeps the value with the latest entered_at, so an old resend can never overwrite a newer
+ * accepted score. A differing old value is held for review, never forced.)
+ */
+export function planTransportRequeue(allRows: OfflineScoreEntry[]): string[] {
+  const latest = latestPerKey(allRows)
+  return [...latest.values()].filter(isTransportRejection).map(e => e.clientId)
 }
 
 export class TimeoutError extends Error {

@@ -61,3 +61,56 @@ export function buildMismatchWarning(i: MismatchInput): MismatchWarning | null {
 export function shouldWarn(direction: 'forward' | 'backward', warning: MismatchWarning | null, acknowledged: ReadonlySet<string>): warning is MismatchWarning {
   return direction === 'forward' && warning !== null && !acknowledged.has(warning.signature)
 }
+
+// ── V7: late-arriving mismatches ────────────────────────────────────────────────
+// The warning above is built only when the player taps Next Hole, from the hole on screen at that moment. A
+// disagreement that appears AFTER that (the partner's entry syncs in later, or a poll lands while the player is on
+// another hole) was therefore never announced. This reads the SAVED per-hole captures for every hole and lists the
+// disputed ones, in both directions (my entry vs my marker's, and my entry for my partner vs their own). Advisory only:
+// it never changes, verifies or clears an entry, and never blocks play.
+export type CaptureMapLike = Record<number, CaptureValue | undefined>
+
+export interface LateMismatch {
+  holeNumber: number
+  /** Changes whenever either side of the disagreement changes, so an edited dispute is announced again. */
+  signature: string
+  items: { golfer: string; yourEntry: string; otherEntry: string }[]
+}
+
+export interface LateMismatchInput {
+  holeNumbers: number[]
+  myName: string
+  partnerName: string | null
+  /** false for shared-device, paper or individual scoring -- those never compare two independent entries. */
+  comparing: boolean
+  mySelf: CaptureMapLike
+  myMarker: CaptureMapLike
+  partnerSelf: CaptureMapLike
+  partnerMarker: CaptureMapLike
+  /** Whether a playing partner is currently selected (the partner-side comparison needs one). */
+  hasPartner: boolean
+}
+
+import { compareCaptures as _compare } from './comparison'
+
+export function findLateMismatches(i: LateMismatchInput): LateMismatch[] {
+  if (!i.comparing) return []
+  const out: LateMismatch[] = []
+  for (const n of i.holeNumbers) {
+    const items: LateMismatch['items'] = []
+    if (_compare(i.mySelf[n] ?? null, i.myMarker[n] ?? null) === 'mismatch') {
+      items.push({ golfer: i.myName, yourEntry: describeEntry(i.mySelf[n]), otherEntry: describeEntry(i.myMarker[n]) })
+    }
+    if (i.hasPartner && _compare(i.partnerSelf[n] ?? null, i.partnerMarker[n] ?? null) === 'mismatch') {
+      items.push({ golfer: i.partnerName ?? 'your playing partner', yourEntry: describeEntry(i.partnerMarker[n]), otherEntry: describeEntry(i.partnerSelf[n]) })
+    }
+    if (items.length) out.push({ holeNumber: n, items, signature: `${n}|${items.map(x => `${x.golfer}:${x.yourEntry}/${x.otherEntry}`).join('|')}` })
+  }
+  return out
+}
+
+/** Disputed holes to announce now: not the hole on screen (it has its own panel and the forward warning) and not
+ *  already acknowledged. */
+export function pendingLateNotices(all: LateMismatch[], currentHole: number, acknowledged: ReadonlySet<string>): LateMismatch[] {
+  return all.filter(m => m.holeNumber !== currentHole && !acknowledged.has(m.signature))
+}

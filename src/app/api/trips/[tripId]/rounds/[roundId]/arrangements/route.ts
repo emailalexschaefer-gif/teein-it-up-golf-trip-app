@@ -7,6 +7,7 @@
  * new device or later profile change cannot alter it. Any member of THIS event may read it; the round must
  * belong to the trip in the URL. Returns { released:false } until the organiser has released the round.
  */
+import { loadTripRoundLabels } from '@/lib/trips/roundLabels'
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -29,6 +30,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   if (roundRes.error && ['42703', '42P01', 'PGRST205'].includes(roundRes.error.code ?? '')) return NextResponse.json({ available: false, released: false })
   if (!roundRes.data) return NextResponse.json({ error: 'Round not found.' }, { status: 404 })
   const round = roundRes.data
+  const roundLabel = (await loadTripRoundLabels(admin, tripId)).label({ id: round.id, name: round.name })
   if (!round.setup_released) return NextResponse.json({ available: true, released: false })
 
   const snap = await admin.from('round_arrangements').select('player_id, group_id, group_name, tee_time, starting_hole, playing_handicap').eq('round_id', roundId)
@@ -49,7 +51,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
   return NextResponse.json({
     available: true, released: true, viewerId: user.id,
-    round: { id: round.id, name: round.name, status: round.status, play_date: round.play_date, course_name: round.course_name ?? null, revision: round.release_revision ?? 0, released_at: round.released_at ?? null },
+    round: { id: round.id, name: roundLabel, status: round.status, play_date: round.play_date, course_name: round.course_name ?? null, revision: round.release_revision ?? 0, released_at: round.released_at ?? null },
     me: mine ? { group_id: mine.group_id, group_name: mine.group_name, tee_time: mine.tee_time, starting_hole: mine.starting_hole, playing_handicap: mine.playing_handicap } : null,
     groups,
   })

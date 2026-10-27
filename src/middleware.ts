@@ -55,6 +55,12 @@ export async function middleware(request: NextRequest) {
   const isPublic = isPublicRoute(pathname)
 
   if (!user && !isPublic) {
+    // 27 Oct: an API call from a signed-out session must get a machine-readable 401, never a redirect. A 307 to /login
+    // re-sent a score POST to the login PAGE, which answers 405 -- the app then filed the score as permanently refused
+    // ("HTTP 405", rejected queue) instead of "signed out, will retry". Pages still redirect to /login as before.
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    }
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     url.searchParams.set('redirectTo', pathname)

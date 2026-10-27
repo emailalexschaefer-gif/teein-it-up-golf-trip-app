@@ -1,4 +1,6 @@
 import type { EventMemoryData, MemorySourceType } from './eventMemoryData'
+import { limitToTopFive } from './topFive'
+import { isPresentableRound } from './roundPlay'
 
 /**
  * Event Memories V1.2 (12 Sep) -- Event Highlights Slideshow, the
@@ -173,7 +175,7 @@ export type Slide =
   // field never gets squeezed onto one unreadable slide.
   // championDeclared/endedEarly: an event ended early WITHOUT an overall champion shows the
   // same podium and standings, captioned as ended early, and never a trophy/winner treatment.
-  | { kind: 'leaderboard'; entries: { position: number; playerName: string; totalPoints: number }[]; page: number; totalPages: number; championDeclared?: boolean; endedEarly?: boolean }
+  | { kind: 'leaderboard'; entries: { position: number; playerName: string; totalPoints: number }[]; page: number; totalPages: number; championDeclared?: boolean; endedEarly?: boolean; moreTied?: { position: number; count: number } | null }
   // Group photo -- V1.4 (14 Sep). Only ever produced from an
   // explicit organiser selection (groupPhotoMomentId), never inferred
   // (e.g. "the Memory with the most people" -- no such detection is
@@ -235,11 +237,11 @@ export type Slide =
   // own ranked results only (never cumulative), from
   // determineRoundStandings -- position 1 is this round's winner,
   // displayed distinctly by the renderer, never a separate field here.
-  | { kind: 'roundResults'; roundId: string; roundName: string; standings: { playerId: string; playerName: string; roundPoints: number; position: number }[] }
+  | { kind: 'roundResults'; roundId: string; roundName: string; standings: { playerId: string; playerName: string; roundPoints: number; position: number }[]; moreTied?: { position: number; count: number } | null }
   // 18 Oct field test -- cumulative standings AFTER a round (Round 2 onwards),
   // shown directly after that round's own Results slide, which is unchanged.
   // `roundsIncluded` is how many completed rounds feed the totals.
-  | { kind: 'cumulativeResults'; roundId: string; roundName: string; roundsIncluded: number; standings: { playerId: string; playerName: string; totalPoints: number; position: number }[] }
+  | { kind: 'cumulativeResults'; roundId: string; roundName: string; roundsIncluded: number; standings: { playerId: string; playerName: string; totalPoints: number; position: number }[]; moreTied?: { position: number; count: number } | null }
 
 export interface SlideshowDeck {
   slides: Slide[]
@@ -285,6 +287,18 @@ interface MemoryLike {
  * between runs. Never uses filename or hole number for ordering, per
  * the brief's own explicit rule (a Hole 18 photo can be captured
  * before a delayed Hole 4 upload). */
+/**
+ * Eligibility at the BUILDER layer (27 Oct, Lappen): rounds that were cancelled, or that the manifest flags as having no recorded
+ * scores, never produce results, winners, round sections or counts -- however the manifest reached us (older fixtures,
+ * shared presentation, a future caller). Decided by status / recorded scores, NEVER by "everyone has 0 points".
+ */
+function presentableData(data: EventMemoryData): EventMemoryData {
+  const rounds = data.rounds.filter(isPresentableRound)
+  if (rounds.length === data.rounds.length) return data
+  const keep = new Set(rounds.map(r => r.id))
+  return { ...data, rounds, sideGameWinners: data.sideGameWinners.filter(w => !w.roundId || keep.has(w.roundId)) }
+}
+
 function sortMemoriesChronologically<T extends MemoryLike>(memories: T[]): T[] {
   return [...memories].sort((a, b) => {
     const byTime = a.createdAt.localeCompare(b.createdAt)
@@ -339,6 +353,7 @@ function selectMemories(data: EventMemoryData, source: SlideshowSource, selected
  * own "no empty folders" rule.
  */
 export function buildSlideshowDeck(data: EventMemoryData, source: SlideshowSource, selectedMomentIds?: string[], groupPhotoMomentId?: string): SlideshowDeck {
+  data = presentableData(data)
   const selected = selectMemories(data, source, selectedMomentIds)
   const chronological = sortMemoriesChronologically(selected)
   const { slides, aftershowStartIndex } = buildCoreSlides(data, chronological, groupPhotoMomentId)
@@ -390,10 +405,15 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], gro
   // into the main slideshow). Omitted entirely if no selection was
   // made, or the selected id doesn't match a real photo Memory in
   // this event -- never a fabricated or inferred substitute.
+  let shownGroupPhotoId: string | null = null
   if (groupPhotoMomentId) {
     const groupPhoto = data.memories.find(m => m.momentId === groupPhotoMomentId && m.mediaType === 'photo')
     if (groupPhoto) {
       slides.push({ kind: 'groupPhoto', momentId: groupPhoto.momentId, imageUrl: groupPhoto.imageUrl, caption: groupPhoto.caption })
+      // V7: the selected Group Photo plays once, on its own slide -- never again among the ordinary Moments (event-level
+      // or any round). The Moment itself is untouched and stays in Event Memories.
+      chronological = chronological.filter(m => m.momentId !== groupPhoto.momentId)
+      shownGroupPhotoId = groupPhoto.momentId
     }
   }
 
@@ -496,9 +516,9 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], gro
     // reproduce the full field. Always exactly one slide now -- never
     // multiple pages. Fewer than 5 players simply shows however many
     // exist (slice never pads with fabricated entries).
-    const sorted = [...champ.standings].sort((a, b) => a.position - b.position)
-    const entries = sorted.slice(0, 5).map(s => ({ position: s.position, playerName: s.playerName, totalPoints: s.totalPoints }))
-    slides.push({ kind: 'leaderboard', entries, page: 1, totalPages: 1, championDeclared: champDeclared, endedEarly: champ.endedEarly })
+    const top = limitToTopFive(champ.standings)
+    const entries = top.rows.map(s => ({ position: s.position, playerName: s.playerName, totalPoints: s.totalPoints }))
+    slides.push({ kind: 'leaderboard', entries, page: 1, totalPages: 1, championDeclared: champDeclared, endedEarly: champ.endedEarly, moreTied: top.moreTied })
   }
 
   // V1.18 (10 Oct), Package 5 -- the closing screen now comes BEFORE
@@ -521,7 +541,7 @@ function buildCoreSlides(data: EventMemoryData, chronological: MemoryLike[], gro
   // slideshow should end normally on the closing screen."
   const aftershowIds = resolveAftershowMomentIds(data)
   const bloopers = data.memories
-    .filter(m => aftershowIds.has(m.momentId))
+    .filter(m => aftershowIds.has(m.momentId) && m.momentId !== shownGroupPhotoId)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.momentId.localeCompare(b.momentId))
   let aftershowStartIndex: number | undefined
   if (bloopers.length > 0) {
@@ -581,6 +601,7 @@ export function photoMomentIdsInOrder(deck: SlideshowDeck): string[] {
  * Memories play, never which results appear.
  */
 export function rebuildDeckFromOrder(data: EventMemoryData, orderedMomentIds: string[], groupPhotoMomentId?: string): SlideshowDeck {
+  data = presentableData(data)
   const memoryById = new Map(data.memories.map(m => [m.momentId, m]))
   const orderedMemories = orderedMomentIds
     .map(id => memoryById.get(id))
@@ -692,6 +713,7 @@ export interface SectionAvailability { type: SectionType; label: string; availab
  * explain why something is missing rather than just omitting it
  * silently). */
 export function getAvailableSections(data: EventMemoryData, scope: PresentationScope): SectionAvailability[] {
+  data = presentableData(data)
   const hasFavourite = data.memories.some(m => m.mediaType === 'photo' && m.organiserFavourite)
   const hasAnyPhoto = data.memories.some(m => m.mediaType === 'photo')
   const hasGroupPhoto = data.event.groupPhotoMomentId !== null && data.memories.some(m => m.momentId === data.event.groupPhotoMomentId && m.mediaType === 'photo')
@@ -780,6 +802,7 @@ export function getAvailableSections(data: EventMemoryData, scope: PresentationS
  * explicitly turn them on."
  */
 export function defaultPresentationConfig(data: EventMemoryData, scope: PresentationScope): PresentationConfig {
+  data = presentableData(data)
   const avail = getAvailableSections(data, scope)
   const isAvail = (t: SectionType) => avail.some(a => a.type === t && a.available)
 
@@ -971,6 +994,7 @@ export function isNonWinnerSideGameMoment(
  * flow has genuinely diverged, not just cosmetically.
  */
 export function buildPresentationDeck(data: EventMemoryData, config: PresentationConfig): SlideshowDeck {
+  data = presentableData(data)
   const slides: Slide[] = []
   let memoryCount = 0
   const roundsById = new Map(data.rounds.map(r => [r.id, r]))
@@ -995,9 +1019,10 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
   // (Event-at-a-Glance), then the rounds. It previously came after
   // Event-at-a-Glance, so the organiser's photo appeared as slide 3.
   // Still shown only from the explicit selection, never substituted.
+  let groupPhotoSlideMomentId: string | null = null
   if (config.groupPhoto && data.event.groupPhotoMomentId) {
     const groupPhoto = data.memories.find(m => m.momentId === data.event.groupPhotoMomentId && m.mediaType === 'photo')
-    if (groupPhoto) slides.push({ kind: 'groupPhoto', momentId: groupPhoto.momentId, imageUrl: groupPhoto.imageUrl, caption: groupPhoto.caption })
+    if (groupPhoto) { slides.push({ kind: 'groupPhoto', momentId: groupPhoto.momentId, imageUrl: groupPhoto.imageUrl, caption: groupPhoto.caption }); groupPhotoSlideMomentId = groupPhoto.momentId }
   }
 
   // V1.17 (10 Oct) -- defensive scope guard added: Event-at-a-Glance
@@ -1052,7 +1077,8 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     const round = roundsById.get(roundConfig.roundId)
     if (!round) continue // a stale/removed round id in a saved config is silently skipped, never fabricated
 
-    const bestMoments = roundConfig.bestMoments ? sortMemoriesChronologically(resolveBestMoments(data, round.id, config)) : []
+    // V7: a Group Photo already shown on its own slide is never repeated among a round's ordinary Moments.
+    const bestMoments = roundConfig.bestMoments ? sortMemoriesChronologically(resolveBestMoments(data, round.id, config).filter(m => m.momentId !== groupPhotoSlideMomentId)) : []
     // V1.9 (6 Oct) -- winnerPlayerId alone, matching the fix above.
     const roundWinnersAll = roundConfig.sideGameWinners ? (winnersByRoundId.get(round.id) ?? []).filter(w => w.winnerPlayerId !== null) : []
     const roundHighlights = roundConfig.makersBreakers ? parsePublishedHighlights(round.publishedHighlights) : []
@@ -1106,7 +1132,8 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
     // Photo as a Round Winner fallback" instruction. The generic
     // template owns this slide's presentation entirely.
     if (roundStandingsResult.length > 0) {
-      slides.push({ kind: 'roundResults', roundId: round.id, roundName: round.name, standings: roundStandingsResult })
+      const roundTop = limitToTopFive(roundStandingsResult)
+      slides.push({ kind: 'roundResults', roundId: round.id, roundName: round.name, standings: roundTop.rows, moreTied: roundTop.moreTied })
       // 18 Oct field test -- "Total Scores after Round N", directly after that
       // round's own (unchanged) Results slide. Round 1 has no cumulative
       // slide (it would just repeat Round 1). Standings come from
@@ -1116,7 +1143,8 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
       const cum = round.cumulativeStandings ?? null
       const included = round.cumulativeRoundsIncluded ?? 0
       if (cum && cum.length > 0 && included >= 2) {
-        slides.push({ kind: 'cumulativeResults', roundId: round.id, roundName: round.name, roundsIncluded: included, standings: cum })
+        const cumTop = limitToTopFive(cum)
+        slides.push({ kind: 'cumulativeResults', roundId: round.id, roundName: round.name, roundsIncluded: included, standings: cumTop.rows, moreTied: cumTop.moreTied })
       }
     }
   }
@@ -1151,9 +1179,9 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
 
   if (config.finalLeaderboard && data.results.champion) {
     // V1.6 (5 Oct) -- Top 5 only, a single slide, matching buildCoreSlides above.
-    const sorted = [...data.results.champion.standings].sort((a, b) => a.position - b.position)
-    const entries = sorted.slice(0, 5).map(s => ({ position: s.position, playerName: s.playerName, totalPoints: s.totalPoints }))
-    slides.push({ kind: 'leaderboard', entries, page: 1, totalPages: 1, championDeclared: data.results.champion.champions.length > 0, endedEarly: data.results.champion.endedEarly })
+    const top = limitToTopFive(data.results.champion.standings)
+    const entries = top.rows.map(s => ({ position: s.position, playerName: s.playerName, totalPoints: s.totalPoints }))
+    slides.push({ kind: 'leaderboard', entries, page: 1, totalPages: 1, championDeclared: data.results.champion.champions.length > 0, endedEarly: data.results.champion.endedEarly, moreTied: top.moreTied })
   }
 
   // V1.18 (10 Oct), Package 5 -- the closing screen now comes BEFORE
@@ -1176,7 +1204,7 @@ export function buildPresentationDeck(data: EventMemoryData, config: Presentatio
   let aftershowStartIndex: number | undefined
   if (config.bloopers) {
     const aftershowIds = resolveAftershowMomentIds(data)
-    const bloopers = data.memories.filter(m => aftershowIds.has(m.momentId))
+    const bloopers = data.memories.filter(m => aftershowIds.has(m.momentId) && m.momentId !== groupPhotoSlideMomentId)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.momentId.localeCompare(b.momentId))
     if (bloopers.length > 0) {
       aftershowStartIndex = slides.length

@@ -10,6 +10,7 @@
  *
  * Idempotent: releasing identical arrangements again changes nothing and sends nothing.
  */
+import { loadTripRoundLabels } from '@/lib/trips/roundLabels'
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -114,9 +115,11 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   // knows about. The organiser can opt in to an announcement with `announceLegacy: true`.
   const legacy = !!round.setup_released && !wasReleased
   const changes = wasReleased ? diffArrangements(snap.rows, live.rows) : []
+  // The announcement names the round by its canonical label (a cancelled Round 2 keeps its number, so Round 3 is never "Round 2").
+  const roundLabel = (await loadTripRoundLabels(admin, tripId)).label({ id: roundId, name: round.name })
   const messages = wasReleased
-    ? revisionMessages(round.name, changes)
-    : (legacy && !announceLegacy ? [] : [initialReleaseMessage(round.name)])
+    ? revisionMessages(roundLabel, changes)
+    : (legacy && !announceLegacy ? [] : [initialReleaseMessage(roundLabel)])
   const rpc = await admin.rpc('release_round_arrangements', {
     p_round_id: roundId, p_actor: user.id, p_expected_revision: revision,
     p_rows: live.rows, p_changes: changes, p_messages: messages,

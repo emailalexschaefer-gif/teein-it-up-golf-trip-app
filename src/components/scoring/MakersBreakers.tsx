@@ -122,7 +122,20 @@ export default function MakersBreakers({
   async function publish() {
     const selMakers = makers.filter(hl => selected.has(hl.category))
     const selBreakers = breakers.filter(hl => selected.has(hl.category))
-    await doPublish([...selMakers, ...selBreakers])
+    return doPublish([...selMakers, ...selBreakers])
+  }
+
+  // V7: Select -> Save -> Review & Present. Saving is the only write; on success the saved selection is shown and can be
+  // presented from there. There is no second "publish" step after presenting.
+  async function saveSelection() {
+    const ok = await publish()
+    if (ok) setStage('published')
+  }
+
+  // Presents exactly what was saved (never a different, unsaved selection).
+  function startPresenting() {
+    setPresentIndex(0)
+    setStage('presenting')
   }
 
   // Explicit Skip/Finish-with-nothing action — the organiser is
@@ -226,8 +239,9 @@ export default function MakersBreakers({
   // Alternate makers/breakers where practical (item 5) — a simple
   // interleave of the two selected lists, not a full shuffle.
   function buildPresentationOrder(): Highlight[] {
-    const selMakers = makers.filter(h => selected.has(h.category))
-    const selBreakers = breakers.filter(h => selected.has(h.category))
+    const saved = publishedHighlights ?? []
+    const selMakers = saved.filter(h => h.kind === 'maker')
+    const selBreakers = saved.filter(h => h.kind === 'breaker')
     const order: Highlight[] = []
     const max = Math.max(selMakers.length, selBreakers.length)
     for (let i = 0; i < max; i++) {
@@ -312,17 +326,17 @@ export default function MakersBreakers({
         <HighlightGroup title="💀 Group Breakers" items={breakers.filter(h => h.scope === 'group')} selected={selected} onToggle={toggle} />
 
         <button
-          onClick={() => { setPresentIndex(0); setStage('presenting') }}
-          disabled={selected.size === 0}
+          onClick={() => void saveSelection()}
+          disabled={selected.size === 0 || publishState === 'publishing'}
           style={{
             display: 'block', width: '100%', marginTop: 16, padding: 13, borderRadius: 10,
             background: selected.size === 0 ? '#e5e7eb' : 'linear-gradient(135deg,#2d7a52,#16a34a)',
             color: selected.size === 0 ? '#9ca3af' : '#fff', border: 'none',
             fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14,
-            cursor: selected.size === 0 ? 'not-allowed' : 'pointer',
+            cursor: selected.size === 0 || publishState === 'publishing' ? 'not-allowed' : 'pointer',
           }}
         >
-          Present {selected.size} Highlight{selected.size === 1 ? '' : 's'} →
+          {publishState === 'publishing' ? 'Saving…' : `Save ${selected.size} Highlight${selected.size === 1 ? '' : 's'}`}
         </button>
 
         {/* Explicit Finish Review / Skip — the only path that ever
@@ -361,30 +375,6 @@ export default function MakersBreakers({
           <div style={{ fontSize: 30, marginBottom: 8 }}>🍻</div>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 800, color: '#14532d' }}>That&apos;s the Round</div>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#7a7260', marginTop: 6, marginBottom: 18 }}>Now for the winners...</p>
-          {/* Publish Lifecycle, item 2/3 — the explicit organiser action
-              that turns the SELECTED set (makers/breakers filtered by
-              `selected`, exactly what buildPresentationOrder already
-              shows) into the official, persisted Round story. Never
-              publishes every qualifying candidate — only what actually
-              made it into this presentation. */}
-          {publishState === 'done' ? (
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#166534', fontWeight: 700, marginBottom: 14 }}>✅ Published — players can now see their Round Highlights in My Golf</p>
-          ) : (
-            <>
-              <button
-                onClick={() => void publish()}
-                disabled={publishState === 'publishing'}
-                style={{
-                  padding: '12px 24px', borderRadius: 10, background: '#a1791f', color: '#fff', border: 'none',
-                  fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: publishState === 'publishing' ? 'default' : 'pointer',
-                  opacity: publishState === 'publishing' ? 0.7 : 1, marginBottom: 10, display: 'block', width: '100%', maxWidth: 280, margin: '0 auto 10px',
-                }}
-              >
-                {publishState === 'publishing' ? 'Publishing…' : 'Finish & Publish'}
-              </button>
-              {publishError && <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#dc2626', marginBottom: 10 }}>{publishError}</p>}
-            </>
-          )}
           <button
             onClick={onProceedToResults}
             style={{ padding: '12px 24px', borderRadius: 10, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
@@ -509,6 +499,15 @@ export default function MakersBreakers({
           })}
         </div>
 
+        {(publishedHighlights ?? []).length > 0 && (
+          <button
+            data-testid="mb-review-present"
+            onClick={startPresenting}
+            style={{ width: '100%', padding: 12, borderRadius: 10, background: 'linear-gradient(135deg,#2d7a52,#16a34a)', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: 'pointer', marginBottom: 10 }}
+          >
+            Review &amp; Present Highlights →
+          </button>
+        )}
         <button
           onClick={onProceedToResults}
           style={{ width: '100%', padding: 12, borderRadius: 10, background: '#14532d', color: '#fff', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}

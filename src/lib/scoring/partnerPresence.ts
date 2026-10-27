@@ -17,12 +17,13 @@ export function showPartnerPanel(i: PartnerPanelInput): boolean {
 }
 
 /**
- * Small, self-clearing note shown above the partner panel while the partner has recorded no entries of their own.
- * It never hides or disables scoring (the marker can still enter the partner's score) and disappears by itself once
- * the live refresh sees the partner's first entry. Not shown for a paper player on a shared device (they never
- * score themselves).
+ * V7: the "hasn't started scoring yet" box is hidden as soon as the playing partner is DETECTED (a name resolves from
+ * the live data) -- not only after their first score. Detecting the partner is what the player was waiting for; whether
+ * the partner has scored yet is shown by the per-hole status indicators instead. Kept as a function (always null once a
+ * partner exists, and for a shared-device paper player) so existing call sites stay valid; it can only return a note
+ * when there is no partner name, which the caller never renders.
  */
 export function partnerNotStartedNote(i: { isSharedDeviceScoring: boolean; partnerName: string | null; partnerSelfEntryCount: number }): string | null {
-  if (i.isSharedDeviceScoring || !i.partnerName || i.partnerSelfEntryCount > 0) return null
-  return `${i.partnerName} hasn't started scoring yet. This updates automatically.`
+  void i
+  return null
 }

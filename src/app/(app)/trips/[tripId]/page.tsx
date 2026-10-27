@@ -6,6 +6,7 @@ import { readEventOutcome } from '@/lib/trips/eventOutcome'
 import type { TripData } from './TripDetailClient'
 import Link from 'next/link'
 import { groupSideCompsByRound } from '@/lib/trips/sideCompRoundTrip'
+import { sortRoundsChronologically } from '@/lib/scoring/multiRound'
 
 // This page must always reflect the live database — it's the page that was
 // showing stale round data (a round id that had already been deleted) after
@@ -254,9 +255,10 @@ export default async function TripDetailPage({ params }: Props) {
   const sortedTrip: TripData = {
     ...rawTrip,
     trip_groups: fetchedGroups,
-    rounds: [...(rawTrip.rounds ?? [])]
-      .map(r => ({ ...r, side_comps: sideCompsByRound.get(r.id) ?? [], setup_released: releasedByRoundId.get(r.id) ?? false }))
-      .sort((a, b) => a.play_date.localeCompare(b.play_date)),
+    // Canonical order (play_date -> created_at -> id) over ALL rounds. `name` stays the STORED name here, because Edit Trip saves it
+    // back; screens that only DISPLAY a round apply canonicalRoundLabel (see roundNumbering.ts) so a stored name is never rewritten.
+    rounds: sortRoundsChronologically([...(rawTrip.rounds ?? [])])
+      .map(r => ({ ...r, side_comps: sideCompsByRound.get(r.id) ?? [], setup_released: releasedByRoundId.get(r.id) ?? false })),
   }
 
   // How the event ended (tolerant: a missing migration 099 reads as a normal completion with a champion).

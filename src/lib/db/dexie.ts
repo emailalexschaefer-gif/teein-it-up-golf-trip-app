@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie'
 import type { OfflineScoreEntry } from '@/types/app'
-import { planQueueWrite, isInterruptedSyncing, latestPerKey, withTimeout, planConflictResolution, type ConflictAction } from './queueRules'
+import { planQueueWrite, isInterruptedSyncing, latestPerKey, withTimeout, planConflictResolution, planTransportRequeue, type ConflictAction } from './queueRules'
 import type { ServerScoreSnapshot } from './scoreAck'
 
 class TeeInItUpDB extends Dexie {
@@ -227,6 +227,17 @@ export async function requeueRejectedEntry(clientId: string): Promise<boolean> {
   if (e.conflict) return false
   await db.scoreQueue.update(clientId, { syncStatus: 'pending', retryCount: 0, lastError: undefined })
   return true
+}
+
+/**
+ * One-time recovery for scores the OLD rule filed as refused after a routing/session 405 (see isTransportRejection).
+ * They were never judged by the scoring server, so they go back in the queue. If the server really does refuse one, it comes
+ * back as 'rejected' with its true reason. The server de-duplicates by client_id and orders by entered_at, so a retry is safe.
+ */
+export async function requeueTransportRejections(): Promise<number> {
+  const ids = planTransportRequeue(await db.scoreQueue.toArray())
+  for (const id of ids) await db.scoreQueue.update(id, { syncStatus: 'pending', retryCount: 0, lastError: undefined, syncStartedAt: undefined })
+  return ids.length
 }
 
 /** Explicit, confirmed user action: permanently remove a refused entry

@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { numberRounds, canonicalRoundLabel } from '@/lib/trips/roundNumbering'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import LiveLeaderboard from '@/components/scoring/LiveLeaderboard'
@@ -76,7 +77,7 @@ export default async function LeaderboardPage({ params, searchParams }: Props) {
         <div>
           {!activeRound && (
             <div style={{ marginBottom: 12, fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', textAlign: 'center' }}>
-              Current standings through {round.name}
+              Current standings through {canonicalRoundLabel(round, numberRounds((rawRounds ?? []) as { id: string; play_date: string; created_at: string }[]))}
             </div>
           )}
           <LiveLeaderboard tripId={tripId} roundId={round.id} roundStatus={round.status} />

@@ -1,0 +1,26 @@
+{
+  "release": "V7",
+  "name": "405 recovery, canonical round numbering, mismatch notifications",
+  "date": "2026-10-27",
+  "baseline": "V6 presentation polish",
+  "includes": [
+    "V6 in full",
+    "HTTP 405 / signed-out score recovery",
+    "Canonical round numbering (cancelled rounds keep their number)",
+    "Late-arriving mismatch banner, shared green/red/amber indicators",
+    "Unscored completed rounds excluded from final results and countback",
+    "Makers & Breakers: Select, Save, Review & Present",
+    "Playing-partner waiting box hidden once partner detected",
+    "Group Photo shown once (excluded from round Moments, event Moments and aftershow)",
+    "Signed-out message only when auth failure is established; other 405s kept queued and diagnosable"
+  ],
+  "migrations_added_this_release": [],
+  "excluded": [
+    "release-p3 / Finish Round Early / migration 100",
+    "migration 029 (do not run)",
+    "supabase/event_messages_deploy.sql (do not run)"
+  ],
+  "lockfile": "none in project; npm registry unreachable when packaged",
+  "build_verification": { "npm_ci": "not run", "tsc": "not run", "lint": "not run", "next_build": "not run" },
+  "tests": "TypeScript suite 1587/1587 (esbuild syntax checks on changed files)"
+}

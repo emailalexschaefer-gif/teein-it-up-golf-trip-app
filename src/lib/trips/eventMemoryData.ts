@@ -30,7 +30,9 @@
  */
 import { createAdminClient } from '@/lib/supabase/admin'
 import { computeFinalResults, type FinalResultsResult } from './finalResults'
-import { determineRoundWinners, determineRoundStandings, type RoundPlayerResult } from '@/lib/scoring/multiRound'
+import { determineRoundWinners, determineRoundStandings, sortRoundsChronologically, type RoundPlayerResult } from '@/lib/scoring/multiRound'
+import { summariseRoundPlay } from './roundPlay'
+import { numberRounds, canonicalRoundLabel } from './roundNumbering'
 import { cumulativeThroughRounds } from './cumulativeThroughRound'
 import { computeRoundSideGames } from '@/lib/sideGames/computeRoundSideGames'
 import { resolveSideGameWinner, type SideCompForResolution } from './resolveSideGameWinner'
@@ -70,6 +72,8 @@ export interface EventMemoryData {
     // Optional so existing fixtures stay valid.
     cumulativeStandings?: { playerId: string; playerName: string; totalPoints: number; position: number }[] | null
     cumulativeRoundsIncluded?: number | null
+    /** true for a completed round where scores were recorded; false = nothing was played (the builder drops it). Optional for old fixtures. */
+    hasRecordedScores?: boolean | null
   }[]
   memories: {
     momentId: string; roundId: string | null; roundOrdinal: number | null; holeNumber: number | null
@@ -121,13 +125,16 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
   if (!tripRes.data) return null
 
   const roundsRes = await admin.from('rounds')
-    .select('id, name, course_name, play_date, status, holes')
+    .select('id, name, course_name, play_date, status, holes, created_at')
     .eq('trip_id', tripId)
-    .neq('status', 'cancelled') // a cancelled round was never played: not in the manifest, presentation or counts
-    .order('play_date', { ascending: true })
-  const rounds = roundsRes.data ?? []
-  const roundIds = rounds.map((r: { id: string }) => r.id)
-  const roundOrdinalById = new Map(rounds.map((r: { id: string }, i: number) => [r.id, i + 1]))
+  // Canonical round numbers are taken over ALL rounds (a cancelled round keeps its number: Round 3 stays Round 3), then the
+  // cancelled ones are removed -- a cancelled round was never played: not in the manifest, presentation or counts.
+  const allRoundRows = (roundsRes.data ?? []) as { id: string; name: string; course_name: string | null; play_date: string; status: string; holes: number; created_at: string }[]
+  const roundNumbering = numberRounds(allRoundRows)
+  const orderedRounds = sortRoundsChronologically(allRoundRows).filter(r => r.status !== 'cancelled')
+  // `let`: a completed round with NO recorded scores (27 Oct, Lappen: a washed-out Round 2) is removed below, exactly like a
+  // cancelled one, once the per-round results show nothing was played. See lib/trips/roundPlay.ts.
+  let rounds = orderedRounds
 
   // V1.5 completion patch (15 Sep) -- Round Winner, audited and
   // confirmed derivable from existing round-scoped scoring data,
@@ -156,25 +163,32 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
   // just a second, ranked view of the same already-derived data.
   const roundStandingsByRoundId = new Map<string, { playerId: string; playerName: string; roundPoints: number; position: number }[]>()
   const roundPlayerResultsByRoundId = new Map<string, RoundPlayerResult[]>()
+  const unplayedRoundIds = new Set<string>()
   if (completedRoundIds.length > 0) {
     const roundResultsArrays = await Promise.all(completedRoundIds.map(async (roundId: string) => {
       const scorecardsRes = await admin.from('scorecards')
         .select('player_id, profiles:player_id(full_name), score_entries(stableford_pts, capture_role)')
         .eq('round_id', roundId).neq('status', 'withdrawn')
-      const playerResults = ((scorecardsRes.data ?? []) as unknown as { player_id: string; profiles: { full_name: string } | null; score_entries: { stableford_pts: number | null; capture_role: string }[] }[])
-        .map(sc => ({
-          playerId: sc.player_id, playerName: sc.profiles?.full_name ?? 'Player',
-          roundPoints: (sc.score_entries ?? []).filter(e => e.capture_role === 'self').reduce((sum, e) => sum + (e.stableford_pts ?? 0), 0),
-          holePoints: [],
-        }))
-      return { roundId, playerResults, winners: determineRoundWinners(playerResults), standings: determineRoundStandings(playerResults) }
+      // Only players who actually RECORDED scores are ranked (a no-show on 0 is never a "joint winner"), and a round where
+      // nobody recorded anything has no results at all. Decided by recorded entries, never by points being zero.
+      const play = summariseRoundPlay(((scorecardsRes.data ?? []) as unknown as { player_id: string; profiles: { full_name: string } | null; score_entries: { stableford_pts: number | null; capture_role: string }[] }[])
+        .map(sc => ({ playerId: sc.player_id, playerName: sc.profiles?.full_name ?? 'Player', entries: sc.score_entries ?? [] })))
+      const playerResults = play.results
+      return { roundId, playerResults, hasRecordedScores: play.hasRecordedScores, winners: determineRoundWinners(playerResults), standings: determineRoundStandings(playerResults) }
     }))
     for (const r of roundResultsArrays) {
+      if (!r.hasRecordedScores) unplayedRoundIds.add(r.roundId)
       roundWinnersByRoundId.set(r.roundId, r.winners)
       roundStandingsByRoundId.set(r.roundId, r.standings)
       roundPlayerResultsByRoundId.set(r.roundId, r.playerResults)
     }
   }
+  // A completed round nobody scored in is dropped from everything the presentation shows: no Round Results, no winners, no
+  // "Total after Round N", not counted as a round (same treatment as a cancelled round). Moments stay in Event Memories.
+  rounds = rounds.filter((r: { id: string }) => !unplayedRoundIds.has(r.id))
+  const roundIds = rounds.map((r: { id: string }) => r.id)
+  const roundIdSet = new Set<string>(roundIds)
+  const roundOrdinalById = roundNumbering // canonical (all rounds), not the position in the filtered list
   // 18 Oct field test -- cumulative standings after each completed round,
   // from the very same per-round results (no second query, no second
   // scoring implementation). See cumulativeThroughRound.ts.
@@ -361,12 +375,13 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
       championPhotoMomentId: tripRes.data.champion_photo_moment_id,
     },
     rounds: rounds.map((r: { id: string; name: string; course_name: string | null; play_date: string; status: string; holes: number }) => ({
-      id: r.id, ordinal: roundOrdinalById.get(r.id) ?? null, name: r.name, courseName: r.course_name, playDate: r.play_date, status: r.status, holes: r.holes,
+      id: r.id, ordinal: roundOrdinalById.get(r.id) ?? null, name: canonicalRoundLabel(r, roundNumbering), courseName: r.course_name, playDate: r.play_date, status: r.status, holes: r.holes,
       publishedHighlights: highlightsByRoundId.get(r.id)?.highlights ?? null,
       winners: r.status === 'completed' ? (roundWinnersByRoundId.get(r.id) ?? []) : null,
       standings: r.status === 'completed' ? (roundStandingsByRoundId.get(r.id) ?? []) : null,
       cumulativeStandings: r.status === 'completed' ? (cumulativeByRoundId.get(r.id)?.standings ?? []) : null,
       cumulativeRoundsIncluded: r.status === 'completed' ? (cumulativeByRoundId.get(r.id)?.roundsIncluded ?? 0) : null,
+      hasRecordedScores: r.status === 'completed' ? true : undefined,
     })),
     memories: moments.map((m: {
       id: string; round_id: string | null; hole_number: number | null; player_id: string | null; captured_by: string | null
@@ -379,7 +394,7 @@ export async function fetchEventMemoryData(tripId: string, options: { generateSi
       const linkedSideComp = linkedSideCompId ? sideCompById.get(linkedSideCompId) ?? null : null
       const sourceType: MemorySourceType = linkedSideComp ? 'SIDE_GAME' : 'GENERAL'
       return {
-        momentId: m.id, roundId: m.round_id, roundOrdinal: m.round_id ? roundOrdinalById.get(m.round_id) ?? null : null,
+        momentId: m.id, roundId: m.round_id, roundOrdinal: m.round_id && roundIdSet.has(m.round_id) ? roundOrdinalById.get(m.round_id) ?? null : null, // moments of a cancelled/unplayed round keep their round link but no ordinal, as before (export folder unchanged)
         holeNumber: m.hole_number,
         // m.player_id null -> profiles:player_id(...) embeds as null
         // too (PostgREST's own left-join-on-null-FK behaviour) -- no

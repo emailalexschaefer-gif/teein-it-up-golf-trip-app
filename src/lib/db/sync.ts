@@ -1,7 +1,7 @@
 import {
   getPendingEntries, markEntrySynced, markEntryError, markEntryRejected, markEntryConflict,
   markEntrySyncing, getPendingCount, getRejectedCount, getRejectedEntries,
-  recoverInterruptedEntries,
+  recoverInterruptedEntries, requeueTransportRejections,
 } from './dexie'
 import { useSyncStore } from '@/store/syncStore'
 import { createSyncRunner } from './syncRunner'
@@ -94,6 +94,8 @@ export function initSyncListeners(): () => void {
   // (Skipped if another init in this same tab is already mid-upload.)
   void (async () => {
     try { if (activeSyncCalls === 0) await recoverInterruptedEntries(true) } catch (err) { console.error('[sync] recovery failed', err) }
+    // Scores the old rule filed as refused after a routing/session 405 were never judged by the server: send them again.
+    try { await requeueTransportRejections() } catch (err) { console.error('[sync] 405 recovery failed', err) }
     await refreshQueueCounts()
     void syncScoreQueue()
   })()

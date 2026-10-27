@@ -15,8 +15,8 @@ test('partner panel follows the LIVE marked scorecard (waiting screen clears whe
   assert.equal(showPartnerPanel({ requiresMarker: false, isSharedDeviceScoring: true, liveMarkedPresent: true, partnerName: 'Paper' }), true)
   assert.equal(showPartnerPanel({ requiresMarker: false, isSharedDeviceScoring: false, liveMarkedPresent: true, partnerName: 'X' }), false)
 })
-test('the not-started note shows only until the partner records an entry, and never for a paper player', () => {
-  assert.match(partnerNotStartedNote({ isSharedDeviceScoring: false, partnerName: 'TEST', partnerSelfEntryCount: 0 })!, /TEST hasn't started scoring yet/)
+test('the not-started note is hidden as soon as the partner is detected', () => {
+  assert.equal(partnerNotStartedNote({ isSharedDeviceScoring: false, partnerName: 'TEST', partnerSelfEntryCount: 0 }), null) // V7: hidden once the partner is detected
   assert.equal(partnerNotStartedNote({ isSharedDeviceScoring: false, partnerName: 'TEST', partnerSelfEntryCount: 1 }), null)
   assert.equal(partnerNotStartedNote({ isSharedDeviceScoring: true, partnerName: 'Paper', partnerSelfEntryCount: 0 }), null)
   assert.equal(partnerNotStartedNote({ isSharedDeviceScoring: false, partnerName: null, partnerSelfEntryCount: 0 }), null)

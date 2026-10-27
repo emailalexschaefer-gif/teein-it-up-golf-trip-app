@@ -7,7 +7,8 @@ import PresentationConfetti from '@/components/memories/PresentationConfetti'
 import { REVEAL_DELAY_MS, FALLBACK_CELEBRATION_MS } from '@/lib/presentation/audioConfig'
 import { usePresentationAudio } from '@/components/memories/usePresentationAudio'
 import { SlideMediaLoader, browserImageLoad, requiredImageUrl, withoutImage, urlsToPreload, contentReady, MEDIA_TIMEOUT_MS } from '@/lib/presentation/slideMedia'
-import { snapshotTitleCqw, splitCourseName, pillarboxCqw, momentsLabelPlacement, momentsLabelHeading } from '@/lib/trips/presentationLayout'
+import { moreTiedText } from '@/lib/trips/topFive'
+import { showsMomentsCallout, snapshotTitleCqw, splitCourseName, pillarboxCqw, momentsLabelPlacement, momentsLabelHeading } from '@/lib/trips/presentationLayout'
 
 /**
  * Event Memories V1.2 (12 Sep) -- the Event Highlights fullscreen
@@ -503,6 +504,9 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
             <img
               src={slide.imageUrl} alt={slide.caption ?? 'Event memory'}
               style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+              // 27 Oct: an image that finished loading before this handler existed (cache / preload) never fires onLoad again,
+              // which would silently drop the Moments callout for that photo. Report the size from the ref too.
+              ref={visible ? (el) => { if (el && el.complete && el.naturalWidth > 0) reportMediaSize(slide.momentId, el.naturalWidth, el.naturalHeight) } : undefined}
               onLoad={visible ? (e) => reportMediaSize(slide.momentId, e.currentTarget.naturalWidth, e.currentTarget.naturalHeight) : undefined}
               onError={() => { console.warn('[presentation] photo failed to load', { momentId: slide.momentId }); setFailedUrls(prev => new Set(prev).add(slide.imageUrl!)) }}
             />
@@ -563,36 +567,36 @@ export default function EventHighlightsPlayer({ slides, durationSeconds, onExit,
           />
         )}
 
+        {/* Photo context overlay -- subtle, never competing with the
+            photograph, and kept clear of the controls safe-area strip. */}
+        {slideReady && isPhoto(current) && (current.roundName || current.holeNumber || current.playerName || current.sideCompName || current.caption) && (
+          <div data-testid="photo-caption" style={{ position: 'absolute', left: 0, right: 0, bottom: CONTROLS_SAFE_AREA_PX, padding: `${sz(22, 3.4, 90)} ${sz(20, 4, 100)} ${sz(14, 1.8, 40)}`, background: 'linear-gradient(to top, rgba(0,0,0,0.84) 0%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,0))', pointerEvents: 'none' }}>
+            {current.playerName && (
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: sz(20, 3.1, 64), fontWeight: 800, color: '#fff', lineHeight: 1.1, marginBottom: sz(2, 0.3, 8), maxWidth: '88%', overflowWrap: 'anywhere', textShadow: '0 1px 6px rgba(0,0,0,0.85)' }}>{current.playerName}</p>
+            )}
+            {current.sideCompName && (
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: sz(16, 2.3, 48), fontWeight: 700, color: '#fbbf24', lineHeight: 1.15, marginBottom: sz(2, 0.3, 8), textShadow: '0 1px 5px rgba(0,0,0,0.85)' }}>{current.sideCompName}</p>
+            )}
+            {(current.roundName || current.holeNumber) && (
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(13, 1.7, 36), fontWeight: 700, letterSpacing: '0.08em', color: '#f3e7c4', textTransform: 'uppercase', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
+                {[current.roundName, current.holeNumber ? `Hole ${current.holeNumber}` : null].filter(Boolean).join(' \u00b7 ')}
+              </p>
+            )}
+            {current.caption && (
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(14, 1.9, 40), lineHeight: 1.3, color: '#f3f4f6', marginTop: sz(3, 0.6, 14), maxWidth: '72%', overflowWrap: 'anywhere', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 4, overflow: 'hidden', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>{current.caption}</p>
+            )}
+          </div>
+        )}
+
         {/* "Relive it in My Golf -> Moments" source label -- photo Moments
             and Blooper photos/videos only (never group photo, winner,
-            champion or any other slide). Sits above the media, below the
-            controls layer, and never intercepts a tap. */}
-        {slideReady && (isPhoto(current) || isBlooper(current)) && mediaSize && mediaSize.key === current.momentId && (
+            champion or any other slide: rule in showsMomentsCallout()). Drawn AFTER the
+            caption gradient so the gradient never dims it; below the controls layer; never intercepts a tap. */}
+        {slideReady && showsMomentsCallout(current.kind) && mediaSize && mediaSize.key === current.momentId && (
           <MomentsSourceLabel
             heading={momentsLabelHeading(isBlooper(current) ? current.isBlooper : undefined)}
             aspect={mediaSize.w / mediaSize.h}
           />
-        )}
-
-        {/* Photo context overlay -- subtle, never competing with the
-            photograph, and kept clear of the controls safe-area strip. */}
-        {slideReady && isPhoto(current) && (current.roundName || current.holeNumber || current.playerName || current.sideCompName || current.caption) && (
-          <div style={{ position: 'absolute', left: 0, right: 0, bottom: CONTROLS_SAFE_AREA_PX, padding: '28px 20px 16px', background: 'linear-gradient(transparent, rgba(0,0,0,0.75))' }}>
-            {(current.roundName || current.holeNumber) && (
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, letterSpacing: 1, color: '#d9c9a3', textTransform: 'uppercase', marginBottom: 2 }}>
-                {[current.roundName, current.holeNumber ? `Hole ${current.holeNumber}` : null].filter(Boolean).join(' \u00b7 ')}
-              </p>
-            )}
-            {current.sideCompName && (
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 2 }}>{current.sideCompName}</p>
-            )}
-            {current.playerName && (
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#fff' }}>{current.playerName}</p>
-            )}
-            {current.caption && (
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#e5e7eb', marginTop: 4 }}>{current.caption}</p>
-            )}
-          </div>
         )}
 
         {audio.confetti.run > 0 && onChampionSlide && <PresentationConfetti key={audio.confetti.run} durationMs={audio.confetti.ms} />}
@@ -723,6 +727,13 @@ function GenericTemplateSlide({ children }: { children: React.ReactNode }) {
     </div>
   )
 }
+
+/**
+ * Stage-scaled type (27 Oct). Sizes follow the 16:9 STAGE width (cqw = 1% of the canvas, see the containerType on the stage),
+ * never the user agent or the raw viewport, with a floor so a phone in landscape stays legible and a ceiling so a 4K TV
+ * doesn't produce absurd glyphs. clamp(min px, cqw, max px).
+ */
+const sz = (min: number, cqw: number, max: number) => `clamp(${min}px, ${cqw}cqw, ${max}px)`
 
 function PresentationPhoto({ imageUrl, overlay, children }: { imageUrl: string | null; overlay?: 'dark'; children: React.ReactNode }) {
   return (
@@ -954,22 +965,23 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize
     // official winner announcement. No-photo fallback substantially
     // improved for V1.4: a proper gold-accented winner card with real
     // visual hierarchy, rather than plain centred text on flat green.
+    const compLine = `${slide.label}${slide.holeNumber ? ` \u00b7 Hole ${slide.holeNumber}` : ''}`
     return slide.winnerImageUrl ? (
       <PresentationPhoto imageUrl={slide.winnerImageUrl} overlay="dark">
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', padding: '24px 24px 48px', textAlign: 'center' }}>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, letterSpacing: 2, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 10 }}>{slide.label}{slide.holeNumber ? ` \u00b7 Hole ${slide.holeNumber}` : ''}</p>
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 3.6vw, 32px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 8 }}>{slide.winnerName}</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#e5e7eb', letterSpacing: 1, textTransform: 'uppercase' }}>Winner</p>
+        <div data-testid="sidegame-winner" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', padding: `${sz(40, 8, 150)} ${sz(20, 4, 100)} ${sz(56, 6, 130)}`, textAlign: 'center', background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.55) 55%, rgba(0,0,0,0))' }}>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(15, 2.2, 48), fontWeight: 800, letterSpacing: '0.14em', color: '#fbbf24', textTransform: 'uppercase', marginBottom: sz(6, 0.9, 20), textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}>{compLine}</p>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: sz(28, 5.6, 110), fontWeight: 800, color: '#fff', textTransform: 'uppercase', lineHeight: 1.05, marginBottom: sz(5, 0.8, 18), maxWidth: '92%', overflowWrap: 'anywhere', textShadow: '0 2px 12px rgba(0,0,0,0.9)' }}>{slide.winnerName}</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(13, 1.7, 36), color: '#f3f4f6', letterSpacing: '0.18em', textTransform: 'uppercase', fontWeight: 700, textShadow: '0 1px 5px rgba(0,0,0,0.9)' }}>Winner</p>
         </div>
       </PresentationPhoto>
     ) : (
       <GenericTemplateSlide>
-        <div style={{ border: '1.5px solid rgba(251,191,36,0.5)', borderRadius: 18, padding: '36px 44px', textAlign: 'center', background: 'rgba(0,0,0,0.15)' }}>
-          <p style={{ fontSize: 30, marginBottom: 12 }}>🏆</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2.5, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 12 }}>{slide.label}{slide.holeNumber ? ` \u00b7 Hole ${slide.holeNumber}` : ''}</p>
-          <div style={{ width: 36, height: 1.5, background: '#fbbf24', margin: '0 auto 16px' }} />
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 3.6vw, 32px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 10 }}>{slide.winnerName}</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#d9c9a3', letterSpacing: 1.5, textTransform: 'uppercase' }}>Winner</p>
+        <div data-testid="sidegame-winner" style={{ border: '1.5px solid rgba(251,191,36,0.5)', borderRadius: sz(14, 1.6, 36), padding: `${sz(24, 3.4, 80)} ${sz(28, 4.4, 110)}`, textAlign: 'center', background: 'rgba(0,0,0,0.15)', maxWidth: '88%' }}>
+          <p style={{ fontSize: sz(34, 6, 120), marginBottom: sz(8, 1.2, 28), lineHeight: 1 }}>🏆</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(14, 2.1, 46), fontWeight: 800, letterSpacing: '0.14em', color: '#fbbf24', textTransform: 'uppercase', marginBottom: sz(8, 1.2, 28) }}>{compLine}</p>
+          <div style={{ width: sz(36, 5, 120), height: 2, background: '#fbbf24', margin: `0 auto ${sz(10, 1.6, 36)}` }} />
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: sz(26, 5.2, 104), fontWeight: 800, color: '#fff', textTransform: 'uppercase', lineHeight: 1.05, marginBottom: sz(6, 1, 22), overflowWrap: 'anywhere' }}>{slide.winnerName}</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(13, 1.7, 36), color: '#d9c9a3', letterSpacing: '0.18em', textTransform: 'uppercase', fontWeight: 700 }}>Winner</p>
         </div>
       </GenericTemplateSlide>
     )
@@ -983,9 +995,9 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize
     // promotional call-to-action.
     return (
       <GenericTemplateSlide>
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, letterSpacing: 2, color: '#d9c9a3', textTransform: 'uppercase', marginBottom: 10 }}>{slide.roundName}</p>
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(22px, 3.6vw, 32px)', fontWeight: 800, color: '#fff', letterSpacing: 1 }}>Makers &amp; Breakers Badges</p>
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#9ca3af', marginTop: 10 }}>Your badges live in MyGolf.</p>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(14, 1.9, 40), letterSpacing: '0.16em', color: '#d9c9a3', textTransform: 'uppercase', marginBottom: sz(8, 1.2, 28) }}>{slide.roundName}</p>
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: sz(28, 5.2, 104), fontWeight: 800, color: '#fff', letterSpacing: 1, textAlign: 'center', lineHeight: 1.1 }}>Makers &amp; Breakers Badges</p>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(13, 1.8, 38), color: '#d1d5db', marginTop: sz(8, 1.4, 30) }}>Your badges live in MyGolf.</p>
       </GenericTemplateSlide>
     )
   }
@@ -1015,16 +1027,16 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize
     const rosterIsLong = (roster?.length ?? 0) > 60
     return (
       <GenericTemplateSlide>
-        <div style={{ border: `1.5px solid ${accentColor}66`, borderRadius: 18, padding: '36px 44px', textAlign: 'center', background: `linear-gradient(160deg, ${accentColor}22, ${accentColor}08)`, maxWidth: 460 }}>
-          <p style={{ fontSize: 34, marginBottom: 10 }}>{h.icon}</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2, color: accentColor, textTransform: 'uppercase', marginBottom: 8 }}>{h.kind === 'maker' ? 'Maker' : 'Breaker'}</p>
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(20px, 3.4vw, 28px)', fontWeight: 800, color: '#fff', marginBottom: 10 }}>{h.title}</p>
+        <div data-testid="mb-card" style={{ border: `${sz(2, 0.25, 5)} solid ${accentColor}88`, borderRadius: sz(16, 2, 44), padding: `${sz(18, 2.6, 64)} ${sz(24, 4, 100)}`, textAlign: 'center', background: `linear-gradient(160deg, ${accentColor}2e, ${accentColor}0d)`, width: 'min(78cqw, 1500px)', maxHeight: '100%', boxSizing: 'border-box', overflow: 'hidden', boxShadow: `0 0 ${sz(20, 4, 100)} ${accentColor}22` }}>
+          <p style={{ fontSize: sz(48, 9, 190), lineHeight: 1, marginBottom: sz(6, 1, 26) }}>{h.icon}</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(13, 1.7, 38), fontWeight: 800, letterSpacing: '0.2em', color: accentColor, textTransform: 'uppercase', marginBottom: sz(4, 0.7, 18) }}>{h.kind === 'maker' ? 'Maker' : 'Breaker'}</p>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: sz(26, 5.4, 108), fontWeight: 800, color: '#fff', lineHeight: 1.08, marginBottom: sz(6, 1.2, 28), overflowWrap: 'anywhere' }}>{h.title}</p>
           {roster ? (
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: rosterIsLong ? 12.5 : 14.5, color: '#fff', marginBottom: 4, lineHeight: 1.5, overflowWrap: 'break-word' }}>{roster}</p>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: rosterIsLong ? sz(13, 2.0, 44) : sz(17, 3.2, 70), fontWeight: 700, color: '#fff', marginBottom: sz(3, 0.6, 14), lineHeight: 1.3, overflowWrap: 'anywhere' }}>{roster}</p>
           ) : (
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, color: '#fff', marginBottom: 4 }}>{h.playerName}</p>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(18, 3.6, 76), fontWeight: 700, color: '#fff', marginBottom: sz(3, 0.6, 14), lineHeight: 1.15, overflowWrap: 'anywhere' }}>{h.playerName}</p>
           )}
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#d1d5db' }}>{h.statLine}</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(14, 2.2, 48), color: '#e5e7eb', lineHeight: 1.3, overflowWrap: 'anywhere' }}>{h.statLine}</p>
         </div>
       </GenericTemplateSlide>
     )
@@ -1047,10 +1059,10 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize
           background: slide.photoUrl ? undefined : 'linear-gradient(160deg, #0a1f14 0%, #14532d 55%, #1a4731 100%)',
         }}>
           <p style={{ fontSize: 'clamp(36px, 6vw, 56px)', marginBottom: 6 }}>🏆</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(12px, 1.6vw, 15px)', letterSpacing: 3, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 14 }}>Event {slide.hasTie ? 'Co-Champions' : 'Champion'}</p>
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(28px, 5.2vw, 48px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 12, lineHeight: 1.1 }}>{names}</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(13, 1.9, 40), letterSpacing: '0.2em', color: '#fbbf24', textTransform: 'uppercase', marginBottom: 14 }}>Event {slide.hasTie ? 'Co-Champions' : 'Champion'}</p>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: sz(28, 6, 120), fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 12, lineHeight: 1.08, overflowWrap: 'anywhere' }}>{names}</p>
           <div style={{ width: 56, height: 2, background: '#fbbf24', marginBottom: 12 }} />
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(15px, 2.2vw, 19px)', color: '#fff', fontWeight: 600 }}>{slide.champions[0]?.totalPoints} points</p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(16, 2.8, 64), color: '#fff', fontWeight: 700 }}>{slide.champions[0]?.totalPoints} points</p>
         </div>
       </PresentationPhoto>
     )
@@ -1086,7 +1098,6 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize
     // First place gets the trophy ONLY when an overall champion was declared.
     const noChampion = slide.championDeclared === false
     const medalFor = (position: number) => position === 1 ? (noChampion ? '\u{1F947}' : '\u{1F3C6}') : position === 2 ? '\u{1F948}' : position === 3 ? '\u{1F949}' : null
-    const PODIUM_COL_WIDTH = 38
     // V1.11 (7 Oct) -- the approved Final Leaderboard artwork
     // (public/images/final-leaderboard-template.jpg) already carries
     // the trophy, "FINAL LEADERBOARD" title, gold border and
@@ -1095,49 +1106,52 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize
     // artwork" instruction -- only the dynamic results overlay below
     // is a code/layout change.
     return (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundImage: 'url(/images/final-leaderboard-template.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', padding: `28vh clamp(50px, 7vw, 100px) ${CONTROLS_SAFE_AREA_PX + 10}px` }}>
-        <div style={{ width: '100%', maxWidth: 400, display: 'flex', flexDirection: 'column', gap: 'clamp(7px, 1.3vh, 11px)' }}>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundImage: 'url(/images/final-leaderboard-template.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', padding: `15.75cqw ${sz(50, 7, 160)} ${CONTROLS_SAFE_AREA_PX + 10}px` }}>
+        <div data-testid="leaderboard-rows" style={{ width: 'min(100%, 62cqw)', display: 'flex', flexDirection: 'column', gap: sz(5, 0.8, 18) }}>
           {slide.endedEarly && (
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 'clamp(10px, 1.5vh, 12px)', fontWeight: 800, letterSpacing: 2, color: '#fbbf24', textAlign: 'center', textTransform: 'uppercase', margin: '0 0 2px' }}>
-              Final standings \u00b7 Event ended early
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(11, 1.5, 34), fontWeight: 800, letterSpacing: '0.16em', color: '#fbbf24', textAlign: 'center', textTransform: 'uppercase', margin: '0 0 2px' }}>
+              {'Final standings \u00b7 Event ended early'}
             </p>
           )}
           {slide.entries.map(e => {
             const isPodium = e.position <= 3
             const tier = e.position === 1 ? 'gold' : e.position === 2 ? 'silver' : e.position === 3 ? 'bronze' : 'plain'
-            const background = tier === 'gold' ? 'linear-gradient(135deg, rgba(251,191,36,0.32), rgba(251,191,36,0.12))'
-              : tier === 'silver' ? 'rgba(226,232,240,0.14)'
-              : tier === 'bronze' ? 'rgba(205,140,74,0.14)'
-              : 'rgba(255,255,255,0.04)'
+            // 27 Oct: a dark base under every tint so rank, name and points stay readable over the bright sunset artwork.
+            const darken = 'linear-gradient(rgba(0,0,0,0.42), rgba(0,0,0,0.42))'
+            const background = tier === 'gold' ? `${darken}, linear-gradient(135deg, rgba(251,191,36,0.34), rgba(251,191,36,0.14))`
+              : tier === 'silver' ? `${darken}, linear-gradient(rgba(226,232,240,0.16), rgba(226,232,240,0.16))`
+              : tier === 'bronze' ? `${darken}, linear-gradient(rgba(205,140,74,0.18), rgba(205,140,74,0.18))`
+              : `${darken}, linear-gradient(rgba(255,255,255,0.04), rgba(255,255,255,0.04))`
             const border = tier === 'gold' ? '1.5px solid rgba(251,191,36,0.6)'
               : tier === 'silver' ? '1px solid rgba(226,232,240,0.35)'
               : tier === 'bronze' ? '1px solid rgba(205,140,74,0.4)'
               : 'none'
-            const scoreColor = tier === 'gold' ? '#fbbf24' : tier === 'silver' ? '#e2e8f0' : tier === 'bronze' ? '#d9a066' : '#9ca3af'
+            const scoreColor = tier === 'gold' ? '#fbbf24' : tier === 'silver' ? '#e2e8f0' : tier === 'bronze' ? '#e8b176' : '#e5e7eb'
             return (
               <div key={e.position} style={{
-                display: 'flex', alignItems: 'center', gap: 10,
+                display: 'flex', alignItems: 'center', gap: sz(8, 1.2, 28),
                 // Equal height across all three podium positions (1-3)
                 // -- gold is distinguished by colour/border, never by
                 // being physically bigger. 4-5 get a visibly smaller,
                 // plainer row.
-                padding: isPodium ? 'clamp(9px, 1.7vh, 14px) clamp(12px, 2vw, 18px)' : 'clamp(5px, 1vh, 8px) clamp(10px, 1.6vw, 14px)',
-                borderRadius: isPodium ? 12 : 8,
+                padding: isPodium ? `${sz(7, 1.0, 26)} ${sz(12, 1.8, 44)}` : `${sz(4, 0.6, 16)} ${sz(10, 1.5, 36)}`,
+                borderRadius: isPodium ? sz(10, 1.4, 32) : sz(7, 1, 22),
                 background, border,
                 boxShadow: tier === 'gold' ? '0 3px 14px rgba(0,0,0,0.35)' : undefined,
               }}>
-                <span style={{ fontSize: isPodium ? 'clamp(16px, 2.6vh, 22px)' : 'clamp(12px, 1.8vh, 15px)', flexShrink: 0, width: PODIUM_COL_WIDTH, textAlign: 'center' }}>
+                <span style={{ fontSize: isPodium ? sz(17, 2.8, 62) : sz(13, 2.1, 46), fontWeight: 800, color: isPodium ? '#fff' : '#d9c9a3', flexShrink: 0, width: sz(32, 4.6, 100), textAlign: 'center' }}>
                   {medalFor(e.position) ?? e.position}
                 </span>
-                <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-body)', fontSize: isPodium ? 'clamp(14px, 2.2vh, 18px)' : 'clamp(11px, 1.7vh, 13.5px)', fontWeight: isPodium ? 700 : 400, color: isPodium ? '#fff' : '#d1d5db', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-body)', fontSize: isPodium ? sz(15, 2.8, 62) : sz(12, 2.1, 46), fontWeight: isPodium ? 800 : 600, color: isPodium ? '#fff' : '#e5e7eb', textShadow: '0 1px 3px rgba(0,0,0,0.6)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {e.playerName}
                 </span>
-                <span style={{ fontFamily: 'var(--font-body)', fontSize: isPodium ? 'clamp(14px, 2.2vh, 18px)' : 'clamp(11px, 1.7vh, 13.5px)', fontWeight: 700, color: scoreColor, flexShrink: 0, minWidth: 28, textAlign: 'right' }}>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: isPodium ? sz(15, 2.8, 62) : sz(12, 2.1, 46), fontWeight: 800, color: scoreColor, flexShrink: 0, minWidth: sz(28, 4, 90), textAlign: 'right' }}>
                   {e.totalPoints}
                 </span>
               </div>
             )
           })}
+          {moreTiedText(slide.moreTied) && <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(11, 1.5, 32), color: '#d1d5db', textAlign: 'center', margin: '2px 0 0', textShadow: '0 1px 3px rgba(0,0,0,0.7)' }}>{moreTiedText(slide.moreTied)}</p>}
         </div>
       </div>
     )
@@ -1165,27 +1179,28 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize
     // slide.
     return (
       <GenericTemplateSlide>
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2.5, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 4 }}>{slide.roundName}</p>
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(18px, 3vw, 26px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 16 }}>Results</p>
-        <div style={{ width: '100%', maxWidth: 460, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(13, 1.9, 42), fontWeight: 700, letterSpacing: '0.2em', color: '#fbbf24', textTransform: 'uppercase', marginBottom: sz(3, 0.5, 12) }}>{slide.roundName}</p>
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: sz(24, 4.6, 96), fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: sz(10, 1.8, 40), lineHeight: 1.05 }}>Results</p>
+        <div data-testid="results-rows" style={{ width: 'min(68cqw, 1500px)', display: 'flex', flexDirection: 'column', gap: sz(5, 0.9, 20) }}>
           {slide.standings.map(s => {
             const isWinner = s.position === 1
             return (
               <div key={s.playerId} style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: isWinner ? '10px 16px' : '6px 14px',
-                borderRadius: isWinner ? 12 : 8,
-                background: isWinner ? 'linear-gradient(135deg, rgba(251,191,36,0.28), rgba(251,191,36,0.08))' : 'rgba(255,255,255,0.06)',
-                border: isWinner ? '1.5px solid rgba(251,191,36,0.55)' : 'none',
+                display: 'flex', alignItems: 'center', gap: sz(8, 1.4, 30),
+                padding: isWinner ? `${sz(8, 1.3, 30)} ${sz(14, 2.2, 52)}` : `${sz(5, 0.85, 20)} ${sz(12, 2, 46)}`,
+                borderRadius: isWinner ? sz(12, 1.6, 36) : sz(8, 1.1, 26),
+                background: isWinner ? 'linear-gradient(135deg, rgba(251,191,36,0.3), rgba(251,191,36,0.1))' : 'rgba(255,255,255,0.08)',
+                border: isWinner ? '2px solid rgba(251,191,36,0.6)' : 'none',
               }}>
-                <span style={{ fontFamily: 'var(--font-display)', fontSize: isWinner ? 20 : 15, fontWeight: 800, color: isWinner ? '#fbbf24' : '#d9c9a3', width: 24, flexShrink: 0, textAlign: 'center' }}>{s.position}</span>
-                <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: isWinner ? 17 : 13.5, fontWeight: isWinner ? 800 : 500, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.playerName}</span>
-                <span style={{ fontFamily: 'var(--font-body)', fontSize: isWinner ? 17 : 13.5, fontWeight: 700, color: isWinner ? '#fbbf24' : '#e5e7eb', flexShrink: 0 }}>{s.roundPoints} pts</span>
-                {isWinner && <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, letterSpacing: 1, color: '#fbbf24', textTransform: 'uppercase', fontWeight: 700, flexShrink: 0 }}>Round Winner</span>}
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: isWinner ? sz(20, 3.6, 80) : sz(15, 2.7, 60), fontWeight: 800, color: isWinner ? '#fbbf24' : '#d9c9a3', width: sz(28, 4, 90), flexShrink: 0, textAlign: 'center' }}>{s.position}</span>
+                <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-body)', fontSize: isWinner ? sz(18, 3.6, 78) : sz(15, 2.8, 62), fontWeight: isWinner ? 800 : 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.playerName}</span>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: isWinner ? sz(18, 3.6, 78) : sz(15, 2.8, 62), fontWeight: 800, color: isWinner ? '#fbbf24' : '#f3f4f6', flexShrink: 0 }}>{s.roundPoints} pts</span>
+                {isWinner && <span style={{ fontFamily: 'var(--font-body)', fontSize: sz(11, 1.5, 32), letterSpacing: '0.12em', color: '#fbbf24', textTransform: 'uppercase', fontWeight: 800, flexShrink: 0 }}>Round Winner</span>}
               </div>
             )
           })}
         </div>
+        {moreTiedText(slide.moreTied) && <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(12, 1.6, 34), color: '#d1d5db', marginTop: sz(6, 1, 22), textAlign: 'center' }}>{moreTiedText(slide.moreTied)}</p>}
       </GenericTemplateSlide>
     )
   }
@@ -1196,27 +1211,29 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize
     // leader is highlighted but is NOT called the round winner.
     return (
       <GenericTemplateSlide>
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, letterSpacing: 2.5, color: '#fbbf24', textTransform: 'uppercase', marginBottom: 4 }}>After {slide.roundName}</p>
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(18px, 3vw, 26px)', fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: 16, textAlign: 'center' }}>Total Scores</p>
-        <div style={{ width: '100%', maxWidth: 460, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(13, 1.9, 42), fontWeight: 700, letterSpacing: '0.2em', color: '#fbbf24', textTransform: 'uppercase', marginBottom: sz(3, 0.5, 12) }}>After {slide.roundName}</p>
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: sz(24, 4.6, 96), fontWeight: 800, color: '#fff', textTransform: 'uppercase', marginBottom: sz(10, 1.8, 40), textAlign: 'center', lineHeight: 1.05 }}>Total Scores</p>
+        <div data-testid="results-rows" style={{ width: 'min(68cqw, 1500px)', display: 'flex', flexDirection: 'column', gap: sz(5, 0.9, 20) }}>
           {slide.standings.map(s => {
             const isLeader = s.position === 1
             return (
               <div key={s.playerId} style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: isLeader ? '10px 16px' : '6px 14px',
-                borderRadius: isLeader ? 12 : 8,
-                background: isLeader ? 'linear-gradient(135deg, rgba(251,191,36,0.28), rgba(251,191,36,0.08))' : 'rgba(255,255,255,0.06)',
-                border: isLeader ? '1.5px solid rgba(251,191,36,0.55)' : 'none',
+                display: 'flex', alignItems: 'center', gap: sz(8, 1.4, 30),
+                padding: isLeader ? `${sz(8, 1.3, 30)} ${sz(14, 2.2, 52)}` : `${sz(5, 0.85, 20)} ${sz(12, 2, 46)}`,
+                borderRadius: isLeader ? sz(12, 1.6, 36) : sz(8, 1.1, 26),
+                background: isLeader ? 'linear-gradient(135deg, rgba(251,191,36,0.3), rgba(251,191,36,0.1))' : 'rgba(255,255,255,0.08)',
+                border: isLeader ? '2px solid rgba(251,191,36,0.6)' : 'none',
               }}>
-                <span style={{ fontFamily: 'var(--font-display)', fontSize: isLeader ? 20 : 15, fontWeight: 800, color: isLeader ? '#fbbf24' : '#d9c9a3', width: 24, flexShrink: 0, textAlign: 'center' }}>{s.position}</span>
-                <span style={{ flex: 1, fontFamily: 'var(--font-body)', fontSize: isLeader ? 17 : 13.5, fontWeight: isLeader ? 800 : 500, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.playerName}</span>
-                <span style={{ fontFamily: 'var(--font-body)', fontSize: isLeader ? 17 : 13.5, fontWeight: 700, color: isLeader ? '#fbbf24' : '#e5e7eb', flexShrink: 0 }}>{s.totalPoints} pts</span>
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: isLeader ? sz(20, 3.6, 80) : sz(15, 2.7, 60), fontWeight: 800, color: isLeader ? '#fbbf24' : '#d9c9a3', width: sz(28, 4, 90), flexShrink: 0, textAlign: 'center' }}>{s.position}</span>
+                <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-body)', fontSize: isLeader ? sz(18, 3.6, 78) : sz(15, 2.8, 62), fontWeight: isLeader ? 800 : 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.playerName}</span>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: isLeader ? sz(18, 3.6, 78) : sz(15, 2.8, 62), fontWeight: 800, color: isLeader ? '#fbbf24' : '#f3f4f6', flexShrink: 0 }}>{s.totalPoints} pts</span>
+                
               </div>
             )
           })}
         </div>
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#9ca3af', marginTop: 12, textAlign: 'center' }}>Combined Stableford points, {slide.roundsIncluded} rounds</p>
+        {moreTiedText(slide.moreTied) && <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(12, 1.6, 34), color: '#d1d5db', marginTop: sz(6, 1, 22), textAlign: 'center' }}>{moreTiedText(slide.moreTied)}</p>}
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(12, 1.6, 34), color: '#d1d5db', marginTop: sz(6, 1, 22), textAlign: 'center' }}>Combined Stableford points, {slide.roundsIncluded} rounds</p>
       </GenericTemplateSlide>
     )
   }
@@ -1278,8 +1295,8 @@ function NonPhotoSlide({ slide, videoRef, videoMuted, onVideoFailed, onMediaSize
         )}
         {(slide.playerName || slide.caption) && (
           <div style={{ position: 'absolute', left: 0, right: 0, bottom: CONTROLS_SAFE_AREA_PX, padding: '24px 20px 16px', background: 'linear-gradient(transparent, rgba(0,0,0,0.7))' }}>
-            {slide.playerName && <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#fff' }}>{slide.playerName}</p>}
-            {slide.caption && <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#e5e7eb', marginTop: 2 }}>{slide.caption}</p>}
+            {slide.playerName && <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(16, 2.2, 52), fontWeight: 700, color: '#fff' }}>{slide.playerName}</p>}
+            {slide.caption && <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(13, 1.8, 40), color: '#e5e7eb', marginTop: 2, overflowWrap: 'anywhere' }}>{slide.caption}</p>}
           </div>
         )}
       </div>
@@ -1357,8 +1374,8 @@ function MomentsSourceLabel({ heading, aspect }: { heading: string; aspect: numb
   }
   return (
     <div aria-hidden style={{ position: 'absolute', top: '2cqw', left: '2cqw', pointerEvents: 'none', ...card, borderRadius: '0.8cqw', padding: '0.7cqw 1.3cqw' }}>
-      <p style={{ fontFamily: 'var(--font-display)', fontSize: '1.5cqw', fontWeight: 800, letterSpacing: '0.12em', color: gold }}>{heading}</p>
-      <p style={{ fontFamily: 'var(--font-body)', fontSize: '1.4cqw', color: '#fff', fontWeight: 600, marginTop: '0.2cqw' }}>
+      <p style={{ fontFamily: 'var(--font-display)', fontSize: sz(11, 1.5, 30), fontWeight: 800, letterSpacing: '0.12em', color: gold }}>{heading}</p>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: sz(11, 1.4, 28), color: '#fff', fontWeight: 600, marginTop: '0.2cqw' }}>
         Relive it in <span style={{ color: gold, fontWeight: 800 }}>My Golf &rarr; Moments</span>
       </p>
     </div>

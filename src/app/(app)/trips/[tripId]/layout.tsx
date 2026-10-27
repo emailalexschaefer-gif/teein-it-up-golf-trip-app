@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { TripBottomNav, DesktopTripNav } from '@/components/layout/TripBottomNav'
 import RoundStartBanner from '@/components/layout/RoundStartBanner'
 import { loadTripLayoutData } from '@/lib/trips/tripLayoutData'
+import { loadTripRoundLabels } from '@/lib/trips/roundLabels'
 
 // Never cache — organiser status must always reflect the live membership
 // table, and this determines which nav items render.
@@ -34,12 +35,14 @@ export default async function TripScopedLayout({ params, children }: Props) {
     getActiveRound: () => supabase.from('rounds').select('id, name').eq('trip_id', tripId).eq('status', 'active').maybeSingle(),
   })
   if (!user) redirect('/login')
+  // Canonical label for the banner (cancelled rounds keep their numbers), only looked up when there is an active round.
+  const roundBannerName = activeRound ? (await loadTripRoundLabels(supabase, tripId)).label(activeRound) : ''
 
   return (
     <div style={{ minHeight: '100vh' }}>
       <DesktopTripNav tripId={tripId} isOrganiser={isOrganiser} activeRoundId={activeRound?.id ?? null} isPractice={isPractice} />
       {activeRound && (
-        <RoundStartBanner tripId={tripId} roundId={activeRound.id} roundName={activeRound.name} />
+        <RoundStartBanner tripId={tripId} roundId={activeRound.id} roundName={roundBannerName} />
       )}
       {children}
       <TripBottomNav tripId={tripId} isOrganiser={isOrganiser} activeRoundId={activeRound?.id ?? null} isPractice={isPractice} />

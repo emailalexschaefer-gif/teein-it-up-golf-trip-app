@@ -7,7 +7,8 @@
 import { generateShareToken } from '@/lib/sharing/token'
 import { isPlausibleShareToken } from '@/lib/sharing/tokenShape'
 import { computeRoundLeaderboard } from '@/lib/scoring/roundLeaderboard'
-import { getRoundDisplayName, selectLeaderboardRound, sortRoundsChronologically } from '@/lib/scoring/multiRound'
+import { selectLeaderboardRound } from '@/lib/scoring/multiRound'
+import { numberRounds, canonicalRoundLabel } from '@/lib/trips/roundNumbering'
 import { buildPublicBoard, type PublicBoard } from './publicBoard'
 import { readEventOutcome } from '@/lib/trips/eventOutcome'
 
@@ -84,8 +85,10 @@ export async function buildBoardForTrip(admin: Admin, tripId: string, now: Date 
   const trip = tripRes.data as { id: string; name: string; status: string; is_practice: boolean | null } | null
   if (!trip || trip.is_practice === true) return null
 
-  const counted = ((roundsRes.data ?? []) as RoundRow[]).filter(r => r.status !== 'cancelled')
-  const chronological = sortRoundsChronologically(counted)
+  const allRounds = (roundsRes.data ?? []) as RoundRow[]
+  // Number over ALL rounds first (a cancelled round keeps its number), then drop cancelled ones from what is shown.
+  const numbering = numberRounds(allRounds)
+  const counted = allRounds.filter(r => r.status !== 'cancelled')
   const selectedRound = selectLeaderboardRound(counted)
   const completedRoundCount = counted.filter(r => r.status === 'completed').length
   const outcome = await readEventOutcome(admin, tripId)
@@ -103,7 +106,7 @@ export async function buildBoardForTrip(admin: Admin, tripId: string, now: Date 
 
   return buildPublicBoard({
     eventName: trip.name, tripStatus: trip.status,
-    selected: { status: selectedRound.status, label: getRoundDisplayName(selectedRound, chronological) },
+    selected: { status: selectedRound.status, label: canonicalRoundLabel(selectedRound, numbering) },
     payload: result.body, completedRoundCount, now, outcome,
   })
 }

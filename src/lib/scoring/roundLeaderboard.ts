@@ -9,6 +9,7 @@
  */
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { computeCumulativeStandings, sortRoundsChronologically, buildRoundsSummary } from '@/lib/scoring/multiRound'
+import { numberRounds } from '@/lib/trips/roundNumbering'
 import { orderHolesByPlaySequence } from '@/lib/scoring/holeSequence'
 
 type AdminClient = ReturnType<typeof createAdminClient>
@@ -207,7 +208,10 @@ export async function computeRoundLeaderboard(
     if (allRoundsRes.error) throw allRoundsRes.error
     const sortedRounds = sortRoundsChronologically((allRoundsRes.data ?? []) as { id: string; play_date: string; created_at: string; status: string }[])
     const currentRoundIdx = sortedRounds.findIndex(r => r.id === roundId)
-    const relevantRoundIds: string[] = currentRoundIdx === -1 ? [] : sortedRounds.slice(0, currentRoundIdx + 1).map(r => r.id)
+    // Canonical numbers come from ALL rounds (a cancelled round keeps its number); a cancelled round is never a column or a
+    // cumulative contributor (it was not played), so it is dropped here, AFTER numbering.
+    const roundNumbering = numberRounds(sortedRounds)
+    const relevantRoundIds: string[] = currentRoundIdx === -1 ? [] : sortedRounds.slice(0, currentRoundIdx + 1).filter(r => r.status !== 'cancelled' || r.id === roundId).map(r => r.id)
     const statusById = new Map(sortedRounds.map(r => [r.id, r.status]))
 
     if (relevantRoundIds.length > 0) {
@@ -260,7 +264,7 @@ export async function computeRoundLeaderboard(
         // column still said LIVE even though that round's own status
         // was 'completed'.
         const sortedRelevantRounds = relevantRoundIds.map(rid => ({ id: rid, status: statusById.get(rid) ?? 'completed' }))
-        roundsSummary = buildRoundsSummary(sortedRelevantRounds)
+        roundsSummary = buildRoundsSummary(sortedRelevantRounds, roundNumbering)
 
         // pointsByRound[playerId][roundId] = that player's points in that
         // round. isCurrentRound rows also carry live holesPlayed/finished

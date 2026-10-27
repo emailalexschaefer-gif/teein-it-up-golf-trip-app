@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { loadTripRoundLabels } from '@/lib/trips/roundLabels'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import ScoreSessionShell from './ScoreSessionShell'
@@ -98,7 +99,9 @@ export default async function RoundScorePage({ params }: Props) {
     redirect(`/trips/${tripId}`)
   }
 
-  const round = roundRes.data
+  // Display label from the canonical numbering over ALL of the event's rounds (a cancelled round keeps its number); stored name untouched.
+  const roundLabels = await loadTripRoundLabels(admin, tripId)
+  const round = { ...roundRes.data, name: roundLabels.label(roundRes.data) }
 
   // If round is not yet active, redirect back to the trip (they'll see the Rounds tab)
   if (round.status === 'upcoming' || round.status === 'cancelled') {

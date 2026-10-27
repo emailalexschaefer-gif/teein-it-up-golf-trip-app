@@ -6,9 +6,10 @@ import { useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { calculateStableford } from '@/lib/scoring/stableford'
 import { getHandicapStrokesForHole } from '@/lib/scoring/strokeAllocation'
-import { buildMismatchWarning, shouldWarn, type MismatchWarning } from '@/lib/scoring/mismatchWarning'
+import { buildMismatchWarning, shouldWarn, findLateMismatches, pendingLateNotices, type MismatchWarning } from '@/lib/scoring/mismatchWarning'
+import { statusIndicator, summaryIndicator } from '@/lib/scoring/statusIndicator'
 import { showPartnerPanel, partnerNotStartedNote } from '@/lib/scoring/partnerPresence'
-import { compareCaptures, COMPARISON_LABEL, isZeroPointsMismatch, type ComparisonStatus, type CaptureValue } from '@/lib/scoring/comparison'
+import { compareCaptures, isZeroPointsMismatch, type ComparisonStatus, type CaptureValue } from '@/lib/scoring/comparison'
 import { queueScoreEntryBounded, getPendingCount, getQueuedEntriesForScorecards } from '@/lib/db/dexie'
 import { syncScoreQueue, initSyncListeners } from '@/lib/db/sync'
 import { useSyncStore } from '@/store/syncStore'
@@ -270,18 +271,7 @@ function stripPtsBackground(pts: number): string {
 }
 
 function statusColor(status: ComparisonStatus): string {
-  switch (status) {
-    case 'matched': return '#16a34a'
-    case 'mismatch': return '#dc2626'
-    // Score-screen override propagation fix — amber/gold, not green,
-    // per the explicit colour system: "green = matched, red = needs
-    // review, amber/gold = organiser override." Distinct from 'matched'
-    // deliberately — an override is resolved, but it isn't the same
-    // thing as the player and marker having genuinely agreed.
-    case 'resolved_by_organiser': return '#a1791f'
-    case 'pending_marker': case 'pending_self': return '#a1791f'
-    default: return '#9ca3af'
-  }
+  return statusIndicator(status).color
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
@@ -317,6 +307,7 @@ export default function SelfMarkerScoreShell({
   // never alters either entry or the reconciliation state; shown once per distinct disagreement.
   const [mismatchWarning, setMismatchWarning] = useState<MismatchWarning | null>(null)
   const acknowledgedMismatchesRef = useRef<Set<string>>(new Set())
+  const [, setLateTick] = useState(0) // re-render after the late-mismatch banner is dismissed
   // Shotgun Start. startInfo is fetched once on mount (my-starting-hole,
   // resolves the caller's own group server-side). holeIdxSeeded ensures
   // the seeding effect below runs exactly once — never re-seeds on a
@@ -1350,6 +1341,19 @@ export default function SelfMarkerScoreShell({
 
   const myName = currentMy?.profiles?.full_name ?? 'You'
   const partnerName = currentMarked?.profiles?.full_name ?? null
+
+  // V7 -- late-arriving mismatches. Computed from the SAVED captures for every hole on each render (pure, cheap), so a
+  // disagreement that appears after the player has moved on -- the partner's entry syncs in, a poll lands -- is announced
+  // without waiting for another Next Hole tap. Non-blocking; acknowledged per exact disagreement (see signature).
+  const lateNotices = pendingLateNotices(
+    findLateMismatches({
+      holeNumbers: holes.map(h => h.hole_number), myName, partnerName,
+      comparing: requiresMarker && !isSharedDeviceScoring,
+      mySelf, myMarker, partnerSelf, partnerMarker, hasPartner: Boolean(currentMarked),
+    }),
+    holeNum, acknowledgedMismatchesRef.current,
+  )
+
   const partnerNote = partnerNotStartedNote({
     isSharedDeviceScoring, partnerName,
     partnerSelfEntryCount: Object.keys(partnerSelf).length,
@@ -1652,10 +1656,10 @@ export default function SelfMarkerScoreShell({
     // agree: the client cannot claim ready while sync is still pending.
     const isReadyToConfirm = canConfirmRound({ allMatched, pendingCount, rejectedForThisRound: rejectedHere })
     const STATUS_ICON: Record<string, { icon: string; color: string }> = {
-      matched:      { icon: '🟢', color: '#16a34a' },
-      mismatch:     { icon: '🔴', color: '#dc2626' },
-      awaiting:     { icon: '🟡', color: '#a1791f' },
-      not_started:  { icon: '⚪', color: '#d1d5db' },
+      matched:      summaryIndicator('matched'),
+      mismatch:     summaryIndicator('mismatch'),
+      awaiting:     summaryIndicator('awaiting'),
+      not_started:  summaryIndicator('not_started'),
     }
 
     const grandTotal = outTotal + inTotal
@@ -3006,6 +3010,23 @@ export default function SelfMarkerScoreShell({
           </div>
         )}
 
+        {lateNotices.length > 0 && !mismatchWarning && (
+          <div data-testid="late-mismatch-banner" role="status" style={{ background: '#fef2f2', border: '1.5px solid #fecaca', borderRadius: 12, padding: '10px 12px', marginBottom: 8, fontFamily: 'var(--font-body)' }}>
+            <div style={{ fontWeight: 800, fontSize: 13.5, color: '#b91c1c', marginBottom: 4 }}>
+              🔴 Scores don&apos;t match — {lateNotices.length === 1 ? `Hole ${lateNotices[0].holeNumber}` : `Holes ${lateNotices.map(n => n.holeNumber).join(', ')}`}
+            </div>
+            <div style={{ fontSize: 12.5, color: '#4b5563', marginBottom: 8 }}>
+              {lateNotices[0].items.map(it => `${it.golfer}: ${it.yourEntry} vs ${it.otherEntry}`).join(' · ')}{lateNotices.length > 1 ? ` (first of ${lateNotices.length})` : ''}. Both entries are kept; you can keep playing.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" data-testid="late-mismatch-go" onClick={() => { const i = holes.findIndex(h => h.hole_number === lateNotices[0].holeNumber); if (i >= 0) setHoleIdx(i) }}
+                style={{ flex: 1, minHeight: 40, borderRadius: 10, border: 'none', background: '#14532d', color: '#fff', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>Go to Hole {lateNotices[0].holeNumber}</button>
+              <button type="button" data-testid="late-mismatch-dismiss" onClick={() => { for (const n of lateNotices) acknowledgedMismatchesRef.current.add(n.signature); setLateTick(t => t + 1) }}
+                style={{ flex: 1, minHeight: 40, borderRadius: 10, border: '1.5px solid #8a8f96', background: '#fff', color: '#14532d', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>Dismiss</button>
+            </div>
+          </div>
+        )}
+
         {mismatchWarning && (
           <div
             data-testid="mismatch-warning" role="alertdialog" aria-modal="true" aria-labelledby="mismatch-warning-title"
@@ -3281,9 +3302,9 @@ function ScoreCard({
           {(activeSideComps && activeSideComps.length > 0) || isPowerplayHole
             ? <HoleBadges activeSideComps={activeSideComps ?? []} isPowerplayHole={!!isPowerplayHole} />
             : null}
-          {status && (status === 'matched' || status === 'mismatch' || status === 'resolved_by_organiser') && (
+          {status && status !== 'not_started' && (
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, fontWeight: 700, color: statusColor(status), marginTop: 2 }}>
-              {status === 'resolved_by_organiser' ? '⚙️ Organiser Override' : COMPARISON_LABEL[status]}
+              {status === 'resolved_by_organiser' ? '⚙️ Organiser Override' : statusIndicator(status).label}
             </div>
           )}
         </div>

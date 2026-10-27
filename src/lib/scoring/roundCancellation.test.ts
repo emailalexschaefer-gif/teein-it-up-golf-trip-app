@@ -211,7 +211,10 @@ test('start and release routes refuse a cancelled round', () => {
   assert.match(read('src/app/api/trips/[tripId]/rounds/[roundId]/release/route.ts'), /status === 'cancelled'/)
 })
 test('presentation manifest excludes cancelled rounds at the source', () => {
-  assert.match(read('src/lib/trips/eventMemoryData.ts'), /\.neq\('status', 'cancelled'\)/)
+  // 27 Oct: numbered over ALL rounds first (cancelled keep their number), THEN dropped from the manifest.
+  const src = read('src/lib/trips/eventMemoryData.ts')
+  assert.match(src, /numberRounds\(allRoundRows\)/)
+  assert.match(src, /filter\(r => r\.status !== 'cancelled'\)/)
 })
 test('migration 097 is additive and documents its rollback', () => {
   const s = read('supabase/migrations/097_round_cancellation.sql')

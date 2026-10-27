@@ -17,6 +17,7 @@
  *   scoped down to just this player's own rank history rather than
  *   everyone's.
  */
+import { loadTripRoundLabels } from '@/lib/trips/roundLabels'
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { loadPublishedRows } from '@/lib/rounds/publishedView'
@@ -74,7 +75,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
   if (!myCard) {
     return NextResponse.json({
-      hasScorecard: false, roundName: roundRes.data.name, roundStatus: roundRes.data.status,
+      hasScorecard: false, roundName: (await loadTripRoundLabels(admin, tripId)).label({ id: roundId, name: roundRes.data.name }), roundStatus: roundRes.data.status,
     })
   }
 
@@ -239,7 +240,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
 
   return NextResponse.json({
     hasScorecard: true,
-    roundName: roundRes.data.name,
+    roundName: (await loadTripRoundLabels(admin, tripId)).label({ id: roundId, name: roundRes.data.name }),
     roundStatus: roundRes.data.status,
     scoringFormat: roundRes.data.scoring_format,
     status,

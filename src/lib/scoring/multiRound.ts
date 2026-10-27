@@ -348,9 +348,13 @@ export function seedLeadersLast(standings: { playerId: string }[], groupSize: nu
  */
 export interface RoundSummaryInput { id: string; status: string }
 
-export function buildRoundsSummary(sortedRelevantRounds: RoundSummaryInput[]): { roundId: string; roundNumber: number; isLive: boolean }[] {
+export function buildRoundsSummary(
+  sortedRelevantRounds: RoundSummaryInput[],
+  /** Canonical numbers over ALL the event's rounds (lib/trips/roundNumbering.ts). Without it, position in the list passed is used. */
+  numbering?: Map<string, number>,
+): { roundId: string; roundNumber: number; isLive: boolean }[] {
   return sortedRelevantRounds.map((r, idx) => ({
-    roundId: r.id, roundNumber: idx + 1, isLive: r.status === 'active',
+    roundId: r.id, roundNumber: numbering?.get(r.id) ?? idx + 1, isLive: r.status === 'active',
   }))
 }
 

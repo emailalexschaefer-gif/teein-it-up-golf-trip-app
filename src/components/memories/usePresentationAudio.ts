@@ -9,14 +9,15 @@ import { APPLAUSE_SRC, CONFETTI_MAX_MS, CONFETTI_MIN_MS, FADE_IN_MS, FADE_OUT_MS
 // render / SSR); disposed on unmount so nothing keeps playing after the
 // presentation closes. The music on/off preference lives in sessionStorage,
 // i.e. for this presentation session only.
+// 27 Oct: background music is OFF by default. It plays only after the viewer switches it on (that choice is then kept for the session).
 function readMusicPref(): boolean {
-  try { return window.sessionStorage.getItem(MUSIC_PREF_KEY) !== 'off' } catch { return true }
+  try { return window.sessionStorage.getItem(MUSIC_PREF_KEY) === 'on' } catch { return false }
 }
 function writeMusicPref(on: boolean) {
   try { window.sessionStorage.setItem(MUSIC_PREF_KEY, on ? 'on' : 'off') } catch { /* private mode: preference just isn't remembered */ }
 }
 
-const INITIAL: AudioState = { musicEnabled: true, applauseEnabled: true, blocked: false, applauseAvailable: false }
+const INITIAL: AudioState = { musicEnabled: false, applauseEnabled: true, blocked: false, applauseAvailable: false }
 
 export function usePresentationAudio() {
   const ref = useRef<PresentationAudioController | null>(null)

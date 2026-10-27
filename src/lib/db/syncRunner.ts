@@ -54,8 +54,26 @@ export interface SyncDeps {
   timeoutMs?: number
 }
 
+
+/** True only when authentication failure is established from the response itself. */
+export function isAuthFailure(res: { status: number; redirected?: boolean; url?: string }): boolean {
+  if (res.status === 401) return true
+  if (res.redirected && typeof res.url === 'string') {
+    try { return /^\/(login|auth|sign-?in)(\/|$)/i.test(new URL(res.url, 'http://x').pathname) } catch { return false }
+  }
+  return false
+}
+
+/** Visible, diagnosable text for a 405 / redirect that is NOT shown to be a sign-in problem. */
+export function describeUnexpectedTransport(res: { status: number; redirected?: boolean; url?: string }): string {
+  let where = ''
+  try { if (res.url) where = ` at ${new URL(res.url, 'http://x').pathname}` } catch { /* no path to show */ }
+  const what = res.redirected ? `unexpected redirect${where} (HTTP ${res.status})` : `HTTP ${res.status}${where}`
+  return `Server refused the score request: ${what}. Scores are kept on this device and will retry. If this keeps happening, tell the organiser.`
+}
+
 class UploadFailure extends Error {
-  constructor(message: string, public kind: FailureKind) { super(message); this.name = 'UploadFailure' }
+  constructor(message: string, public kind: FailureKind, public sessionLapsed = false, public haltPass = false) { super(message); this.name = 'UploadFailure' }
 }
 
 function describeNetworkError(err: unknown, timedOut: boolean): string {
@@ -110,6 +128,15 @@ export function createSyncRunner(deps: SyncDeps): () => Promise<void> {
         return 'synced'
       }
 
+      // Authentication failure is only claimed when it is ESTABLISHED: a 401, or a redirect that actually ended on a
+      // sign-in page. Anything else that looks like the transport talking (a bare 405, a redirect elsewhere) keeps the
+      // score queued and retries, but says exactly what happened instead of guessing "signed out".
+      if (isAuthFailure(res)) {
+        throw new UploadFailure('Signed out of Teein\u2019 It Up \u2014 sign in again. Your scores are safe on this device and will send automatically.', 'server', true)
+      }
+      if (res.redirected || res.status === 405) {
+        throw new UploadFailure(describeUnexpectedTransport(res), 'server', false, true)
+      }
       // A body that stalls after the headers arrived is also bounded by the
       // same timer (the abort signal covers reading the body).
       const body = (await res.json().catch(() => ({}))) as { error?: unknown }
@@ -159,6 +186,10 @@ export function createSyncRunner(deps: SyncDeps): () => Promise<void> {
             failures++
             lastFailure = { message: failure.message, kind: failure.kind }
             if (failure.kind === 'network') { connectivityLost = true; break }
+            // Signed out: every other entry would fail the same way. One request per pass, not one per queued score.
+            if (failure.sessionLapsed) { connectivityLost = true; break }
+            // Unexplained 405 / redirect: the same request would fail again for every entry. One per pass; retried on the timer.
+            if (failure.haltPass) { connectivityLost = true; break }
           }
         }
 

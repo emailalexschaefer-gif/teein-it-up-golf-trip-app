@@ -23,6 +23,7 @@
  */
 import { createAdminClient } from '@/lib/supabase/admin'
 import { computeCumulativeStandings, determineRoundWinners, determineChampions, sortRoundsChronologically, type RoundPlayerResult, type Champion } from '@/lib/scoring/multiRound'
+import { numberRounds, canonicalRoundLabel } from './roundNumbering'
 import { orderHolesByPlaySequence } from '@/lib/scoring/holeSequence'
 import { generateEventMakersAndBreakers, type EventRoundData } from '@/lib/highlights/eventMakersBreakers'
 import { readEventOutcome, type EventOutcome } from './eventOutcome'
@@ -75,9 +76,13 @@ export async function computeFinalResults(tripId: string, admin: ReturnType<type
     // Defensive, not assumed: only rounds actually marked completed count
     // toward results, even though trip.status === 'completed' should
     // already imply every round is (see close/route.ts's own guard).
-    const completedRounds = sortedRounds.filter(r => r.status === 'completed')
+    const completedRoundsAll = sortedRounds.filter(r => r.status === 'completed')
+    // Canonical numbering (approved 27 Oct): number over ALL rounds, cancelled included, THEN keep the completed ones.
+    // Never idx + 1 over completedRounds: that turns Round 3 into "Round 2" when Round 2 was cancelled.
+    const numbering = numberRounds(sortedRounds)
+    const numOf = (id: string) => numbering.get(id) ?? 0
 
-    if (completedRounds.length === 0) {
+    if (completedRoundsAll.length === 0) {
       return { ok: false as const, error: 'No completed rounds found for this event.', status: 409 }
     }
 
@@ -99,7 +104,7 @@ export async function computeFinalResults(tripId: string, admin: ReturnType<type
     // leakage / correct round-to-round identity" requirement this
     // whole feature depends on.
     const perRoundCombined = await Promise.all(
-      completedRounds.map(async (round, roundIdx) => {
+      completedRoundsAll.map(async (round) => {
         const [{ data, error }, roundConfigRes, holesRes, groupsRes, shotgunStartsRes] = await Promise.all([
           admin
             .from('scorecards')
@@ -145,7 +150,7 @@ export async function computeFinalResults(tripId: string, admin: ReturnType<type
             groupId: sc.group_id, groupName: sc.group_id ? (groupNameById.get(sc.group_id) ?? 'Group') : 'Group',
           }
         })
-        const eventRound: EventRoundData = { roundId: round.id, roundNumber: roundIdx + 1, totalHoles: holeCount, players: eventPlayers }
+        const eventRound: EventRoundData = { roundId: round.id, roundNumber: numOf(round.id), totalHoles: holeCount, players: eventPlayers }
 
         const holeNumberById = new Map((holesRes.data ?? []).map((h: { id: string; hole_number: number }) => [h.id, h.hole_number]))
         const perRoundResult = scRows.map(sc => {
@@ -164,8 +169,17 @@ export async function computeFinalResults(tripId: string, admin: ReturnType<type
         return { perRoundResult, eventRound }
       })
     )
-    const perRoundResults: RoundPlayerResult[][] = perRoundCombined.map(c => c.perRoundResult)
-    const eventRoundsData: EventRoundData[] = perRoundCombined.map(c => c.eventRound)
+    // V7 (P1): a round marked completed in which NOBODY has a recorded score must not influence the official outcome.
+    // Left in, it becomes the "final round" for countback (every player's hole points empty, so the tie-break compares
+    // nothing and a real final-round countback is skipped), adds a column of zeros to the standings and can list a
+    // 0-point "winner". It keeps its round number (numbering is separate from eligibility) but is not scored.
+    const roundHasScores = perRoundCombined.map(c => c.perRoundResult.some(r => r.holePoints.length > 0 || r.roundPoints > 0))
+    const completedRounds = completedRoundsAll.filter((_, i) => roundHasScores[i])
+    if (completedRounds.length === 0) {
+      return { ok: false as const, error: 'No completed rounds with recorded scores found for this event.', status: 409 }
+    }
+    const perRoundResults: RoundPlayerResult[][] = perRoundCombined.filter((_, i) => roundHasScores[i]).map(c => c.perRoundResult)
+    const eventRoundsData: EventRoundData[] = perRoundCombined.filter((_, i) => roundHasScores[i]).map(c => c.eventRound)
 
     // TOTAL and overall ranking — the exact same function, untouched, the
     // live multi-round leaderboard already relies on. Ties share position
@@ -188,7 +202,7 @@ export async function computeFinalResults(tripId: string, admin: ReturnType<type
     const standingsWithRounds = standings.map(s => ({
       ...s,
       rounds: completedRounds.map((round, idx) => ({
-        roundId: round.id, roundNumber: idx + 1,
+        roundId: round.id, roundNumber: numOf(round.id),
         points: pointsByPlayer.get(s.playerId)?.[round.id] ?? 0,
       })),
     }))
@@ -198,7 +212,7 @@ export async function computeFinalResults(tripId: string, admin: ReturnType<type
     // can legitimately have more than one winner. Pure, tested function
     // — see multiRound.ts / multiRound.test.ts.
     const roundWinners = completedRounds.map((round, idx) => ({
-      roundId: round.id, roundNumber: idx + 1, roundName: round.name, courseName: round.course_name,
+      roundId: round.id, roundNumber: numOf(round.id), roundName: canonicalRoundLabel(round, numbering), courseName: round.course_name,
       winners: determineRoundWinners(perRoundResults[idx]),
     }))
 
@@ -225,7 +239,7 @@ export async function computeFinalResults(tripId: string, admin: ReturnType<type
     // (isHoleComplete, same signal as the Side Games/tournament routes),
     // so a competition only appears as a genuine winner, never merely
     // because the round or event closed around it.
-    const sideCompetitionsByRound = await Promise.all(completedRounds.map(async (round, idx) => {
+    const sideCompetitionsByRound = await Promise.all(completedRounds.map(async (round) => {
       const [compsRes, holesRes, scRes] = await Promise.all([
         admin.from('side_comps').select('id, comp_type, hole_number').eq('round_id', round.id).eq('enabled', true),
         admin.from('holes').select('id, hole_number').eq('round_id', round.id),
@@ -298,7 +312,7 @@ export async function computeFinalResults(tripId: string, admin: ReturnType<type
         return { compType: comp.comp_type, holeNumber: comp.hole_number, winner, powerplayBest: null as { playerId: string; playerName: string; points: number } | null }
       }))
 
-      return { roundId: round.id, roundNumber: idx + 1, roundName: round.name, courseName: round.course_name, competitions }
+      return { roundId: round.id, roundNumber: numOf(round.id), roundName: canonicalRoundLabel(round, numbering), courseName: round.course_name, competitions }
     }))
 
     // Release 2, item 4/5 — the SAME event-level Makers & Breakers
@@ -310,7 +324,7 @@ export async function computeFinalResults(tripId: string, admin: ReturnType<type
       ok: true as const,
       data: {
       tripName: tripRes.data.name,
-      rounds: completedRounds.map((r, idx) => ({ roundId: r.id, roundNumber: idx + 1, roundName: r.name, courseName: r.course_name })),
+      rounds: completedRounds.map(r => ({ roundId: r.id, roundNumber: numOf(r.id), roundName: canonicalRoundLabel(r, numbering), courseName: r.course_name })),
       standings: standingsWithRounds,
       roundWinners,
       champions,
