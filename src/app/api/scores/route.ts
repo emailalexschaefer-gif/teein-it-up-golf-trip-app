@@ -4,6 +4,7 @@ import { isCaptureAllowed } from '@/lib/scoring/captureMode'
 import { decideScoreWrite } from '@/lib/scoring/scoreWriteDecision'
 import { isIdenticalRecordedResend } from '@/lib/scoring/recordedResend'
 import { z } from 'zod'
+import { ambroseLegacyScoreBlock } from '@/lib/ambrose/legacyScoreGuard'
 
 const ScoreSchema = z.object({
   scorecard_id: z.string().uuid(),
@@ -88,6 +89,10 @@ export async function POST(request: Request) {
     if (already) return NextResponse.json({ ...already, message: 'Already recorded', conflict: true, duplicate: true }, { status: 200 })
     return NextResponse.json({ error: 'Scorecard not active' }, { status: 422 })
   }
+
+  // V8 Ambrose: an Ambrose round takes TEAM scores only (flagged; no-op otherwise).
+  const ambroseBlock = await ambroseLegacyScoreBlock(db, scorecard.round_id)
+  if (ambroseBlock) return NextResponse.json(ambroseBlock.body, { status: ambroseBlock.status })
 
   const roundResult = await db
     .from('rounds')

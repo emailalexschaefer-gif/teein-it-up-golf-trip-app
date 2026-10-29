@@ -1,0 +1,28 @@
+import { calculateDailyHandicap } from '/home/claude/work/p4/src/lib/scoring/dailyHandicap'
+const gaDaily = (ga: number, slope: number, cr: number, par: number) => Math.round((ga * slope / 113 + (cr - par)) * 0.93)
+const tees = [
+  { name: 'Neutral (113 / 72.0 / 72)', slope: 113, cr: 72.0, par: 72 },
+  { name: 'Easier (120 / 69.5 / 71)', slope: 120, cr: 69.5, par: 71 },
+  { name: 'Typical (128 / 71.2 / 72)', slope: 128, cr: 71.2, par: 72 },
+  { name: 'Hard (138 / 73.4 / 72)', slope: 138, cr: 73.4, par: 72 },
+]
+const hcps = [-2, 0, 5.4, 12.3, 18, 24.6, 36]
+const rows: string[] = []
+rows.push('| GA Handicap | ' + tees.map(t => t.name).join(' | ') + ' |')
+rows.push('|---|' + tees.map(() => '---').join('|') + '|')
+for (const h of hcps) {
+  rows.push(`| ${h} | ` + tees.map(t => { const a = calculateDailyHandicap({ gaHandicap: h, slopeRating: t.slope }); const b = gaDaily(h, t.slope, t.cr, t.par); return `${a} → ${b} (${b - a >= 0 ? '+' : ''}${b - a})` }).join(' | ') + ' |')
+}
+console.log(rows.join('\n'))
+// distribution of difference across a 0..36 sweep per tee
+for (const t of tees) {
+  let diffs: number[] = []
+  for (let h = -5; h <= 36; h += 0.1) { const hh = Math.round(h * 10) / 10; diffs.push(gaDaily(hh, t.slope, t.cr, t.par) - calculateDailyHandicap({ gaHandicap: hh, slopeRating: t.slope })) }
+  const min = Math.min(...diffs), max = Math.max(...diffs), same = diffs.filter(d => d === 0).length
+  console.log(`${t.name}: diff range ${min}..${max}; identical for ${(100 * same / diffs.length).toFixed(0)}% of handicaps swept (-5.0..36.0 step 0.1)`)
+}
+// no-slope fallback path (manual courses) for completeness
+console.log('manual-course path (no slope): Daily = round(GA):', hcps.map(h => `${h}->${Math.round(h)}`).join(', '))
+// Stableford sensitivity: one extra stroke on a stroke-index-lowest hole gives how many points on average? (conceptual - show exact for a par-4 gross 5 )
+const pts = (gross: number, par: number, strokes: number) => Math.max(0, 2 + par - (gross - strokes))
+console.log('one extra stroke on a hole: par4 gross5 pts', pts(5,4,0), '->', pts(5,4,1), '; par4 gross6 pts', pts(6,4,0), '->', pts(6,4,1), '; par4 gross7 pts', pts(7,4,0), '->', pts(7,4,1), '(0 stays 0 if blob)')

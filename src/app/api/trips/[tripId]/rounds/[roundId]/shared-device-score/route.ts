@@ -33,6 +33,7 @@
  * from real scorecards data on every call, never trusted from the
  * client.
  */
+import { ambroseLegacyScoreBlock } from '@/lib/ambrose/legacyScoreGuard'
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -52,6 +53,10 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
 
   const membership = await admin.from('trip_members').select('group_id').eq('trip_id', tripId).eq('profile_id', user.id).maybeSingle()
   if (!membership.data || !membership.data.group_id) return NextResponse.json({ error: 'Not a trip member with a playing group.' }, { status: 403 })
+
+  // V8 Ambrose: an Ambrose round takes TEAM scores only (flagged; no-op otherwise).
+  const ambroseBlock = await ambroseLegacyScoreBlock(admin, roundId)
+  if (ambroseBlock) return NextResponse.json(ambroseBlock.body, { status: ambroseBlock.status })
 
   // Re-derive the shared-device pairing from real data — never trust a
   // paperPlayerId supplied by the client. Every scorecard belonging to

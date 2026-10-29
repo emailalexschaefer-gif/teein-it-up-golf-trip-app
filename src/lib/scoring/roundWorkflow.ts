@@ -64,6 +64,8 @@ export interface RoundWorkflowInput {
   roundStatus: 'upcoming' | 'active' | 'completed'
   /** Live-play progress, straight from the existing /tournament summary -- unchanged fields, not recalculated. */
   finishedPlayers: number
+  /** What `finishedPlayers`/`totalPlayers` count in the Manage Round line. Default 'players'; Ambrose rounds pass 'teams'. */
+  countUnit?: 'players' | 'teams'
   totalPlayers: number
   completionPct: number
   awaitingReconciliation: number
@@ -160,7 +162,7 @@ export function deriveRoundWorkflow(input: RoundWorkflowInput): RoundWorkflowRes
           ? 'Round complete'
           : awaitingReconciliation > 0
             ? `${awaitingReconciliation} score${awaitingReconciliation === 1 ? '' : 's'} awaiting reconciliation`
-            : `${finishedPlayers} of ${totalPlayers} players finished · ${completionPct}% complete`,
+            : `${finishedPlayers} of ${totalPlayers} ${input.countUnit ?? 'players'} finished · ${completionPct}% complete`,
     },
     {
       id: 'close',

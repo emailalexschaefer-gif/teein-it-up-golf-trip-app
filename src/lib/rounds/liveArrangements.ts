@@ -14,7 +14,7 @@ export interface LiveResult {
   names: Record<string, string>
 }
 
-export async function loadLiveArrangements(admin: Admin, tripId: string, round: LiveRound, handicapAllocations?: Record<string, number>): Promise<LiveResult> {
+export async function loadLiveArrangements(admin: Admin, tripId: string, round: LiveRound, handicapAllocations?: Record<string, number>, opts?: { handicapsOptional?: boolean }): Promise<LiveResult> {
   const [tripRes, membersRes, groupsRes, roundTeeRes, startingHolesRes] = await Promise.all([
     admin.from('trips').select('organiser_is_playing').eq('id', tripId).maybeSingle(),
     admin.from('trip_members').select('profile_id, role, group_id, playing_handicap, profiles:profile_id(handicap, full_name)').eq('trip_id', tripId),
@@ -40,7 +40,9 @@ export async function loadLiveArrangements(admin: Admin, tripId: string, round: 
   let handicapsConfirmed = 0
   for (const m of members) {
     names[m.profile_id] = m.profiles?.full_name ?? 'Player'
-    const hcp = resolveRoundHandicap({ override: handicapAllocations?.[m.profile_id], tripHandicap: m.playing_handicap, profileHandicap: m.profiles?.handicap, slopeRating: round.slope_rating })
+    // Gross-only Ambrose (opts.handicapsOptional, decided server-side by lib/ambrose/handicapPolicy): a missing handicap is stored as 0 (unused), as Begin Round already does.
+    const resolved = resolveRoundHandicap({ override: handicapAllocations?.[m.profile_id], tripHandicap: m.playing_handicap, profileHandicap: m.profiles?.handicap, slopeRating: round.slope_rating })
+    const hcp = resolved === null && opts?.handicapsOptional ? 0 : resolved
     if (hcp !== null) handicapsConfirmed++
     if (!m.group_id || !groupById.has(m.group_id) || hcp === null) continue
     rows.push({ player_id: m.profile_id, group_id: m.group_id, group_name: groupById.get(m.group_id)!.name ?? null, tee_time: teeFor(m.group_id), starting_hole: holeFor(m.group_id), playing_handicap: hcp })

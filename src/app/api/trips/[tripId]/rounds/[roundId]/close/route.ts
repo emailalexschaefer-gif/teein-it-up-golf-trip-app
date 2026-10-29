@@ -14,6 +14,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { shouldAutoCompleteEvent } from '@/lib/scoring/roundLifecycle'
 import { checkRoundCompletion } from '@/lib/scoring/roundCompletion'
 import { resolveSharedDeviceGroupForPlayer } from '@/lib/scoring/resolveSharedDeviceGroup'
+import { ambroseEnabledForTrip } from '@/lib/ambrose/featureFlag'
+import { ambroseCloseVerdict } from '@/lib/ambrose/closeGate'
 
 interface RouteProps { params: Promise<{ tripId: string; roundId: string }> }
 
@@ -39,6 +41,27 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
     return NextResponse.json({ error: 'Only an active round can be closed.' }, { status: 409 })
   }
 
+  // Package 4 / M2 -- Ambrose (feature-flagged, off by default and never in production). An Ambrose round is scored by TEAM entries, not individual
+  // scorecards, so the individual-scorecard completion rule below cannot apply. Instead every team must be complete according to the DATABASE's own
+  // team_entry_completion() (read through the signed-in user's client). Same organiser authority, same active->completed transition, same tail.
+  let isAmbrose = false
+  if (ambroseEnabledForTrip(tripId)) {
+    const cfg = await supabase.from('round_competition_config').select('format').eq('round_id', roundId).maybeSingle()
+    if (cfg.error) return NextResponse.json({ error: 'Could not check the Ambrose set-up for this round. Nothing was changed.' }, { status: 503 })
+    if (cfg.data) {
+      isAmbrose = true
+      const ents = await supabase.from('round_team_entries').select('id, entry_name, status').eq('round_id', roundId)
+      if (ents.error) return NextResponse.json({ error: 'Could not read the Ambrose teams. Nothing was changed.' }, { status: 503 })
+      const checked = []
+      for (const en of ents.data ?? []) {
+        const c = await supabase.rpc('team_entry_completion', { p_entry_id: en.id })
+        checked.push({ name: String(en.entry_name), withdrawn: en.status === 'withdrawn', completion: c.error ? null : (c.data as { complete?: boolean } | null) })
+      }
+      const verdict = ambroseCloseVerdict(checked)
+      if (!verdict.ok) return NextResponse.json({ error: verdict.reason, incomplete: verdict.incomplete }, { status: 409 })
+    }
+  }
+
   // Server-side completion guard — the exact same condition the Tournament
   // Control UI uses to decide whether to show the button, checked again
   // here so this can't be closed early via a direct API call.
@@ -60,7 +83,7 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
   // the LIVE trip_members.group_id, the same source page.tsx's own
   // shared-device detection (proven working) already uses.
   const sharedDevicePlayerIds = new Set<string>()
-  const uniquePlayerIds = new Set((scRes.data ?? []).map(sc => sc.player_id))
+  const uniquePlayerIds = new Set(((isAmbrose ? [] : scRes.data ?? [])).map(sc => sc.player_id))
   for (const playerId of uniquePlayerIds) {
     const detection = await resolveSharedDeviceGroupForPlayer(admin, { tripId, roundId, playerId })
     if (detection.isSharedDevice) {
@@ -77,7 +100,7 @@ export async function POST(_req: NextRequest, { params }: RouteProps) {
   // route's trace does, per-scorecard, so a failing close attempt can
   // be compared directly against My HQ's own trace for the same round
   // instead of inferred from screenshots taken minutes apart.
-  for (const sc of scRes.data ?? []) {
+  for (const sc of (isAmbrose ? [] : scRes.data ?? [])) {
     const selfHoles = new Set<string>()
     const markerHoles = new Set<string>()
     for (const e of sc.score_entries ?? []) {

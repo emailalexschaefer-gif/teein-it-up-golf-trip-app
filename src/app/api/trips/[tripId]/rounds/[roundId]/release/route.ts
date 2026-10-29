@@ -15,6 +15,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { loadLiveArrangements } from '@/lib/rounds/liveArrangements'
+import { handicapsOptionalForRound } from '@/lib/ambrose/handicapPolicy'
+import { ambroseEnabledForTrip } from '@/lib/ambrose/featureFlag'
 import { roundHandicap } from '@/lib/scoring/rounding'
 import { diffArrangements, sameArrangements, initialReleaseMessage, revisionMessages, isValidRoundHandicap, type ArrangementRow } from '@/lib/rounds/arrangements'
 
@@ -60,7 +62,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
   if (released) {
     // Live setup with the released handicaps held fixed, so only genuine edits show up as pending.
     const hold = Object.fromEntries(snap.rows.map(s => [s.player_id, s.playing_handicap]))
-    const live = await loadLiveArrangements(admin, tripId, r, hold)
+    const live = await loadLiveArrangements(admin, tripId, r, hold, { handicapsOptional: await handicapsOptionalForRound(admin, roundId, ambroseEnabledForTrip(tripId)) })
     pending = diffArrangements(snap.rows, live.rows)
   }
   return NextResponse.json({ available: true, released, legacy: !!r.setup_released && !released, revision: r.release_revision ?? 0, releasedAt: r.released_at ?? null, status: r.status, snapshot: snap.rows, pending })
@@ -94,7 +96,8 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     }
   } catch { /* no body: allocations stay computed */ }
 
-  const live = await loadLiveArrangements(admin, tripId, round, allocations)
+  const hcpOptional = await handicapsOptionalForRound(admin, roundId, ambroseEnabledForTrip(tripId))
+  const live = await loadLiveArrangements(admin, tripId, round, allocations, { handicapsOptional: hcpOptional })
   if (live.problems.length > 0) {
     // Report exactly what is missing; never insert defaults to satisfy readiness.
     return NextResponse.json({ error: 'Round setup is not yet complete.', problems: live.problems, readiness: live.readiness }, { status: 400 })

@@ -20,6 +20,11 @@ import CollapsibleSection from '@/components/shared/CollapsibleSection'
 import { trackEvent } from '@/lib/analytics/trackEvent'
 import { deriveRoundWorkflow, deriveEventProgress, deriveStartRoundReadiness, type WorkflowStageId } from '@/lib/scoring/roundWorkflow'
 import { resolvePlayingHandicap } from '@/lib/scoring/defaultHoles'
+import AmbroseHQSection from '@/components/ambrose/AmbroseHQSection'
+import { useAmbroseRound } from '@/components/ambrose/useAmbroseRound'
+import { ambroseEnabledForTrip } from '@/lib/ambrose/featureFlag'
+
+// Package 4 (Ambrose): OFF by default, forced off in production. When off, nothing below changes and no Ambrose code or request is reached.
 
 /**
  * My HQ V2 (10 Oct), Phase C — the two small, read-only queries behind
@@ -66,7 +71,7 @@ interface SetupContextGroup {
   id: string
   players: { full_name: string; playing_handicap: number | null; profile_handicap: number | null }[]
 }
-interface SetupContextSummary { groups: SetupContextGroup[] }
+interface SetupContextSummary { groups: SetupContextGroup[]; handicapsOptional?: boolean }
 
 /**
  * P0 field-test fix — "My HQ — completed-round information disappears."
@@ -121,6 +126,8 @@ export default function MyHQClient({
   championDeclared?: boolean
 }) {
   const router = useRouter()
+  // Ambrose (gross): on only for events the deployment allows -- every event outside production, a listed event in production.
+  const AMBROSE_ON = ambroseEnabledForTrip(tripId)
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(defaultRoundId)
   const selected = rounds.find(r => r.id === selectedRoundId) ?? null
 
@@ -149,6 +156,11 @@ export default function MyHQClient({
     staleTime: 60000,
   })
 
+  // Ambrose (flagged): is the selected round a team round, and how complete is it by TEAM? When it is, the individual-scorecard completion, Event Health
+  // and Close Round controls are replaced by the team ones (no second, conflicting set of controls). Disabled (no request) when the flag is off.
+  const ambro = useAmbroseRound(selected?.id ?? null, AMBROSE_ON && !!selected && selected.status !== 'cancelled', selected?.status)
+  const isAmbroseRound = ambro.isAmbrose
+
   // Only fetched while the round is still 'upcoming' -- once it's
   // started this preview is moot (Stage 1 is already complete), so
   // there's no reason to keep polling groups/handicaps for an active
@@ -167,7 +179,8 @@ export default function MyHQClient({
   const startReadiness = setupContextData ? deriveStartRoundReadiness({
     groupCount: setupContextData.groups.length,
     assignedPlayerCount: setupContextData.groups.reduce((sum, g) => sum + g.players.length, 0),
-    playersMissingHandicap: setupContextData.groups
+    // gross-only Ambrose (server-decided): handicaps are not required for this round
+    playersMissingHandicap: setupContextData.handicapsOptional ? [] : setupContextData.groups
       .flatMap(g => g.players)
       .filter(p => resolvePlayingHandicap(p.playing_handicap, p.profile_handicap) === null)
       .map(p => p.full_name),
@@ -190,7 +203,7 @@ export default function MyHQClient({
   // The existing Close Round button's own readiness condition
   // (TournamentControl.tsx), reused verbatim here too — never
   // recalculated, just read from the same already-fetched summary.
-  const readyToClose = selected?.status === 'active'
+  const readyToClose = isAmbroseRound ? !!ambro.summary?.readyToClose : selected?.status === 'active'
     && workflowTournamentData?.summary.completionPct === 100
     && workflowTournamentData?.summary.awaitingReconciliation === 0
 
@@ -208,10 +221,12 @@ export default function MyHQClient({
   // or present) -- it gets its own cancelled panel below instead.
   const workflow = selected && selected.status !== 'cancelled' ? deriveRoundWorkflow({
     roundStatus: selected.status === 'active' || selected.status === 'completed' ? selected.status : 'upcoming',
-    finishedPlayers: workflowTournamentData?.summary.finishedCount ?? 0,
-    totalPlayers: workflowTournamentData?.summary.players ?? 0,
-    completionPct: workflowTournamentData?.summary.completionPct ?? 0,
-    awaitingReconciliation: workflowTournamentData?.summary.awaitingReconciliation ?? 0,
+    // Ambrose: the same stage logic, fed TEAM numbers (and labelled 'teams'); otherwise the unchanged individual /tournament summary.
+    countUnit: isAmbroseRound ? 'teams' : 'players',
+    finishedPlayers: isAmbroseRound ? (ambro.summary?.completeTeams ?? 0) : (workflowTournamentData?.summary.finishedCount ?? 0),
+    totalPlayers: isAmbroseRound ? (ambro.summary?.teams ?? 0) : (workflowTournamentData?.summary.players ?? 0),
+    completionPct: isAmbroseRound ? (ambro.summary?.completionPct ?? 0) : (workflowTournamentData?.summary.completionPct ?? 0),
+    awaitingReconciliation: isAmbroseRound ? (ambro.summary?.needsOrganiser ?? 0) : (workflowTournamentData?.summary.awaitingReconciliation ?? 0),
     readyToClose: !!readyToClose,
     highlightsPublishedAt: publishedHighlightsData?.publishedAt ?? null,
     highlightsSelectedCount: publishedHighlightsData?.highlights.length ?? 0,
@@ -304,6 +319,14 @@ export default function MyHQClient({
   function renderStageBody(stageId: WorkflowStageId) {
     if (!selected) return null
 
+    // Ambrose round: Manage and Close show the TEAM view (one Close Round control, team completion, organiser tools); the individual-scorecard
+    // TournamentControl and score-override panel are not rendered, so there is no second set of conflicting controls.
+    if (isAmbroseRound && (stageId === 'manage' || stageId === 'close')) {
+      return stageId === 'manage'
+        ? <AmbroseHQSection tripId={tripId} roundId={selected.id} roundName={selected.name} roundStatus={selected.status} onClosed={() => router.refresh()} />
+        : <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#7a7260' }}>{ambro.summary?.readyToClose ? 'Every team is complete. Use the Close round control in Manage Round.' : `${ambro.summary?.completeTeams ?? 0} of ${ambro.summary?.teams ?? 0} teams complete.`}</p>
+    }
+
     if (stageId === 'start') {
       // Read-only preview, reusing the exact same setupContextData/
       // startReadiness this file already computes for Stage 1's own
@@ -324,7 +347,7 @@ export default function MyHQClient({
         return <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#dc2626' }}>Could not load setup details.</p>
       }
       const playerCount = setupContextData.groups.reduce((sum, g) => sum + g.players.length, 0)
-      const missingHandicap = setupContextData.groups
+      const missingHandicap = setupContextData.handicapsOptional ? [] : setupContextData.groups
         .flatMap(g => g.players)
         .filter(p => resolvePlayingHandicap(p.playing_handicap, p.profile_handicap) === null)
       return (
@@ -480,7 +503,7 @@ export default function MyHQClient({
           shared ['tournament', tripId, selected.id] query cache entry
           already used for `summary`/`story` above — no new fetch, no
           second health calculation. */}
-      {selected && workflowTournamentData && (
+      {selected && workflowTournamentData && !isAmbroseRound && (
         <div style={{ marginBottom: 16 }}>
           <EventHealthSection
             tripId={tripId} roundId={selected.id}
@@ -519,6 +542,15 @@ export default function MyHQClient({
             onToggleStage={toggleStage}
             renderBody={renderStageBody}
           />
+        </div>
+      )}
+
+      {/* Ambrose team set-up / team results for the SELECTED round (flagged; off by default and in production). It sits directly beneath the Round
+          Control Centre and never starts, releases or closes a round on its own: Begin Round stays the one start/release authority (the Start Round
+          action above), and closing uses the existing close route. */}
+      {AMBROSE_ON && selected && selected.status === 'upcoming' && (
+        <div style={{ marginBottom: 16 }}>
+          <AmbroseHQSection tripId={tripId} roundId={selected.id} roundName={selected.name} roundStatus={selected.status} onClosed={() => router.refresh()} />
         </div>
       )}
 
@@ -594,7 +626,7 @@ export default function MyHQClient({
               and AdminScoreOverridePanel's own prop doc comment for how
               following vs. a deliberate manual override is handled. */}
 
-          {organiserIsPlaying && (
+          {organiserIsPlaying && !isAmbroseRound && (
             <div style={{ marginTop: 20 }}>
               <div style={{ height: 1, background: '#eceae3', marginBottom: 16 }} />
               {/* My Golf + My HQ UX Cleanup brief (5 Sep), item 9 —

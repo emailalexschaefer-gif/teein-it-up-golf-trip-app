@@ -1,0 +1,31 @@
+{
+  "release": "V8-ambrose-gross-production-test-candidate",
+  "date": "2026-10-29",
+  "label": "NON-DEPLOYABLE CANDIDATE until Gate 1 (real build) and Gate 2 (Supabase/PostgREST security run) pass",
+  "base": "V7 (2026-10-27)",
+  "package": "complete application source (replace the whole previous source; not a patch)",
+  "scope": "Ambrose gross-only, two-person and four-person. Net Stroke, Team Stableford, Skins, Alternate Shot, Ryder Cup are NOT included.",
+  "production_safety": {
+    "default": "Ambrose OFF everywhere. No behaviour change unless NEXT_PUBLIC_AMBROSE_ENABLED=true",
+    "production_test": "NEXT_PUBLIC_AMBROSE_ENABLED=true plus NEXT_PUBLIC_AMBROSE_PRODUCTION_TRIP_IDS=<uuid,...> -> Ambrose for the listed events only; server answers 404 for every other event",
+    "build_time": "NEXT_PUBLIC_* values are fixed at build; change = redeploy"
+  },
+  "migration_104": {"location": "supabase/pending-104/", "applied_anywhere": false, "additive": true, "rollback": "supabase/pending-104/104_ROLLBACK.sql"},
+  "gates": {
+    "gate_1_real_build": {"npm_install": "not run", "tsc": "not run", "lint": "not run", "next_build": "not run"},
+    "gate_2_supabase_postgrest_jwt": "not run (script + fixture seed provided: docs/package4-m2/supabase-integration/)",
+    "real_phones": "not run"
+  },
+  "sandbox_verified_2026-10-29": {
+    "unit_regression_suite": "1761/1761",
+    "sql_ambrose_base_suite_on_real_migrated_schema": "66/66",
+    "sql_ambrose_setup_suite_on_real_migrated_schema": "96/96",
+    "sql_extra_security_suite_on_real_migrated_schema": "73/73",
+    "demo_4x4_18_holes": "69/69",
+    "e2e": "66/66",
+    "two_person": "6/6",
+    "migration_104_catalog_comparison": "237 objects/entries added, 0 existing removed or changed",
+    "rollback_restores_pre_104_catalog_exactly": true,
+    "existing_db_tests_after_104": "stableford_plus_handicap, 101_*, 102_*, 103_* all PASS"
+  }
+}

@@ -19,6 +19,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { handicapsOptionalForRound } from '@/lib/ambrose/handicapPolicy'
+import { ambroseEnabledForTrip } from '@/lib/ambrose/featureFlag'
 import { computeCumulativeStandings, sortRoundsChronologically, type RoundPlayerResult } from '@/lib/scoring/multiRound'
 
 export const dynamic = 'force-dynamic'
@@ -143,11 +145,14 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
         })),
     }))
 
+    // Gross-only Ambrose (flagged, fail-closed): tells Begin Round / My HQ readiness that handicaps are not required for THIS round.
+    const handicapsOptional = await handicapsOptionalForRound(admin, roundId, ambroseEnabledForTrip(tripId))
+
     if (priorRounds.length === 0) {
       // Round 1 — no previous results to show, and that's not an error.
       // Groups are still returned for consistency (a refetch after this
       // endpoint should always be a complete picture of current state).
-      return NextResponse.json({ isFirstRound: true, previousRoundResults: null, cumulativeStandings: [], groups: groupsWithPlayers })
+      return NextResponse.json({ isFirstRound: true, previousRoundResults: null, cumulativeStandings: [], groups: groupsWithPlayers, handicapsOptional })
     }
 
     const allRoundsTotals = await Promise.all(priorRounds.map(r => totalsForRound(admin, r.id)))
@@ -167,6 +172,7 @@ export async function GET(_req: NextRequest, { params }: RouteProps) {
       previousRoundResults,
       cumulativeStandings,
       groups: groupsWithPlayers,
+      handicapsOptional,
     })
   } catch (err) {
     // Guarantees a proper JSON error response even if something

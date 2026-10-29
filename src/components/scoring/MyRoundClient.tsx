@@ -13,6 +13,11 @@ import MyEventStoriesSection from './MyEventStoriesSection'
 import MyPracticeRoundsSection from './MyPracticeRoundsSection'
 import CollapsibleSection from '@/components/shared/CollapsibleSection'
 import { trackEvent } from '@/lib/analytics/trackEvent'
+import AmbrosePlayerSection from '@/components/ambrose/AmbrosePlayerSection'
+import { useAmbroseRound } from '@/components/ambrose/useAmbroseRound'
+import { ambroseEnabledForTrip } from '@/lib/ambrose/featureFlag'
+
+// Package 4 (Ambrose): OFF by default, forced off in production. When off, this screen is exactly as before.
 import type { BadgeType } from '@/app/api/me/badges/route'
 
 /**
@@ -47,8 +52,12 @@ export default function MyRoundClient({
   eventFullyComplete?: boolean
   currentPlayerId?: string
 }) {
+  // Ambrose (gross): on only for events the deployment allows -- every event outside production, a listed event in production.
+  const AMBROSE_ON = ambroseEnabledForTrip(tripId)
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(defaultRoundId)
   const selected = rounds.find(r => r.id === selectedRoundId) ?? null
+  // Ambrose (flagged): is the selected round a team round? Disabled (no request) when the flag is off.
+  const ambro = useAmbroseRound(selected?.id ?? null, AMBROSE_ON && !!selected && selected.status !== 'cancelled', selected?.status)
 
   // GA4 / Product Analytics brief — "how often My Golf is opened."
   // Once per mount only, not on every round switch within the same
@@ -97,7 +106,12 @@ export default function MyRoundClient({
       {selected && (
         <CompletedRoundResults tripId={tripId} roundId={selected.id} roundName={selected.name} roundStatus={selected.status} />
       )}
-      {selected ? (
+      {selected && AMBROSE_ON && ambro.loading ? (
+        <div style={{ textAlign: 'center', padding: 24, fontFamily: 'var(--font-body)', color: '#9ca3af', fontSize: 13 }}>Loading…</div>
+      ) : selected && ambro.isAmbrose ? (
+        // Ambrose round (flagged): the team scorer + team leaderboard REPLACE the individual round view, so no conflicting individual scoring links appear.
+        <AmbrosePlayerSection roundId={selected.id} roundLabel={selected.name} />
+      ) : selected ? (
         <PlayerRoundView
           tripId={tripId} roundId={selected.id} roundStatus={selected.status}
           roundName={selected.name} courseName={selected.course_name} playDate={selected.play_date}

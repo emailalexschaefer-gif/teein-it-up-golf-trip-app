@@ -33,6 +33,7 @@
  * admin_overridden (see the tournament route's own comment on this),
  * not from the scorecard's lock state.
  */
+import { ambroseLegacyScoreBlock } from '@/lib/ambrose/legacyScoreGuard'
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -54,6 +55,10 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
   if (membership.data.role !== 'organiser') {
     return NextResponse.json({ error: 'Only the organiser can override a score.' }, { status: 403 })
   }
+
+  // V8 Ambrose: an Ambrose round takes TEAM scores only (flagged; no-op otherwise).
+  const ambroseBlock = await ambroseLegacyScoreBlock(admin, roundId)
+  if (ambroseBlock) return NextResponse.json(ambroseBlock.body, { status: ambroseBlock.status })
 
   let body: Record<string, unknown>
   try { body = await req.json() } catch {

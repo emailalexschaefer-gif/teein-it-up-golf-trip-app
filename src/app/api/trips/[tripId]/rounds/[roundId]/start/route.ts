@@ -17,6 +17,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { resolvePlayingHandicap } from '@/lib/scoring/defaultHoles'
 import { resolveRoundHandicap, sameArrangements, diffArrangements, type ArrangementRow } from '@/lib/rounds/arrangements'
 import { loadLiveArrangements } from '@/lib/rounds/liveArrangements'
+import { handicapsOptionalForRound } from '@/lib/ambrose/handicapPolicy'
+import { ambroseEnabledForTrip } from '@/lib/ambrose/featureFlag'
 import { z } from 'zod'
 
 // Concrete type for the admin (service-role) Supabase client, derived
@@ -309,7 +311,9 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
     return NextResponse.json({ error: 'No players are assigned to groups. Assign players before beginning.' }, { status: 422 })
   }
 
-  const missingHcp = assignedMembers.filter(m =>
+  // Gross-only Ambrose rounds do not need handicaps (format-scoped, fail-closed: see lib/ambrose/handicapPolicy). Every other round is unchanged.
+  const hcpOptional = await handicapsOptionalForRound(admin, roundId, ambroseEnabledForTrip(tripId))
+  const missingHcp = hcpOptional ? [] : assignedMembers.filter(m =>
     resolvePlayingHandicap(m.playing_handicap, m.profiles?.handicap) === null
   )
   if (missingHcp.length > 0) {
@@ -335,7 +339,7 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
       const snapRes = await admin.from('round_arrangements').select('player_id, group_id, group_name, tee_time, starting_hole, playing_handicap').eq('round_id', roundId)
       const snap = (snapRes.data ?? []) as ArrangementRow[]
       if (!snapRes.error && snap.length > 0) {
-        const live = await loadLiveArrangements(admin, tripId, { id: roundId, name: round.name, status: round.status, start_type: (round as { start_type?: string | null }).start_type ?? null, starting_hole_number: (round as { starting_hole_number?: number | null }).starting_hole_number ?? null, slope_rating: round.slope_rating ?? null }, Object.fromEntries(snap.map(r => [r.player_id, r.playing_handicap])))
+        const live = await loadLiveArrangements(admin, tripId, { id: roundId, name: round.name, status: round.status, start_type: (round as { start_type?: string | null }).start_type ?? null, starting_hole_number: (round as { starting_hole_number?: number | null }).starting_hole_number ?? null, slope_rating: round.slope_rating ?? null }, Object.fromEntries(snap.map(r => [r.player_id, r.playing_handicap])), { handicapsOptional: hcpOptional })
         if (!sameArrangements(snap, live.rows)) {
           return NextResponse.json({
             error: 'The groups, tee times or starting holes have changed since this round was released. Open Begin Round and use Confirm & Re-release so players see the current arrangements, then start the round.',

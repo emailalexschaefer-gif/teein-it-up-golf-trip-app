@@ -94,6 +94,8 @@ export default function BeginRoundModal({
     previousRoundResults: StandingRow[] | null
     cumulativeStandings: StandingRow[]
     groups: SetupContextGroup[]
+    /** True only for a gross-only Ambrose round (server-decided, flagged, fail-closed): handicaps are not required for this round. */
+    handicapsOptional?: boolean
   }
   const [setupContext, setSetupContext] = useState<SetupContext | null>(null)
   // Offline Player Support — round-specific scoring method per player,
@@ -459,7 +461,7 @@ export default function BeginRoundModal({
   }, [])
 
   // Validation
-  const allPlayersHaveHandicap = localGroups.every(g =>
+  const allPlayersHaveHandicap = setupContext?.handicapsOptional === true || localGroups.every(g =>
     g.players.every(p => resolvePlayingHandicap(p.playing_handicap, p.profile_handicap) !== null)
   )
   const allGroupsHavePlayers = localGroups.every(g => g.players.length > 0)
@@ -938,7 +940,7 @@ export default function BeginRoundModal({
               )}
 
               {localGroups.map(g => {
-                const missingHcp = g.players.filter(p => resolvePlayingHandicap(p.playing_handicap, p.profile_handicap) === null)
+                const missingHcp = setupContext?.handicapsOptional ? [] : g.players.filter(p => resolvePlayingHandicap(p.playing_handicap, p.profile_handicap) === null)
                 // Offline Player Support, item 3 — informational only,
                 // computed from the same scoringMethods state the
                 // toggle/badge above already reads, never a separate

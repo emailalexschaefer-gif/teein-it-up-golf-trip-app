@@ -2,9 +2,12 @@ import Dexie, { type Table } from 'dexie'
 import type { OfflineScoreEntry } from '@/types/app'
 import { planQueueWrite, isInterruptedSyncing, latestPerKey, withTimeout, planConflictResolution, planTransportRequeue, type ConflictAction } from './queueRules'
 import type { ServerScoreSnapshot } from './scoreAck'
+import type { TeamQueueEntry } from '@/lib/ambrose/teamQueueRules'
 
 class TeeInItUpDB extends Dexie {
   scoreQueue!: Table<OfflineScoreEntry, string>
+  /** Package 4 / M2: team (Ambrose) scores. A separate store -- the individual scoreQueue above is not modified. */
+  teamScoreQueue!: Table<TeamQueueEntry, string>
 
   constructor() {
     super('teeinitup_v1')
@@ -25,6 +28,12 @@ class TeeInItUpDB extends Dexie {
         if (!entry.captureRole) entry.captureRole = 'self'
       })
     )
+    // v3 (Package 4 / M2): ADDS the team score queue. Purely additive -- scoreQueue is neither redeclared nor migrated, so every row
+    // queued on a player's device by V6/V7 is untouched.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(this as any).version(3).stores({
+      teamScoreQueue: 'clientId, syncStatus, entryId, holeId, enteredAt',
+    })
   }
 }
 
